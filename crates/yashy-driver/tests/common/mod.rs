@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
-/// The `yashy` binary cargo built for this test run, as a path the host will
+/// The `yashyc` binary cargo built for this test run, as a path the host will
 /// actually start.
 ///
 /// Every test drives the CLI, and a freshly linked binary is exactly what an
@@ -19,14 +19,14 @@ use std::sync::OnceLock;
 /// once per test process, because the binary cannot change while the run is in
 /// progress, and the returned path is the image cargo built with nothing but
 /// trailing padding added.
-pub fn yashy() -> &'static str {
+pub fn yashyc() -> &'static str {
     static RUNNABLE: OnceLock<String> = OnceLock::new();
     RUNNABLE.get_or_init(runnable_cli).as_str()
 }
 
 /// Find a copy of the CLI the host will start, padding until it does.
 fn runnable_cli() -> String {
-    let original = Path::new(env!("CARGO_BIN_EXE_yashy"));
+    let original = Path::new(env!("CARGO_BIN_EXE_yashyc"));
     for attempt in 0..LAUNCH_ATTEMPTS {
         let Ok(candidate) = cli_candidate(original, attempt) else {
             continue;
@@ -37,13 +37,13 @@ fn runnable_cli() -> String {
             Ok(_) => return candidate.to_string_lossy().into_owned(),
             Err(error) if blocked_by_policy(&error) => continue,
             Err(error) => panic!(
-                "the yashy CLI at {} must start: {error}",
+                "the yashyc CLI at {} must start: {error}",
                 original.display()
             ),
         }
     }
     panic!(
-        "the yashy CLI at {} was blocked by an Application Control / Device \
+        "the yashyc CLI at {} was blocked by an Application Control / Device \
          Guard policy on all {LAUNCH_ATTEMPTS} attempts",
         original.display()
     );

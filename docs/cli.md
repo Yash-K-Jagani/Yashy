@@ -1,6 +1,6 @@
 # Yashy CLI reference
 
-The `yashy` binary has one command per job. Exit codes are shared:
+The `yashyc` binary has one command per job. Exit codes are shared:
 
 | Code | Meaning |
 |---|---|
@@ -10,16 +10,16 @@ The `yashy` binary has one command per job. Exit codes are shared:
 | `3` | internal error: the compiler could not do work it had accepted |
 
 A program's `main` may return an `int`, which becomes its process exit status
-when run through `yashy run`.
+when run through `yashyc run`.
 
-## `yashy build <file.ya>`
+## `yashyc build <file.ya>`
 
 Compiles one program to a native executable.
 
 ```text
-yashy build main.ya
-yashy build main.ya -o wordcount --release
-yashy build main.ya --emit-ir
+yashyc build main.ya
+yashyc build main.ya -o wordcount --release
+yashyc build main.ya --emit-ir
 ```
 
 | Option | Meaning |
@@ -42,7 +42,7 @@ yashy build main.ya --emit-ir
 | `--target <triple>` | Build for this platform rather than the host. See [`cfg` and `--target`](#cfg-and---target). |
 | `--reproducible` | Build for bytes that depend only on the tree: a fixed timestamp, no absolute paths in the IR, and a reproducible link. See [Reproducible builds](#reproducible-builds). |
 
-## `yashy run <file.ya>`
+## `yashyc run <file.ya>`
 
 Compiles and runs in one step. It accepts the same optimization, CPU, release,
 `--no-lto`, verification and timing options as `build`. Arguments after `--` go
@@ -51,10 +51,10 @@ then run it a second time; use `build --pgo` and run the resulting binary.
 
 | Option | Meaning |
 |---|---|
-| `--debug` | Run the child with `YASHY_DEBUG=1`: a panic or an arithmetic fault also prints every live task (id, async function and resume index) before the process ends. See [`yashy tasks`](#yashy-tasks-fileya). |
+| `--debug` | Run the child with `YASHY_DEBUG=1`: a panic or an arithmetic fault also prints every live task (id, async function and resume index) before the process ends. See [`yashyc tasks`](#yashyc-tasks-fileya). |
 | `--target <triple>` | Build for this platform rather than the host. See [`cfg` and `--target`](#cfg-and---target). |
 
-## `yashy tasks <file.ya>`
+## `yashyc tasks <file.ya>`
 
 Runs the program like `run --debug`, and prints the executor's live-task
 table: the async analogue of a thread dump, and the only reason a hung
@@ -118,7 +118,7 @@ order before any IR is written. `--opt-list` prints that order and the bench row
 each pass is held to:
 
 ```text
-$ yashy build --opt-list
+$ yashyc build --opt-list
 pass     row
 facts    fib_run_ms
 escape   maps_run_ms
@@ -149,7 +149,7 @@ construct has an owner — a new form fails to compile until that is decided.
 grouped by function, and stops without linking:
 
 ```text
-$ yashy build main.ya --opt-report
+$ yashyc build main.ya --opt-report
 main.ya:5  fn wordcount
   promoted              alloc(4)          promoted to the stack: a literal count of 32 bytes fits in the frame and the pointer does not escape
   bounds check kept     xs[i]             the verifier could not prove this index is inside the slice
@@ -164,7 +164,7 @@ Every entry has a kind — `bounds`, `overflow`, `alloc`, `not-inlined`,
 is recorded while the body is lowered, so it cannot disagree with the IR: a
 check that was deleted has no entry, and an allocation that moved to the frame
 says so. `--opt-report=json` prints the same record as schema v1
-(`{"schema_version":1,"tool":"yashy","functions":[…]}`, with `fix: null` where
+(`{"schema_version":1,"tool":"yashyc","functions":[…]}`, with `fix: null` where
 nothing would help) for an agent. A program with nothing to explain prints one
 line in the human form and `"functions": []` in JSON. The report needs the
 verifier's facts, so it refuses `--no-verify`, and it stops before linking, so
@@ -195,7 +195,7 @@ is an error: the gate cannot skip a pass by not measuring it. `--report-only`
 prints the table and exits 0 for a pre-existing regression you are still
 bisecting.
 
-## `yashy check <file.ya> [--json] [--timings] [--jobs <n>]`
+## `yashyc check <file.ya> [--json] [--timings] [--jobs <n>]`
 
 Lexes, parses, and type-checks without emitting an executable. Use it for fast
 feedback.
@@ -240,7 +240,7 @@ a condition that quietly evaluates to false, and `cfg` anywhere it cannot apply
 is [`E2203`](errors/E2203.md).
 
 ```text
-yashy check --print-cfg
+yashyc check --print-cfg
 arch_aarch64
 debug
 linux
@@ -259,7 +259,7 @@ A cross build needs the target's C toolchain: Yashy's runtime is C and the
 program is linked by `clang`, and the compiler ships neither a linker nor a
 cross runtime. A target whose toolchain is missing is
 [`E2201`](errors/E2201.md), naming the program it looked for.
-`yashy doctor --target <triple>` answers the same question without building.
+`yashyc doctor --target <triple>` answers the same question without building.
 
 `run` and `test` refuse a target other than the host: they run what they
 build, and a binary for another platform cannot start here. `build` is the way
@@ -267,11 +267,11 @@ to make a program for another platform.
 
 ## Reproducible builds
 
-`yashy build --reproducible` builds for bytes that depend only on the tree
+`yashyc build --reproducible` builds for bytes that depend only on the tree
 and not on the machine:
 
 ```text
-yashy build --reproducible main.ya -o hello
+yashyc build --reproducible main.ya -o hello
 ```
 
 Three things normally make two builds of the same source differ, and the flag
@@ -296,7 +296,7 @@ The compiler's own output is already ordered: the one map the emitter
 iterates is a `BTreeMap`, and the maps that are only looked up never reach
 the output.
 
-## `yashy expand <file.ya> [--json]`
+## `yashyc expand <file.ya> [--json]`
 
 Prints the fully expanded program: every macro invocation is replaced by its
 arm's tokens, in source order. The command expands and formats; it does not
@@ -305,11 +305,11 @@ formatting succeeded (`0` success, `1` a macro or parse diagnostic, `2` for a
 usage error).
 
 ```text
-yashy expand main.ya
-yashy expand --json main.ya
+yashyc expand main.ya
+yashyc expand --json main.ya
 ```
 
-`--json` prints `{"schema_version":1,"tool":"yashy","expansions":[...]}`, one
+`--json` prints `{"schema_version":1,"tool":"yashyc","expansions":[...]}`, one
 entry per invocation, with `macro`, `arm_span`, `invocation_span` and
 `output_tokens`.
 
@@ -317,7 +317,7 @@ entry per invocation, with `macro`, `arm_span`, `invocation_span` and
 so a program written with a shorthand is checked and compiled as the ordinary
 syntax it expands to. `--emit-ir` shows IR from expanded code, as it must.
 
-## `yashy verify <file.ya> [--json] [--timings] [--jobs <n>] [--inventory]`
+## `yashyc verify <file.ya> [--json] [--timings] [--jobs <n>] [--inventory]`
 
 Runs the front half of the pipeline and then the verifier: the pass that proves
 a well-typed program is also *sound*. That means every linear value -- every
@@ -327,8 +327,8 @@ clause the verifier cannot prove is an error
 (see [E1100](errors/E1100.md)), so the program is refused.
 
 ```text
-yashy verify main.ya
-yashy verify --json main.ya
+yashyc verify main.ya
+yashyc verify --json main.ya
 ```
 
 Exit codes are the same as `check`: `0` when the verifier found no errors, `1`
@@ -358,7 +358,7 @@ lists every `extern` declaration and every call the source marked `unsafe`: the
 places where the program trusts something the verifier cannot see.
 
 ```text
-$ yashy verify --inventory libc.ya
+$ yashyc verify --inventory libc.ya
 assumptions: 3
   extern_decl  malloc  libc.ya:2:5
   extern_decl  free    libc.ya:3:5
@@ -378,9 +378,9 @@ assumptions can be read instead of guessed at.
 
 ## Warnings
 
-`yashy` emits four coded warnings (E2000-E2003): unused binding, unused
+`yashyc` emits four coded warnings (E2000-E2003): unused binding, unused
 import, unreachable code, and unused parameter. A warning is reported to
-stderr and does not stop the build: `yashy build` exits 0 with a warning.
+stderr and does not stop the build: `yashyc build` exits 0 with a warning.
 
 - `--deny warnings` treats every warning as an error: the build exits 1, and
   in `--json` the diagnostic's `severity` becomes `"error"` with the same
@@ -395,13 +395,13 @@ stderr and does not stop the build: `yashy build` exits 0 with a warning.
 An escape hatch for the case where the verifier is wrong and a binary is still
 needed. It skips the proof, not the type system: `check` still runs, so a
 program that does not type-check is still refused. What it skips is everything
-in [`yashy verify`](#yashy-verify-fileya---json---timings---inventory): the leak pass and
+in [`yashyc verify`](#yashyc-verify-fileya---json---timings---inventory): the leak pass and
 contract discharge.
 
 The flag is narrow, loud and traceable:
 
 ```text
-$ yashy build main.ya --no-verify
+$ yashyc build main.ya --no-verify
 warning: built without verification (`--no-verify`); wrote main.unverified
 ```
 
@@ -432,7 +432,7 @@ cases, because nothing is wrong with the program:
 `run --no-verify` forwards the flag to `build`. The temporary binary and its
 stamp live in the run directory and are removed with it; `run` keeps no binary.
 
-## `yashy test [path] [--filter <substring>] [--list] [--json] [--timings] [--jobs <n>]`
+## `yashyc test [path] [--filter <substring>] [--list] [--json] [--timings] [--jobs <n>]`
 
 Runs every `.ya` file under `tests/` (or `path`). Each file is an ordinary
 program with a `main`; exit `0` is a pass, a panic or non-zero exit is a
@@ -452,15 +452,15 @@ errors such as a missing toolchain. `--list` and `--json` cannot be combined. A
 failing test makes the command exit `1`; a setup problem exits `2`; a directory
 that cannot be created exits `3`.
 
-## `yashy explain <code> [--json]`
+## `yashyc explain <code> [--json]`
 
 Prints the long-form catalog page for an error code: the cause, a minimal
 example, and the fix. The pages are embedded in the binary, so the command
 works offline.
 
 ```text
-yashy explain E0100
-yashy explain --json E0100
+yashyc explain E0100
+yashyc explain --json E0100
 ```
 
 The human form is the Markdown page verbatim. The JSON form is a separate
@@ -494,7 +494,7 @@ stdout: the human report goes to stderr, one line per phase, and `--json` puts
 the same numbers in the envelope instead.
 
 ```text
-$ yashy run hello.ya --timings
+$ yashyc run hello.ya --timings
 hello
 timing: load 1 ms
 timing: check 4 ms
@@ -680,13 +680,13 @@ skipped` is the number of tests. `duration_ms` covers compiling and running the
 test. A runtime failure has a synthetic diagnostic with the exit status and no
 code; a compile error carries the same diagnostic the compiler prints.
 
-## `yashy init [path]`
+## `yashyc init [path]`
 
 Creates a project in an empty directory. It writes `yashy.toml`, `main.ya`,
 `tests/smoke.ya`, `README.md`, `AGENTS.md`, and `.gitignore`. It refuses a
 directory that already contains anything.
 
-## `yashy doctor [--json]`
+## `yashyc doctor [--json]`
 
 Checks the toolchain and standard library. It exits `1` when `clang` cannot be
 run or the stdlib is missing, and prints a final `next:` line with the fix. The
@@ -714,7 +714,7 @@ run or the stdlib is missing, and prints a final `next:` line with the fix. The
     "error": null
   },
   "path": {
-    "executable": "/home/you/.local/bin/yashy",
+    "executable": "/home/you/.local/bin/yashyc",
     "on_path": true,
     "hint": null
   },
@@ -732,7 +732,7 @@ and adds a `cross` section saying whether the target's C toolchain can link
 for it. `null` means the question was not asked, which is different from
 `{"ok": false, ...}` — the toolchain is missing.
 
-## `yashy playground [--port <n>] [--host <address>]`
+## `yashyc playground [--port <n>] [--host <address>]`
 
 Serves the playground: a static front end and a small server that compiles
 each program on the server, in a sandbox of its own. See
@@ -740,10 +740,10 @@ each program on the server, in a sandbox of its own. See
 API.
 
 ```text
-yashy playground --port 8080
+yashyc playground --port 8080
 ```
 
-## `yashy fmt [-w | --check] [--json] <files...>`
+## `yashyc fmt [-w | --check] [--json] <files...>`
 
 Prints the canonical formatting to stdout. With `-w`, rewrites the files in
 place.
@@ -769,11 +769,11 @@ Windows, and a gate that fails on a clean checkout is a gate people disable.
 
 `--json` needs `--check`: there is nothing to list otherwise.
 
-## `yashy version`
+## `yashyc version`
 
 Prints the compiler version.
 
-## `yashy index [path] [--json]`
+## `yashyc index [path] [--json]`
 
 Walks a directory (or one file) and prints the symbol index: every top-level
 function, struct, enum, trait and impl method, with signature, effects,
@@ -781,7 +781,7 @@ contracts, typestate, visibility and docs. A fact the compiler does not know
 is `null`. Symbols are sorted by `(file, span.start)`, so `--json` is
 byte-identical across runs.
 
-## `yashy outline <file.ya>` / `yashy graph [path] [--json|--dot]` / `yashy search <query> [path]`
+## `yashyc outline <file.ya>` / `yashyc graph [path] [--json|--dot]` / `yashyc search <query> [path]`
 
 `outline` prints one file's symbols in source order, one line each.
 `graph` prints the module graph plus the call graph; `--json` is
@@ -789,7 +789,7 @@ byte-identical across runs.
 `--dot` is Graphviz. `search` matches symbols and doc text, ranked exact
 name, then prefix, then doc match; no match exits 0 with an empty result.
 
-## `yashy context --task "..." [path] [--budget <n>] [--json]`
+## `yashyc context --task "..." [path] [--budget <n>] [--json]`
 
 A token-budgeted pack for one task: the diagnostic, the enclosing function,
 its callees' signatures, the tests that cover it, and the contracts
@@ -800,7 +800,7 @@ what did not fit is named in `dropped`. The estimator is documented in
 one per non-ASCII character, rounded up. Exit 2 when `--task` names nothing
 in the workspace.
 
-## `yashy mcp --root <dir>`
+## `yashyc mcp --root <dir>`
 
 JSON-RPC 2.0 over stdio with seven tools: `check`, `build`, `test`,
 `verify`, `explain`, `context`, `index`. Every tool returns the schema-v1
@@ -809,7 +809,7 @@ array in `data`. No tool accepts a path outside `--root` (refused with
 `-32001`), no tool accepts a shell string, and `build` writes only under
 `<root>/.yashy/` and the requested output.
 
-## `yashy run --sandbox [--allow-read <path>] [--allow-write <path>] [--time <ms>] [--memory <mb>]`
+## `yashyc run --sandbox [--allow-read <path>] [--allow-write <path>] [--time <ms>] [--memory <mb>]`
 
 Runs the program with a default-deny capability set: the named paths, and
 nothing else. A read or write outside the allowlist is `E1900` naming the
@@ -818,14 +818,14 @@ Windows enforces with a Job Object (memory, process count, kill-on-close);
 Linux with rlimits in the child. `test --sandbox` applies the same set to
 every test program.
 
-## `yashy run --deterministic`
+## `yashyc run --deterministic`
 
 Fixes the clock at a given instant, seeds the RNG, sorts map iteration
 where observable, and pins the process id field, so `log_info`/`log_error`
 and `metrics_add`/`metrics_set` produce byte-identical stderr across runs.
 `YASHY_DETERMINISTIC=1` does the same for a test run.
 
-## `yashy doc [path] [--out DIR] [--json] [--private]`
+## `yashyc doc [path] [--out DIR] [--json] [--private]`
 
 Renders the public surface from the compiler's own tables into `target/doc/`
 (one Markdown file per module plus `index.md`). A private item appears only
@@ -834,13 +834,13 @@ with `--private`; an undocumented public item appears with
 from. The output is byte-identical across runs and OSes. HTML is out of
 scope: the Markdown is what `llms.txt` and the index already consume.
 
-## `yashy lsp`
+## `yashyc lsp`
 
 Execs the sibling `yashy-lsp` binary on stdio, so an editor needs one
 command. A missing sibling exits 2 naming the path; the server's exit code
-is propagated. `yashy doctor` reports the lookup.
+is propagated. `yashyc doctor` reports the lookup.
 
-## `yashy profile <file.ya>`
+## `yashyc profile <file.ya>`
 
 Builds and runs the program, printing the measured wall time. A recorded
 per-function counter report renders with `--report <file.json>`: one line
@@ -851,7 +851,7 @@ a generated command file that sets a breakpoint on `main` and dumps the
 async task table on stop; the same table is available without a debugger
 through `YASHY_DEBUG=1`.
 
-## `yashy.toml` and `yashy lock --check`
+## `yashy.toml` and `yashyc lock --check`
 
 A project may carry a manifest beside its source. The reader is a documented
 subset of TOML, hand-written so the compiler keeps building offline. The full
@@ -897,11 +897,11 @@ Versions are exact pins: `1.2.3`, never `^1.2.3`, `~1.2.3`, `*` or a range. A
 git dependency names a commit. Unknown tables and keys are refused, so a
 misspelled `[dependecies]` cannot silently vanish.
 
-`yashy lock --check` compares `yashy.toml` with `yashy.lock` and exits 1 with
+`yashyc lock --check` compares `yashy.toml` with `yashy.lock` and exits 1 with
 [E1802](errors/E1802.md) when a version, source or content hash differs. The
 lockfile is deterministic: packages sorted by name then version, dependency
 lists sorted, LF endings, and a `sha256:` hash over a canonical source tree
-(sorted paths, CRLF normalised, no mtimes). `yashy build` runs the same check
+(sorted paths, CRLF normalised, no mtimes). `yashyc build` runs the same check
 when a lockfile is present.
 
 ### Resolution: `update`, `fetch`, `add`, `--offline`
@@ -911,10 +911,10 @@ read in place and a git dependency is cloned into a global store keyed by
 `(url, rev)`, checked out at that commit and made read-only.
 
 ```text
-yashy update [--offline] [dir]     resolve the manifests and rewrite yashy.lock
-yashy fetch  [--offline] [dir]     put every package in the store, without building
-yashy add <name> --path <dir>      append a path dependency, then update
-yashy add <name> --git <url> --rev <commit>   append a pinned git dependency
+yashyc update [--offline] [dir]     resolve the manifests and rewrite yashy.lock
+yashyc fetch  [--offline] [dir]     put every package in the store, without building
+yashyc add <name> --path <dir>      append a path dependency, then update
+yashyc add <name> --git <url> --rev <commit>   append a pinned git dependency
 ```
 
 `--offline` (also accepted by `build` and `run`) never invokes git or touches
@@ -938,12 +938,12 @@ tree is unpacked into the store.
 ### `audit`, `publish` and a local registry
 
 ```text
-yashy audit [dir] [--json]
-yashy publish [dir] --registry <absolute-path-or-file-url>
-yashy add <name>@<version> --registry <dir>
+yashyc audit [dir] [--json]
+yashyc publish [dir] --registry <absolute-path-or-file-url>
+yashyc add <name>@<version> --registry <dir>
 ```
 
-`yashy audit` reads the resolved graph and reports missing exact versions,
+`yashyc audit` reads the resolved graph and reports missing exact versions,
 wrong sources, a lockfile that disagrees with the manifest, and an untrusted
 registry; each finding is [E1804](errors/E1804.md). A clean run prints
 `ok: N packages, M bytes` and exits 0.

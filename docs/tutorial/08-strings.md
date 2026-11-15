@@ -430,7 +430,7 @@ the atomic retain/release pair instead, because two threads may drop the last
 reference at once.
 
 One hole remains. A struct field holding a `string` is not itself retained or
-released. `yashy build --emit-ir` on a function that returns a struct built
+released. `yashyc build --emit-ir` on a function that returns a struct built
 from a locally concatenated string shows `yashy_str_release` before the `ret`,
 and the field then points at freed bytes. Until that is fixed, put literals in
 struct fields or keep the owning string alive in the caller's scope; do not

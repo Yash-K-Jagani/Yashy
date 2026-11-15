@@ -11,18 +11,18 @@ use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
 
-use common::{exe, launch_output, work_dir, write, yashy};
+use common::{exe, launch_output, work_dir, write, yashyc};
 use yashy_manifest::Lockfile;
 
 /// Run the CLI in `directory` with a private store and cache.
 fn cli(directory: &Path, store: &Path, args: &[&str]) -> Output {
-    Command::new(yashy())
+    Command::new(yashyc())
         .args(args)
         .current_dir(directory)
         .env("YASHY_PACKAGE_STORE", store)
         .env("YASHY_CACHE_DIR", store.join("cache"))
         .output()
-        .expect("the yashy CLI must be runnable")
+        .expect("the yashyc CLI must be runnable")
 }
 
 /// A path package named `name` with one module exposing `value`.
@@ -286,7 +286,7 @@ fn offline_with_a_cold_store_is_e1803() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("E1803"), "{stderr}");
     assert!(stderr.contains("not in the local store"), "{stderr}");
-    assert!(stderr.contains("yashy fetch"), "{stderr}");
+    assert!(stderr.contains("yashyc fetch"), "{stderr}");
     assert!(stderr.contains("--offline"), "{stderr}");
     assert!(stderr.contains("docs:"), "{stderr}");
     assert!(

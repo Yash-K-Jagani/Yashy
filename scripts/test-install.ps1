@@ -96,7 +96,7 @@ try {
     }
     else {
         if (-not $Binary) {
-            $Binary = Join-Path $root 'target\release\yashy.exe'
+            $Binary = Join-Path $root 'target\release\yashyc.exe'
         }
         if (-not $Stdlib) {
             $Stdlib = Join-Path $root 'crates\yashy-stdlib\yashy'
@@ -108,7 +108,7 @@ try {
         $name = 'yashy-0.0.0-test-x86_64-pc-windows-msvc'
         $stage = Join-Path $tmp $name
         New-Item -ItemType Directory -Force -Path (Join-Path $stage 'yashy-stdlib') | Out-Null
-        Copy-Item -LiteralPath $Binary -Destination (Join-Path $stage 'yashy.exe')
+        Copy-Item -LiteralPath $Binary -Destination (Join-Path $stage 'yashyc.exe')
         Copy-Item -LiteralPath $Stdlib -Destination (Join-Path $stage 'yashy-stdlib\yashy') -Recurse
         if (Test-Path -LiteralPath $StdlibManifest) {
             Copy-Item -LiteralPath $StdlibManifest -Destination (Join-Path $stage 'yashy-stdlib\yashy.toml')
@@ -135,15 +135,15 @@ try {
     )
     Assert-True ($result.Code -eq 0) "install failed:`n$($result.Output)"
     Assert-True ($result.Output -match 'Installed Yashy') "install did not report success:`n$($result.Output)"
-    Assert-True ($result.Output -match 'Next: yashy init my-cli') "install did not print the next command:`n$($result.Output)"
-    Assert-True (Test-Path -LiteralPath (Join-Path $prefix 'yashy.exe')) 'the installer did not create yashy.exe'
+    Assert-True ($result.Output -match 'Next: yashyc init my-cli') "install did not print the next command:`n$($result.Output)"
+    Assert-True (Test-Path -LiteralPath (Join-Path $prefix 'yashyc.exe')) 'the installer did not create yashyc.exe'
     Assert-True (Test-Path -LiteralPath (Join-Path $prefix 'yashy-stdlib\yashy\io.ya')) 'the installer did not copy the stdlib'
     Assert-True ((Get-UserPath) -eq $originalUserPath) '-NoPath changed the user PATH'
 
-    $yashy = Join-Path $prefix 'yashy.exe'
-    & $yashy doctor
+    $yashyc = Join-Path $prefix 'yashyc.exe'
+    & $yashyc doctor
     Assert-True ($LASTEXITCODE -eq 0) 'doctor failed after a clean install'
-    $json = (& $yashy doctor --json | Out-String)
+    $json = (& $yashyc doctor --json | Out-String)
     Assert-True ($LASTEXITCODE -eq 0) 'doctor --json failed after a clean install'
     Assert-True ($json -match '"schema_version": 1') 'doctor --json has no schema_version'
     Assert-True ($json -match '"tool": "doctor"') 'doctor --json has no tool'
@@ -151,13 +151,13 @@ try {
     Assert-True ($json -match '"next": null') 'doctor --json has a next step on success'
 
     $demo = Join-Path $tmp 'demo'
-    & $yashy init $demo
+    & $yashyc init $demo
     Assert-True ($LASTEXITCODE -eq 0) 'init failed'
     Push-Location $demo
     try {
-        & $yashy run main.ya
+        & $yashyc run main.ya
         Assert-True ($LASTEXITCODE -eq 0) 'run failed'
-        & $yashy test
+        & $yashyc test
         Assert-True ($LASTEXITCODE -eq 0) 'test failed'
     }
     finally {
@@ -182,7 +182,7 @@ try {
     )
     Assert-True ($bad.Code -ne 0) 'a bad checksum must fail the install'
     Assert-True ($bad.Output -match 'checksum mismatch') "the bad-checksum error is not clear:`n$($bad.Output)"
-    Assert-True (-not (Test-Path -LiteralPath (Join-Path $badPrefix 'yashy.exe'))) 'a bad checksum left a partial install'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $badPrefix 'yashyc.exe'))) 'a bad checksum left a partial install'
     Write-Output 'ok - bad checksum fails before writing the prefix'
 
     # 3. A missing checksum file is also a hard failure.
@@ -195,7 +195,7 @@ try {
         '-NoDoctor'
     )
     Assert-True ($missing.Code -ne 0) 'a missing checksum file must fail the install'
-    Assert-True (-not (Test-Path -LiteralPath (Join-Path $missingPrefix 'yashy.exe'))) 'a missing checksum left a partial install'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $missingPrefix 'yashyc.exe'))) 'a missing checksum left a partial install'
     Write-Output 'ok - missing checksum file fails before writing the prefix'
 
     # 4. Uninstall removes the prefix and is idempotent.
@@ -259,7 +259,7 @@ try {
         '-NoDoctor'
     )
     Assert-True ($extracted.Code -eq 0) "the extracted installer failed:`n$($extracted.Output)"
-    Assert-True (Test-Path -LiteralPath (Join-Path $extractPrefix 'yashy.exe')) 'the extracted installer did not install'
+    Assert-True (Test-Path -LiteralPath (Join-Path $extractPrefix 'yashyc.exe')) 'the extracted installer did not install'
     Write-Output 'ok - extracted zip installs without the network'
 
     # 7. A missing clang keeps the install and prints the platform command.
@@ -284,7 +284,7 @@ try {
     Assert-True ($noClang.Code -eq 0) "a broken clang must not fail the install:`n$($noClang.Output)"
     Assert-True ($noClang.Output -match 'Yashy installed, but') "the missing-clang message is absent:`n$($noClang.Output)"
     Assert-True ($noClang.Output -match 'Next: winget install LLVM.LLVM') "the missing-clang next step is not actionable:`n$($noClang.Output)"
-    Assert-True (Test-Path -LiteralPath (Join-Path $noClangPrefix 'yashy.exe')) 'a broken clang must not roll back the install'
+    Assert-True (Test-Path -LiteralPath (Join-Path $noClangPrefix 'yashyc.exe')) 'a broken clang must not roll back the install'
     Write-Output 'ok - missing clang keeps the install and prints an actionable next step'
 
     # 8. The tutorial's first three chapters run with the installed compiler.
@@ -295,7 +295,7 @@ try {
         # prefix-fresh was uninstalled in step 4; the prefix installed from
         # the extracted zip in step 6 is the one still standing, and it is the
         # packaged install this check is about anyway.
-        $tutorialYashy = Join-Path $extractPrefix 'yashy.exe'
+        $tutorialYashy = Join-Path $extractPrefix 'yashyc.exe'
         & sh (Join-Path $root 'scripts/run-tutorial-blocks.sh') $tutorialYashy `
             (Join-Path $root 'docs/tutorial/00-intro.md') `
             (Join-Path $root 'docs/tutorial/01-hello.md') `

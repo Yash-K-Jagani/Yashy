@@ -7,7 +7,7 @@
 
 mod common;
 
-use common::{work_dir, yashy};
+use common::{work_dir, yashyc};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -22,12 +22,12 @@ fn build(source: &Path, dir: &Path, reproducible: bool) -> Vec<u8> {
     let source = dir.join("main.ya");
     fs::write(&source, PROGRAM).expect("the source must be writable");
     let out = dir.join(format!("hello{}", std::env::consts::EXE_SUFFIX));
-    let mut command = Command::new(yashy());
+    let mut command = Command::new(yashyc());
     command.arg("build").arg(&source).arg("-o").arg(&out);
     if reproducible {
         command.arg("--reproducible");
     }
-    let output = command.output().expect("the yashy CLI must be runnable");
+    let output = command.output().expect("the yashyc CLI must be runnable");
     assert!(
         output.status.success(),
         "the build failed:\n{}",
@@ -77,13 +77,13 @@ fn the_reproducible_ir_names_no_absolute_path() {
     let source = dir.join("main.ya");
     fs::write(&source, PROGRAM).expect("the source must be writable");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("build")
         .arg(&source)
         .arg("--reproducible")
         .arg("--emit-ir")
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     assert!(
         output.status.success(),
         "emitting the IR failed:\n{}",

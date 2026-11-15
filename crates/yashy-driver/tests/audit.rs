@@ -1,21 +1,21 @@
-//! `yashy audit`: manifests, lock agreement, licenses, and build scripts.
+//! `yashyc audit`: manifests, lock agreement, licenses, and build scripts.
 
 mod common;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use common::{work_dir, write, yashy};
+use common::{work_dir, write, yashyc};
 
 fn cli(directory: &Path, args: &[&str]) -> Output {
     let store = work_dir("audit-store");
-    Command::new(yashy())
+    Command::new(yashyc())
         .args(args)
         .current_dir(directory)
         .env("YASHY_PACKAGE_STORE", &store)
         .env("YASHY_CACHE_DIR", store.join("cache"))
         .output()
-        .expect("the yashy CLI must be runnable")
+        .expect("the yashyc CLI must be runnable")
 }
 
 fn write_project(root: &Path, license: bool) {

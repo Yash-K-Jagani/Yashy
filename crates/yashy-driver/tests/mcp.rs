@@ -1,4 +1,4 @@
-//! `yashy mcp`: seven compiler verbs over JSON-RPC, sandboxed to the root.
+//! `yashyc mcp`: seven compiler verbs over JSON-RPC, sandboxed to the root.
 
 mod common;
 
@@ -6,8 +6,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
-fn yashy() -> &'static str {
-    common::yashy()
+fn yashyc() -> &'static str {
+    common::yashyc()
 }
 
 fn workspace_dir() -> PathBuf {
@@ -37,14 +37,14 @@ struct Mcp {
 
 impl Mcp {
     fn start(root: &Path) -> Mcp {
-        let mut child = Command::new(yashy())
+        let mut child = Command::new(yashyc())
             .arg("mcp")
             .arg("--root")
             .arg(root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
-            .expect("the yashy CLI must be runnable");
+            .expect("the yashyc CLI must be runnable");
         let stdin = child.stdin.take().expect("stdin is piped");
         let stdout = std::io::BufReader::new(child.stdout.take().expect("stdout is piped"));
         Mcp {

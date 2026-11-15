@@ -10,8 +10,8 @@ mod common;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-fn yashy() -> &'static str {
-    common::yashy()
+fn yashyc() -> &'static str {
+    common::yashyc()
 }
 
 fn goldens() -> PathBuf {
@@ -33,10 +33,10 @@ fn payload(command: &str, dir: &Path, extra: &[&str]) -> String {
         dir.join("main.ya")
     };
     args.push(target.to_str().unwrap());
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .args(&args)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     // Absolute paths are machine-specific: replace the fixture directory
@@ -129,7 +129,7 @@ fn every_frozen_command_matches_its_golden() {
         let current = payload(command, &dir, extra);
         assert_eq!(
             current, golden,
-            "`yashy {command}` JSON drifted from its v1 golden; if the change is additive, \
+            "`yashyc {command}` JSON drifted from its v1 golden; if the change is additive, \
              update the golden and record it in docs/schema/CHANGELOG.md"
         );
     }
@@ -158,11 +158,11 @@ fn every_golden_stdout_parses_and_carries_its_schema_keys() {
             .map(|(_, rest)| rest.split("\nstderr:").next().unwrap_or(rest))
             .unwrap_or("");
         let value = yashy_common::json_rpc::parse(stdout)
-            .unwrap_or_else(|error| panic!("`yashy {command}` stdout must parse: {error}"));
+            .unwrap_or_else(|error| panic!("`yashyc {command}` stdout must parse: {error}"));
         for key in required.iter() {
             assert!(
                 value.get(key).is_some(),
-                "`yashy {command}` lost the required field `{key}`"
+                "`yashyc {command}` lost the required field `{key}`"
             );
         }
     }

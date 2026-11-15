@@ -1,4 +1,4 @@
-//! `yashy explain` and the human diagnostic's link to the error catalog.
+//! `yashyc explain` and the human diagnostic's link to the error catalog.
 //!
 //! The catalog pages are embedded with `include_str!`, so `explain` is an
 //! offline command. These tests assert that every code prints its page, that
@@ -7,17 +7,17 @@
 
 mod common;
 
-use common::{work_dir, write, yashy};
+use common::{work_dir, write, yashyc};
 use std::path::Path;
 use std::process::{Command, Output};
 use yashy_common::{codes, Json};
 
 fn run(dir: &Path, args: &[&str]) -> Output {
-    Command::new(yashy())
+    Command::new(yashyc())
         .args(args)
         .current_dir(dir)
         .output()
-        .expect("the yashy CLI must be runnable")
+        .expect("the yashyc CLI must be runnable")
 }
 
 fn stdout(output: &Output) -> String {

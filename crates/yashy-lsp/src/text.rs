@@ -166,7 +166,7 @@ mod tests {
 
     #[test]
     fn a_native_path_round_trips() {
-        let path = std::env::temp_dir().join("yashy lsp").join("main.ya");
+        let path = std::env::temp_dir().join("yashyc lsp").join("main.ya");
         let uri = path_to_uri(&path);
         assert_eq!(uri_to_path(&uri), path);
     }

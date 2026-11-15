@@ -102,7 +102,7 @@ jobs:
           mkdir -p "$probe"
           unzip -q "$archive" -d "$probe"
           if [ "$UNSIGNED" = "true" ] ||
-            ! codesign -dv --verbose=4 "$probe"/*/yashy 2>&1 |
+            ! codesign -dv --verbose=4 "$probe"/*/yashyc 2>&1 |
               grep -q '^Authority=Developer ID Application'; then
             echo "::warning::the archive is signed ad hoc, not with a Developer ID: signature, notarisation and Gatekeeper assertions are skipped"
             sh scripts/test-install.sh --archive "$archive" --unsigned

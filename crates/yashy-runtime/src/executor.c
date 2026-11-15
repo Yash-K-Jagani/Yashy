@@ -18,7 +18,7 @@
  *
  * Task-aware debugging: the executor keeps a registry of live tasks (id,
  * frame, poll fn, state) guarded by the same mutex that guards the queue.
- * `yashy_tasks_dump` walks it so `yashy tasks` and `run --debug` can name
+ * `yashy_tasks_dump` walks it so `yashyc tasks` and `run --debug` can name
  * every live task, and the frame's fifth header word (the async function's
  * name, written by the factory) is what the dump prints as the function —
  * the textual-IR analogue of the `task.<id>.<fn>` DWARF name a debugger
@@ -1062,7 +1062,7 @@ int yashy_block_on(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
          * keeps a genuinely pending task (a channel wait inside a poll)
          * from spinning hot. */
         yashy_sleep_ms(1);
-        /* `yashy tasks` on a hung program: while the main task is still
+        /* `yashyc tasks` on a hung program: while the main task is still
          * pending after about a thousand 1-ms spins, print the live tasks
          * so waiting is visible instead of silent. */
         if (tasks_dumped != NULL && tasks_dumped[0] != '\0' && tasks_dumped[0] != '0') {

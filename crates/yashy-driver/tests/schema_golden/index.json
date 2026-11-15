@@ -2,7 +2,7 @@ exit=0
 stdout:
 {
   "schema_version": 1,
-  "tool": "yashy",
+  "tool": "yashyc",
   "files": [
     "<workspace>/main.ya"
   ],

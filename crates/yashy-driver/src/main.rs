@@ -1,16 +1,16 @@
-//! The `yashy` command line interface.
+//! The `yashyc` command line interface.
 //!
 //! ```text
-//! yashy build <file.ya> [-o <out>] [--emit-ir] [--opt-report[=json]] [--cpu <tier>] [--fast-math] [--release]
-//! yashy run <file.ya> [build flags] [-- <program args>...]
-//! yashy check <file.ya>
-//! yashy test [path] [--filter <substring>] [--list]
-//! yashy explain <code> [--json]
-//! yashy init [path]
-//! yashy doctor [--json]
-//! yashy expand <file.ya> [--json]
-//! yashy fmt [-w] <files...>
-//! yashy version
+//! yashyc build <file.ya> [-o <out>] [--emit-ir] [--opt-report[=json]] [--cpu <tier>] [--fast-math] [--release]
+//! yashyc run <file.ya> [build flags] [-- <program args>...]
+//! yashyc check <file.ya>
+//! yashyc test [path] [--filter <substring>] [--list]
+//! yashyc explain <code> [--json]
+//! yashyc init [path]
+//! yashyc doctor [--json]
+//! yashyc expand <file.ya> [--json]
+//! yashyc fmt [-w] <files...>
+//! yashyc version
 //! ```
 //!
 //! Argument parsing is hand-rolled on purpose: a handful of subcommands and
@@ -45,7 +45,7 @@ use yashy_verify::{first_contract, Assumption, ContractMode, VerifyOptions, Veri
 ///
 /// A contract is a promise the verifier checks, so an unproved one is an error
 /// in every path that claims the program is sound: `verify`, `build`, `run` and
-/// the human `test` path all share this one value. `yashy test`'s JSON path
+/// the human `test` path all share this one value. `yashyc test`'s JSON path
 /// builds on the same checker, so it agrees with the human path by
 /// construction.
 ///
@@ -58,34 +58,34 @@ const OPTIONS: VerifyOptions = VerifyOptions {
 
 const USAGE: &str = "\
 usage:
-  yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--pgo] [--emit-ir] [--opt-report[=json]] [--timings] [--jobs <n>] [--no-opt=<pass>] [--opt-list] [--no-verify] [--stdlib-source] [--target <triple>] [--reproducible]
-  yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--timings] [--jobs <n>] [--no-opt=<pass>] [--no-verify] [--stdlib-source] [--target <triple>] [--reproducible] [--debug] [--sandbox] [--allow-read <path>] [--allow-write <path>] [--time <ms>] [--memory <mb>] [-- <args>...]
-  yashy tasks <file.ya> [-- <args>...]
-  yashy check <file.ya> [--json] [--timings] [--jobs <n>] [--deny warnings] [--allow warnings] [--print-cfg] [--target <triple>]
-  yashy verify <file.ya> [--json] [--timings] [--jobs <n>] [--inventory]
-  yashy test [path] [--filter <substring>] [--list] [--json] [--timings] [--jobs <n>]
-  yashy explain <code> [--json]
-  yashy init [path]
-  yashy doctor [--json]
-  yashy expand <file.ya> [--json]
-  yashy index [path] [--json]
-  yashy outline <file.ya>
-  yashy graph [path] [--json|--dot]
-  yashy search <query> [path] | yashy search <query> --registry <dir>
-  yashy context --task <task> [path] [--budget <n>] [--json]
-  yashy mcp --root <dir>
-  yashy lsp [--version]
-  yashy doc [path] [--out DIR] [--json] [--private]
-  yashy profile <file.ya> | yashy profile --report <file.json>
-  yashy lock --check
-  yashy fetch [--offline]
-  yashy update [--offline]
-  yashy add <name> --path <dir> | yashy add <name> --git <url> --rev <commit>
-  yashy audit [dir] [--json]
-  yashy publish [dir] --registry <dir>
-  yashy search <query> --registry <dir>
-  yashy fmt [-w | --check] [--json] <files...>
-  yashy version
+  yashyc build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--pgo] [--emit-ir] [--opt-report[=json]] [--timings] [--jobs <n>] [--no-opt=<pass>] [--opt-list] [--no-verify] [--stdlib-source] [--target <triple>] [--reproducible]
+  yashyc run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--timings] [--jobs <n>] [--no-opt=<pass>] [--no-verify] [--stdlib-source] [--target <triple>] [--reproducible] [--debug] [--sandbox] [--allow-read <path>] [--allow-write <path>] [--time <ms>] [--memory <mb>] [-- <args>...]
+  yashyc tasks <file.ya> [-- <args>...]
+  yashyc check <file.ya> [--json] [--timings] [--jobs <n>] [--deny warnings] [--allow warnings] [--print-cfg] [--target <triple>]
+  yashyc verify <file.ya> [--json] [--timings] [--jobs <n>] [--inventory]
+  yashyc test [path] [--filter <substring>] [--list] [--json] [--timings] [--jobs <n>]
+  yashyc explain <code> [--json]
+  yashyc init [path]
+  yashyc doctor [--json]
+  yashyc expand <file.ya> [--json]
+  yashyc index [path] [--json]
+  yashyc outline <file.ya>
+  yashyc graph [path] [--json|--dot]
+  yashyc search <query> [path] | yashyc search <query> --registry <dir>
+  yashyc context --task <task> [path] [--budget <n>] [--json]
+  yashyc mcp --root <dir>
+  yashyc lsp [--version]
+  yashyc doc [path] [--out DIR] [--json] [--private]
+  yashyc profile <file.ya> | yashyc profile --report <file.json>
+  yashyc lock --check
+  yashyc fetch [--offline]
+  yashyc update [--offline]
+  yashyc add <name> --path <dir> | yashyc add <name> --git <url> --rev <commit>
+  yashyc audit [dir] [--json]
+  yashyc publish [dir] --registry <dir>
+  yashyc search <query> --registry <dir>
+  yashyc fmt [-w | --check] [--json] <files...>
+  yashyc version
 
   build   compile a program to a native executable
   run     compile and execute a program
@@ -158,7 +158,7 @@ fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
     let worker_args = args.clone();
     match std::thread::Builder::new()
-        .name("yashy".to_string())
+        .name("yashyc".to_string())
         .stack_size(FRONT_END_STACK_BYTES)
         .spawn(move || dispatch(&worker_args))
     {
@@ -178,7 +178,7 @@ fn dispatch(args: &[String]) -> ExitCode {
 
     match command {
         "version" | "--version" | "-V" => {
-            println!("yashy {}", env!("CARGO_PKG_VERSION"));
+            println!("yashyc {}", env!("CARGO_PKG_VERSION"));
             exit_code(EXIT_OK)
         }
         "help" | "--help" | "-h" => {
@@ -230,7 +230,7 @@ struct BuildOutcome {
     timings: Vec<TimingRow>,
 }
 
-/// `yashy build <file.ya> [-o <out>] [-O0|-1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--emit-ir] [--timings] [--no-verify]`.
+/// `yashyc build <file.ya> [-o <out>] [-O0|-1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--emit-ir] [--timings] [--no-verify]`.
 fn build(command: CommandKind, args: &[String]) -> ExitCode {
     let outcome = build_measured(command, args);
     // An empty vector means the flag was not passed, so this is silent then.
@@ -448,7 +448,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     // A project that carries both a manifest and a lockfile has made a
     // reproducibility claim. Verify it before compiling; that is the point of
     // the lock. A manifest without a lock is not an error yet: the first lock
-    // is written by `yashy update` once resolution has a source to pin.
+    // is written by `yashyc update` once resolution has a source to pin.
     if let Some(code) = verify_project_lock(&input) {
         return stopped(code);
     }
@@ -784,10 +784,10 @@ fn reproducible_entry(path: &Path) -> String {
     relative.to_string_lossy().replace('\\', "/")
 }
 
-/// `yashy playground [--port <n>] [--host <address>]`.
+/// `yashyc playground [--port <n>] [--host <address>]`.
 ///
 /// The playground compiles on the server: every run is a sandboxed
-/// `yashy run`, with a directory of its own and the default-deny capability
+/// `yashyc run`, with a directory of its own and the default-deny capability
 /// set. The static front end is served from `playground/`.
 fn playground(args: &[String]) -> ExitCode {
     let mut port: u16 = 8080;
@@ -846,7 +846,7 @@ fn unverified_sidecar(output: &Path) -> PathBuf {
 /// The stamp's exact bytes. One line of JSON, so a reader can parse it without
 /// guessing at a format, and a human can read it with `cat`. The version is
 /// the compiler's, taken from the manifest so the stamp cannot drift from
-/// `yashy --version`.
+/// `yashyc --version`.
 const UNVERIFIED_SIDECAR: &str = concat!(
     r#"{"schema_version":1,"verified":false,"reason":"--no-verify","yashy_version":""#,
     env!("CARGO_PKG_VERSION"),
@@ -869,21 +869,21 @@ fn require_verify_from_env() -> bool {
     }
 }
 
-/// `yashy run <file.ya> [build flags] [-- <program args>...]`.
-/// `yashy run --debug <file.ya> ...` is the same run with the child's
+/// `yashyc run <file.ya> [build flags] [-- <program args>...]`.
+/// `yashyc run --debug <file.ya> ...` is the same run with the child's
 /// `YASHY_DEBUG` set: a panic or arithmetic fault also prints the executor's
-/// live tasks. `yashy tasks <file.ya>` goes one step further (see
+/// live tasks. `yashyc tasks <file.ya>` goes one step further (see
 /// [`RunMode::Tasks`]): it is the task table for whatever the program does.
 ///
 /// The output path is temporary on purpose: `run` is for the edit/run loop,
 /// and a user who wants to keep the binary has `build -o`.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum RunMode {
-    /// `yashy run`: no debug environment.
+    /// `yashyc run`: no debug environment.
     Plain,
-    /// `yashy run --debug`: the child gets `YASHY_DEBUG=1`.
+    /// `yashyc run --debug`: the child gets `YASHY_DEBUG=1`.
     Debug,
-    /// `yashy tasks`: a debug build only. The child gets `YASHY_DEBUG=1`
+    /// `yashyc tasks`: a debug build only. The child gets `YASHY_DEBUG=1`
     /// and `YASHY_TASKS_DUMP=1`, so the task table prints on a panic and
     /// while the run spins on a pending task — the async analogue of a
     /// thread dump.
@@ -975,7 +975,7 @@ fn run_as(args: &[String], mode: RunMode) -> ExitCode {
             "--pgo" => {
                 return usage_error(
                     "`--pgo` trains a build and would run the program twice; \
-                     use `yashy build --pgo` and run the binary",
+                     use `yashyc build --pgo` and run the binary",
                 )
             }
             "--cpu" | "--jobs" => {
@@ -1315,7 +1315,7 @@ fn blocked_by_policy(error: &std::io::Error) -> bool {
         || error.to_string().contains("Application Control")
 }
 
-/// `yashy test [path] [--filter <substring>] [--list]`.
+/// `yashyc test [path] [--filter <substring>] [--list]`.
 ///
 /// R1 tests are ordinary programs. A file under `tests/` is one test; the
 /// process exit code is the verdict. This keeps the language free of
@@ -1552,7 +1552,7 @@ fn test(args: &[String]) -> ExitCode {
     }
 }
 
-/// `yashy test --json`: the same test discovery as `test`, with one JSON
+/// `yashyc test --json`: the same test discovery as `test`, with one JSON
 /// envelope instead of the human progress lines.
 ///
 /// Compile diagnostics are collected through the same checker and code
@@ -2126,7 +2126,7 @@ fn output_with_env(
     ))
 }
 
-/// `yashy explain <code> [--json]`.
+/// `yashyc explain <code> [--json]`.
 ///
 /// The human form prints the embedded catalog page verbatim; the JSON form
 /// carries the same facts so an agent can read the title, summary, and page
@@ -2153,7 +2153,7 @@ fn explain(args: &[String]) -> ExitCode {
     }
 
     let Some(code) = code else {
-        return usage_error("`explain` needs an error code, for example `yashy explain E0100`");
+        return usage_error("`explain` needs an error code, for example `yashyc explain E0100`");
     };
     let Some(entry) = codes::find(code) else {
         match codes::closest(code) {
@@ -2190,7 +2190,7 @@ fn print_explain_json(code: &codes::Code) {
     println!("{}", report.render());
 }
 
-/// `yashy init [path]`.
+/// `yashyc init [path]`.
 ///
 /// The default is the current directory. A directory that already contains
 /// anything is refused rather than merged: `init` creates a project, it does
@@ -2250,13 +2250,13 @@ fn init(args: &[String]) -> ExitCode {
         (
             "README.md",
             format!(
-                "# {name}\n\nA Yashy project.\n\n## Run\n\n```text\nyashy run main.ya\n```\n\n## Test\n\n```text\nyashy test\n```\n\n## Build\n\n```text\nyashy build main.ya -o {name} --release\n```\n\nSee `AGENTS.md` for the project layout and the rules an editor or agent should follow.\n"
+                "# {name}\n\nA Yashy project.\n\n## Run\n\n```text\nyashyc run main.ya\n```\n\n## Test\n\n```text\nyashyc test\n```\n\n## Build\n\n```text\nyashyc build main.ya -o {name} --release\n```\n\nSee `AGENTS.md` for the project layout and the rules an editor or agent should follow.\n"
             ),
         ),
         (
             "AGENTS.md",
             format!(
-                "# {name}\n\nThis is a Yashy project. `main.ya` is the entry point; the programs under `tests/` are the test suite.\n\n## Commands\n\n```text\nyashy check main.ya\nyashy run main.ya\nyashy test\nyashy build main.ya -o {name} --release\n```\n\n## Layout\n\n- `main.ya` -- the program's entry point.\n- `tests/` -- one test program per file. A test is an ordinary Yashy program with a `main`; exit 0 is a pass.\n- `yashy.toml` -- package metadata.\n- `AGENTS.md` -- this guide.\n\n## Rules\n\n- `let` is a mutable binding; `const` is immutable.\n- A module's items are private unless they say `pub`. Import a file by its stem, and keep the file beside the importer.\n- A file under `tests/` is its own entry file. It cannot import a module from the project root by walking up; keep a test self-contained or test the built binary.\n- Errors are values: `Option[T]` for a value that may be missing, `Result[T, E]` for an operation that may fail. There are no exceptions.\n- Owned values are released explicitly: `defer` for a scope, `.free()` for arrays, maps, strings built at run time, channels, and mutexes. The checker refuses a use after `move`.\n- Run `yashy test` before calling the work done. A compile error is not a test failure; fix the diagnostic first.\n\n## Docs\n\n- [Quickstart](https://github.com/Yash-K-Jagani/Yashy/blob/main/docs/quickstart.md)\n- [Language tutorial](https://github.com/Yash-K-Jagani/Yashy/blob/main/docs/tutorial/00-intro.md)\n- [Errors](https://github.com/Yash-K-Jagani/Yashy/blob/main/docs/errors.md)\n- [First CLI](https://github.com/Yash-K-Jagani/Yashy/blob/main/docs/tutorial/12-first-cli.md)\n"
+                "# {name}\n\nThis is a Yashy project. `main.ya` is the entry point; the programs under `tests/` are the test suite.\n\n## Commands\n\n```text\nyashyc check main.ya\nyashyc run main.ya\nyashyc test\nyashyc build main.ya -o {name} --release\n```\n\n## Layout\n\n- `main.ya` -- the program's entry point.\n- `tests/` -- one test program per file. A test is an ordinary Yashy program with a `main`; exit 0 is a pass.\n- `yashy.toml` -- package metadata.\n- `AGENTS.md` -- this guide.\n\n## Rules\n\n- `let` is a mutable binding; `const` is immutable.\n- A module's items are private unless they say `pub`. Import a file by its stem, and keep the file beside the importer.\n- A file under `tests/` is its own entry file. It cannot import a module from the project root by walking up; keep a test self-contained or test the built binary.\n- Errors are values: `Option[T]` for a value that may be missing, `Result[T, E]` for an operation that may fail. There are no exceptions.\n- Owned values are released explicitly: `defer` for a scope, `.free()` for arrays, maps, strings built at run time, channels, and mutexes. The checker refuses a use after `move`.\n- Run `yashyc test` before calling the work done. A compile error is not a test failure; fix the diagnostic first.\n\n## Docs\n\n- [Quickstart](https://github.com/Yash-K-Jagani/Yashy/blob/main/docs/quickstart.md)\n- [Language tutorial](https://github.com/Yash-K-Jagani/Yashy/blob/main/docs/tutorial/00-intro.md)\n- [Errors](https://github.com/Yash-K-Jagani/Yashy/blob/main/docs/errors.md)\n- [First CLI](https://github.com/Yash-K-Jagani/Yashy/blob/main/docs/tutorial/12-first-cli.md)\n"
             ),
         ),
         (
@@ -2282,8 +2282,8 @@ fn init(args: &[String]) -> ExitCode {
     println!("Created Yashy project `{name}` in {}", target.display());
     println!("Next:");
     println!("  cd {}", target.display());
-    println!("  yashy run main.ya");
-    println!("  yashy test");
+    println!("  yashyc run main.ya");
+    println!("  yashyc test");
     exit_code(EXIT_OK)
 }
 
@@ -2349,7 +2349,7 @@ struct PathReport {
     hint: Option<String>,
 }
 
-/// `yashy doctor [--json]`: the things a fresh install can get wrong.
+/// `yashyc doctor [--json]`: the things a fresh install can get wrong.
 fn doctor(args: &[String]) -> ExitCode {
     let mut json = false;
     let mut target: Option<&'static str> = None;
@@ -2616,13 +2616,13 @@ fn doctor_next(clang: &ClangReport, stdlib: &StdlibReport, cross: Option<&CrossR
 
     let mut next = parts.join(" ");
     if !next.is_empty() {
-        next.push_str(" Then run `yashy doctor`.");
+        next.push_str(" Then run `yashyc doctor`.");
     }
     next
 }
 
 fn print_doctor_human(report: &DoctorReport) {
-    println!("yashy {}", env!("CARGO_PKG_VERSION"));
+    println!("yashyc {}", env!("CARGO_PKG_VERSION"));
     println!("target: {}", report.target);
 
     if report.clang.ok {
@@ -2999,7 +2999,7 @@ fn span_range_json(span: Span) -> Json {
     object
 }
 
-/// `yashy check <file.ya> [--json]`.
+/// `yashyc check <file.ya> [--json]`.
 fn check(args: &[String]) -> ExitCode {
     let mut json = false;
     let mut timings_flag = false;
@@ -3186,7 +3186,7 @@ fn check(args: &[String]) -> ExitCode {
     }
 }
 
-/// `yashy verify <file.ya> [--json] [--inventory]`.
+/// `yashyc verify <file.ya> [--json] [--inventory]`.
 ///
 /// The same front half as `check`, followed by the verifier. The difference the
 /// user sees is what the exit code means: `check` fails when the program is
@@ -3378,7 +3378,7 @@ fn read_source_with(input: &Path, code: i32) -> Result<String, ExitCode> {
     })
 }
 
-/// `yashy fmt [-w | --check] [--json] <files...>`.
+/// `yashyc fmt [-w | --check] [--json] <files...>`.
 ///
 /// Without a mode flag the formatted text goes to standard output, so a file
 /// can be inspected before it is replaced. With `-w` a file is written in
@@ -3529,7 +3529,7 @@ fn unknown_cpu(value: &str) -> String {
     )
 }
 
-/// `yashy expand <file.ya> [--json]`.
+/// `yashyc expand <file.ya> [--json]`.
 ///
 /// Prints the fully expanded program after every macro has been replaced, and
 /// stops before checking: this command is for reading what a macro produces.
@@ -3608,7 +3608,7 @@ fn expand(args: &[String]) -> ExitCode {
     }
 }
 
-/// `yashy index [path] [--json]`: the symbol index over a directory or a
+/// `yashyc index [path] [--json]`: the symbol index over a directory or a
 /// single file.
 fn index_cmd(args: &[String]) -> ExitCode {
     let mut json = false;
@@ -3644,7 +3644,7 @@ fn index_cmd(args: &[String]) -> ExitCode {
     }
 }
 
-/// `yashy outline <file>`: the file's symbols in source order.
+/// `yashyc outline <file>`: the file's symbols in source order.
 fn outline_cmd(args: &[String]) -> ExitCode {
     let mut input: Option<PathBuf> = None;
     for arg in args {
@@ -3682,7 +3682,7 @@ fn outline_cmd(args: &[String]) -> ExitCode {
     }
 }
 
-/// `yashy graph [path] [--json|--dot]`: the module and call graph.
+/// `yashyc graph [path] [--json|--dot]`: the module and call graph.
 fn graph_cmd(args: &[String]) -> ExitCode {
     let mut json = false;
     let mut dot = false;
@@ -3721,8 +3721,8 @@ fn graph_cmd(args: &[String]) -> ExitCode {
     }
 }
 
-/// `yashy search <query> [path]`: ranked symbol search, or
-/// `yashy search <query> --registry <root>`: package registry search.
+/// `yashyc search <query> [path]`: ranked symbol search, or
+/// `yashyc search <query> --registry <root>`: package registry search.
 fn search_cmd(args: &[String]) -> ExitCode {
     if args.iter().any(|argument| argument == "--registry") {
         let mut query: Option<String> = None;
@@ -3804,7 +3804,7 @@ fn search_cmd(args: &[String]) -> ExitCode {
     }
 }
 
-/// `yashy context --task "..." [path] [--budget <n>] [--json]`: a
+/// `yashyc context --task "..." [path] [--budget <n>] [--json]`: a
 /// token-budgeted context pack.
 fn context_cmd(args: &[String]) -> ExitCode {
     let mut json = false;
@@ -3864,7 +3864,7 @@ fn context_cmd(args: &[String]) -> ExitCode {
     }
 }
 
-/// `yashy mcp --root <dir>`: the MCP server on stdio.
+/// `yashyc mcp --root <dir>`: the MCP server on stdio.
 fn mcp_cmd(args: &[String]) -> ExitCode {
     let mut root = PathBuf::from(".");
     let mut i = 0;
@@ -3895,11 +3895,11 @@ fn mcp_cmd(args: &[String]) -> ExitCode {
     }
 }
 
-/// `yashy lsp`: run the language server. The server is a sibling binary
+/// `yashyc lsp`: run the language server. The server is a sibling binary
 /// (`yashy-lsp` beside this executable): the driver cannot link the LSP
 /// crate (`yashy-lsp` depends on `yashy-driver`), so this is an exec, not
 /// a reimplementation. A missing sibling exits 2 naming the path. The
-/// lookup is one function because `yashy doctor` says what it found; the
+/// lookup is one function because `yashyc doctor` says what it found; the
 /// environment override exists so a test can point it at a stub, never
 /// as a user-facing setting.
 fn lsp_sibling() -> PathBuf {
@@ -3921,7 +3921,7 @@ fn lsp_cmd(args: &[String]) -> ExitCode {
     let sibling = lsp_sibling();
     if args.iter().any(|arg| arg == "--version") {
         let driver = env!("CARGO_PKG_VERSION");
-        println!("yashy {driver}");
+        println!("yashyc {driver}");
         match Command::new(&sibling).arg("--version").output() {
             Ok(output) => {
                 let server = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -4062,7 +4062,7 @@ fn profile_cmd(args: &[String]) -> ExitCode {
             };
             print!("{}", report.render());
             println!(
-                "note: a fresh run carries no per-function counters; record one with instrumentation and render it with `yashy profile --report`."
+                "note: a fresh run carries no per-function counters; record one with instrumentation and render it with `yashyc profile --report`."
             );
             exit_code(EXIT_OK)
         }
@@ -4074,7 +4074,7 @@ fn profile_cmd(args: &[String]) -> ExitCode {
     }
 }
 
-/// `yashy doc [path] [--out DIR] [--json] [--private]`: render the public
+/// `yashyc doc [path] [--out DIR] [--json] [--private]`: render the public
 /// surface as Markdown (or the same model as JSON).
 fn doc_cmd(args: &[String]) -> ExitCode {
     let mut json = false;
@@ -4130,7 +4130,7 @@ fn doc_cmd(args: &[String]) -> ExitCode {
 fn print_expand_json(sources: &SourceMap, file: FileId, map: &yashy_expand::ExpansionMap) {
     let mut report = Json::object();
     report.set("schema_version", Json::number(1));
-    report.set("tool", Json::string("yashy"));
+    report.set("tool", Json::string("yashyc"));
     report.set(
         "expansions",
         Json::array(
@@ -4180,7 +4180,7 @@ fn render_tokens(tokens: &[yashy_lexer::Token], sources: &SourceMap, file: FileI
     out
 }
 
-/// A failure from `yashy lock --check` or the build-time check.
+/// A failure from `yashyc lock --check` or the build-time check.
 enum LockCheckError {
     /// The command cannot run: no manifest, wrong arguments.
     Usage(String),
@@ -4207,7 +4207,7 @@ impl LockCheckError {
     }
 }
 
-/// `yashy lock --check [dir]`.
+/// `yashyc lock --check [dir]`.
 fn lock_cmd(args: &[String]) -> ExitCode {
     let mut check = false;
     let mut directory: Option<PathBuf> = None;
@@ -4226,7 +4226,7 @@ fn lock_cmd(args: &[String]) -> ExitCode {
         }
     }
     if !check {
-        return usage_error("`lock` needs `--check`; `yashy update` writes a new lock");
+        return usage_error("`lock` needs `--check`; `yashyc update` writes a new lock");
     }
     let directory = directory.unwrap_or_else(|| PathBuf::from("."));
     match check_lock(&directory) {
@@ -4261,7 +4261,7 @@ fn check_lock(directory: &Path) -> Result<(), LockCheckError> {
     if !lock_path.is_file() {
         return Err(LockCheckError::Diagnostic {
             code: codes::LOCKFILE_MISMATCH,
-            message: "there is no yashy.lock; run `yashy update`".to_string(),
+            message: "there is no yashy.lock; run `yashyc update`".to_string(),
         });
     }
     let lock = Lockfile::load(&lock_path).map_err(|error| LockCheckError::Diagnostic {
@@ -4278,11 +4278,11 @@ fn check_lock(directory: &Path) -> Result<(), LockCheckError> {
         })
 }
 
-/// The build-time half of `yashy lock --check`.
+/// The build-time half of `yashyc lock --check`.
 ///
 /// Returns `Some(exit code)` only when a manifest and a lock both exist and
 /// disagree. A manifest without a lock is left alone; the first lock is
-/// written by `yashy update`.
+/// written by `yashyc update`.
 fn verify_project_lock(input: &Path) -> Option<ExitCode> {
     let mut directory = input.parent().unwrap_or_else(|| Path::new("."));
     loop {
@@ -4315,7 +4315,7 @@ fn usage_error(message: &str) -> ExitCode {
 ///
 /// The subject is a flag, not a byte in a file, so there is no span to point
 /// at; the code and its `docs:` line are still what a reader needs, because
-/// `yashy explain <code>` is the offline page for the thing that went wrong.
+/// `yashyc explain <code>` is the offline page for the thing that went wrong.
 fn coded_error(code: &'static str, message: &str, notes: &[String]) -> ExitCode {
     eprintln!("error[{code}]: {message}");
     for note in notes {
@@ -4346,7 +4346,7 @@ fn exit_code(code: i32) -> ExitCode {
     ExitCode::from(code as u8)
 }
 
-/// `yashy publish [dir] --registry <root>`: write a package tarball and its
+/// `yashyc publish [dir] --registry <root>`: write a package tarball and its
 /// index entry.
 fn publish_cmd(args: &[String]) -> ExitCode {
     let mut directory: Option<PathBuf> = None;
@@ -4398,7 +4398,7 @@ fn publish_cmd(args: &[String]) -> ExitCode {
     }
 }
 
-/// `yashy audit [dir] [--json]`: a read-only package check.
+/// `yashyc audit [dir] [--json]`: a read-only package check.
 fn audit_cmd(args: &[String]) -> ExitCode {
     let json = args.iter().any(|argument| argument == "--json");
     let arguments = args
@@ -4449,7 +4449,7 @@ fn audit_cmd(args: &[String]) -> ExitCode {
     }
 }
 
-/// `yashy update [--offline] [dir]`: resolve the manifests and rewrite the
+/// `yashyc update [--offline] [dir]`: resolve the manifests and rewrite the
 /// lockfile from the result.
 fn update_cmd(args: &[String]) -> ExitCode {
     let project = match project_args(args, "update") {
@@ -4509,7 +4509,7 @@ fn update_cmd(args: &[String]) -> ExitCode {
     exit_code(EXIT_OK)
 }
 
-/// `yashy fetch [--offline] [dir]`: populate the store without building.
+/// `yashyc fetch [--offline] [dir]`: populate the store without building.
 fn fetch_cmd(args: &[String]) -> ExitCode {
     let project = match project_args(args, "fetch") {
         Ok(project) => project,
@@ -4563,8 +4563,8 @@ fn fetch_cmd(args: &[String]) -> ExitCode {
     }
 }
 
-/// `yashy add <name> --path <dir>`, `yashy add <name> --git <url> --rev
-/// <commit>`, or `yashy add <name>@<version> --registry <dir>`.
+/// `yashyc add <name> --path <dir>`, `yashyc add <name> --git <url> --rev
+/// <commit>`, or `yashyc add <name>@<version> --registry <dir>`.
 fn add_cmd(args: &[String]) -> ExitCode {
     let mut name: Option<String> = None;
     let mut path: Option<String> = None;

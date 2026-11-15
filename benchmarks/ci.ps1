@@ -47,7 +47,7 @@ $ErrorActionPreference = 'Stop'
 $bench = $PSScriptRoot
 $root = Split-Path -Parent $bench
 $build = Join-Path $bench 'build\ci'
-$yashy = Join-Path $root 'target\release\yashy.exe'
+$yashyc = Join-Path $root 'target\release\yashyc.exe'
 $exe = '.exe'
 $noOptArgs = @()
 if ($NoOpt) {
@@ -56,8 +56,8 @@ if ($NoOpt) {
 
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 
-if (-not (Test-Path $yashy)) {
-    throw "no release binary at $yashy - run: cargo build --release -p yashy-driver"
+if (-not (Test-Path $yashyc)) {
+    throw "no release binary at $yashyc - run: cargo build --release -p yashy-driver"
 }
 if (-not (Get-Command clang -ErrorAction SilentlyContinue)) {
     throw 'clang is not on PATH'
@@ -110,27 +110,27 @@ $mapsYashy = Join-Path $build "maps-yashy$exe"
 $promoteYashy = Join-Path $build "promote-yashy$exe"
 
 $fibCompile = Measure-Median {
-    Invoke-Tool $yashy (@('build', "$bench\fib.ya", '-o', $fibYashy, '--release') + $noOptArgs) 'yashy build fib'
+    Invoke-Tool $yashyc (@('build', "$bench\fib.ya", '-o', $fibYashy, '--release') + $noOptArgs) 'yashyc build fib'
 } $Runs
 $helloCompile = Measure-Median {
-    Invoke-Tool $yashy (@('build', "$bench\hello.ya", '-o', $helloYashy, '--release') + $noOptArgs) 'yashy build hello'
+    Invoke-Tool $yashyc (@('build', "$bench\hello.ya", '-o', $helloYashy, '--release') + $noOptArgs) 'yashyc build hello'
 } $Runs
 $largeCompile = Measure-Median {
-    Invoke-Tool $yashy (@('build', "$bench\large.ya", '-o', $largeYashy, '--release') + $noOptArgs) 'yashy build large'
+    Invoke-Tool $yashyc (@('build', "$bench\large.ya", '-o', $largeYashy, '--release') + $noOptArgs) 'yashyc build large'
 } $Runs
 # The two container workloads are the runtime rows. They are built once here,
 # untimed: their compile time is the compiler's cost, not the runtime's, and
 # the plan gates the run row only.
-Invoke-Tool $yashy (@('build', "$bench\wordcount.ya", '-o', $wordcountYashy, '--release') + $noOptArgs) 'yashy build wordcount'
-Invoke-Tool $yashy (@('build', "$bench\maps.ya", '-o', $mapsYashy, '--release') + $noOptArgs) 'yashy build maps'
+Invoke-Tool $yashyc (@('build', "$bench\wordcount.ya", '-o', $wordcountYashy, '--release') + $noOptArgs) 'yashyc build wordcount'
+Invoke-Tool $yashyc (@('build', "$bench\maps.ya", '-o', $mapsYashy, '--release') + $noOptArgs) 'yashyc build maps'
 # The comparable-integer program: its compile row is not claimed, so the build
 # is untimed, but its run row is (see fib_wrap_ratio in the header).
-Invoke-Tool $yashy (@('build', "$bench\fib-wrap.ya", '-o', $fibWrapYashy, '--release') + $noOptArgs) 'yashy build fib-wrap'
+Invoke-Tool $yashyc (@('build', "$bench\fib-wrap.ya", '-o', $fibWrapYashy, '--release') + $noOptArgs) 'yashyc build fib-wrap'
 $yashyOut = ''
 $fibRun = Measure-Median {
     $runOut = (& $fibYashy 2>&1 | Out-String).Trim()
     if ($LASTEXITCODE -ne 0) {
-        throw "yashy fib failed (exit $LASTEXITCODE):`n$runOut"
+        throw "yashyc fib failed (exit $LASTEXITCODE):`n$runOut"
     }
     $script:yashyOut = $runOut
 } $Runs
@@ -139,7 +139,7 @@ $wordcountOut = ''
 $wordcountRun = Measure-Median {
     $runOut = (& $wordcountYashy 2>&1 | Out-String).Trim()
     if ($LASTEXITCODE -ne 0) {
-        throw "yashy wordcount failed (exit $LASTEXITCODE):`n$runOut"
+        throw "yashyc wordcount failed (exit $LASTEXITCODE):`n$runOut"
     }
     $script:wordcountOut = $runOut
 } $Runs
@@ -148,7 +148,7 @@ $mapsOut = ''
 $mapsRun = Measure-Median {
     $runOut = (& $mapsYashy 2>&1 | Out-String).Trim()
     if ($LASTEXITCODE -ne 0) {
-        throw "yashy maps failed (exit $LASTEXITCODE):`n$runOut"
+        throw "yashyc maps failed (exit $LASTEXITCODE):`n$runOut"
     }
     $script:mapsOut = $runOut
 } $Runs
@@ -159,7 +159,7 @@ $largeOut = ''
 $largeRun = Measure-Median {
     $runOut = (& $largeYashy 2>&1 | Out-String).Trim()
     if ($LASTEXITCODE -ne 0) {
-        throw "yashy large failed (exit $LASTEXITCODE):`n$runOut"
+        throw "yashyc large failed (exit $LASTEXITCODE):`n$runOut"
     }
     $script:largeOut = $runOut
 } $Runs
@@ -169,7 +169,7 @@ $fibWrapOut = ''
 $fibWrapRun = Measure-Median {
     $runOut = (& $fibWrapYashy 2>&1 | Out-String).Trim()
     if ($LASTEXITCODE -ne 0) {
-        throw "yashy fib-wrap failed (exit $LASTEXITCODE):`n$runOut"
+        throw "yashyc fib-wrap failed (exit $LASTEXITCODE):`n$runOut"
     }
     $script:fibWrapOut = $runOut
 } $Runs
@@ -180,7 +180,7 @@ $helloOut = ''
 $helloRun = Measure-Median {
     $runOut = (& $helloYashy 2>&1 | Out-String).Trim()
     if ($LASTEXITCODE -ne 0) {
-        throw "yashy hello failed (exit $LASTEXITCODE):`n$runOut"
+        throw "yashyc hello failed (exit $LASTEXITCODE):`n$runOut"
     }
     $script:helloOut = $runOut
 } $Runs
@@ -217,47 +217,47 @@ $promotedStack = ''
 $promotedArena = ''
 $promotedSites = ''
 if ($NoOpt -ne 'escape') {
-    $timings = (& $yashy 'build' "$bench\promote.ya" '-o' $promoteYashy '--timings' @noOptArgs 2>&1 | Out-String).Trim()
+    $timings = (& $yashyc 'build' "$bench\promote.ya" '-o' $promoteYashy '--timings' @noOptArgs 2>&1 | Out-String).Trim()
     if ($LASTEXITCODE -ne 0) {
-        throw "yashy build promote failed (exit $LASTEXITCODE):`n$timings"
+        throw "yashyc build promote failed (exit $LASTEXITCODE):`n$timings"
     }
     if ($timings -notmatch 'promoted_stack=(\d+)') {
-        throw "the promotion counts are missing from yashy build --timings:`n$timings"
+        throw "the promotion counts are missing from yashyc build --timings:`n$timings"
     }
     $promotedStack = $Matches[1]
     if ($timings -notmatch 'promoted_arena=(\d+)') {
-        throw "the promotion counts are missing from yashy build --timings:`n$timings"
+        throw "the promotion counts are missing from yashyc build --timings:`n$timings"
     }
     $promotedArena = $Matches[1]
     $promotedSites = [int]$promotedStack + [int]$promotedArena
     $promoteOut = (& $promoteYashy 2>&1 | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or $promoteOut -ne '43') {
-        throw "yashy promote printed '$promoteOut' (exit $LASTEXITCODE), expected 43"
+        throw "yashyc promote printed '$promoteOut' (exit $LASTEXITCODE), expected 43"
     }
 }
 
 # The answer is fixed, so a wrong program is a failed run rather than a fast
 # one. The C row is required: it is the denominator of fib_wrap_ratio.
 if ($yashyOut -ne '9227465') {
-    throw "yashy fib printed '$yashyOut', expected 9227465"
+    throw "yashyc fib printed '$yashyOut', expected 9227465"
 }
 if ($fibWrapOut -ne '9227465') {
-    throw "yashy fib-wrap printed '$fibWrapOut', expected 9227465"
+    throw "yashyc fib-wrap printed '$fibWrapOut', expected 9227465"
 }
 if ($helloOut -ne 'hello, world') {
-    throw "yashy hello printed '$helloOut', expected 'hello, world'"
+    throw "yashyc hello printed '$helloOut', expected 'hello, world'"
 }
 if ($yashyOut -ne $cOut) {
-    throw "fib outputs differ: yashy='$yashyOut' c='$cOut'"
+    throw "fib outputs differ: yashyc='$yashyOut' c='$cOut'"
 }
 if (($wordcountOut -replace "`r`n", "`n") -ne "900000`n8") {
-    throw "yashy wordcount printed '$wordcountOut', expected 900000 words and 8 distinct"
+    throw "yashyc wordcount printed '$wordcountOut', expected 900000 words and 8 distinct"
 }
 if ($mapsOut -ne '134999550000') {
-    throw "yashy maps printed '$mapsOut', expected 134999550000"
+    throw "yashyc maps printed '$mapsOut', expected 134999550000"
 }
 if ($largeOut -ne '123255') {
-    throw "yashy large printed '$largeOut', expected 123255"
+    throw "yashyc large printed '$largeOut', expected 123255"
 }
 
 $fibBytes = (Get-Item $fibYashy).Length

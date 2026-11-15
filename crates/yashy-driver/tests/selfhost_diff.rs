@@ -17,7 +17,7 @@
 
 mod common;
 
-use common::{work_dir, yashy};
+use common::{work_dir, yashyc};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -44,13 +44,13 @@ fn spike() -> &'static Path {
     BUILT.get_or_init(|| {
         let dir = work_dir("selfhost-spike");
         let out = dir.join(format!("selfhost{}", std::env::consts::EXE_SUFFIX));
-        let output = Command::new(yashy())
+        let output = Command::new(yashyc())
             .arg("build")
             .arg(root().join("selfhost").join("main.ya"))
             .arg("-o")
             .arg(&out)
             .output()
-            .expect("the yashy CLI must be runnable");
+            .expect("the yashyc CLI must be runnable");
         assert!(
             output.status.success(),
             "the spike must build:\n{}",

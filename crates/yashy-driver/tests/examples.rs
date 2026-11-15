@@ -1,9 +1,9 @@
-//! The examples are projects, not snippets: each one must pass `yashy test`,
+//! The examples are projects, not snippets: each one must pass `yashyc test`,
 //! and the two filters must produce the output their README promises.
 
 mod common;
 
-use common::yashy;
+use common::yashyc;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -36,14 +36,14 @@ fn example(name: &str) -> PathBuf {
 }
 
 fn run_test(dir: &Path) {
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("test")
         .current_dir(dir)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     assert!(
         output.status.success(),
-        "`yashy test` failed in {}:\n{}\n{}",
+        "`yashyc test` failed in {}:\n{}\n{}",
         dir.display(),
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
@@ -51,7 +51,7 @@ fn run_test(dir: &Path) {
 }
 
 fn run_with_stdin(dir: &Path, input: &[u8]) -> Output {
-    let mut child = Command::new(yashy())
+    let mut child = Command::new(yashyc())
         .arg("run")
         .arg("main.ya")
         .current_dir(dir)
@@ -59,7 +59,7 @@ fn run_with_stdin(dir: &Path, input: &[u8]) -> Output {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     child
         .stdin
         .take()
@@ -78,12 +78,12 @@ fn hello_builds_and_tests() {
     let dir = example("hello");
     run_test(&dir);
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("run")
         .arg("main.ya")
         .current_dir(&dir)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     assert!(
         output.status.success(),
         "the hello example failed:\n{}",
@@ -113,7 +113,7 @@ fn json_report_builds_and_tests() {
 
     let output = run_with_stdin(
         &dir,
-        b"{\"name\": \"yashy\"}\n{\"age\": 3}\n{\"name\": \"again\"}\n",
+        b"{\"name\": \"yashyc\"}\n{\"age\": 3}\n{\"name\": \"again\"}\n",
     );
     assert!(
         output.status.success(),

@@ -209,8 +209,8 @@ likely typo; a name that is simply absent gets the same error without the hint.
 The same rule covers functions, types, struct fields, struct-literal fields and
 enum variant fields, so a typo in `Point { x: 1, yy: 2 }` names the field it
 probably meant. The caret and the note are part of the diagnostic, not a
-separate lint: `yashy check` and `yashy build` print the same block. The final
-`docs:` line names the catalog page, and `yashy explain E0001` prints that page
+separate lint: `yashyc check` and `yashyc build` print the same block. The final
+`docs:` line names the catalog page, and `yashyc explain E0001` prints that page
 offline.
 
 ## Try it

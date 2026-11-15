@@ -9,7 +9,7 @@ than being presented as wins.
 
 ## The defect that mattered
 
-`yashy build` invoked `clang` without an optimization flag, which means `-O0`.
+`yashyc build` invoked `clang` without an optimization flag, which means `-O0`.
 Every binary Yashy produced ran unoptimized, including the runtime C source
 compiled at link time. The compiler's design puts *all* optimization in LLVM —
 `yashy-codegen` deliberately emits readable, unoptimized IR — so omitting the
@@ -76,7 +76,7 @@ move by construction; the movement is the machine, not the change.
 ### 2. Compile the runtime once per toolchain, not once per build — done
 
 The link step passed the runtime's C source to `clang` along with the object
-file, so **every** `yashy build` recompiled an identical `runtime.c`. The item
+file, so **every** `yashyc build` recompiled an identical `runtime.c`. The item
 said to measure that invocation before doing anything, and the answer was
 decisive: it was **135 ms of a 403 ms build**, a third of every build, to
 recompile a file whose bytes never change.
@@ -110,7 +110,7 @@ because a cache that can fail a build is worse than no cache.
 The cold path is 115 ms slower because it compiles the runtime and links it in
 two invocations where the old path did both in one; that is paid once per
 (toolchain, optimization level) pair. The steady state is **30% faster**, and it
-matters for how the language is perceived: `yashy build` is now within 8% of
+matters for how the language is perceived: `yashyc build` is now within 8% of
 `clang -O2` on the equivalent C file (282.8 ms against 263.0 ms), where it was
 53% slower (402.9 against 263.0).
 
@@ -270,7 +270,7 @@ that "not done" is visibly a decision rather than an oversight.
 `Module::push` takes a `String` per instruction and `finish` joins them, so a
 module allocates once per emitted instruction. A single `String` with `write!`
 would remove that. The item said to measure with a large generated program
-before deciding, so here is that measurement — `yashy build --emit-ir` on
+before deciding, so here is that measurement — `yashyc build --emit-ir` on
 generated sources of *n* small functions, output discarded, best of 3:
 
 | functions | IR lines | front end | front end + codegen | codegen |
@@ -451,7 +451,7 @@ evidence yet that it matters; no struct-heavy benchmark exists.
 ## Gaps in the tooling, not in the code
 
 - **Timing a command that writes a lot to stdout through PowerShell times
-  PowerShell, not the command.** Piping `yashy build --emit-ir` into `Out-Null`
+  PowerShell, not the command.** Piping `yashyc build --emit-ir` into `Out-Null`
   reported 2,492 ms for a 3,000-function program — PowerShell materialises one
   object per output line. The same command redirected with `cmd /c … > nul`
   reported 279 ms. That 9× artifact briefly looked like a quadratic codegen bug.

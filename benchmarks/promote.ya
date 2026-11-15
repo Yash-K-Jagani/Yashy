@@ -2,7 +2,7 @@
 //
 // `kept` allocates a buffer that never leaves the function, so escape analysis
 // moves it to the frame; `escaped` returns its buffer, so the same pass has to
-// leave it on the heap. `yashy build --timings` counts the result
+// leave it on the heap. `yashyc build --timings` counts the result
 // (`promoted_stack`, `promoted_arena`), and `benchmarks/ci.sh`/`ci.ps1` check
 // that exactly one of the two sites moved.
 //

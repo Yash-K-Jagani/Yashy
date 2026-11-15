@@ -1,4 +1,4 @@
-//! Tests for `yashy expand` and expansion in the check pipeline.
+//! Tests for `yashyc expand` and expansion in the check pipeline.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -6,11 +6,11 @@ use std::process::Command;
 mod common;
 
 fn run_yashy(dir: &PathBuf, args: &[&str], file: &str) -> std::process::Output {
-    Command::new(common::yashy())
+    Command::new(common::yashyc())
         .args(args)
         .arg(dir.join(file))
         .output()
-        .expect("the yashy CLI must run")
+        .expect("the yashyc CLI must run")
 }
 
 fn stdout(output: &std::process::Output) -> String {

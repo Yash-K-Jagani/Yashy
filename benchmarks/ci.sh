@@ -43,7 +43,7 @@ set -eu
 bench=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 root=$(dirname "$bench")
 build="$bench/build/ci"
-yashy="$root/target/release/yashy"
+yashyc="$root/target/release/yashyc"
 runs=${BENCH_RUNS:-3}
 output=${1:-}
 no_opt=${BENCH_NO_OPT:-}
@@ -54,8 +54,8 @@ fi
 
 mkdir -p "$build"
 
-if [ ! -x "$yashy" ]; then
-    echo "no release binary at $yashy - run: cargo build --release -p yashy-driver" >&2
+if [ ! -x "$yashyc" ]; then
+    echo "no release binary at $yashyc - run: cargo build --release -p yashy-driver" >&2
     exit 1
 fi
 if ! command -v clang >/dev/null 2>&1; then
@@ -103,7 +103,7 @@ ratio_within() {
 # Runs one build, and on failure prints what the build said.
 #
 # A gate that reports only "failed" leaves the CI log with no cause: the run
-# that first tripped this on `ubuntu-22.04` named `yashy build fib` and nothing
+# that first tripped this on `ubuntu-22.04` named `yashyc build fib` and nothing
 # else, because both call sites below discarded the child's output. The output
 # is small and this path runs once, so keep it and show it.
 run_checked() {
@@ -181,59 +181,59 @@ fib_wrap_out="$build/fib-wrap-yashy.out"
 hello_out="$build/hello-yashy.out"
 c_out="$build/fib-c.out"
 
-fib_compile=$(measure_compile 'yashy build fib' "$yashy" build "$bench/fib.ya" -o "$fib_yashy" --release ${no_opt_arg:+"$no_opt_arg"})
-hello_compile=$(measure_compile 'yashy build hello' "$yashy" build "$bench/hello.ya" -o "$hello_yashy" --release ${no_opt_arg:+"$no_opt_arg"})
-large_compile=$(measure_compile 'yashy build large' "$yashy" build "$bench/large.ya" -o "$large_yashy" --release ${no_opt_arg:+"$no_opt_arg"})
+fib_compile=$(measure_compile 'yashyc build fib' "$yashyc" build "$bench/fib.ya" -o "$fib_yashy" --release ${no_opt_arg:+"$no_opt_arg"})
+hello_compile=$(measure_compile 'yashyc build hello' "$yashyc" build "$bench/hello.ya" -o "$hello_yashy" --release ${no_opt_arg:+"$no_opt_arg"})
+large_compile=$(measure_compile 'yashyc build large' "$yashyc" build "$bench/large.ya" -o "$large_yashy" --release ${no_opt_arg:+"$no_opt_arg"})
 
 # The container workloads are the runtime rows. Built once, untimed: their
 # compile cost is the compiler's, not the runtime's.
-run_checked 'yashy build wordcount' "$yashy" build "$bench/wordcount.ya" -o "$wordcount_yashy" --release ${no_opt_arg:+"$no_opt_arg"}
-run_checked 'yashy build maps' "$yashy" build "$bench/maps.ya" -o "$maps_yashy" --release ${no_opt_arg:+"$no_opt_arg"}
+run_checked 'yashyc build wordcount' "$yashyc" build "$bench/wordcount.ya" -o "$wordcount_yashy" --release ${no_opt_arg:+"$no_opt_arg"}
+run_checked 'yashyc build maps' "$yashyc" build "$bench/maps.ya" -o "$maps_yashy" --release ${no_opt_arg:+"$no_opt_arg"}
 
 # The comparable-integer program: its compile row is not claimed, so the build
 # is untimed, but its run row is (see fib_wrap_ratio in the header).
-run_checked 'yashy build fib-wrap' "$yashy" build "$bench/fib-wrap.ya" -o "$fib_wrap_yashy" --release ${no_opt_arg:+"$no_opt_arg"}
+run_checked 'yashyc build fib-wrap' "$yashyc" build "$bench/fib-wrap.ya" -o "$fib_wrap_yashy" --release ${no_opt_arg:+"$no_opt_arg"}
 
-fib_run=$(measure_run 'yashy fib' "$fib_out" "$fib_yashy")
+fib_run=$(measure_run 'yashyc fib' "$fib_out" "$fib_yashy")
 wordcount_out="$build/wordcount-yashy.out"
 maps_out="$build/maps-yashy.out"
 large_out="$build/large-yashy.out"
-wordcount_run=$(measure_run 'yashy wordcount' "$wordcount_out" "$wordcount_yashy")
-maps_run=$(measure_run 'yashy maps' "$maps_out" "$maps_yashy")
+wordcount_run=$(measure_run 'yashyc wordcount' "$wordcount_out" "$wordcount_yashy")
+maps_run=$(measure_run 'yashyc maps' "$maps_out" "$maps_yashy")
 # large is already built for its compile row; its run row is the release
 # link's end-to-end time.
-large_run=$(measure_run 'yashy large' "$large_out" "$large_yashy")
+large_run=$(measure_run 'yashyc large' "$large_out" "$large_yashy")
 # The executable's fixed cost, which is what a whole-process ratio is made of
 # once the arithmetic is comparable: hello does no work at all.
-hello_run=$(measure_run 'yashy hello' "$hello_out" "$hello_yashy")
+hello_run=$(measure_run 'yashyc hello' "$hello_out" "$hello_yashy")
 # The numerator of fib_wrap_ratio.
-fib_wrap_run=$(measure_run 'yashy fib-wrap' "$fib_wrap_out" "$fib_wrap_yashy")
+fib_wrap_run=$(measure_run 'yashyc fib-wrap' "$fib_wrap_out" "$fib_wrap_yashy")
 
 # The answer is fixed, so a wrong program is a failed run rather than a fast
 # one.
 if [ "$(cat "$fib_out")" != '9227465' ]; then
-    say "yashy fib printed '$(cat "$fib_out")', expected 9227465"
+    say "yashyc fib printed '$(cat "$fib_out")', expected 9227465"
     exit 1
 fi
 if [ "$(cat "$fib_wrap_out")" != '9227465' ]; then
-    say "yashy fib-wrap printed '$(cat "$fib_wrap_out")', expected 9227465"
+    say "yashyc fib-wrap printed '$(cat "$fib_wrap_out")', expected 9227465"
     exit 1
 fi
 if [ "$(cat "$hello_out")" != 'hello, world' ]; then
-    say "yashy hello printed '$(cat "$hello_out")', expected 'hello, world'"
+    say "yashyc hello printed '$(cat "$hello_out")', expected 'hello, world'"
     exit 1
 fi
 if [ "$(cat "$wordcount_out")" != "900000
 8" ]; then
-    say "yashy wordcount printed '$(cat "$wordcount_out")', expected 900000 words and 8 distinct"
+    say "yashyc wordcount printed '$(cat "$wordcount_out")', expected 900000 words and 8 distinct"
     exit 1
 fi
 if [ "$(cat "$maps_out")" != '134999550000' ]; then
-    say "yashy maps printed '$(cat "$maps_out")', expected 134999550000"
+    say "yashyc maps printed '$(cat "$maps_out")', expected 134999550000"
     exit 1
 fi
 if [ "$(cat "$large_out")" != '123255' ]; then
-    say "yashy large printed '$(cat "$large_out")', expected 123255"
+    say "yashyc large printed '$(cat "$large_out")', expected 123255"
     exit 1
 fi
 
@@ -266,16 +266,16 @@ promoted_arena=''
 promoted_sites=''
 if [ "$no_opt" != 'escape' ]; then
     status=0
-    "$yashy" build "$bench/promote.ya" -o "$promote_yashy" --timings ${no_opt_arg:+"$no_opt_arg"} >"$promote_log" 2>&1 || status=$?
+    "$yashyc" build "$bench/promote.ya" -o "$promote_yashy" --timings ${no_opt_arg:+"$no_opt_arg"} >"$promote_log" 2>&1 || status=$?
     if [ "$status" -ne 0 ]; then
-        say "yashy build promote failed (exit $status)"
+        say "yashyc build promote failed (exit $status)"
         cat "$promote_log" >&2
         exit 1
     fi
     promoted_stack=$(sed -n 's/.*promoted_stack=\([0-9][0-9]*\).*/\1/p' "$promote_log" | tail -n 1)
     promoted_arena=$(sed -n 's/.*promoted_arena=\([0-9][0-9]*\).*/\1/p' "$promote_log" | tail -n 1)
     if [ -z "$promoted_stack" ] || [ -z "$promoted_arena" ]; then
-        say 'the promotion counts are missing from `yashy build --timings`'
+        say 'the promotion counts are missing from `yashyc build --timings`'
         cat "$promote_log" >&2
         exit 1
     fi
@@ -284,7 +284,7 @@ if [ "$no_opt" != 'escape' ]; then
     status=0
     "$promote_yashy" >"$promote_out" 2>&1 || status=$?
     if [ "$status" -ne 0 ] || [ "$(cat "$promote_out")" != '43' ]; then
-        say "yashy promote printed '$(cat "$promote_out")' (exit $status), expected 43"
+        say "yashyc promote printed '$(cat "$promote_out")' (exit $status), expected 43"
         exit 1
     fi
 fi

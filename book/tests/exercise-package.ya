@@ -1,7 +1,7 @@
 // The solution to the packages exercise: a program that prints the name and
 // the version a package would publish.
 //
-// The manifest is the source of truth for both, and `yashy audit` checks it
+// The manifest is the source of truth for both, and `yashyc audit` checks it
 // against the release policy before the package is published.
 
 fn main() {

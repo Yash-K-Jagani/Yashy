@@ -15,7 +15,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use common::{exe, launch_output, work_dir, yashy};
+use common::{exe, launch_output, work_dir, yashyc};
 use yashy_manifest::Manifest;
 
 /// The repository root: `crates/yashy-driver/tests/stdlib_precompiled.rs`.
@@ -26,7 +26,7 @@ fn root() -> PathBuf {
 /// Run the CLI from the repository root so an entry path in the IR key is the
 /// same string for every build in one test.
 fn cli(cache: &Path, stdlib: Option<&Path>, args: &[&str]) -> Output {
-    let mut command = Command::new(yashy());
+    let mut command = Command::new(yashyc());
     command
         .args(args)
         .current_dir(root())
@@ -34,7 +34,7 @@ fn cli(cache: &Path, stdlib: Option<&Path>, args: &[&str]) -> Output {
     if let Some(stdlib) = stdlib {
         command.env("YASHY_STDLIB", stdlib);
     }
-    command.output().expect("the yashy CLI must be runnable")
+    command.output().expect("the yashyc CLI must be runnable")
 }
 
 /// Build `entry` to `out` with `--timings`, optionally from source.
@@ -274,14 +274,14 @@ fn a_stdlib_version_change_invalidates_the_ir_cache() {
     fs::create_dir_all(&copy).expect("the copy must be creatable");
     copy_tree(
         &root().join("crates/yashy-stdlib/yashy"),
-        &copy.join("yashy"),
+        &copy.join("yashyc"),
     );
     fs::copy(
         root().join("crates/yashy-stdlib/yashy.toml"),
         copy.join("yashy.toml"),
     )
     .expect("the manifest must be copied");
-    let stdlib = copy.join("yashy");
+    let stdlib = copy.join("yashyc");
 
     let cache = work_dir("stdlib-version-cache");
     let dir = work_dir("stdlib-version-out");

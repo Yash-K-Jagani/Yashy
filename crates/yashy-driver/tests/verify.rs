@@ -1,4 +1,4 @@
-//! `yashy verify`: the command that runs the verifier, its human output, its
+//! `yashyc verify`: the command that runs the verifier, its human output, its
 //! JSON envelope, and the whole corpus.
 //!
 //! The corpus test at the bottom is the one that matters. A verifier is only
@@ -9,17 +9,17 @@
 
 mod common;
 
-use common::{work_dir, write, yashy};
+use common::{work_dir, write, yashyc};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 fn run(dir: &Path, args: &[&str]) -> Output {
-    Command::new(yashy())
+    Command::new(yashyc())
         .args(args)
         .current_dir(dir)
         .output()
-        .expect("the yashy CLI must be runnable")
+        .expect("the yashyc CLI must be runnable")
 }
 
 fn stdout(output: &Output) -> String {

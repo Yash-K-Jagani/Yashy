@@ -80,11 +80,11 @@ check the compiler makes.
 
 ## Seeing the proof
 
-`yashy verify` runs the verifier on its own and prints what it could not
+`yashyc verify` runs the verifier on its own and prints what it could not
 establish:
 
 ```text
-$ yashy verify main.ya
+$ yashyc verify main.ya
 main.ya:7:5
 error[E1401]: `buffer` is used after it was released
 ```

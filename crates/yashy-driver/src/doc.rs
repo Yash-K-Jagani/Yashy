@@ -1,4 +1,4 @@
-//! `yashy doc`: the public surface rendered from the compiler's own tables.
+//! `yashyc doc`: the public surface rendered from the compiler's own tables.
 //!
 //! One fact, two renderings: `--json` emits the same model the Markdown is
 //! rendered from. Items are sorted by (kind, name); the Markdown has no
@@ -217,7 +217,7 @@ fn generic_functions(source: &str) -> Vec<crate::index::GenericFn> {
 pub fn to_json(model: &DocModel) -> Json {
     let mut root = Json::object();
     root.set("schema_version", Json::number(1));
-    root.set("tool", Json::string("yashy"));
+    root.set("tool", Json::string("yashyc"));
     root.set(
         "modules",
         Json::array(

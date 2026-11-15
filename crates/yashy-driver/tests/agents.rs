@@ -8,7 +8,7 @@
 
 mod common;
 
-use common::yashy;
+use common::yashyc;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -86,7 +86,7 @@ fn agents_diagnostic_commands_run() {
     let markdown = read("AGENTS.md");
     let commands: Vec<String> = block_after(&markdown, "## Diagnostics and JSON")
         .into_iter()
-        .filter(|line| line.starts_with("yashy "))
+        .filter(|line| line.starts_with("yashyc "))
         .collect();
 
     assert_eq!(
@@ -95,11 +95,11 @@ fn agents_diagnostic_commands_run() {
         "AGENTS.md should document five diagnostic commands: {commands:?}"
     );
     for expected in [
-        "yashy check --json",
-        "yashy verify --json",
-        "yashy test --json",
-        "yashy explain",
-        "yashy explain --json",
+        "yashyc check --json",
+        "yashyc verify --json",
+        "yashyc test --json",
+        "yashyc explain",
+        "yashyc explain --json",
     ] {
         assert!(
             commands.iter().any(|command| command.contains(expected)),
@@ -109,7 +109,7 @@ fn agents_diagnostic_commands_run() {
 
     for command in commands {
         let args: Vec<&str> = command.split_whitespace().skip(1).collect();
-        let output = Command::new(yashy())
+        let output = Command::new(yashyc())
             .args(&args)
             .current_dir(root())
             .output()
@@ -132,13 +132,13 @@ fn agents_diagnostic_commands_run() {
                 "`{command}` must report success:\n{stdout}"
             );
         }
-        if command.starts_with("yashy check --json") {
+        if command.starts_with("yashyc check --json") {
             assert!(
                 stdout.contains("\"diagnostics\": []"),
                 "the example must be clean:\n{stdout}"
             );
         }
-        if command.starts_with("yashy verify --json") {
+        if command.starts_with("yashyc verify --json") {
             assert!(
                 stdout.contains("\"tool\": \"verify\""),
                 "`{command}` must be a verifier report:\n{stdout}"
@@ -148,7 +148,7 @@ fn agents_diagnostic_commands_run() {
                 "the example must be sound:\n{stdout}"
             );
         }
-        if command.starts_with("yashy test --json") {
+        if command.starts_with("yashyc test --json") {
             assert!(
                 stdout.contains("\"tool\": \"test\""),
                 "`{command}` must be a test report:\n{stdout}"
@@ -158,7 +158,7 @@ fn agents_diagnostic_commands_run() {
                 "`{command}` must list the tests it ran:\n{stdout}"
             );
         }
-        if command == "yashy explain E0100" {
+        if command == "yashyc explain E0100" {
             assert!(
                 stdout.contains("# E0100"),
                 "`{command}` must print the catalog page:\n{stdout}"

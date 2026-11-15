@@ -25,8 +25,8 @@ use std::time::{Duration, Instant};
 
 const TIMEOUT: Duration = Duration::from_secs(60);
 
-fn yashy() -> &'static str {
-    common::yashy()
+fn yashyc() -> &'static str {
+    common::yashyc()
 }
 
 fn tutorial_dir() -> PathBuf {
@@ -118,13 +118,13 @@ fn chapters() -> Vec<PathBuf> {
 }
 
 fn build(source: &Path, exe: &Path) -> Output {
-    Command::new(yashy())
+    Command::new(yashyc())
         .arg("build")
         .arg(source)
         .arg("-o")
         .arg(exe)
         .output()
-        .expect("the yashy CLI must be runnable")
+        .expect("the yashyc CLI must be runnable")
 }
 
 fn wait(mut child: std::process::Child, exe: &Path) -> Output {
@@ -332,14 +332,14 @@ fn first_cli_project_builds_runs_and_tests() {
         "the empty-argument case must print the usage line"
     );
 
-    let tested = Command::new(yashy())
+    let tested = Command::new(yashyc())
         .arg("test")
         .current_dir(&dir)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     assert!(
         tested.status.success(),
-        "`yashy test` failed on the first-CLI project:\n{}\n{}",
+        "`yashyc test` failed on the first-CLI project:\n{}\n{}",
         String::from_utf8_lossy(&tested.stdout),
         String::from_utf8_lossy(&tested.stderr)
     );

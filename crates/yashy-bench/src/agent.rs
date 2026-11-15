@@ -56,17 +56,17 @@ pub fn tasks(root: &Path) -> Vec<Task> {
 /// The reference agent: run `check` through the MCP server, copy `fix.ya`
 /// over `bug.ya`, then run `test`. It succeeds on every task whose bug is
 /// the one the fix answers.
-pub fn run_reference_agent(yashy: &str, task: &Task) -> Record {
+pub fn run_reference_agent(yashyc: &str, task: &Task) -> Record {
     let started = std::time::Instant::now();
     let mut calls = 0usize;
     let mut violations = 0usize;
     // Step 1: `check` the buggy file through MCP; it must report errors.
-    let check = Command::new(yashy)
+    let check = Command::new(yashyc)
         .arg("mcp")
         .arg("--root")
         .arg(&task.dir)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     let _ = check;
     calls += 1;
     // Step 2: the fix.
@@ -75,11 +75,11 @@ pub fn run_reference_agent(yashy: &str, task: &Task) -> Record {
         Err(_) => violations += 1,
     }
     // Step 3: `test` the fixed program.
-    let test = Command::new(yashy)
+    let test = Command::new(yashyc)
         .arg("test")
         .arg(task.dir.join("tests"))
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     calls += 1;
     let success = test.status.success();
     Record {
@@ -95,20 +95,20 @@ pub fn run_reference_agent(yashy: &str, task: &Task) -> Record {
 
 /// The deliberately failing agent: it only ever runs `check` and fixes
 /// nothing. It scores 0.
-pub fn run_failing_agent(yashy: &str, task: &Task) -> Record {
+pub fn run_failing_agent(yashyc: &str, task: &Task) -> Record {
     let started = std::time::Instant::now();
-    let check = Command::new(yashy)
+    let check = Command::new(yashyc)
         .arg("mcp")
         .arg("--root")
         .arg(&task.dir)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     let _ = check;
-    let test = Command::new(yashy)
+    let test = Command::new(yashyc)
         .arg("test")
         .arg(task.dir.join("tests"))
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     let success = test.status.success();
     Record {
         task: task.name.clone(),
@@ -137,10 +137,10 @@ impl Record {
 }
 
 /// Run the reference agent over every task and write `baseline.json`.
-pub fn run_all(yashy: &str, root: &Path, out: &Path) -> std::io::Result<()> {
+pub fn run_all(yashyc: &str, root: &Path, out: &Path) -> std::io::Result<()> {
     let records: Vec<Record> = tasks(root)
         .iter()
-        .map(|task| run_reference_agent(yashy, task))
+        .map(|task| run_reference_agent(yashyc, task))
         .collect();
     let mut text = String::from("[\n");
     for (index, record) in records.iter().enumerate() {

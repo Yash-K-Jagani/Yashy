@@ -4,7 +4,7 @@
 # Usage:
 #   scripts/book-reference.sh [--out <file>]
 #
-# The reference is generated, not written by hand: `yashy index --json` reads
+# The reference is generated, not written by hand: `yashyc index --json` reads
 # the same tables the compiler checks a program against, so a signature in the
 # book cannot drift from the signature in the code. The CI job regenerates the
 # page and fails when the file differs, which is what makes the generation a
@@ -38,15 +38,15 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-if [ -x target/release/yashy ]; then
-    yashy=target/release/yashy
-elif [ -x target/debug/yashy ]; then
-    yashy=target/debug/yashy
+if [ -x target/release/yashyc ]; then
+    yashyc=target/release/yashyc
+elif [ -x target/debug/yashyc ]; then
+    yashyc=target/debug/yashyc
 else
-    die "no yashy binary; run: cargo build --release -p yashy-driver"
+    die "no yashyc binary; run: cargo build --release -p yashy-driver"
 fi
 
-index=$("$yashy" index --json crates/yashy-stdlib/yashy) ||
+index=$("$yashyc" index --json crates/yashy-stdlib/yashy) ||
     die "the index failed"
 
 # The symbols, one per line, grouped by the module they come from. The

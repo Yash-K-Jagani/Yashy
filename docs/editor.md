@@ -1,16 +1,16 @@
 # Editor setup
 
-`yashy lsp` is the whole configuration: the server is a sibling binary
-(`yashy-lsp` beside the `yashy` executable), launched on stdio. There is
+`yashyc lsp` is the whole configuration: the server is a sibling binary
+(`yashy-lsp` beside the `yashyc` executable), launched on stdio. There is
 no second thing to install or keep in step. When the sibling is missing,
-`yashy lsp` exits 2 naming the path, and `yashy doctor` reports the lookup
+`yashyc lsp` exits 2 naming the path, and `yashyc doctor` reports the lookup
 in the place a user runs when something is wrong.
 
 ## Neovim
 
 ```lua
 vim.lsp.config('yashy', {
-  cmd = { 'yashy', 'lsp' },
+  cmd = { 'yashyc', 'lsp' },
   filetypes = { 'yashy' },
   root_markers = { 'yashy.toml' },
 })
@@ -40,7 +40,7 @@ vim.lsp.enable('yashy')
 
 ```json
 {
-  "yashy.lsp.command": ["yashy", "lsp"]
+  "yashy.lsp.command": ["yashyc", "lsp"]
 }
 ```
 
@@ -59,6 +59,6 @@ scope = "source.yashy"
 file-types = ["ya"]
 
 [language-server.yashy]
-command = "yashy"
+command = "yashyc"
 args = ["lsp"]
 ```

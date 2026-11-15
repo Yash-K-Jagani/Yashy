@@ -10,7 +10,7 @@
 //! A path package is read in place. A git package is read from the store, so
 //! `--offline` means "the checkout is already there or the build stops". The
 //! graph also verifies `yashy.lock`: a package whose version, source or content
-//! hash differs is `E1802`, and `yashy update` is the only thing that rewrites
+//! hash differs is `E1802`, and `yashyc update` is the only thing that rewrites
 //! the lock.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -56,7 +56,7 @@ impl ResolvedGraph {
         roots.into_iter().collect()
     }
 
-    /// Turn the graph into the lockfile `yashy update` writes.
+    /// Turn the graph into the lockfile `yashyc update` writes.
     pub fn to_lock(&self) -> Result<Lockfile, ResolveError> {
         let mut packages = Vec::with_capacity(self.packages.len());
         for package in &self.packages {
@@ -127,7 +127,7 @@ impl std::fmt::Display for ResolveError {
 ///
 /// `lock` is checked when present: every resolved package must appear with the
 /// same version, source and content hash, and no lock entry may be unused. A
-/// caller generating a new lock (`yashy update`) passes `None`.
+/// caller generating a new lock (`yashyc update`) passes `None`.
 pub fn resolve(
     manifest: &Manifest,
     lock: Option<&Lockfile>,
@@ -379,7 +379,7 @@ impl ResolvedGraph {
             else {
                 return Err(ResolveError::lock(format!(
                     "`{}` {} resolves to {}, but yashy.lock does not record it; \
-                     run `yashy update`",
+                     run `yashyc update`",
                     package.name,
                     package.version,
                     package.root.display()
@@ -387,7 +387,7 @@ impl ResolvedGraph {
             };
             if entry.source != package.source {
                 return Err(ResolveError::lock(format!(
-                    "`{}` {} comes from {}, but yashy.lock records {}; run `yashy update`",
+                    "`{}` {} comes from {}, but yashy.lock records {}; run `yashyc update`",
                     package.name, package.version, package.source, entry.source
                 )));
             }
@@ -401,7 +401,7 @@ impl ResolvedGraph {
             if entry.hash != hash {
                 return Err(ResolveError::lock(format!(
                     "the source of `{}` {} hashes to {hash}, but yashy.lock records {}; \
-                     run `yashy update`",
+                     run `yashyc update`",
                     package.name, package.version, entry.hash
                 )));
             }
@@ -414,7 +414,7 @@ impl ResolvedGraph {
             {
                 return Err(ResolveError::lock(format!(
                     "yashy.lock records `{}` {}, but nothing depends on it; \
-                     run `yashy update`",
+                     run `yashyc update`",
                     entry.name, entry.version
                 )));
             }
@@ -444,7 +444,7 @@ mod tests {
         let error = resolve(&manifest, None, Path::new("."), true, &store())
             .expect_err("the store is cold");
         assert_eq!(error.code, yashy_common::codes::OFFLINE_MISSING);
-        assert!(error.message.contains("yashy fetch"), "{error}");
+        assert!(error.message.contains("yashyc fetch"), "{error}");
     }
 
     #[test]
@@ -470,7 +470,7 @@ mod tests {
         let error = resolve(&manifest, Some(&empty), &base, false, &store())
             .expect_err("the lock is empty");
         assert_eq!(error.code, yashy_common::codes::LOCKFILE_MISMATCH);
-        assert!(error.message.contains("yashy update"), "{error}");
+        assert!(error.message.contains("yashyc update"), "{error}");
         let _ = std::fs::remove_dir_all(&base);
     }
 

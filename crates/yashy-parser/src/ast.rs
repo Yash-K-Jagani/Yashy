@@ -113,7 +113,7 @@ pub enum Item {
         span: Span,
     },
     /// A documented item: a run of `///` lines above an item, stored as text
-    /// for [`yashy doc`](https://yashy.dev) to read later. Like `pub`, the
+    /// for [`yashyc doc`](https://yashy.dev) to read later. Like `pub`, the
     /// doc block wraps the item rather than being a field on every kind.
     Documented {
         /// The doc lines, each with the leading `/// ` stripped.

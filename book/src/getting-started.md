@@ -11,13 +11,13 @@ macOS, a tarball for Linux. Unpack it and run the installer it contains, then
 check that the toolchain is complete:
 
 ```text
-$ yashy doctor
-yashy 1.0.0
+$ yashyc doctor
+yashyc 1.0.0
 target: x86_64-unknown-linux-gnu
 clang: /usr/bin/clang
   clang version 18.1.8
 stdlib: /home/you/.local/share/yashy/stdlib/yashy
-path: /home/you/.local/bin/yashy
+path: /home/you/.local/bin/yashyc
 ```
 
 `doctor` names what is missing and what to do about it. The macOS install is
@@ -35,7 +35,7 @@ fn main() {
 Save it as `main.ya` and run it:
 
 ```text
-$ yashy run main.ya
+$ yashyc run main.ya
 Hello, Yashy!
 ```
 
@@ -73,7 +73,7 @@ Write a program that adds two numbers and prints the sum. The numbers come
 from the command line, so the program has to read its arguments:
 
 ```text
-$ yashy run main.ya 2 3
+$ yashyc run main.ya 2 3
 5
 ```
 

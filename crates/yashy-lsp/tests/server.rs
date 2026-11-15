@@ -480,7 +480,7 @@ fn a_uri_keeps_a_windows_paths_characters() {
 #[test]
 fn a_native_path_round_trips_through_a_uri() {
     let path = std::env::temp_dir()
-        .join("yashy lsp")
+        .join("yashyc lsp")
         .join("examples")
         .join("main.ya");
     assert_eq!(yashy_lsp::uri_to_path(&path_to_uri(&path)), path);

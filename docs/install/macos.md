@@ -37,7 +37,7 @@ sh yashy-<version>-aarch64-apple-darwin/install.sh --prefix "$HOME/.local"
 
 The installer checks the archive against `SHA256SUMS`, copies the compiler and
 the standard library into the prefix, adds the prefix to your shell profile,
-and runs `yashy doctor` to tell you whether the toolchain is complete.
+and runs `yashyc doctor` to tell you whether the toolchain is complete.
 
 A file that came through a browser carries a quarantine attribute, and
 Gatekeeper asks before it opens a program for the first time. A notarised
@@ -59,8 +59,8 @@ xcode-select --install
 clang --version
 ```
 
-`yashy doctor` reports the toolchain, the standard library and the PATH
-entry, and `yashy doctor --json` prints the same facts as a document.
+`yashyc doctor` reports the toolchain, the standard library and the PATH
+entry, and `yashyc doctor --json` prints the same facts as a document.
 
 ## Uninstall
 

@@ -1427,7 +1427,7 @@ yashy_str *yashy_read_line(void) {
  * than that reads as `Other` rather than being truncated.
  */
 
-/* The sandbox: when `yashy run --sandbox` launched this process, the
+/* The sandbox: when `yashyc run --sandbox` launched this process, the
  * capability set arrived as environment variables. A file entry point reads
  * its allowlist before opening anything; anything outside a listed root is
  * denied before the file is touched, which is what makes the escape corpus
@@ -1751,7 +1751,7 @@ int yashy_getenv(const char *name, yashy_str **out) {
  * `yashy_args_slice` copies the pieces a program actually asks for.
  *
  * `args()` excludes `argv[0]`: the first element is the first argument after
- * `yashy run --`, which is what a CLI wants to read. A second init keeps the
+ * `yashyc run --`, which is what a CLI wants to read. A second init keeps the
  * first vector -- the entry point calls it once, and a recursive `main` call
  * passes a null pair that must not erase the real one.
  */
@@ -2459,7 +2459,7 @@ void yashy_slice_slice_strings(yashy_slice *out, yashy_slice *source,
  * `column` are one-based and count characters, like every other diagnostic.
  *
  * Task-aware debugging (phase 10 task 7): when `YASHY_DEBUG=1` — which is
- * what `yashy run --debug` and `yashy tasks` set for the child — the panic
+ * what `yashyc run --debug` and `yashyc tasks` set for the child — the panic
  * path also prints the executor's live tasks (`yashy_tasks_dump`, in
  * executor.c) before exiting, so a panic names every task that was alive.
  * The dump is empty when no task was ever created, which is how a plain

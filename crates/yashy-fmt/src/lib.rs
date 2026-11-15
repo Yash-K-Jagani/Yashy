@@ -43,7 +43,7 @@ pub fn format(src: &str) -> Result<String, Vec<Diagnostic>> {
     // Parse for validity only. The printer needs the token stream, not the AST,
     // but a file that does not parse must be reported instead of reformatted.
     let mut sources = SourceMap::new();
-    let file = sources.add_file("<yashy fmt>", src.to_string());
+    let file = sources.add_file("<yashyc fmt>", src.to_string());
     Parser::new(tokens.clone(), &sources, file).parse_program()?;
     Ok(Printer::new(src).print(&tokens))
 }

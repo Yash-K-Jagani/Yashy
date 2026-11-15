@@ -1,21 +1,21 @@
-//! `yashy index`: the symbol index over a directory.
+//! `yashyc index`: the symbol index over a directory.
 
 mod common;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-fn yashy() -> &'static str {
-    common::yashy()
+fn yashyc() -> &'static str {
+    common::yashyc()
 }
 
 fn index_of(dir: &Path) -> String {
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("index")
         .arg("--json")
         .arg(dir)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     assert!(
         output.status.success(),
         "index failed:\n{}",

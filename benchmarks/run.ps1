@@ -68,7 +68,7 @@ $ErrorActionPreference = 'Continue'
 $bench = $PSScriptRoot
 $root = Split-Path -Parent $bench
 $build = Join-Path $bench 'build'
-$yashy = Join-Path $root 'target\release\yashy.exe'
+$yashyc = Join-Path $root 'target\release\yashyc.exe'
 $exe = '.exe'
 
 # Input sizes, and the work each one implies. `fib` reports calls into the
@@ -89,8 +89,8 @@ New-Item -ItemType Directory -Force -Path $build | Out-Null
 # drift apart. On a host whose triple needs no help (Linux), no `--target` is
 # passed and clang uses its default.
 $clangTarget = @()
-if (Test-Path $yashy) {
-    $triple = & $yashy build "$bench\fib.ya" --emit-ir 2>$null |
+if (Test-Path $yashyc) {
+    $triple = & $yashyc build "$bench\fib.ya" --emit-ir 2>$null |
         Select-String -Pattern '^target triple = ' |
         ForEach-Object { ($_.Line -split '"')[1] }
     if ($triple -like '*windows*') {
@@ -107,15 +107,15 @@ function Invoke-Tool {
 }
 
 function Build-All {
-    if (-not (Test-Path $yashy)) {
-        throw "no release binary at $yashy - run: cargo build --release --workspace"
+    if (-not (Test-Path $yashyc)) {
+        throw "no release binary at $yashyc - run: cargo build --release --workspace"
     }
 
     foreach ($name in $benchmarks) {
         # Yashy at the old default (-O0) and the new one (-O2), so the runtime
         # table shows the effect of the change instead of asserting it.
-        Invoke-Tool $yashy @('build', "$bench\$name.ya", '-o', "$build\$name-yashy-O0$exe", '-O0') "yashy build $name -O0"
-        Invoke-Tool $yashy @('build', "$bench\$name.ya", '-o', "$build\$name-yashy-O2$exe") "yashy build $name -O2"
+        Invoke-Tool $yashyc @('build', "$bench\$name.ya", '-o', "$build\$name-yashy-O0$exe", '-O0') "yashyc build $name -O0"
+        Invoke-Tool $yashyc @('build', "$bench\$name.ya", '-o', "$build\$name-yashy-O2$exe") "yashyc build $name -O2"
 
         # `<name>-wrap.ya` is the same algorithm with `wrapping_*` instead of
         # bare `+`/`-`/`*`, and it is the row that is strictly comparable with the
@@ -123,20 +123,20 @@ function Build-All {
         # checks. Only the integer benchmarks have one -- the float benchmark has
         # no integer arithmetic to opt out of.
         if (Test-Path "$bench\$name-wrap.ya") {
-            Invoke-Tool $yashy @('build', "$bench\$name-wrap.ya", '-o', "$build\$name-yashy-wrap$exe") "yashy build $name-wrap"
+            Invoke-Tool $yashyc @('build', "$bench\$name-wrap.ya", '-o', "$build\$name-yashy-wrap$exe") "yashyc build $name-wrap"
         }
 
         # `--native` targets the machine that builds, so its C counterpart is
         # compiled with `-march=native` too. The pair answers "what is the flag
         # worth" without either side quietly receiving a flag the other did not.
-        Invoke-Tool $yashy @('build', "$bench\$name.ya", '-o', "$build\$name-yashy-native$exe", '--native') "yashy build $name --native"
+        Invoke-Tool $yashyc @('build', "$bench\$name.ya", '-o', "$build\$name-yashy-native$exe", '--native') "yashyc build $name --native"
         Invoke-Tool 'clang' ($clangTarget + @('-O2', '-march=native', "$bench\$name.c", '-o', "$build\$name-clang-native$exe")) "clang $name -march=native"
 
         # `x86-64-v3` is the same idea with the portability spent more carefully:
         # an AVX2-era CPU rather than this exact one, so the binary is the same
         # on every machine of that generation. It is the tier to compare when
         # `--native`'s numbers look unrepeatable across two machines.
-        Invoke-Tool $yashy @('build', "$bench\$name.ya", '-o', "$build\$name-yashy-v3$exe", '--cpu=x86-64-v3') "yashy build $name --cpu=x86-64-v3"
+        Invoke-Tool $yashyc @('build', "$bench\$name.ya", '-o', "$build\$name-yashy-v3$exe", '--cpu=x86-64-v3') "yashyc build $name --cpu=x86-64-v3"
         Invoke-Tool 'clang' ($clangTarget + @('-O2', '-march=x86-64-v3', "$bench\$name.c", '-o', "$build\$name-clang-v3$exe")) "clang $name -march=x86-64-v3"
 
         # The `v3` pair above is *not* a like-for-like comparison on its own.
@@ -144,7 +144,7 @@ function Build-All {
         # its `v3` row already has a fused multiply-add, while Yashy has to be
         # asked for one. This row is Yashy asking, and it is the one to read
         # beside `C (clang -O2, -march=x86-64-v3)`.
-        Invoke-Tool $yashy @('build', "$bench\$name.ya", '-o', "$build\$name-yashy-v3-fast$exe", '--cpu=x86-64-v3', '--fast-math') "yashy build $name --cpu=x86-64-v3 --fast-math"
+        Invoke-Tool $yashyc @('build', "$bench\$name.ya", '-o', "$build\$name-yashy-v3-fast$exe", '--cpu=x86-64-v3', '--fast-math') "yashyc build $name --cpu=x86-64-v3 --fast-math"
 
         # Two C compilers, so the Yashy numbers are not graded against one
         # backend's quirks. clang gets the same target Yashy passes.
@@ -234,8 +234,8 @@ function Invoke-Runtime {
 
 function Invoke-CompileTime {
     $cases = @(
-        @{ Lang = 'Yashy (front end only)'; Exe = $yashy;  Args = @('build', "$bench\fib.ya", '--emit-ir') },
-        @{ Lang = 'Yashy (full, -O2)';      Exe = $yashy;  Args = @('build', "$bench\fib.ya", '-o', "$build\ct-yashy$exe") },
+        @{ Lang = 'Yashy (front end only)'; Exe = $yashyc;  Args = @('build', "$bench\fib.ya", '--emit-ir') },
+        @{ Lang = 'Yashy (full, -O2)';      Exe = $yashyc;  Args = @('build', "$bench\fib.ya", '-o', "$build\ct-yashy$exe") },
         @{ Lang = 'C (clang -O2)';          Exe = 'clang'; Args = ($clangTarget + @('-O2', "$bench\fib.c", '-o', "$build\ct-clang$exe")) },
         @{ Lang = 'Rust (rustc -O)';        Exe = 'rustc'; Args = @('-O', "$bench\fib.rs", '-o', "$build\ct-rust$exe") },
         @{ Lang = 'Go (go build)';          Exe = 'go';    Args = @('build', '-o', "$build\ct-go$exe", "$bench\fib.go") }

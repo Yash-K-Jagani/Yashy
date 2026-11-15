@@ -15,7 +15,7 @@ plans and specs sit in `history/` inside those two folders.
 cargo build --release --workspace
 cargo check --workspace --all-targets
 cargo test --workspace
-yashy verify --json --timings --inventory examples/hello/main.ya
+yashyc verify --json --timings --inventory examples/hello/main.ya
 cargo test -p yashy-driver --test doctor
 cargo test -p yashy-driver --test tutorial
 cargo test -p yashy-driver --test examples
@@ -46,14 +46,14 @@ under `examples/`. A change to the language is not done until those still pass.
 ## Diagnostics and JSON
 
 Human diagnostics are the primary interface. A coded diagnostic ends with a
-`docs:` line, and `yashy explain <code>` prints the same long-form page offline.
+`docs:` line, and `yashyc explain <code>` prints the same long-form page offline.
 
 ```text
-yashy check --json examples/hello/main.ya
-yashy verify --json examples/hello/main.ya
-yashy test --json examples/hello
-yashy explain E0100
-yashy explain --json E0100
+yashyc check --json examples/hello/main.ya
+yashyc verify --json examples/hello/main.ya
+yashyc test --json examples/hello
+yashyc explain E0100
+yashyc explain --json E0100
 ```
 
 `check --json`, `verify --json` and `test --json` share
@@ -69,12 +69,12 @@ success, `1` diagnostics or tests failed, `2` usage or configuration error, and
 
 Workflow for a compiler error:
 
-1. Run `yashy check --json <file.ya>` and read `diagnostics[]`.
-2. Take a `code` and run `yashy explain --json <code>` for `title`, `summary`,
-   `page`, and `docs_url`; `yashy explain <code>` prints the human page.
-3. Fix the cause, rerun `check`, then run `yashy test --json` and inspect
+1. Run `yashyc check --json <file.ya>` and read `diagnostics[]`.
+2. Take a `code` and run `yashyc explain --json <code>` for `title`, `summary`,
+   `page`, and `docs_url`; `yashyc explain <code>` prints the human page.
+3. Fix the cause, rerun `check`, then run `yashyc test --json` and inspect
    `tests[]` and `summary`.
-4. Run `yashy verify --json <file.ya>` before claiming a build: `build` and
+4. Run `yashyc verify --json <file.ya>` before claiming a build: `build` and
    `run` refuse an unsound program, and `proof` says what is missing.
 
 The catalog lives in [docs/errors.md](docs/errors.md); every code has a page such
@@ -120,7 +120,7 @@ as [E0100](docs/errors/E0100.md) with a cause, a minimal example, and the fix.
   `verify`, `explain`, `context`, `index`) — never shell execution, never a
   path outside the workspace root. The sandbox is default-deny
   (`--allow-read`/`--allow-write` name the only paths) and both OSes or it
-  is not a sandbox. `yashy doc` is the documentation source of truth:
+  is not a sandbox. `yashyc doc` is the documentation source of truth:
   the public surface rendered from the compiler's own tables, byte-stable
   across runs and OSes.
 - **Patterns are irrefutable in binding position.** A pattern in `let`,
@@ -138,7 +138,7 @@ as [E0100](docs/errors/E0100.md) with a cause, a minimal example, and the fix.
   resolution. The two recorded
   exceptions are `HirStmt::IfLet` (two blocks, which a `switch` arm cannot
   hold) and `HirBlock::arena` (one placement bit). `///` is documentation,
-  not an attribute: it is stored on the item for `yashy doc` and interpreted
+  not an attribute: it is stored on the item for `yashyc doc` and interpreted
   nowhere else.
 - **The object model is Rust-style, not class-based.** Traits are requirement
   sets with no state; `impl` is inherent or `impl Trait for Type`; dispatch is
@@ -186,7 +186,7 @@ as [E0100](docs/errors/E0100.md) with a cause, a minimal example, and the fix.
   fallible functions answer `Result` or `Option`, never a sentinel. The e2e
   suite runs every program twice, compares the bytes, and requires the leak
   report to read zero. `docs/stdlib.md` is generated from the same doc tables
-  by `yashy doc`; edit the module, never the page.
+  by `yashyc doc`; edit the module, never the page.
 - **Bitwise arithmetic is checked and total.** `& | ^ ~ << >>` take integers
   (and `bool` for the first three) with no implicit widening; a shift count out
   of range is a fault at run time and `E0105` in a `const`. `>>` is arithmetic

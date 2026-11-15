@@ -1342,8 +1342,8 @@ pub fn check_and_verify_timed(
     )?;
     // Warnings run after the checker and before the verifier. They are
     // collected into the same diagnostic bag as the verifier's output, so
-    // `yashy check` (which never reaches here) does not see them and
-    // `yashy verify` sees both. A warning is not a soundness failure: it
+    // `yashyc check` (which never reaches here) does not see them and
+    // `yashyc verify` sees both. A warning is not a soundness failure: it
     // does not change the exit code unless `--deny warnings` is set, which
     // the driver applies after collection.
     let mut warnings = Vec::new();
@@ -1370,7 +1370,7 @@ pub fn check_and_verify_timed(
 /// Emit and link an already-checked program.
 ///
 /// This is the half of the pipeline that needs an LLVM toolchain. Everything
-/// above it is pure Rust, which is what lets `yashy check` and `--emit-ir` run
+/// above it is pure Rust, which is what lets `yashyc check` and `--emit-ir` run
 /// on a machine that cannot produce a binary.
 pub fn compile_hir(
     sources: &SourceMap,

@@ -1,4 +1,4 @@
-//! Rendering for `yashy build --opt-report`.
+//! Rendering for `yashyc build --opt-report`.
 //!
 //! The code generator records a [`yashy_codegen::OptReport`] while it lowers
 //! each body: one entry for every check the verifier could not delete and every
@@ -58,7 +58,7 @@ pub fn render(sources: &SourceMap, report: &OptReport) -> String {
 pub fn json(sources: &SourceMap, report: &OptReport) -> Json {
     let mut root = Json::object();
     root.set("schema_version", Json::number(1));
-    root.set("tool", Json::string("yashy"));
+    root.set("tool", Json::string("yashyc"));
     let mut functions = Json::array(Vec::new());
     for function in report.functions.iter().filter(|f| !f.items.is_empty()) {
         let mut object = Json::object();

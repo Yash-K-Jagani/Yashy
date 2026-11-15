@@ -78,7 +78,7 @@ impl Store {
         }
         if offline {
             return Err(FetchError::new(format!(
-                "`{}@{}` is not in the local store; run `yashy fetch` without `--offline` (or `yashy update`) first",
+                "`{}@{}` is not in the local store; run `yashyc fetch` without `--offline` (or `yashyc update`) first",
                 entry.name, entry.version
             )));
         }
@@ -155,7 +155,7 @@ impl Store {
         if offline {
             return Err(FetchError::new(format!(
                 "`{url}` at `{rev}` is not in the local store; \
-                 run `yashy fetch` without `--offline` (or `yashy update`) first"
+                 run `yashyc fetch` without `--offline` (or `yashyc update`) first"
             )));
         }
         if !git_available() {
@@ -405,7 +405,7 @@ mod tests {
         let error = store
             .git_checkout("https://example.invalid/x", "abc", true)
             .expect_err("a cold store cannot satisfy an offline fetch");
-        assert!(error.message.contains("yashy fetch"), "{error}");
+        assert!(error.message.contains("yashyc fetch"), "{error}");
         assert!(error.message.contains("--offline"), "{error}");
     }
 }

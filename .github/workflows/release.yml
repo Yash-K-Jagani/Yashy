@@ -89,8 +89,8 @@ jobs:
           # /tr is the timestamping authority: without it the signature is
           # only valid while the certificate is, and a release outlives it.
           signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
-            /f $pfx /p $env:CERT_PASSWORD target/release/yashy.exe
-          signtool verify /pa /v target/release/yashy.exe
+            /f $pfx /p $env:CERT_PASSWORD target/release/yashyc.exe
+          signtool verify /pa /v target/release/yashyc.exe
           Remove-Item -Force $pfx
 
       - name: Package
@@ -165,13 +165,13 @@ jobs:
             apt-get install -y clang llvm ca-certificates &&
             archive=$(ls /dist/yashy-*-x86_64-unknown-linux-gnu.tar.gz) &&
             YASHY_ARCHIVE="$archive" YASHY_SHA256SUMS=/dist/SHA256SUMS \
-              sh /dist/install.sh --prefix /tmp/yashy --no-path &&
-            /tmp/yashy/bin/yashy doctor &&
-            /tmp/yashy/bin/yashy doctor --json &&
-            /tmp/yashy/bin/yashy init /tmp/demo &&
-            cd /tmp/demo && /tmp/yashy/bin/yashy test &&
-            sh /dist/install.sh --uninstall --prefix /tmp/yashy --no-path &&
-            test ! -d /tmp/yashy
+              sh /dist/install.sh --prefix /tmp/yashyc --no-path &&
+            /tmp/yashyc/bin/yashyc doctor &&
+            /tmp/yashyc/bin/yashyc doctor --json &&
+            /tmp/yashyc/bin/yashyc init /tmp/demo &&
+            cd /tmp/demo && /tmp/yashyc/bin/yashyc test &&
+            sh /dist/install.sh --uninstall --prefix /tmp/yashyc --no-path &&
+            test ! -d /tmp/yashyc
           '
 
   # The macOS release: two archives, one for Apple silicon and one for Intel.
@@ -302,7 +302,7 @@ jobs:
         if: env.SIGN == '1'
         run: |
           set -eu
-          binary="target/${{ matrix.target }}/release/yashy"
+          binary="target/${{ matrix.target }}/release/yashyc"
           identity=$(security find-identity -v -p codesigning |
             grep 'Developer ID Application' | head -n 1 | sed 's/.*"\(.*\)"/\1/')
           [ -n "$identity" ] || { echo "error: no Developer ID Application identity" >&2; exit 1; }
@@ -315,7 +315,7 @@ jobs:
           version="${VERSION#v}"
           sh scripts/package-release.sh --version "$version" \
             --target "${{ matrix.target }}" \
-            --binary "target/${{ matrix.target }}/release/yashy"
+            --binary "target/${{ matrix.target }}/release/yashyc"
 
       # `stapler` supports an app bundle, a disk image and a flat installer
       # package, and nothing else: a zip and a bare Mach-O cannot carry a
@@ -374,7 +374,7 @@ jobs:
           rm -rf "$probe"
           mkdir -p "$probe"
           unzip -q "$archive" -d "$probe"
-          if codesign -dv --verbose=4 "$probe"/*/yashy 2>&1 |
+          if codesign -dv --verbose=4 "$probe"/*/yashyc 2>&1 |
             grep -q '^Authority=Developer ID Application'; then
             sh scripts/test-install.sh --archive "$archive"
           else

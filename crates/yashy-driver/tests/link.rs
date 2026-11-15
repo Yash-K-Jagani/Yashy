@@ -163,13 +163,13 @@ fn main() {
     .expect("the fixture must be writable");
 
     let exe = dir.join(format!("math{}", std::env::consts::EXE_SUFFIX));
-    let built = Command::new(common::yashy())
+    let built = Command::new(common::yashyc())
         .arg("build")
         .arg(&source)
         .arg("-o")
         .arg(&exe)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     assert!(
         built.status.success(),
         "the math program must build:\n{}",
@@ -202,14 +202,14 @@ fn a_cold_runtime_cache_still_builds() {
         .expect("the fixture must be writable");
 
     let exe = dir.join(format!("hello{}", std::env::consts::EXE_SUFFIX));
-    let built = Command::new(common::yashy())
+    let built = Command::new(common::yashyc())
         .env("YASHY_CACHE_DIR", &cache)
         .arg("build")
         .arg(&source)
         .arg("-o")
         .arg(&exe)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     assert!(
         built.status.success(),
         "a build with no cached runtime object must still succeed:\n{}",

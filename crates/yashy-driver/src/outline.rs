@@ -1,4 +1,4 @@
-//! `yashy outline`, `yashy graph` and `yashy search`: three views over the
+//! `yashyc outline`, `yashyc graph` and `yashyc search`: three views over the
 //! index model of [`crate::index`].
 //!
 //! All three read the same model, so their answers cannot disagree: the
@@ -75,7 +75,7 @@ pub fn graph_json(model: &IndexModel) -> Json {
 
 /// Graphviz DOT for the same graph.
 pub fn graph_dot(model: &IndexModel) -> String {
-    let mut out = String::from("digraph yashy {\n");
+    let mut out = String::from("digraph yashyc {\n");
     for import in &model.imports {
         out.push_str(&format!(
             "  {:?} -> {:?} [label=\"import\"];\n",

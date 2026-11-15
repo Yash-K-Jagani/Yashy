@@ -7,7 +7,7 @@
 - `spawn` and `scope`: structured concurrency, where children are joined
   or cancelled before the scope is left.
 - Why a lock held across `.await` is a compile error, not a style warning.
-- `yashy run --debug` and `yashy tasks`: the live-task table a hung
+- `yashyc run --debug` and `yashyc tasks`: the live-task table a hung
   program can be debugged with.
 
 An `async fn` does not run when it is called. The call allocates a frame,
@@ -116,9 +116,9 @@ governs tasks too (`E1402` for a bare linear capture).
 
 ## Debugging a hung program
 
-`yashy run --debug` runs the program with `YASHY_DEBUG=1`: on a panic or an
+`yashyc run --debug` runs the program with `YASHY_DEBUG=1`: on a panic or an
 arithmetic fault, the executor prints its live tasks before the process ends.
-`yashy tasks` goes further — it prints the table while the program runs:
+`yashyc tasks` goes further — it prints the table while the program runs:
 
 ```text
 tasks: 2

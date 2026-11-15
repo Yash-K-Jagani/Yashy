@@ -65,7 +65,7 @@ later reader does not reopen it by accident.
 | 3 | **"As small a design space as possible" is a preference, not an invariant** | Design-space minimalism as a hard rule (it would forbid traits, async and macros) |
 | 4 | **Verifier surface whitelist: contracts + effects + typestate.** Nothing else without a written exception | Contracts only; per-phase whitelist |
 | 5 | **No external SMT solver.** Hand-written decidable domain; unprovable contracts are rejected | Optional Z3; Z3 required |
-| 6 | **Global content-addressed build cache**, shared across projects, with a size cap and `yashy cache clean` | Per-project cache only; no cache |
+| 6 | **Global content-addressed build cache**, shared across projects, with a size cap and `yashyc cache clean` | Per-project cache only; no cache |
 | 7 | **Observability covers both the compiler and the programs it produces** | Compiler-only; program-only |
 | 8 | **Hybrid libraries: small stable core + first-party packages**, with the stdlib versioned as a package | Batteries-included stdlib; minimal stdlib with ecosystem-first |
 | 9 | **Verifier first, then speed, then features in dependency order** (the trust ratchet) | Feature-first with verification last; alternating tracks |
@@ -284,16 +284,16 @@ cannot discharge them. That is the sound direction of failure.
 
 ### 4.3 How it runs
 
-- `yashy verify` — standalone, human and `--json` output.
-- `yashy build` — runs the verifier by default. An unverified binary is not a
+- `yashyc verify` — standalone, human and `--json` output.
+- `yashyc build` — runs the verifier by default. An unverified binary is not a
   build.
 - `--no-verify` is deliberately narrow, because an unrestricted escape hatch
   becomes the default path and quietly voids the guarantee:
   - legal only for a program that declares **no** contracts, effects or
     typestate;
   - always prints a warning;
-  - stamps *unverified* provenance that `yashy inspect` reports and that
-    `yashy --version`-style metadata keeps with the binary;
+  - stamps *unverified* provenance that `yashyc inspect` reports and that
+    `yashyc --version`-style metadata keeps with the binary;
   - `YASHY_REQUIRE_VERIFY=1` (set in CI) turns any use into a hard error.
 - Diagnostics get their own code range and reuse schema v1, so an agent receives
   proof failures and errors in one shape.
@@ -342,14 +342,14 @@ effect is `pure`. C cannot state those facts; this language derives them.
 
 Measurement discipline (kept from the existing gate): `key=value` artifacts,
 per-OS baselines, medians of 5, report-only on PRs, hard gate on scheduled and
-manual runs. Three additions: a **dev-loop gate** (real project `yashy test`, not
+manual runs. Three additions: a **dev-loop gate** (real project `yashyc test`, not
 just synthetic rows), a **per-phase regression budget** rather than a
 per-release one, and a **per-pass gate** so a new optimization pass cannot buy
 one row by selling another.
 
 **Cache design:** one content-addressed store under the user profile, shared by
-all projects, with a per-project lockfile, a size cap, `yashy cache clean`, and
-`yashy cache verify` that recomputes a key. CI never trusts a cache it did not
+all projects, with a per-project lockfile, a size cap, `yashyc cache clean`, and
+`yashyc cache verify` that recomputes a key. CI never trusts a cache it did not
 create.
 
 ---
@@ -366,7 +366,7 @@ person and an agent equally.
   in phase 1a so the verifier's 30% budget is measurable from the day the budget
   exists.
 - Proof traces for every verifier rejection.
-- `yashy cache stats` and `yashy verify --json` summaries.
+- `yashyc cache stats` and `yashyc verify --json` summaries.
 
 ### 6.2 Tooling for agents
 
@@ -380,7 +380,7 @@ person and an agent equally.
 
 ### 6.3 Tooling for humans
 
-- `yashy doc`; debugger (DWARF + LLDB, async-aware after phase 10); profiler
+- `yashyc doc`; debugger (DWARF + LLDB, async-aware after phase 10); profiler
   integration.
 - Stdlib `log`, `trace`, `metrics` for structured program observability.
 - Deterministic mode (fixed clock, RNG and environment) for reproducible tests
@@ -435,7 +435,7 @@ phase after it keeps its number.
 | 8 | Traits, OOP + iterators | Interfaces, Rust-style OOP without inheritance (traits, impl, static dispatch, associated functions `Type::name`, member visibility, no `Drop`), generic constraints, **generic structs and enums**, iterator protocol, comprehensions | Dispatch proven safe; monomorphisation within budget; the OOP conformance program passes and the four excluded forms are rejected; a generic `Pair[T]` monomorphises like a generic function | 15 |
 | 9 | Macros | Declarative, hygienic, `expand` | Verifier runs on expanded code; expansion deterministic and inspectable | 8 |
 | 10 | Async | Executor, futures, state machines, structured concurrency, cancellation, debugger support. **Capped in writing:** one executor, no async traits, no generic runtime | Conformance suite; no data races proven; `async` effect enforced | 16 |
-| 11 | AI-native + observability | `index`/`outline`/`graph`/`search`/`context`, MCP v0, sandbox v0, agent benchmark, debugger, profiler, tracing; **`yashy doc`** over the doc comments phase 5 parses; **`yashy lsp`** as a real subcommand | Context ≤ 8k tokens; escape tests; schema v1 frozen; benchmark runs; `yashy doc` renders every public item and `yashy lsp` answers initialize | 13 |
+| 11 | AI-native + observability | `index`/`outline`/`graph`/`search`/`context`, MCP v0, sandbox v0, agent benchmark, debugger, profiler, tracing; **`yashyc doc`** over the doc comments phase 5 parses; **`yashyc lsp`** as a real subcommand | Context ≤ 8k tokens; escape tests; schema v1 frozen; benchmark runs; `yashyc doc` renders every public item and `yashyc lsp` answers initialize | 13 |
 | 12 | Libraries + packages | Package manager MVP, first-party packages, precompiled stdlib; **stdlib breadth**: `Set`, `Deque`, `PriorityQueue`, `sort_by`, `regex`, `base64`/`hex`, `csv`, `glob`, `ANSI`, `datetime`, `hash`, OS entropy, `process.spawn` | Clean-checkout dependency build; real HTTP service; audit green; every module in `stdlib/` has a documented function with a test | 18 |
 | 13 | 1.0 / 2.0 hardening | macOS, signed and reproducible releases, book/playground, registry prototype, self-hosting spike; **`fmt --check`**, **`--target`**, **`cfg`/platform conditionals** | All metrics met; no P0; reproducible build; CI fails on unformatted source; a program branches on platform with `cfg` | 14 |
 
@@ -485,7 +485,7 @@ cheapest point at which the unknown can be reduced.
 ### 9.1 Cut order
 
 Playground → profiler → coverage/lint → `task` → third-party registry → macOS
-signing → `yashy doc` → `--target` → `cfg`/platform conditionals → generic structs
+signing → `yashyc doc` → `--target` → `cfg`/platform conditionals → generic structs
 and enums → stdlib breadth (`regex` → `csv` → `glob` → `ANSI` → `datetime` →
 `PriorityQueue` → `Deque` → `Set`) → `process.spawn` → OS entropy → variadic FFI
 → async cancellation → macro hygiene edge cases → chained comparison → indexed

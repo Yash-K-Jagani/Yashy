@@ -1,4 +1,4 @@
-//! Schema-v1 tests for `yashy check --json` and `yashy test --json`.
+//! Schema-v1 tests for `yashyc check --json` and `yashyc test --json`.
 //!
 //! The tests read the output with a tiny JSON parser instead of matching
 //! message text. The schema is a contract with tools, so the shape and the
@@ -7,17 +7,17 @@
 
 mod common;
 
-use common::{work_dir, write, yashy};
+use common::{work_dir, write, yashyc};
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
 
 fn run(dir: &Path, args: &[&str]) -> Output {
-    Command::new(yashy())
+    Command::new(yashyc())
         .args(args)
         .current_dir(dir)
         .output()
-        .expect("the yashy CLI must be runnable")
+        .expect("the yashyc CLI must be runnable")
 }
 
 fn stdout(output: &Output) -> String {
@@ -373,14 +373,14 @@ fn test_json_internal_error_exits_3() {
     let not_a_dir = dir.join("not-a-dir");
     fs::write(&not_a_dir, "a file where a directory is needed").expect("the fixture is writable");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .args(["test", "--json"])
         .current_dir(&dir)
         .env("TMPDIR", &not_a_dir)
         .env("TMP", &not_a_dir)
         .env("TEMP", &not_a_dir)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
 
     assert_eq!(
         output.status.code(),

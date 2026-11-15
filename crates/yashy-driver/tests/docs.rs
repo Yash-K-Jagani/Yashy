@@ -107,13 +107,13 @@ fn quickstart_and_reference_links_resolve() {
     }
 }
 
-/// `docs/stdlib.md` is generated from the same documentation model `yashy doc`
+/// `docs/stdlib.md` is generated from the same documentation model `yashyc doc`
 /// renders, so the reference cannot drift from the doc blocks.
 ///
 /// `UPDATE_GOLDEN=1` rewrites the page instead of comparing it.
 #[test]
 fn stdlib_reference_is_generated_from_doc_blocks() {
-    let stdlib = root().join("crates").join("yashy-stdlib").join("yashy");
+    let stdlib = root().join("crates").join("yashy-stdlib").join("yashyc");
     let model = yashy_driver::doc::build_doc(&stdlib, false)
         .expect("the standard library must build a documentation model");
     // `build_doc` skips a module that does not check, so compare the model
@@ -138,7 +138,7 @@ fn stdlib_reference_is_generated_from_doc_blocks() {
 
     let mut text = String::from(
         "# The standard library\n\n\
-         Generated from the `///` and `/** */` doc blocks by `yashy doc`; edit the\n\
+         Generated from the `///` and `/** */` doc blocks by `yashyc doc`; edit the\n\
          module, not this page. `cargo test -p yashy-driver --test docs` fails\n\
          when the page and the compiler's tables disagree.\n",
     );

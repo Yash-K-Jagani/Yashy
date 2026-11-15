@@ -3,7 +3,7 @@
 // `crates/yashy-driver/tests/selfhost_diff.rs` is the differential test: it
 // runs this package over the repository's whole corpus and compares the
 // result with the Rust front end. That test needs Rust and 30 seconds. This
-// one needs neither, so `yashy test selfhost` answers the cheaper question --
+// one needs neither, so `yashyc test selfhost` answers the cheaper question --
 // does the lexer still tokenise the vocabulary, and does the parser still
 // produce the digest it produced when it was written -- in under a second.
 //

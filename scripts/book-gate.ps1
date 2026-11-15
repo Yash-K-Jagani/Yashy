@@ -58,12 +58,12 @@ try {
         Fail "no shell for the book gate's scripts; install Git for Windows (its bash runs them), or put sh on PATH"
     }
 
-    if (Test-Path target/release/yashy.exe) {
-        $yashy = (Resolve-Path target/release/yashy.exe).Path
-    } elseif (Test-Path target/debug/yashy.exe) {
-        $yashy = (Resolve-Path target/debug/yashy.exe).Path
+    if (Test-Path target/release/yashyc.exe) {
+        $yashyc = (Resolve-Path target/release/yashyc.exe).Path
+    } elseif (Test-Path target/debug/yashyc.exe) {
+        $yashyc = (Resolve-Path target/debug/yashyc.exe).Path
     } else {
-        Fail "no yashy binary; run: cargo build --release -p yashy-driver"
+        Fail "no yashyc binary; run: cargo build --release -p yashy-driver"
     }
 
     # The pages that carry blocks of their own. The language guide is not
@@ -82,12 +82,12 @@ try {
     }
 
     Write-Output "running the book's blocks"
-    & $shellPath scripts/run-tutorial-blocks.sh $yashy @pages
+    & $shellPath scripts/run-tutorial-blocks.sh $yashyc @pages
     if ($LASTEXITCODE -ne 0) {
         Fail "a block on the book's own pages did not compile or run"
     }
 
-    # The reference is generated from `yashy index`, so the file must already
+    # The reference is generated from `yashyc index`, so the file must already
     # be what the generator writes. A diff means the page and the compiler
     # disagree, and the page is the one that is wrong.
     Write-Output "checking the generated reference"
@@ -107,7 +107,7 @@ try {
     }
     foreach ($exercise in $exercises) {
         $out = Join-Path ([System.IO.Path]::GetTempPath()) ("yashy-book-" + [System.Guid]::NewGuid().ToString("N") + ".exe")
-        & $yashy build $exercise.FullName -o $out | Out-Null
+        & $yashyc build $exercise.FullName -o $out | Out-Null
         if ($LASTEXITCODE -ne 0) {
             Fail "$($exercise.Name) did not build, so it is not a solution"
         }

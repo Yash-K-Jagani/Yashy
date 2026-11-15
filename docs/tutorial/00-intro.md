@@ -31,8 +31,8 @@ syntax:
 ## Build and run
 
 > **Using a release?** Installing a prebuilt Yashy is the normal path: download
-> the archive for Windows or Linux, run its installer, then run `yashy doctor`.
-> The [first-CLI guide](12-first-cli.md) walks through the install, `yashy
+> the archive for Windows or Linux, run its installer, then run `yashyc doctor`.
+> The [first-CLI guide](12-first-cli.md) walks through the install, `yashyc
 > init`, and a complete program. The source build below is for contributors and
 > for working on the compiler itself.
 
@@ -43,12 +43,12 @@ cargo build --release
 ```
 
 Then compile a program and run it. The compiler lives at
-`target/release/yashy.exe` on Windows and `target/release/yashy` elsewhere; the
+`target/release/yashyc.exe` on Windows and `target/release/yashyc` elsewhere; the
 output is `hello.exe` on Windows and `hello` on Linux and macOS. A debug build
-works the same way and compiles faster: `cargo build`, then `target/debug/yashy`.
+works the same way and compiles faster: `cargo build`, then `target/debug/yashyc`.
 
 ```text
-target/release/yashy build hello.ya -o hello
+target/release/yashyc build hello.ya -o hello
 ./hello
 ```
 
@@ -74,11 +74,11 @@ file, imported or not, so the first example needs no `import`.
 
 | Command | What it does | When to use it |
 |---|---|---|
-| `yashy build file.ya -o name` | Compiles to a native executable. | Running the program. |
-| `yashy check file.ya` | Lexes, parses and type-checks; writes no executable. | Fast feedback while editing. |
-| `yashy build file.ya --emit-ir` | Prints the generated LLVM IR and stops. | Seeing what the compiler produced. |
-| `yashy fmt [-w] file.ya` | Rewrites a file in the canonical style; `-w` writes it back. | Keeping a file consistent. |
-| `yashy version` | Prints the compiler version. | Reporting a problem. |
+| `yashyc build file.ya -o name` | Compiles to a native executable. | Running the program. |
+| `yashyc check file.ya` | Lexes, parses and type-checks; writes no executable. | Fast feedback while editing. |
+| `yashyc build file.ya --emit-ir` | Prints the generated LLVM IR and stops. | Seeing what the compiler produced. |
+| `yashyc fmt [-w] file.ya` | Rewrites a file in the canonical style; `-w` writes it back. | Keeping a file consistent. |
+| `yashyc version` | Prints the compiler version. | Reporting a problem. |
 
 `build` accepts `-O0` through `-O3` (the default is `-O2`), `--release` (which
 drops `debug_assert` calls), `--fast-math` (which allows fused multiply-add and
@@ -90,7 +90,7 @@ use unless you know the machine that will run the binary).
 The tutorial is executable. Every fenced block tagged `yashy` is a whole
 program with a `fn main`, and the lines beginning `// =>` inside that block are
 the exact stdout the program must print, in order, one line each. The test
-extracts each block, writes it to a temporary file, runs `yashy build`, runs
+extracts each block, writes it to a temporary file, runs `yashyc build`, runs
 the result, and compares the output.
 
 ```text
@@ -110,7 +110,7 @@ promises; the explanations are there to make the promises make sense.
 
 - **Running the compiler with no command.** It prints `error: no command given`
   followed by the usage text.
-- **Forgetting the source file.** `yashy build` prints
+- **Forgetting the source file.** `yashyc build` prints
   ``error: `build` needs a source file``.
 - **Naming a file that is not there.** The error begins
   `error: cannot read <path>:` and includes the operating system's reason.
@@ -124,20 +124,20 @@ promises; the explanations are there to make the promises make sense.
 ## Try it
 
 1. Put the first program in a file named `first.ya`, build it with
-   `yashy build first.ya -o first`, and run it. Change the text, rebuild, and
+   `yashyc build first.ya -o first`, and run it. Change the text, rebuild, and
    confirm the change. Then delete `-o` and find where the executable landed.
    Hint: the source file's directory, not the shell's directory, is the one
    that matters.
 
 2. Break the program on purpose: declare `const int n = "three";` and run
-   `yashy check first.ya`. Read the four lines of the diagnostic, from the
+   `yashyc check first.ya`. Read the four lines of the diagnostic, from the
    `path:line:column` header to the caret under the expression. Hint: the
    caret points at the value that does not fit the declared type, not at the
    declaration.
 
 ## How it works
 
-`yashy build` runs a pipeline: lexer, parser, type checker, code generator, then
+`yashyc build` runs a pipeline: lexer, parser, type checker, code generator, then
 the system's `clang`. The compiler writes LLVM IR as text rather than
 building it through a library, so `--emit-ir` is a real view of the last stage
 and a code-generation bug can be read as a diff. The type checker runs before
@@ -146,7 +146,7 @@ a binary is written.
 
 Continue to [01-hello](01-hello.md). If you installed a release and want the
 project-shaped path first, read [12-first-cli](12-first-cli.md); the language
-chapters assume a working `yashy` and can be read in either order. The last
+chapters assume a working `yashyc` and can be read in either order. The last
 three chapters cover calling C, [13-ffi](13-ffi.md), splitting a program
 across files, [14-modules](14-modules.md), traits, the object model and
 iterators, [15-traits](15-traits.md), macros, [16-macros](16-macros.md), async,

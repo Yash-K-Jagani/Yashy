@@ -1,6 +1,6 @@
 # The standard library
 
-Generated from the `///` and `/** */` doc blocks by `yashy doc`; edit the
+Generated from the `///` and `/** */` doc blocks by `yashyc doc`; edit the
 module, not this page. `cargo test -p yashy-driver --test docs` fails
 when the page and the compiler's tables disagree.
 

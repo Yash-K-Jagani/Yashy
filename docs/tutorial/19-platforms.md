@@ -68,7 +68,7 @@ wrong thing without any other sign.
 To see what is true for the build you are making:
 
 ```text
-$ yashy check --print-cfg
+$ yashyc check --print-cfg
 arch_aarch64
 debug
 macos
@@ -80,7 +80,7 @@ unix
 `--target` names the platform a build is for:
 
 ```text
-$ yashy build --target aarch64-apple-darwin main.ya
+$ yashyc build --target aarch64-apple-darwin main.ya
 ```
 
 The supported triples are `x86_64-pc-windows-msvc`,
@@ -100,11 +100,11 @@ toolchain is missing, the build says so by name rather than failing later at
 the link:
 
 ```text
-$ yashy build --target aarch64-apple-darwin main.ya
+$ yashyc build --target aarch64-apple-darwin main.ya
 error[E2201]: the C toolchain for `aarch64-apple-darwin` is not installed: `clang --target=aarch64-apple-darwin` could not link a trivial program
 ```
 
-`yashy doctor --target <triple>` asks the same question without building.
+`yashyc doctor --target <triple>` asks the same question without building.
 
 `run` and `test` refuse a target other than the host: they run what they
 build, and a binary for another platform cannot start here. `build` is the
@@ -118,7 +118,7 @@ way to make a program for another platform.
 | Linux | x86-64 | a tarball, with a signed checksum file |
 | macOS | Apple silicon and Intel | a zip, signed, notarised and stapled |
 
-The same tree builds for all of them, and `yashy build --reproducible` makes
+The same tree builds for all of them, and `yashyc build --reproducible` makes
 two builds of it produce the same bytes, so a release's checksum is a fact
 about the tree and not about a moment.
 
@@ -137,5 +137,5 @@ about the tree and not about a moment.
    `target triple` line at the top of the emitted IR:
 
    ```text
-   yashy build --target aarch64-apple-darwin --emit-ir main.ya
+   yashyc build --target aarch64-apple-darwin --emit-ir main.ya
    ```

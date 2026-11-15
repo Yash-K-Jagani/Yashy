@@ -17,6 +17,14 @@ in the changelog. A commit that breaks a working program is listed first, under
 
 ## [Unreleased]
 
+### Breaking changes
+
+- the compiler binary is `yashyc`: every command is spelled `yashyc <verb>`.
+  The language is still Yashy, so `.ya`, `yashy.toml`, `yashy.lock`, the
+  `YASHY_*` environment variables, the `import` names and the installed
+  standard library do not move. A script that invokes `yashy` needs the new
+  name; a reinstall is what puts `yashyc` beside the standard library.
+
 ## [1.0.0] - 2026-11-12
 
 ### Breaking changes

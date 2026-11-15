@@ -1,4 +1,4 @@
-//! `yashy build --opt-report`: the reason every check and allocation survived.
+//! `yashyc build --opt-report`: the reason every check and allocation survived.
 //!
 //! The report is produced while the program is lowered, not by a second
 //! analysis: it names the checks the verifier could not delete and the
@@ -7,16 +7,16 @@
 
 mod common;
 
-use common::{work_dir, write, yashy};
+use common::{work_dir, write, yashyc};
 use std::path::Path;
 use std::process::{Command, Output};
 
 fn run(dir: &Path, args: &[&str]) -> Output {
-    Command::new(yashy())
+    Command::new(yashyc())
         .args(args)
         .current_dir(dir)
         .output()
-        .expect("the yashy CLI must be runnable")
+        .expect("the yashyc CLI must be runnable")
 }
 
 fn stdout(output: &Output) -> String {
@@ -137,7 +137,7 @@ fn the_json_report_is_stable_and_carries_the_schema() {
         first.contains("\"schema_version\": 1"),
         "schema v1:\n{first}"
     );
-    assert!(first.contains("\"tool\": \"yashy\""), "the tool:\n{first}");
+    assert!(first.contains("\"tool\": \"yashyc\""), "the tool:\n{first}");
     assert!(first.contains("\"functions\""), "the grouping:\n{first}");
     assert!(
         first.contains("\"kind\": \"bounds\""),

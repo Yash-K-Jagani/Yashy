@@ -1,9 +1,9 @@
 // The spike's entry point.
 //
-// `yashy run selfhost lex <file>` prints the token stream the Yashy lexer
+// `yashyc run selfhost lex <file>` prints the token stream the Yashy lexer
 // produced: one `Kind,start,end;` record per token, ending with `Eof`.
 //
-// `yashy run selfhost parse <file>` prints the canonical digest of the parsed
+// `yashyc run selfhost parse <file>` prints the canonical digest of the parsed
 // program, or `ERROR: <reason>` when the spike cannot parse it. The digest is
 // compared, by `crates/yashy-driver/tests/selfhost_diff.rs`, with the digest
 // the Rust parser renders from the same file: equal text means the two

@@ -197,7 +197,7 @@ cargo run -q -p yashy-bench -- --per-pass \
   --without intern=benchmarks/build/no-intern.bench
 ```
 
-The registry is the compiler's (`yashy build --opt-list`), and the gate needs a
+The registry is the compiler's (`yashyc build --opt-list`), and the gate needs a
 measurement for every registered pass — a missing `--without` is an error, not a
 skip. A pass fails when disabling it makes its own row *better* by more than 2%:
 that means the pass costs the row it claims to win. The `-NoOpt` and
@@ -208,7 +208,7 @@ promotion off, so the counts are not printed and a per-pass file carries no
 `promoted_*` row rather than a fake zero.
 
 To see *why* a given row still carries a check or an allocation, run
-`yashy build <file.ya> --opt-report`; [docs/optimization.md](../docs/optimization.md)
+`yashyc build <file.ya> --opt-report`; [docs/optimization.md](../docs/optimization.md)
 explains every entry and the contract that removes it.
 
 ### The sanitizer and PGO rows
@@ -259,7 +259,7 @@ or it is not done" is the phase's constraint.
 | `loop` | 200,000,000 iterations of an integer loop with a data-dependent branch | loop code, integer arithmetic, branch handling |
 | `float` | 100,000,000 iterations of `x = x * a + b` | `float` arithmetic on a serial dependency chain |
 | `fib-wrap`, `loop-wrap` | the two integer programs again, with `wrapping_*` in place of bare `+`, `-`, `*` | what Yashy's checked arithmetic costs, and the row that is strictly comparable with C, Rust, Go, Node and Python — all of whose arithmetic wraps |
-| `promote` | two `alloc` sites: one kept in its function, one returned | escape analysis, counted from `yashy build --timings`; the row the allocation claim is measured on |
+| `promote` | two `alloc` sites: one kept in its function, one returned | escape analysis, counted from `yashyc build --timings`; the row the allocation claim is measured on |
 
 Yashy's arithmetic is checked, so `fib.ya` is not quite the same program as
 `fib.c`: it stops with a message if an addition overflows, where C carries on
@@ -441,7 +441,7 @@ It does not mean "Yashy is as fast as C". Read the caveats:
 `fib` is used, and the `clang`/`rustc`/`go` rows are their full build, so the
 comparison is end-to-end invocations rather than self-reported phase times.
 
-The interesting row is **Yashy (front end only)**: `yashy build --emit-ir` runs
+The interesting row is **Yashy (front end only)**: `yashyc build --emit-ir` runs
 lexing, parsing, type checking and IR emission, and stops before any LLVM
 process starts. That is the part of the pipeline this repository actually
 implements — and it is a small fraction of the full build, because the rest is
@@ -457,7 +457,7 @@ and never calls anything at run time.
 
 | Measurement | `const-fn.ya` | `const-fn-values.ya` |
 |---|---:|---:|
-| Front end (`yashy build --emit-ir`), best of 9 | 19.7 ms | 20.0 ms |
+| Front end (`yashyc build --emit-ir`), best of 9 | 19.7 ms | 20.0 ms |
 | Run (whole process), best of 9 | 15.7 ms | 15.4 ms |
 
 Both rows are the same within the noise, and that is the result: the folded
@@ -662,7 +662,7 @@ Yashy built at `-O0` and at `-O2`, same source, same machine:
 | Go (`go build`) | 261.9 | 265.6 |
 | Rust (`rustc -O`) | 558.9 | 600.2 |
 
-`yashy build` is a single `clang` invocation now — compile the IR and link, with
+`yashyc build` is a single `clang` invocation now — compile the IR and link, with
 no intermediate object file — which is why a full build lands 5% above
 `clang -O2` on the same program rather than double it. It used to run `clang`
 twice and recompile the runtime's C source on every build (135 ms of a 403 ms

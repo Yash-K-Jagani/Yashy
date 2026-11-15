@@ -1,4 +1,4 @@
-//! `yashy fmt --check`: the format gate CI can enforce.
+//! `yashyc fmt --check`: the format gate CI can enforce.
 //!
 //! A gate is only useful if it is honest on a clean checkout, so the tests here
 //! cover the two failure modes that make people disable one: a file that is
@@ -7,15 +7,15 @@
 
 mod common;
 
-use common::{work_dir, yashy};
+use common::{work_dir, yashyc};
 use std::fs;
 use std::process::{Command, Output};
 
 fn run(args: &[&str]) -> Output {
-    Command::new(yashy())
+    Command::new(yashyc())
         .args(args)
         .output()
-        .expect("the yashy CLI must be runnable")
+        .expect("the yashyc CLI must be runnable")
 }
 
 fn stderr_of(output: &Output) -> String {

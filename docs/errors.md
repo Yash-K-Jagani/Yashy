@@ -18,7 +18,7 @@ error[E0100]: expected `int`, found `string`
 The header is the position, the `error[CODE]` line is the rule that was broken,
 and the caret is the expression the rule applied to. The code is stable:
 `E0100` always means a type mismatch, and the final `docs:` line names its page.
-`yashy explain E0100` prints the same page offline. A note below the caret names
+`yashyc explain E0100` prints the same page offline. A note below the caret names
 the declaration or import involved when that is not obvious.
 
 ## Codes
@@ -150,8 +150,8 @@ after `error`, as in the example above.
 | Message | Meaning |
 |---|---|
 | `error: cannot read <path>: ...` | The file is missing or unreadable. |
-| `error: no tests at <path>` | `yashy test` was given a path that does not exist. |
-| `error: <path> is not empty` | `yashy init` only creates a project in an empty directory. |
+| `error: no tests at <path>` | `yashyc test` was given a path that does not exist. |
+| `error: <path> is not empty` | `yashyc init` only creates a project in an empty directory. |
 | `error: no LLVM toolchain found` | Yashy found neither `clang` nor `llc`; builds need `clang`. |
 
 ## Runtime faults
@@ -176,8 +176,8 @@ same checked lookup. A program that wants to stop on a missing element has to
 
 ## Doctor failures
 
-`yashy doctor` reports each failing check as a `clang:` or `stdlib:` line, then
-prints one final `next:` line. `yashy doctor --json` reports the same facts as
+`yashyc doctor` reports each failing check as a `clang:` or `stdlib:` line, then
+prints one final `next:` line. `yashyc doctor --json` reports the same facts as
 fields (`clang`, `stdlib`, `path`, `next`) and keeps stderr empty.
 
 ## Where to look next

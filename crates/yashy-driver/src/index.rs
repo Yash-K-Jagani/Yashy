@@ -1,6 +1,6 @@
 //! The symbol index: one fact, two renderings.
 //!
-//! `yashy index` walks a directory (or a single file), loads and checks every
+//! `yashyc index` walks a directory (or a single file), loads and checks every
 //! program in it, and answers what the compiler knows about its symbols:
 //! what they are, where they are, what they do, what they promise and what
 //! they touch. The human table and the `--json` document are two renderings
@@ -628,11 +628,11 @@ fn collect_ya_files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// The JSON envelope every command shares: `{"schema_version":1,"tool":"yashy",…}`.
+/// The JSON envelope every command shares: `{"schema_version":1,"tool":"yashyc",…}`.
 pub fn to_json(model: &IndexModel) -> Json {
     let mut root = Json::object();
     root.set("schema_version", Json::number(1));
-    root.set("tool", Json::string("yashy"));
+    root.set("tool", Json::string("yashyc"));
     root.set(
         "files",
         Json::array(model.files.iter().map(|file| Json::string(file)).collect()),

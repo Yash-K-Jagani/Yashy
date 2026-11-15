@@ -1,4 +1,4 @@
-//! Task-aware debugging: `yashy tasks` and `yashy run --debug` print the
+//! Task-aware debugging: `yashyc tasks` and `yashyc run --debug` print the
 //! live tasks (id, async function, resume index, state) on a panic.
 //!
 //! The fixture `async_debug_tasks.ya` spawns one task and panics in the
@@ -9,7 +9,7 @@
 
 mod common;
 
-use common::yashy;
+use common::yashyc;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -21,12 +21,12 @@ fn program() -> PathBuf {
 }
 
 fn run_tasks(args: &[&str], extra: &[&str]) -> std::process::Output {
-    let mut command = Command::new(yashy());
+    let mut command = Command::new(yashyc());
     command.args(extra);
     command.args(args);
     command
         .output()
-        .expect("the yashy CLI must be runnable")
+        .expect("the yashyc CLI must be runnable")
 }
 
 fn stderr_of(output: &std::process::Output) -> String {

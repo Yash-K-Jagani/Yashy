@@ -500,7 +500,7 @@ pub const CODES: &[Code] = &[
     Code {
         id: LOCKFILE_MISMATCH,
         title: "lockfile mismatch",
-        summary: "`yashy.lock` and `yashy.toml` disagree; run `yashy update`.",
+        summary: "`yashy.lock` and `yashy.toml` disagree; run `yashyc update`.",
         page: include_str!("../../../docs/errors/E1802.md"),
     },
     Code {

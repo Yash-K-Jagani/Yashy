@@ -19,7 +19,7 @@ What remains after all of that is LLVM's business: inlining, GVN, unrolling, vec
 Every optimization the backend applies is one entry in a registry, run in one order before any IR is written. `--opt-list` prints that order and the bench row each pass is held to:
 
 ```text
-$ yashy build --opt-list
+$ yashyc build --opt-list
 pass     row
 facts    fib_run_ms
 escape   maps_run_ms
@@ -40,14 +40,14 @@ Anything not in the table is mandatory lowering, not a pass: there is no switch 
 
 The per-pass gate (`yashy-bench --per-pass`) compares the all-passes measurement with one taken with each pass disabled and fails when disabling a pass *improves* its own row by more than 2%. See [benchmarks/README.md](../benchmarks/README.md#the-per-pass-gate) for the command that produces the table.
 
-`escape` is the one pass whose named row cannot move: `maps.ya` inserts and probes a builtin `Map`, so the source has no `alloc` site and disabling the pass changes nothing in that program. Its positive row is the promotion count instead. [`benchmarks/promote.ya`](../benchmarks/promote.ya) holds one allocation that stays in its function and one that is returned, and `benchmarks/ci.sh`/`ci.ps1` require `yashy build --timings` to report exactly one promoted site while the program still answers `43` — a pass that stops promoting, or that promotes the returned pointer, fails that row rather than passing vacuously.
+`escape` is the one pass whose named row cannot move: `maps.ya` inserts and probes a builtin `Map`, so the source has no `alloc` site and disabling the pass changes nothing in that program. Its positive row is the promotion count instead. [`benchmarks/promote.ya`](../benchmarks/promote.ya) holds one allocation that stays in its function and one that is returned, and `benchmarks/ci.sh`/`ci.ps1` require `yashyc build --timings` to report exactly one promoted site while the program still answers `43` — a pass that stops promoting, or that promotes the returned pointer, fails that row rather than passing vacuously.
 
 ## The optimization report
 
 `--opt-report` prints why each check and allocation survived the passes, grouped by function, and stops without linking:
 
 ```text
-$ yashy build main.ya --opt-report
+$ yashyc build main.ya --opt-report
 main.ya:5  fn wordcount
   promoted              alloc(4)          promoted to the stack: a literal count of 32 bytes fits in the frame and the pointer does not escape
   bounds check kept     xs[i]             the verifier could not prove this index is inside the slice
@@ -59,7 +59,7 @@ main.ya:5  fn wordcount
 
 Every entry has a kind — `bounds`, `overflow`, `alloc`, `not-inlined`, `promoted`, or `not-promoted` — a reason, and a fix when one exists. The report is recorded while the body is lowered, so it cannot disagree with the IR: a check that was deleted has no entry, and an allocation that moved to the frame says so.
 
-`--opt-report=json` prints the same record as schema v1 (`{"schema_version":1,"tool":"yashy","functions":[…]}`, with `fix: null` where nothing would help) for an agent. A program with nothing to explain prints one line in the human form and `"functions": []` in JSON.
+`--opt-report=json` prints the same record as schema v1 (`{"schema_version":1,"tool":"yashyc","functions":[…]}`, with `fix: null` where nothing would help) for an agent. A program with nothing to explain prints one line in the human form and `"functions": []` in JSON.
 
 The report needs the verifier's facts, so it refuses `--no-verify`; it stops before linking, so it also refuses `--emit-ir` and `--pgo`.
 

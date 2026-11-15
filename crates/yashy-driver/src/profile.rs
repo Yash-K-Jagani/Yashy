@@ -1,4 +1,4 @@
-//! `yashy profile`: a per-function counter report, rendered from JSON.
+//! `yashyc profile`: a per-function counter report, rendered from JSON.
 //!
 //! The profiler is a set of static counters — one per function, incremented on
 //! entry and exit — not a sampling thread: a sampling profiler changes the
@@ -90,7 +90,7 @@ impl Report {
             .collect();
         json_rpc::object([
             ("schema_version", Value::Num(1.0)),
-            ("tool", json_rpc::string("yashy")),
+            ("tool", json_rpc::string("yashyc")),
             ("program", json_rpc::string(self.program.clone())),
             ("overhead_pct", Value::Num(self.overhead_pct)),
             ("functions", Value::Arr(functions)),

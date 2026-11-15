@@ -4708,7 +4708,7 @@ impl<'src> Checker<'src> {
             // pass, where the item's name was recorded.
             Item::Public { item, .. } => self.check_item_with_declared(item, declared, docs),
             // A doc block is stored, not checked: the item inside checks as
-            // usual, and `yashy doc` reads the text later.
+            // usual, and `yashyc doc` reads the text later.
             Item::Documented {
                 docs: text, item, ..
             } => self.check_item_with_declared(item, declared, text),

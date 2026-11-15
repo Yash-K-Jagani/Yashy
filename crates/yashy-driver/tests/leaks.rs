@@ -28,9 +28,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-/// The `yashy` binary cargo built for this test run.
-fn yashy() -> &'static str {
-    common::yashy()
+/// The `yashyc` binary cargo built for this test run.
+fn yashyc() -> &'static str {
+    common::yashyc()
 }
 
 fn programs_dir() -> PathBuf {
@@ -52,13 +52,13 @@ fn build(name: &str) -> (PathBuf, PathBuf) {
     let dir = work_dir(name);
     let source = programs_dir().join(format!("{name}.ya"));
     let exe = dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
-    let compile = Command::new(yashy())
+    let compile = Command::new(yashyc())
         .arg("build")
         .arg(&source)
         .arg("-o")
         .arg(&exe)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     assert!(
         compile.status.success(),
         "compiling {name}.ya failed:\n{}",
@@ -326,7 +326,7 @@ fn both_container_programs_leak_nothing() {
     // references the map retained), and every intermediate string.
     let json = build_and_run_with_input(
         "json_count",
-        "{\"name\": \"yashy\"}\n{\"age\": 3}\n{\"name\": \"again\"}\n",
+        "{\"name\": \"yashyc\"}\n{\"age\": 3}\n{\"name\": \"again\"}\n",
     );
     assert_eq!(
         String::from_utf8_lossy(&json.stdout),

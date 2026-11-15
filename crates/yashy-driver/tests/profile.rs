@@ -1,19 +1,19 @@
-//! `yashy profile`: a recorded report renders as a table sorted by self
+//! `yashyc profile`: a recorded report renders as a table sorted by self
 //! time, with the instrumentation overhead as a number.
 
 mod common;
 
 use std::process::Command;
 
-fn yashy() -> &'static str {
-    common::yashy()
+fn yashyc() -> &'static str {
+    common::yashyc()
 }
 
 fn run(args: &[&str]) -> (i32, String, String) {
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .args(args)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     (
         output.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&output.stdout).into_owned(),

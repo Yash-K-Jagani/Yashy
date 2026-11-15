@@ -23,7 +23,7 @@
 //! - `name` is the NUL-terminated name of the async function, in a string
 //!   global. The executor's live-task registry reads it (byte offset 32) to
 //!   name a task the way a debugger would — `task.<id>.<fn>` — in the
-//!   `yashy tasks` dump. The poll function's own argument is named
+//!   `yashyc tasks` dump. The poll function's own argument is named
 //!   `%task.frame` for the same reason: the LLVM value a debugger sees is
 //!   the task's frame pointer, not an anonymous one.
 //!
@@ -545,7 +545,7 @@ fn gen_factory(ctx: &mut FnCtx<'_>, f: &HirFn, layout: &FrameLayout) {
     ctx.push(format!("store i8* {result_slot}, ptr {slot}"));
     // The name metadata (byte offset 32): the function's name as a
     // NUL-terminated string global, which the executor's registry reads so
-    // `yashy tasks` reports `task.<id>.<fn>` for every live task.
+    // `yashyc tasks` reports `task.<id>.<fn>` for every live task.
     let name_global = ctx.module.intern_string(f.name.as_bytes());
     let name_ptr = ctx.tmp();
     ctx.push(format!(

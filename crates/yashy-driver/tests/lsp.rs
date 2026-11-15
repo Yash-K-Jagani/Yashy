@@ -1,19 +1,19 @@
-//! `yashy lsp`: the server is a sibling binary next to the driver.
+//! `yashyc lsp`: the server is a sibling binary next to the driver.
 
 mod common;
 
 use std::io::Write;
 use std::process::{Command, Stdio};
 
-fn yashy() -> &'static str {
-    common::yashy()
+fn yashyc() -> &'static str {
+    common::yashyc()
 }
 
 fn run(args: &[&str]) -> (i32, String, String) {
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .args(args)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     (
         output.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&output.stdout).into_owned(),
@@ -42,7 +42,7 @@ fn lsp_version_prints_both_versions() {
     }
     let (code, stdout, stderr) = run(&["lsp", "--version"]);
     assert_eq!(code, 0, "stderr: {stderr}");
-    assert!(stdout.contains("yashy "), "the driver's version:\n{stdout}");
+    assert!(stdout.contains("yashyc "), "the driver's version:\n{stdout}");
     assert!(
         stdout.contains("yashy-lsp"),
         "the server's version:\n{stdout}"
@@ -51,11 +51,11 @@ fn lsp_version_prints_both_versions() {
 
 #[test]
 fn a_missing_sibling_exits_2_and_names_the_path() {
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("lsp")
         .env("YASHY_LSP_SIBLING", "no-such-language-server.binary")
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     let code = output.status.code().unwrap_or(-1);
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     assert_eq!(code, 2, "stderr: {stderr}");
@@ -69,12 +69,12 @@ fn a_missing_sibling_exits_2_and_names_the_path() {
 fn a_stub_siblings_nonzero_exit_becomes_the_drivers_exit() {
     // The driver itself exits 2 with no command, so pointing the lookup at
     // it is a stub that answers non-zero immediately.
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("lsp")
-        .env("YASHY_LSP_SIBLING", yashy())
+        .env("YASHY_LSP_SIBLING", yashyc())
         .stdin(Stdio::null())
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     assert_ne!(
         output.status.code().unwrap_or(0),
         0,
@@ -90,12 +90,12 @@ fn the_real_handshake_is_answered_through_the_driver() {
     {
         return;
     }
-    let mut child = Command::new(yashy())
+    let mut child = Command::new(yashyc())
         .arg("lsp")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     let mut stdin = child.stdin.take().expect("stdin is piped");
     writeln!(
         stdin,
@@ -110,7 +110,7 @@ fn the_real_handshake_is_answered_through_the_driver() {
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     assert!(
         stdout.contains("protocolVersion"),
-        "one JSON-RPC round trip through `yashy lsp`:\n{stdout}"
+        "one JSON-RPC round trip through `yashyc lsp`:\n{stdout}"
     );
 }
 

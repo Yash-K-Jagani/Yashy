@@ -18,7 +18,7 @@ use yashy_verify::VerifyOptions;
 use crate::query::{combine, fnv1a, hash_str};
 use crate::{CheckedFile, FnFacts, FnId, QueryResult};
 
-/// Per-stage statistics, reported by `yashy check --timings`.
+/// Per-stage statistics, reported by `yashyc check --timings`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct QueryStats {
     /// Queries answered from the memo.

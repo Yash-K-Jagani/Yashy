@@ -138,7 +138,7 @@ certificates exist instead of permanently red.
 
 ## Reproducible builds
 
-`yashy build --reproducible` fixes the timestamp, normalises the source paths
+`yashyc build --reproducible` fixes the timestamp, normalises the source paths
 and asks the linker for a reproducible image, so two builds of the same tree
 produce the same bytes. The release archives are built with it, so the
 checksum a user reads is the checksum of the tree and not of a moment.

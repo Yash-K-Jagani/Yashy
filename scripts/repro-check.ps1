@@ -31,12 +31,12 @@ try {
     # The compiler: the one in target/release if it is there, the debug one
     # otherwise. A release build is what a release would ship, so it is the
     # one worth checking.
-    if (Test-Path target/release/yashy.exe) {
-        $yashy = (Resolve-Path target/release/yashy.exe).Path
-    } elseif (Test-Path target/debug/yashy.exe) {
-        $yashy = (Resolve-Path target/debug/yashy.exe).Path
+    if (Test-Path target/release/yashyc.exe) {
+        $yashyc = (Resolve-Path target/release/yashyc.exe).Path
+    } elseif (Test-Path target/debug/yashyc.exe) {
+        $yashyc = (Resolve-Path target/debug/yashyc.exe).Path
     } else {
-        Fail "no yashy binary; run: cargo build --release -p yashy-driver"
+        Fail "no yashyc binary; run: cargo build --release -p yashy-driver"
     }
 
     $work = Join-Path ([System.IO.Path]::GetTempPath()) ("yashy-repro-" + [System.Guid]::NewGuid().ToString("N"))
@@ -47,7 +47,7 @@ try {
             Copy-Item $Source (Join-Path $directory "main.ya") -Force
             Push-Location $directory
             try {
-                & $yashy build main.ya -o hello --reproducible | Out-Null
+                & $yashyc build main.ya -o hello --reproducible | Out-Null
                 if ($LASTEXITCODE -ne 0) {
                     Fail "the build in $directory failed"
                 }

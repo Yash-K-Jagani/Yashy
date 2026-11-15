@@ -23,10 +23,10 @@ Set-Location $root
 
 # The compiler the gates drive: the release build when it is there.
 $compiler = $null
-if (Test-Path 'target/release/yashy.exe') {
-    $compiler = (Resolve-Path 'target/release/yashy.exe').Path
-} elseif (Test-Path 'target/debug/yashy.exe') {
-    $compiler = (Resolve-Path 'target/debug/yashy.exe').Path
+if (Test-Path 'target/release/yashyc.exe') {
+    $compiler = (Resolve-Path 'target/release/yashyc.exe').Path
+} elseif (Test-Path 'target/debug/yashyc.exe') {
+    $compiler = (Resolve-Path 'target/debug/yashyc.exe').Path
 }
 
 function Get-GateCommand([string]$name) {
@@ -35,7 +35,7 @@ function Get-GateCommand([string]$name) {
         'check' { return @('cargo', 'check', '--workspace', '--all-targets') }
         'tests' { return @('cargo', 'test', '--workspace', '--no-fail-fast') }
         'format' {
-            if (-not $compiler) { return @('cmd', '/c', 'echo no yashy binary') }
+            if (-not $compiler) { return @('cmd', '/c', 'echo no yashyc binary') }
             $files = @()
             $files += Get-ChildItem -Recurse -Filter *.ya crates/yashy-stdlib/yashy
             $files += Get-ChildItem -Recurse -Filter *.ya packages
@@ -43,13 +43,13 @@ function Get-GateCommand([string]$name) {
             return @($compiler, 'fmt', '--check') + @($files.FullName)
         }
         'reproducible' {
-            if (-not $compiler) { return @('cmd', '/c', 'echo no yashy binary') }
+            if (-not $compiler) { return @('cmd', '/c', 'echo no yashyc binary') }
             return @('powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/repro-check.ps1')
         }
         'sandbox' { return @('cargo', 'test', '-p', 'yashy-driver', '--test', 'sandbox_escape') }
         'never-panics' { return @('cargo', 'test', '-p', 'yashy-driver', '--test', 'never_panics') }
         'book' {
-            if (-not $compiler) { return @('cmd', '/c', 'echo no yashy binary') }
+            if (-not $compiler) { return @('cmd', '/c', 'echo no yashyc binary') }
             return @('powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/book-gate.ps1')
         }
     }

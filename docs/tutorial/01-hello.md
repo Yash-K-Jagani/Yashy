@@ -10,7 +10,7 @@
 A program is a list of items: functions, structs, enums, imports. `main` is
 where execution starts. A function is `fn name(parameters) -> return_type`,
 and the body is a block of statements ending, optionally, in `return`. A source
-file ends in `.ya`: `yashy build main.ya -o main` compiles it, and the binary is
+file ends in `.ya`: `yashyc build main.ya -o main` compiles it, and the binary is
 then run directly.
 
 ```yashy

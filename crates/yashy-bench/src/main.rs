@@ -80,10 +80,10 @@ fn agent_command(args: Vec<String>) -> Result<ExitCode, String> {
             other => return Err(format!("unknown option `{other}` for `agent`")),
         }
     }
-    let yashy = std::env::var("YASHY").unwrap_or_else(|_| "yashy".to_string());
+    let yashyc = std::env::var("YASHC").unwrap_or_else(|_| "yashyc".to_string());
     let out = tasks_dir.join("baseline.json");
     let _ = std::fs::remove_file(&out);
-    agent::run_all(&yashy, &tasks_dir, &out)
+    agent::run_all(&yashyc, &tasks_dir, &out)
         .map_err(|error| format!("{error}"))?;    let records = std::fs::read_to_string(&out).map_err(|error| format!("{error}"))?;
     let passed = records.matches("\"success\":true").count();
     println!("agent {model}: {passed}/10 tasks passed");

@@ -2,7 +2,7 @@
 # Run the runnable examples of tutorial chapters with a given Yashy binary.
 #
 # Usage:
-#   scripts/run-tutorial-blocks.sh <yashy> <chapter.md>...
+#   scripts/run-tutorial-blocks.sh <yashyc> <chapter.md>...
 #
 # The contract is the tutorial harness's: a ```yashy block is a program, and
 # the `// =>` lines inside it are the stdout it must print. A block with no
@@ -28,13 +28,13 @@ ok() {
 }
 
 [ "$#" -ge 2 ] || {
-    printf 'usage: scripts/run-tutorial-blocks.sh <yashy> <chapter.md>...\n' >&2
+    printf 'usage: scripts/run-tutorial-blocks.sh <yashyc> <chapter.md>...\n' >&2
     exit 2
 }
 
-yashy=$1
+yashyc=$1
 shift
-[ -x "$yashy" ] || die "no yashy binary at $yashy"
+[ -x "$yashyc" ] || die "no yashyc binary at $yashyc"
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/yashy-tutorial.XXXXXX")
 cleanup() {
@@ -95,7 +95,7 @@ for chapter in "$@"; do
             continue
         fi
         exe="${source%.ya}.bin"
-        if ! "$yashy" build "$source" -o "$exe" >"$tmp/build.out" 2>&1; then
+        if ! "$yashyc" build "$source" -o "$exe" >"$tmp/build.out" 2>&1; then
             printf '%s\n' "--- $name: block $blocks did not compile ---" >&2
             cat "$tmp/build.out" >&2
             exit 1

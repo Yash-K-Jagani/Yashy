@@ -21,7 +21,7 @@ their own run evidence.
 | build | `cargo build --release --workspace` | 10m | compiler |
 | check | `cargo check --workspace --all-targets` | 5m | compiler |
 | tests | `cargo test --workspace --no-fail-fast` | 45m | compiler |
-| format | `yashy fmt --check` over `crates/yashy-stdlib/yashy`, `packages`, `examples` | 2m | compiler |
+| format | `yashyc fmt --check` over `crates/yashy-stdlib/yashy`, `packages`, `examples` | 2m | compiler |
 | reproducible | `scripts/repro-check.sh` / `scripts/repro-check.ps1` | 5m | compiler |
 | sandbox | `cargo test -p yashy-driver --test sandbox_escape` | 5m | compiler |
 | never-panics | `cargo test -p yashy-driver --test never_panics` | 5m | compiler |
@@ -48,7 +48,7 @@ loosen one.
 | No false positives on real code | `cargo test -p yashy-driver --test verify` + `--test examples` | zero verifier diagnostics on examples, programs and `file_cli.ya` |
 | Contracts warn, never block | `cargo test -p yashy-verify contracts` | unprovable contract is a `Warning`; unknown identifier is `E0001` |
 | JSON is additive | `cargo test -p yashy-driver --test diagnostics_json` | unchanged tests pass |
-| Timing budget | `yashy check --timings`, `yashy verify --timings` | verify ≤ 30% of check, medians of 5 |
+| Timing budget | `yashyc check --timings`, `yashyc verify --timings` | verify ≤ 30% of check, medians of 5 |
 | Escape hatch is traceable | `cargo test -p yashy-driver --test unverified` | all four tests pass |
 | Nothing panics | `cargo test -p yashy-driver --test never_panics` | all pass |
 
@@ -60,9 +60,9 @@ loosen one.
 | Zero false positives | the Task 7 loop | no `FALSE POSITIVE` line, both OSes |
 | Contracts enforce | `cargo test -p yashy-driver --test verify` | unproved contract exits 1 |
 | Test integration | `cargo test -p yashy-driver --test test_runner` | `compile_error` vs `failed` are distinguished |
-| Inventory | `yashy verify --inventory --json` on a program with FFI | every `extern` and `unsafe` site listed |
+| Inventory | `yashyc verify --inventory --json` on a program with FFI | every `extern` and `unsafe` site listed |
 | Warnings fire | `cargo test -p yashy-driver --test warnings` | all four codes fire on their program and stay silent on their suppression |
-| Warnings are warnings | `yashy build` on a program with one unused binding | exits 0, prints one `warning:`, `--deny warnings` exits 1 |
+| Warnings are warnings | `yashyc build` on a program with one unused binding | exits 0, prints one `warning:`, `--deny warnings` exits 1 |
 | No panic | `cargo test -p yashy-driver --test never_panics` | passes |
 | Workspace | `cargo test --workspace` | green on Windows and Linux |
 
@@ -71,7 +71,7 @@ loosen one.
 | Gate | Command | Passes when |
 |---|---|---|
 | Effect inference is sound | `cargo test -p yashy-verify effects` | all five effect tests pass; recursion terminates |
-| Every `unsafe` is declared | `yashy verify --inventory` on the corpus | no `E1301`-free unsafe call site |
+| Every `unsafe` is declared | `yashyc verify --inventory` on the corpus | no `E1301`-free unsafe call site |
 | Typestate | `cargo test -p yashy-verify typestate` | double-close, use-after-close, bad unlock rejected |
 | Races | `cargo test -p yashy-verify race` | bare-pointer capture rejected; mutex/string accepted |
 | No regression | `cargo test --workspace` | green on Windows and Linux |
@@ -81,13 +81,13 @@ loosen one.
 
 | Gate | Command | Passes when |
 |---|---|---|
-| Incremental rebuild | `yashy build` twice on a 1000-line program | second run < 200 ms |
-| 100 tests | `yashy test` on a 100-test project | < 2 s |
-| Hello | `yashy build benchmarks/hello.ya` | < 1 s, binary < 500 KB |
+| Incremental rebuild | `yashyc build` twice on a 1000-line program | second run < 200 ms |
+| 100 tests | `yashyc test` on a 100-test project | < 2 s |
+| Hello | `yashyc build benchmarks/hello.ya` | < 1 s, binary < 500 KB |
 | Runtime | `yashy-bench` (scalar suite) | the like-for-like rows are inside 1.2× of the matching C row (2026-11-13 medians): `fib`, `wrapping_*` 89.6 vs clang 84.9 ms; `loop` 254.8 vs 266.5 ms; `float` 542.6 vs 551.4 ms. The checked `fib` row is 1.8× by design — phase 4's runtime row records it rather than gating it |
 | Feature rows | `yashy-bench` (feature suite) | each row is measured against the fastest comparable language and recorded in `benchmarks/README.md`; 2026-11-13: twelve of the fourteen comparable rows are inside 2×, `map_array` 3.8× and `debug_format` 3.4× are carried by the **feature-row budget** follow-up below |
 | Compiler rebuild | touch `sema`, `cargo build -p yashy-driver` | < 60 s median |
-| Cache correctness | `cargo test -p yashy-cache` + `yashy cache verify` | key changes on every input that matters |
+| Cache correctness | `cargo test -p yashy-cache` + `yashyc cache verify` | key changes on every input that matters |
 | No check lost without a proof | `cargo test -p yashy-codegen` | unproven spans keep their checks |
 | Async spike | the design doc exists and passes its own cap review | four decisions answered |
 
@@ -118,7 +118,7 @@ loosen one.
 | Allocation and size | `benchmarks/ci.sh` / `ci.ps1` promotion row + `yashy-bench` | `promote.ya` reports exactly one promoted site (`promoted_sites == 1`): the allocation that stays in its function moves, the returned one does not, and the program still answers `43`; `hello_binary_bytes` stays inside the phase 3 budget |
 | Runtime, like for like | `benchmarks/ci.sh` / `ci.ps1` on both OSes | `fib_wrap_ratio ≤ 1.20` — the `wrapping_*` row is the row the `fib ≤ 1.1× C` claim is about, because `fib.ya`'s `+` is checked and C's wraps. `fib_checked_ratio` records what the check costs (1.8× on the development host, 1.6-1.7× on the CI runners) and is not gated. The development host measures 1.00-1.06; the Windows runner measured 1.05-1.18 across four runs of one compiler, of which 4.4-7.8 ms is the executable's fixed cost (`hello_run_ms`). 1.10 stays open as the **`fib` ratio on Windows** follow-up below |
 | PGO | `scripts/pgo.sh` / `pgo.ps1` on both OSes | every program answers correctly with `--pgo`, and the per-program size and speed table is published in `benchmarks/build/pgo-<os>.txt`. 2026-11-15 (run 43711532592): Linux is 7.3-14.6% smaller and four of six rows ≥5% faster (`hello` and `fib` flat); Windows is 3.0-4.4% smaller and mixed (`json_text` +12.4%, `maps` +10.2%, `fib` 1.3% slower). PGO is not a blanket win, and the table is the row rather than a threshold that would have to be walked back |
-| Per-pass gate | `yashy-bench --per-pass` on a quiet machine | no pass regresses its own row by more than 2%. The comparator and both exit codes are unit-tested on synthetic measurement files (`crates/yashy-bench`), and `yashy build --opt-list` names the row each pass is held to. A real run needs one measurement per registered pass, and the suite produces no `async_run_ms` row yet; on the CI runners the same row moves ~25% run to run, so a 2% threshold on sequential measurements is noise. Carried as the **per-pass run** follow-up below |
+| Per-pass gate | `yashy-bench --per-pass` on a quiet machine | no pass regresses its own row by more than 2%. The comparator and both exit codes are unit-tested on synthetic measurement files (`crates/yashy-bench`), and `yashyc build --opt-list` names the row each pass is held to. A real run needs one measurement per registered pass, and the suite produces no `async_run_ms` row yet; on the CI runners the same row moves ~25% run to run, so a 2% threshold on sequential measurements is noise. Carried as the **per-pass run** follow-up below |
 | Explained | `cargo test -p yashy-driver --test opt_report` | every surviving check and allocation has a reason |
 | No regression | `cargo test --workspace` | green on Windows and Linux |
 
@@ -195,7 +195,7 @@ with no row behind it cannot be corrected, only deleted.
 
 | Gate | Command | Passes when |
 |---|---|---|
-| Type-first, no second spelling | `cargo test -p yashy-parser --test declarations` + `yashy check` | every type shape parses before its name; `let x: int`, `fn f(a: int)` and `|x: int|` are `E0109`; no tracked source uses name-first |
+| Type-first, no second spelling | `cargo test -p yashy-parser --test declarations` + `yashyc check` | every type shape parses before its name; `let x: int`, `fn f(a: int)` and `|x: int|` are `E0109`; no tracked source uses name-first |
 | Migration complete | `cargo test --workspace` + tutorial + examples | every `.ya` file and every ` ```yashy ` block is type-first and compiles |
 | Sugar adds no concept | `cargo test -p yashy-sema --test desugar` | every form's HIR equals its hand-written expansion |
 | No new keywords | `cargo test -p yashy-lexer` | `KEYWORDS.len() == 34` |
@@ -271,7 +271,7 @@ with no row behind it cannot be corrected, only deleted.
 | Structured | `cargo test -p yashy-verify` | task escape `E1701`, lock across await `E1702` |
 | Cancellation releases | the cancel-with-defer program | OS handle count returns to baseline |
 | Frame correctness | `cargo test -p yashy-codegen` | 8 live locals survive a thread handoff |
-| Debuggable | `yashy run --debug` demo | task id, function and resume index printed |
+| Debuggable | `yashyc run --debug` demo | task id, function and resume index printed |
 | No regression | `cargo test --workspace` | green on Windows and Linux |
 
 ### Phase 11 — AI-native observability
@@ -285,19 +285,19 @@ with no row behind it cannot be corrected, only deleted.
 | Benchmark runs | `yashy-bench agent --tasks benchmarks/agent` | 10 tasks + variants, five metrics recorded |
 | Determinism | `cargo test -p yashy-driver --test e2e observability` | byte-identical stderr across runs |
 | `doc` covers the surface | `cargo test -p yashy-driver --test doc` | every public item appears with its signature; output byte-identical on both OSes and across runs |
-| `lsp` starts a server | `cargo test -p yashy-driver --test lsp` | `initialize` answered through `yashy lsp`; a missing sibling exits 2 with the path named |
+| `lsp` starts a server | `cargo test -p yashy-driver --test lsp` | `initialize` answered through `yashyc lsp`; a missing sibling exits 2 with the path named |
 | No regression | `cargo test --workspace` | green on Windows and Linux |
 
 ### Phase 12 — libraries and packages
 
 | Gate | Command | Passes when |
 |---|---|---|
-| Clean-checkout dependency build | fresh clone, empty cache, `yashy build` on `examples/http-service` | succeeds; lockfile unchanged after |
+| Clean-checkout dependency build | fresh clone, empty cache, `yashyc build` on `examples/http-service` | succeeds; lockfile unchanged after |
 | Real HTTP service | `cargo test -p yashy-driver --test examples http-service` | keep-alive, chunked, caps, timeouts and 50 concurrent clients pass |
 | Reproducible | two builds from the same lockfile | byte-identical binaries |
 | Precompiled stdlib equivalent | `cargo test -p yashy-driver --test stdlib_precompiled` | cached and from-source images differ only in the PE `TimeDateStamp`; `ir_cache=hit` with `emit 0 ms` |
-| Offline | `yashy build --offline` with a warm store | succeeds; with a cold store, `E1803` names the package |
-| Audit green | `yashy audit` on the repo's own packages | `ok: true` |
+| Offline | `yashyc build --offline` with a warm store | succeeds; with a cold store, `E1803` names the package |
+| Audit green | `yashyc audit` on the repo's own packages | `ok: true` |
 | Stdlib is a product | `cargo test -p yashy-driver --test stdlib_coverage` | every module in `crates/yashy-stdlib/yashy/` has a documented `pub fn` and a test program |
 | No sentinel on failure | `cargo test -p yashy-driver --test stdlib_coverage` | no `-> string`/`-> int` stdlib function documents "or the empty string"/"or zero" as its failure value |
 | Stdlib is deterministic | `cargo test -p yashy-driver --test e2e` | two runs of every `tests/programs/stdlib/` program produce identical bytes |
@@ -313,14 +313,14 @@ with no row behind it cannot be corrected, only deleted.
 | Reproducible | `scripts/repro-check` | two independent builds, identical SHA-256, all three OSes |
 | Signed releases | `release.yml` dry run | checksums verify; every artifact signed |
 | Install matrix | `install-matrix.yml` | six installs from published artifacts, all green |
-| Book | `book.yml` | every code block compiles; reference generated from `yashy index` |
+| Book | `book.yml` | every code block compiles; reference generated from `yashyc index` |
 | Playground safe | `cargo test -p yashy-driver --test playground` | phase 11 escape corpus denied through `/run` |
 | Registry | `cargo test -p yashy-driver --test registry` | hosted index add builds; tampered tarball rejected |
 | Self-hosting evidence | `cargo test -p yashy-driver --test selfhost_diff` | pass rate recorded; design record written |
 | All gates | `scripts/gates` | every phase gate green, or a dated exception |
 | No P0 | `docs/triage.md` | P0 list empty; crash corpus green |
 | CI fails on unformatted source | `cargo test -p yashy-driver --test fmt_check` | `fmt --check` exits 1 on a misformatted file, 0 on the repository, and agrees with `fmt -w` |
-| Cross-compilation | `yashy build --target <triple>` on each of the six triples | the binary runs on that platform; `E2200`/`E2201` name the unsupported triple and the missing toolchain |
+| Cross-compilation | `yashyc build --target <triple>` on each of the six triples | the binary runs on that platform; `E2200`/`E2201` name the unsupported triple and the missing toolchain |
 | Platform conditionals | `cargo test -p yashy-driver --test cfg` | exactly one branch is selected; a disabled branch is never resolved; `cfg(window)` is `E2202` |
 | Metrics met | `docs/1.0.md` | every number in the release note reproduced by the gate run |
 

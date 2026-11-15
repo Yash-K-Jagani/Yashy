@@ -129,7 +129,7 @@ macos_tests() {
         unzip -q "$archive" -d "$extract"
         stage=""
         for candidate in "$extract"/*; do
-            if [ -d "$candidate" ] && [ -f "$candidate/yashy" ]; then
+            if [ -d "$candidate" ] && [ -f "$candidate/yashyc" ]; then
                 stage=$candidate
                 break
             fi
@@ -139,12 +139,12 @@ macos_tests() {
         # test removes it, as a user would, and then asks Gatekeeper about the
         # binary itself.
         xattr -dr com.apple.quarantine "$stage" 2>/dev/null || true
-        codesign -dv --verbose=4 "$stage/yashy" 2>&1 |
+        codesign -dv --verbose=4 "$stage/yashyc" 2>&1 |
             grep -q '^Authority=Developer ID Application' ||
             die "the binary is not signed with a Developer ID (an ad-hoc signature is not a release signature)"
-        codesign --verify --strict --verbose=2 "$stage/yashy" ||
+        codesign --verify --strict --verbose=2 "$stage/yashyc" ||
             die "the binary's signature does not verify"
-        spctl -a -t exec -vvv "$stage/yashy" ||
+        spctl -a -t exec -vvv "$stage/yashyc" ||
             die "Gatekeeper did not accept the binary"
         ok "the archive is signed with a Developer ID and accepted by Gatekeeper"
     fi
@@ -153,19 +153,19 @@ macos_tests() {
     prefix="$tmp/prefix-fresh"
     output=$(run_install "$prefix" --no-path)
     printf '%s\n' "$output" | grep -q "Installed Yashy" || die "install did not report success"
-    [ -x "$prefix/bin/yashy" ] || die "the installer did not create bin/yashy"
+    [ -x "$prefix/bin/yashyc" ] || die "the installer did not create bin/yashyc"
     [ -f "$prefix/share/yashy/stdlib/yashy/io.ya" ] ||
         die "the installer did not copy the stdlib to the nested shared-prefix layout"
-    PATH="$prefix/bin:$PATH" "$prefix/bin/yashy" doctor >/dev/null ||
+    PATH="$prefix/bin:$PATH" "$prefix/bin/yashyc" doctor >/dev/null ||
         die "doctor failed after a clean install"
     demo="$tmp/demo"
-    "$prefix/bin/yashy" init "$demo" >/dev/null || die "init failed"
-    (cd "$demo" && "$prefix/bin/yashy" run main.ya >/dev/null) || die "run failed"
-    (cd "$demo" && "$prefix/bin/yashy" test >/dev/null) || die "test failed"
+    "$prefix/bin/yashyc" init "$demo" >/dev/null || die "init failed"
+    (cd "$demo" && "$prefix/bin/yashyc" run main.ya >/dev/null) || die "run failed"
+    (cd "$demo" && "$prefix/bin/yashyc" test >/dev/null) || die "test failed"
     ok "the installed compiler installs, passes doctor, and runs a project"
 
     # 4. The tutorial's first three chapters run with the installed compiler.
-    sh "$root/scripts/run-tutorial-blocks.sh" "$prefix/bin/yashy" \
+    sh "$root/scripts/run-tutorial-blocks.sh" "$prefix/bin/yashyc" \
         "$root/docs/tutorial/00-intro.md" \
         "$root/docs/tutorial/01-hello.md" \
         "$root/docs/tutorial/02-values.md" ||
@@ -183,19 +183,19 @@ fi
 prefix="$tmp/prefix-fresh"
 output=$(run_install "$prefix" --no-path)
 printf '%s\n' "$output" | grep -q "Installed Yashy" || die "install did not report success"
-[ -x "$prefix/bin/yashy" ] || die "the installer did not create bin/yashy"
+[ -x "$prefix/bin/yashyc" ] || die "the installer did not create bin/yashyc"
 [ -f "$prefix/share/yashy/stdlib/yashy/io.ya" ] ||
     die "the installer did not copy the stdlib to the nested shared-prefix layout"
-PATH="$prefix/bin:$PATH" "$prefix/bin/yashy" doctor >/dev/null || die "doctor failed after a clean install"
-json=$(PATH="$prefix/bin:$PATH" "$prefix/bin/yashy" doctor --json) || die "doctor --json failed after a clean install"
+PATH="$prefix/bin:$PATH" "$prefix/bin/yashyc" doctor >/dev/null || die "doctor failed after a clean install"
+json=$(PATH="$prefix/bin:$PATH" "$prefix/bin/yashyc" doctor --json) || die "doctor --json failed after a clean install"
 printf '%s\\n' "$json" | grep -q '"schema_version": 1' || die "doctor --json has no schema_version"
 printf '%s\\n' "$json" | grep -q '"tool": "doctor"' || die "doctor --json has no tool"
 printf '%s\\n' "$json" | grep -q '"ok": true' || die "doctor --json did not report ok"
 printf '%s\\n' "$json" | grep -q '"next": null' || die "doctor --json has a next step on success"
 demo="$tmp/demo"
-"$prefix/bin/yashy" init "$demo" >/dev/null || die "init failed"
-(cd "$demo" && "$prefix/bin/yashy" run main.ya >/dev/null) || die "run failed"
-(cd "$demo" && "$prefix/bin/yashy" test >/dev/null) || die "test failed"
+"$prefix/bin/yashyc" init "$demo" >/dev/null || die "init failed"
+(cd "$demo" && "$prefix/bin/yashyc" run main.ya >/dev/null) || die "run failed"
+(cd "$demo" && "$prefix/bin/yashyc" test >/dev/null) || die "test failed"
 ok "fresh install, doctor, init, run, and test"
 
 # 2. Re-running is harmless.
@@ -254,7 +254,7 @@ output=$(PATH="$fakebin:$PATH" HOME="$home" YASHY_ARCHIVE="$archive" \
 printf '%s\n' "$output" | grep -q "Yashy installed, but" || die "missing-clang message is absent"
 printf '%s\n' "$output" | grep -Eq "Next: (sudo apt install clang llvm|sudo dnf install clang llvm|sudo pacman -S clang llvm|install clang and LLVM)" ||
     die "missing-clang next step is not actionable"
-[ -x "$prefix_noclang/bin/yashy" ] || die "a missing compiler must not roll back the install"
+[ -x "$prefix_noclang/bin/yashyc" ] || die "a missing compiler must not roll back the install"
 ok "missing clang keeps the install and prints an actionable next step"
 
 # 7. A bad checksum is a hard failure and leaves no partial install.
@@ -270,7 +270,7 @@ if HOME="$home" YASHY_ARCHIVE="$badwork/$archive_name" \
     die "a bad checksum must fail the install"
 fi
 grep -q "checksum mismatch" "$tmp/bad.out" || die "the bad-checksum error is not clear"
-[ ! -e "$prefix_bad/bin/yashy" ] || die "a bad checksum left a partial install"
+[ ! -e "$prefix_bad/bin/yashyc" ] || die "a bad checksum left a partial install"
 ok "bad checksum fails before writing the prefix"
 
 # 8. Uninstall removes the prefix and the PATH block, and a second run is a no-op.
@@ -290,14 +290,14 @@ mkdir -p "$extract"
 tar -xzf "$archive" -C "$extract"
 stage=""
 for candidate in "$extract"/*; do
-    if [ -d "$candidate" ] && [ -f "$candidate/yashy" ]; then
+    if [ -d "$candidate" ] && [ -f "$candidate/yashyc" ]; then
         stage=$candidate
         break
     fi
 done
 [ -n "$stage" ] || die "the archive has no top-level package directory"
 HOME="$home" sh "$stage/install.sh" --prefix "$prefix_extract" --no-path --no-doctor >/dev/null
-[ -x "$prefix_extract/bin/yashy" ] || die "the extracted installer did not install"
+[ -x "$prefix_extract/bin/yashyc" ] || die "the extracted installer did not install"
 ok "extracted archive installs without a download"
 
 printf '\nall installer tests passed\n'

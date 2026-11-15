@@ -1,4 +1,4 @@
-//! `yashy mcp`: the seven compiler verbs over JSON-RPC 2.0 on stdio.
+//! `yashyc mcp`: the seven compiler verbs over JSON-RPC 2.0 on stdio.
 //!
 //! The MCP server is a thin adapter over the same in-process functions the
 //! CLI calls. It never runs a shell, never widens its own permissions, and

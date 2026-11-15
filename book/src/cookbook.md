@@ -115,14 +115,14 @@ version = "0.1.0"
 license = "MIT"
 ```
 
-`yashy build` in that directory builds it; `yashy test` runs the tests; and
-`yashy audit` checks the package against the release policy before it is
+`yashyc build` in that directory builds it; `yashyc test` runs the tests; and
+`yashyc audit` checks the package against the release policy before it is
 published.
 
 ## See also
 
 - [The first-CLI guide](language-guide/12-first-cli.md) — the whole path,
-  from `yashy init` to a tested command.
+  from `yashyc init` to a tested command.
 - [Packages](../packages.md) — the manifest format and the registry.
 
 ## Exercise

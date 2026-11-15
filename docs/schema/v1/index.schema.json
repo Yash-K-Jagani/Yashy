@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "yashy index --json (schema v1)",
+  "title": "yashyc index --json (schema v1)",
   "type": "object",
   "required": ["schema_version", "tool", "files", "symbols", "imports", "tests"],
   "properties": {

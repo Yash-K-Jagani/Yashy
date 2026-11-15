@@ -8,16 +8,16 @@
 
 mod common;
 
-use common::{work_dir, yashy};
+use common::{work_dir, yashyc};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 fn run(args: &[&str]) -> Output {
-    Command::new(yashy())
+    Command::new(yashyc())
         .args(args)
         .output()
-        .expect("the yashy CLI must be runnable")
+        .expect("the yashyc CLI must be runnable")
 }
 
 fn stdout_of(output: &Output) -> String {

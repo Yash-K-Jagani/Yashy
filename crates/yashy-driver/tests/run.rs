@@ -1,6 +1,6 @@
 mod common;
 
-use common::{exe, work_dir, write, yashy};
+use common::{exe, work_dir, write, yashyc};
 use std::process::Command;
 
 #[test]
@@ -12,12 +12,12 @@ fn run_compiles_and_prints_program_output() {
         "fn main() { print(\"hello from run\"); }\n",
     );
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("run")
         .arg(dir.join("main.ya"))
         .current_dir(&dir)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
 
     assert!(
         output.status.success(),
@@ -32,12 +32,12 @@ fn run_forwards_the_program_exit_code() {
     let dir = work_dir("run-exit");
     write(&dir, "main.ya", "fn main() -> int { return 7; }\n");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("run")
         .arg(dir.join("main.ya"))
         .current_dir(&dir)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
 
     assert_eq!(output.status.code(), Some(7));
 }
@@ -56,7 +56,7 @@ fn run_forwards_user_arguments_after_the_separator() {
          }\n",
     );
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("run")
         .arg(dir.join("main.ya"))
         .arg("--")
@@ -65,7 +65,7 @@ fn run_forwards_user_arguments_after_the_separator() {
         .current_dir(&dir)
         .env("YASHY_LEAK_REPORT", "1")
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
 
     assert!(
         output.status.success(),
@@ -89,13 +89,13 @@ fn run_reports_the_directory_it_started_in() {
         "fn main() { switch getcwd() { case Ok(here) { print(here) } case Err(_) { print(\"\") } } }\n",
     );
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("run")
         .arg(dir.join("main.ya"))
         .current_dir(&dir)
         .env("YASHY_LEAK_REPORT", "1")
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
 
     assert!(
         output.status.success(),
@@ -131,13 +131,13 @@ fn run_sleeps_for_at_least_the_requested_time() {
     );
 
     let started = std::time::Instant::now();
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("run")
         .arg(dir.join("main.ya"))
         .current_dir(&dir)
         .env("YASHY_LEAK_REPORT", "1")
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     let elapsed = started.elapsed();
 
     assert!(
@@ -163,12 +163,12 @@ fn run_forwards_a_32_bit_exit_code() {
     let dir = work_dir("run-exit-large");
     write(&dir, "main.ya", "fn main() -> int { return 256; }\n");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("run")
         .arg(dir.join("main.ya"))
         .current_dir(&dir)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
 
     assert_eq!(output.status.code(), Some(256));
 }
@@ -178,13 +178,13 @@ fn run_rejects_output_paths() {
     let dir = work_dir("run-output-flag");
     write(&dir, "main.ya", "fn main() {}\n");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("run")
         .arg(dir.join("main.ya"))
         .arg("-o")
         .arg(exe(&dir, "kept"))
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
 
     assert!(!output.status.success());
     assert!(

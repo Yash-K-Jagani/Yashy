@@ -150,7 +150,7 @@ subject's own type (`Some` is 1, `Ok` is 0), so the two are never confused.
 ## Doc comments
 
 A run of `///` lines above an item documents it. The text is stored, not
-interpreted — `yashy doc` reads it later — and it changes nothing about the
+interpreted — `yashyc doc` reads it later — and it changes nothing about the
 program:
 
 ```yashy

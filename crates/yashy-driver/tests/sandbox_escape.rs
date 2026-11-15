@@ -5,8 +5,8 @@ mod common;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-fn yashy() -> &'static str {
-    common::yashy()
+fn yashyc() -> &'static str {
+    common::yashyc()
 }
 
 /// Build `name.ya` from the corpus and run it sandboxed. Returns
@@ -16,7 +16,7 @@ fn run_sandboxed(name: &str, read_roots: &[&str], write_roots: &[&str]) -> (i32,
         .join("tests")
         .join("sandbox_corpus")
         .join(format!("{name}.ya"));
-    let mut command = Command::new(yashy());
+    let mut command = Command::new(yashyc());
     command.arg("run").arg("--sandbox").arg(&source);
     for root in read_roots {
         command.arg("--allow-read").arg(root);
@@ -24,7 +24,7 @@ fn run_sandboxed(name: &str, read_roots: &[&str], write_roots: &[&str]) -> (i32,
     for root in write_roots {
         command.arg("--allow-write").arg(root);
     }
-    let output = command.output().expect("the yashy CLI must be runnable");
+    let output = command.output().expect("the yashyc CLI must be runnable");
     let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
     text.push_str(&String::from_utf8_lossy(&output.stderr));
     (output.status.code().unwrap_or(-1), text)

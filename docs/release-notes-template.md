@@ -60,14 +60,14 @@ curl -fsSL https://github.com/Yash-K-Jagani/Yashy/releases/download/vVERSION/ins
 Then:
 
 ```text
-yashy doctor
-yashy doctor --json
-yashy init my-cli
+yashyc doctor
+yashyc doctor --json
+yashyc init my-cli
 ```
 
 The installer adds the prefix to `PATH` and can be removed with
 `install.sh --uninstall` or `install.ps1 -Uninstall`. A second uninstall is a
-no-op. `yashy uninstall` as a subcommand is not part of this release.
+no-op. `yashyc uninstall` as a subcommand is not part of this release.
 
 ## Changes
 
@@ -83,6 +83,6 @@ no-op. `yashy uninstall` as a subcommand is not part of this release.
 
 The release workflow builds both archives on their native hosts, installs the
 Linux archive in a clean `ubuntu:22.04` container without Rust, runs
-`yashy doctor`, `yashy doctor --json`, `yashy init`, and `yashy test`, then
+`yashyc doctor`, `yashyc doctor --json`, `yashyc init`, and `yashyc test`, then
 uninstalls. The Windows archive goes through the same install, doctor, init,
 and test path in CI before publishing.

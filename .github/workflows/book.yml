@@ -52,7 +52,7 @@ jobs:
       # the install test drives them.
       - name: Run the book's own blocks
         run: |
-          sh scripts/run-tutorial-blocks.sh target/release/yashy \
+          sh scripts/run-tutorial-blocks.sh target/release/yashyc \
             book/src/getting-started.md \
             book/src/verification-guide.md \
             book/src/tooling.md \
@@ -64,7 +64,7 @@ jobs:
         run: |
           for program in book/tests/*.ya; do
             echo "building $program"
-            target/release/yashy build "$program" -o "$(mktemp -u)"
+            target/release/yashyc build "$program" -o "$(mktemp -u)"
           done
 
       - name: Upload the book

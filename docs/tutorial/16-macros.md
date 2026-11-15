@@ -85,15 +85,15 @@ the depth cap and is refused.
 
 ## Inspecting expansion
 
-`yashy expand main.ya` prints the fully expanded program, formatted
-canonically, and stops before checking. `yashy expand --json main.ya` lists
+`yashyc expand main.ya` prints the fully expanded program, formatted
+canonically, and stops before checking. `yashyc expand --json main.ya` lists
 every invocation in source order, with its macro name, arm span, invocation
 span, and output size:
 
 ```json
 {
   "schema_version": 1,
-  "tool": "yashy",
+  "tool": "yashyc",
   "expansions": [
     {
       "macro": "say",

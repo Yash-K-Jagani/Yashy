@@ -27,12 +27,12 @@ source_file=${1:-examples/hello/main.ya}
 # The compiler: the one in target/release if it is there, the debug one
 # otherwise. A release build is what a release would ship, so it is the one
 # worth checking.
-if [ -x target/release/yashy ]; then
-    yashy="$root/target/release/yashy"
-elif [ -x target/debug/yashy ]; then
-    yashy="$root/target/debug/yashy"
+if [ -x target/release/yashyc ]; then
+    yashyc="$root/target/release/yashyc"
+elif [ -x target/debug/yashyc ]; then
+    yashyc="$root/target/debug/yashyc"
 else
-    die "no yashy binary; run: cargo build --release -p yashy-driver"
+    die "no yashyc binary; run: cargo build --release -p yashy-driver"
 fi
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/yashy-repro.XXXXXX")
@@ -46,7 +46,7 @@ cp "$source_file" "$work/a/main.ya"
 cp "$source_file" "$work/b/main.ya"
 
 for side in a b; do
-    (cd "$work/$side" && "$yashy" build main.ya -o "hello" --reproducible) >/dev/null ||
+    (cd "$work/$side" && "$yashyc" build main.ya -o "hello" --reproducible) >/dev/null ||
         die "the build in $work/$side failed"
 done
 

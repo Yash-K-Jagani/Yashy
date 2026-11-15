@@ -1,6 +1,6 @@
 mod common;
 
-use common::{work_dir, yashy};
+use common::{work_dir, yashyc};
 use std::fs;
 use std::process::Command;
 
@@ -9,11 +9,11 @@ fn init_creates_a_buildable_and_testable_project() {
     let parent = work_dir("init-create");
     let project = parent.join("hello");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("init")
         .arg(&project)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     assert!(
         output.status.success(),
         "init must succeed:\n{}",
@@ -34,35 +34,35 @@ fn init_creates_a_buildable_and_testable_project() {
 
     let readme =
         fs::read_to_string(project.join("README.md")).expect("the README must be readable");
-    assert!(readme.contains("yashy run main.ya"), "README:\n{readme}");
-    assert!(readme.contains("yashy test"), "README:\n{readme}");
-    assert!(readme.contains("yashy build main.ya"), "README:\n{readme}");
+    assert!(readme.contains("yashyc run main.ya"), "README:\n{readme}");
+    assert!(readme.contains("yashyc test"), "README:\n{readme}");
+    assert!(readme.contains("yashyc build main.ya"), "README:\n{readme}");
 
     let agents = fs::read_to_string(project.join("AGENTS.md")).expect("AGENTS.md must be readable");
     assert!(agents.contains("## Commands"), "AGENTS.md:\n{agents}");
     assert!(agents.contains("## Layout"), "AGENTS.md:\n{agents}");
     assert!(agents.contains("## Rules"), "AGENTS.md:\n{agents}");
     assert!(agents.contains("## Docs"), "AGENTS.md:\n{agents}");
-    assert!(agents.contains("yashy test"), "AGENTS.md:\n{agents}");
+    assert!(agents.contains("yashyc test"), "AGENTS.md:\n{agents}");
 
-    let build = Command::new(yashy())
+    let build = Command::new(yashyc())
         .arg("build")
         .arg(project.join("main.ya"))
         .arg("-o")
         .arg(project.join("hello"))
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     assert!(
         build.status.success(),
         "the generated main.ya must compile:\n{}",
         String::from_utf8_lossy(&build.stderr)
     );
 
-    let test = Command::new(yashy())
+    let test = Command::new(yashyc())
         .arg("test")
         .current_dir(&project)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     assert!(
         test.status.success(),
         "the generated smoke test must pass:\n{}\n{}",
@@ -76,11 +76,11 @@ fn init_refuses_a_non_empty_directory() {
     let dir = work_dir("init-refuse");
     fs::write(dir.join("keep.txt"), "keep").expect("the fixture must be writable");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("init")
         .arg(&dir)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
 
     assert!(!output.status.success());
     assert!(dir.join("keep.txt").is_file());
@@ -90,11 +90,11 @@ fn init_refuses_a_non_empty_directory() {
 #[test]
 fn init_uses_the_current_directory_when_no_path_is_given() {
     let dir = work_dir("init-current");
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("init")
         .current_dir(&dir)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
 
     assert!(
         output.status.success(),

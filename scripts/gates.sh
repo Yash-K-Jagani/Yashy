@@ -35,12 +35,12 @@ while [ "$#" -gt 0 ]; do
 done
 
 # The compiler the gates drive: the release build when it is there.
-if [ -x target/release/yashy ]; then
-    yashy="$root/target/release/yashy"
-elif [ -x target/debug/yashy ]; then
-    yashy="$root/target/debug/yashy"
+if [ -x target/release/yashyc ]; then
+    yashyc="$root/target/release/yashyc"
+elif [ -x target/debug/yashyc ]; then
+    yashyc="$root/target/debug/yashyc"
 else
-    yashy=""
+    yashyc=""
 fi
 
 # name | budget | command
@@ -95,24 +95,24 @@ while IFS='|' read -r name budget command; do
     [ -n "$name" ] || continue
     case "$command" in
         FORMAT)
-            if [ -z "$yashy" ]; then
-                command="echo 'no yashy binary; run cargo build --release -p yashy-driver'"
+            if [ -z "$yashyc" ]; then
+                command="echo 'no yashyc binary; run cargo build --release -p yashy-driver'"
             else
-                command="find crates/yashy-stdlib/yashy packages examples -name '*.ya' -print0 | xargs -0 '$yashy' fmt --check"
+                command="find crates/yashy-stdlib/yashy packages examples -name '*.ya' -print0 | xargs -0 '$yashyc' fmt --check"
             fi
             ;;
         REPRO)
-            if [ -z "$yashy" ]; then
-                command="echo 'no yashy binary; run cargo build --release -p yashy-driver'"
+            if [ -z "$yashyc" ]; then
+                command="echo 'no yashyc binary; run cargo build --release -p yashy-driver'"
             else
                 command="sh scripts/repro-check.sh"
             fi
             ;;
         BOOK)
-            if [ -z "$yashy" ]; then
-                command="echo 'no yashy binary; run cargo build --release -p yashy-driver'"
+            if [ -z "$yashyc" ]; then
+                command="echo 'no yashyc binary; run cargo build --release -p yashy-driver'"
             else
-                command="sh scripts/run-tutorial-blocks.sh '$yashy' book/src/getting-started.md book/src/verification-guide.md book/src/tooling.md book/src/cookbook.md && sh scripts/book-reference.sh && git diff --exit-code book/src/reference.md"
+                command="sh scripts/run-tutorial-blocks.sh '$yashyc' book/src/getting-started.md book/src/verification-guide.md book/src/tooling.md book/src/cookbook.md && sh scripts/book-reference.sh && git diff --exit-code book/src/reference.md"
             fi
             ;;
     esac

@@ -26,12 +26,12 @@ cd "$root"
 out=${1:-"$root/registry"}
 mkdir -p "$out/packages"
 
-if [ -x target/release/yashy ]; then
-    yashy="$root/target/release/yashy"
-elif [ -x target/debug/yashy ]; then
-    yashy="$root/target/debug/yashy"
+if [ -x target/release/yashyc ]; then
+    yashyc="$root/target/release/yashyc"
+elif [ -x target/debug/yashyc ]; then
+    yashyc="$root/target/debug/yashyc"
 else
-    die "no yashy binary; run: cargo build --release -p yashy-driver"
+    die "no yashyc binary; run: cargo build --release -p yashy-driver"
 fi
 
 count=0
@@ -39,7 +39,7 @@ for package in "$root"/packages/*/; do
     [ -f "$package/yashy.toml" ] || continue
     name=$(basename -- "$package")
     printf 'publishing %s\n' "$name"
-    "$yashy" publish "$package" --registry "$out" >/dev/null
+    "$yashyc" publish "$package" --registry "$out" >/dev/null
     count=$((count + 1))
 done
 

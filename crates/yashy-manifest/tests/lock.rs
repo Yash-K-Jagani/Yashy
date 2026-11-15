@@ -51,7 +51,7 @@ fn the_manifest_version_change_names_both_versions() {
     assert_eq!(error.code(), yashy_common::codes::LOCKFILE_MISMATCH);
     assert!(error.message.contains("0.3.2"), "{error}");
     assert!(error.message.contains("0.3.1"), "{error}");
-    assert!(error.message.contains("yashy update"), "{error}");
+    assert!(error.message.contains("yashyc update"), "{error}");
 }
 
 #[test]
@@ -64,7 +64,7 @@ fn a_missing_lock_entry_names_the_package_and_the_command() {
         .check_manifest(&manifest, Path::new("."))
         .expect_err("the lock is empty");
     assert!(error.message.contains("http"), "{error}");
-    assert!(error.message.contains("yashy update"), "{error}");
+    assert!(error.message.contains("yashyc update"), "{error}");
 }
 
 #[test]
@@ -93,7 +93,7 @@ fn a_hand_edited_hash_is_e1802() {
     assert_eq!(error.code(), yashy_common::codes::LOCKFILE_MISMATCH);
     assert!(error.message.contains(&actual), "{error}");
     assert!(error.message.contains(&"0".repeat(64)), "{error}");
-    assert!(error.message.contains("yashy update"), "{error}");
+    assert!(error.message.contains("yashyc update"), "{error}");
 
     // The same lock with the real hash passes.
     let good = Lockfile::new(vec![LockedPackage {

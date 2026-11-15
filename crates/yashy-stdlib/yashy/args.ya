@@ -2,7 +2,7 @@
 //
 // `args()` is the builtin list of user arguments (the executable path is
 // excluded); this module names the queries over it. An invocation with no
-// arguments yields an empty list. `yashy run main.ya -- notes.txt` makes
+// arguments yields an empty list. `yashyc run main.ya -- notes.txt` makes
 // `nth(0)` answer `notes.txt`.
 //
 // A `for` loop borrows each element, so `nth` copies the element it wants

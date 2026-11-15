@@ -56,7 +56,7 @@ fn overlaps(left: Span, right: Span) -> bool {
     left.start < right.end && right.start < left.end
 }
 
-/// One expansion, in source order, for `yashy expand --json`.
+/// One expansion, in source order, for `yashyc expand --json`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExpansionRecord {
     pub macro_name: String,

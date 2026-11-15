@@ -44,7 +44,7 @@ Three rules make this safe without a garbage collector:
   before the last statement.
 - **A pointer is linear.** It cannot be copied, so it cannot be freed twice.
   Using it after it is moved is a compile error. Not freeing it is a verifier
-  error: `yashy verify`, and therefore `build` and `run`, reports `E1000` and
+  error: `yashyc verify`, and therefore `build` and `run`, reports `E1000` and
   refuses to link until the value is released on every path.
 
 `defer` takes a block: `defer { owned.free(); }`. The spec's shorter
@@ -141,7 +141,7 @@ the outer one untouched.
   been moved``. The callee owns the block now; it frees it or leaks it.
 - **Writing `defer b.free();`.** The parser expects a block and reports
   ``error: expected `{`, found an identifier``. Write `defer { b.free(); }`.
-- **Forgetting to free.** `yashy verify` reports `E1000`: ``linear value `b`
+- **Forgetting to free.** `yashyc verify` reports `E1000`: ``linear value `b`
   is never released``. The verifier checks every path out of the binding's
   scope, so a release on one branch of an `if` is not enough. `build` and `run`
   run the same check, so the program is refused before it is linked.
@@ -150,17 +150,17 @@ the outer one untouched.
 
 ## Proving your program
 
-`yashy verify file.ya` runs the verifier. It proves two things before the
+`yashyc verify file.ya` runs the verifier. It proves two things before the
 program ever runs: every linear value is released on every path out of its
-scope, and every contract the program states is discharged. `yashy build` and
-`yashy run` run the same verifier by default, so a program it rejects never
+scope, and every contract the program states is discharged. `yashyc build` and
+`yashyc run` run the same verifier by default, so a program it rejects never
 reaches `clang`.
 
 The forgotten `.free()` from the mistakes above is the first half. `verify`
 names the binding and the path it leaks on:
 
 ```text
-$ yashy verify leak.ya
+$ yashyc verify leak.ya
 leak.ya:2:5
 error[E1000]: linear value `buffer` is never released
     let buffer = alloc(4);
@@ -191,7 +191,7 @@ program is refused rather than shipped with a promise it may break. A clause it
 *can* prove costs nothing at run time: it is checked at compile time and then
 disappears.
 
-When the verifier is wrong and you still need a binary, `yashy build --no-verify`
+When the verifier is wrong and you still need a binary, `yashyc build --no-verify`
 skips the proof. It warns, writes `<output>.unverified` beside the binary so a
 later reader can see what happened, and refuses a program that carries a
 contract, because a contract is a promise only the verifier can honour. A CI

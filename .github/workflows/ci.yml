@@ -53,7 +53,7 @@ jobs:
       # rustc finds the MSVC linker on its own (through vswhere), but clang's
       # driver looks for `link.exe` on PATH. The Windows runner does not load the
       # Visual Studio environment into a plain step, so without this every
-      # `yashy build` fails at the link while the Rust tests themselves link
+      # `yashyc build` fails at the link while the Rust tests themselves link
       # fine. This is also why the failure shows up only in the suites that
       # compile a Yashy program.
       - name: Load the MSVC environment (Windows)
@@ -73,7 +73,7 @@ jobs:
         run: |
           cargo build -p yashy-driver
           mapfile -d '' files < <(find crates/yashy-stdlib/yashy packages examples -name '*.ya' -print0)
-          ./target/debug/yashy fmt --check "${files[@]}"
+          ./target/debug/yashyc fmt --check "${files[@]}"
 
       - name: Format gate (Windows)
         if: runner.os == 'Windows'
@@ -84,7 +84,7 @@ jobs:
           $files += Get-ChildItem -Recurse -Filter *.ya crates/yashy-stdlib/yashy
           $files += Get-ChildItem -Recurse -Filter *.ya packages
           $files += Get-ChildItem -Recurse -Filter *.ya examples
-          & ./target/debug/yashy.exe fmt --check @($files.FullName)
+          & ./target/debug/yashyc.exe fmt --check @($files.FullName)
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test
@@ -204,13 +204,13 @@ jobs:
             apt-get install -y clang llvm ca-certificates &&
             archive=$(ls /dist/yashy-*-x86_64-unknown-linux-gnu.tar.gz) &&
             YASHY_ARCHIVE="$archive" YASHY_SHA256SUMS=/dist/SHA256SUMS \
-              sh /dist/install.sh --prefix /tmp/yashy --no-path &&
-            /tmp/yashy/bin/yashy doctor &&
-            /tmp/yashy/bin/yashy doctor --json &&
-            /tmp/yashy/bin/yashy init /tmp/demo &&
-            cd /tmp/demo && /tmp/yashy/bin/yashy test &&
-            sh /dist/install.sh --uninstall --prefix /tmp/yashy --no-path &&
-            test ! -d /tmp/yashy
+              sh /dist/install.sh --prefix /tmp/yashyc --no-path &&
+            /tmp/yashyc/bin/yashyc doctor &&
+            /tmp/yashyc/bin/yashyc doctor --json &&
+            /tmp/yashyc/bin/yashyc init /tmp/demo &&
+            cd /tmp/demo && /tmp/yashyc/bin/yashyc test &&
+            sh /dist/install.sh --uninstall --prefix /tmp/yashyc --no-path &&
+            test ! -d /tmp/yashyc
           '
 
   # Nightly gate run: every phase gate on a clean checkout, on both OSes.

@@ -427,7 +427,7 @@ fn deeply_nested_input_is_a_diagnostic_not_a_stack_overflow_inner() {
 fn the_cli_reports_deep_nesting_instead_of_aborting() {
     // The tests above run in-process on `on_front_end_stack`; this one drives
     // the real binary, so the driver's own reservation is part of what passes.
-    // Before it existed, `yashy check` on a file this shape died with
+    // Before it existed, `yashyc check` on a file this shape died with
     // STATUS_STACK_OVERFLOW on the 1 MiB main-thread stack.
     let dir = std::env::temp_dir().join(format!("yashy-never-panics-{}", std::process::id()));
     fs::create_dir_all(&dir).expect("the test directory must be creatable");
@@ -440,11 +440,11 @@ fn the_cli_reports_deep_nesting_instead_of_aborting() {
     );
     fs::write(&path, source).expect("the test file must be writable");
 
-    let output = Command::new(common::yashy())
+    let output = Command::new(common::yashyc())
         .arg("check")
         .arg(&path)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(

@@ -1,14 +1,14 @@
 mod common;
 
-use common::yashy;
+use common::yashyc;
 use std::process::Command;
 
 #[test]
 fn doctor_reports_the_toolchain_and_stdlib() {
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("doctor")
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(
@@ -17,7 +17,7 @@ fn doctor_reports_the_toolchain_and_stdlib() {
         stdout,
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(stdout.contains("yashy"), "stdout:\n{stdout}");
+    assert!(stdout.contains("yashyc"), "stdout:\n{stdout}");
     assert!(stdout.contains("clang"), "stdout:\n{stdout}");
     assert!(stdout.contains("stdlib"), "stdout:\n{stdout}");
 }
@@ -41,12 +41,12 @@ fn doctor_rejects_a_clang_that_cannot_run() {
         std::fs::set_permissions(&fake, permissions).expect("the fake compiler must be executable");
     }
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("doctor")
         .env("PATH", &dir)
         .env_remove("YASHY_LLC")
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
 
     assert!(
         !output.status.success(),
@@ -64,11 +64,11 @@ fn doctor_rejects_a_clang_that_cannot_run() {
 
 #[test]
 fn doctor_json_reports_the_same_facts() {
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("doctor")
         .arg("--json")
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(
@@ -101,14 +101,14 @@ fn doctor_json_reports_failures_without_human_output() {
     let empty_stdlib = dir.join("stdlib");
     std::fs::create_dir_all(&empty_stdlib).expect("the empty stdlib directory must be creatable");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("doctor")
         .arg("--json")
         .env("PATH", &dir)
         .env("YASHY_STDLIB", &empty_stdlib)
         .env_remove("YASHY_LLC")
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -133,12 +133,12 @@ fn doctor_hint_matches_the_platform() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("the empty PATH directory must be creatable");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("doctor")
         .env("PATH", &dir)
         .env_remove("YASHY_LLC")
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(

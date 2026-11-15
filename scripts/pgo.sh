@@ -18,14 +18,14 @@
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-yashy="$root/target/release/yashy"
+yashyc="$root/target/release/yashyc"
 corpus="$root/benchmarks/pgo"
 build="$root/benchmarks/build/pgo"
 runs=${BENCH_RUNS:-5}
 output=${1:-}
 
-if [ ! -x "$yashy" ]; then
-    echo "no release binary at $yashy - run: cargo build --release -p yashy-driver" >&2
+if [ ! -x "$yashyc" ]; then
+    echo "no release binary at $yashyc - run: cargo build --release -p yashy-driver" >&2
     exit 1
 fi
 if [ ! -d "$corpus" ]; then
@@ -114,7 +114,7 @@ measure_median() {
 # Runs one build and, on failure, prints what the compiler said.
 #
 # Both build lines used to discard it, so a failed PGO build named only the
-# program: the first Linux run of this script reported `yashy build fib (PGO)
+# program: the first Linux run of this script reported `yashyc build fib (PGO)
 # failed` and nothing else, while the cause was a `llvm-profdata` from a
 # different LLVM release than the `clang` on PATH. Quote the output, and name
 # the tools, because `--pgo` is the one row whose answer depends on both.
@@ -151,8 +151,8 @@ for file in "$corpus"/*.ya; do
     pgo="$build/$stem-pgo"
 
     say "== $stem"
-    build_or_fail "yashy build $stem (ThinLTO)" "$yashy" build "$file" -o "$lto" --release
-    build_or_fail "yashy build $stem (PGO)" "$yashy" build "$file" -o "$pgo" --release --pgo
+    build_or_fail "yashyc build $stem (ThinLTO)" "$yashyc" build "$file" -o "$lto" --release
+    build_or_fail "yashyc build $stem (PGO)" "$yashyc" build "$file" -o "$pgo" --release --pgo
 
     # The driver names the merged profile after the output it was asked for
     # (`$stem-pgo`), not after the corpus file (`$stem`). Check for that name.

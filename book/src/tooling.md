@@ -9,19 +9,19 @@ repository wants it?
 
 | Command | What it answers |
 |---|---|
-| `yashy check <file>` | does this program type-check? |
-| `yashy verify <file>` | is this program sound? |
-| `yashy build <file>` | make me a binary |
-| `yashy run <file>` | make me a binary and run it |
-| `yashy test [dir]` | run every program under `tests/` |
-| `yashy doctor` | is this machine able to compile at all? |
-| `yashy fmt --check <files>` | is this source formatted the way the repository wants it? |
-| `yashy index [dir]` | what symbols does this tree define? |
-| `yashy outline <file>` | what is the shape of this program? |
-| `yashy context --task "..."` | what do I need to read to do this? |
-| `yashy doc [dir]` | the documentation, rendered from the doc blocks |
-| `yashy explain <code>` | what does this diagnostic mean? |
-| `yashy mcp --root <dir>` | the same facts, over the model context protocol |
+| `yashyc check <file>` | does this program type-check? |
+| `yashyc verify <file>` | is this program sound? |
+| `yashyc build <file>` | make me a binary |
+| `yashyc run <file>` | make me a binary and run it |
+| `yashyc test [dir]` | run every program under `tests/` |
+| `yashyc doctor` | is this machine able to compile at all? |
+| `yashyc fmt --check <files>` | is this source formatted the way the repository wants it? |
+| `yashyc index [dir]` | what symbols does this tree define? |
+| `yashyc outline <file>` | what is the shape of this program? |
+| `yashyc context --task "..."` | what do I need to read to do this? |
+| `yashyc doc [dir]` | the documentation, rendered from the doc blocks |
+| `yashyc explain <code>` | what does this diagnostic mean? |
+| `yashyc mcp --root <dir>` | the same facts, over the model context protocol |
 
 ## Every command has a JSON form
 
@@ -29,7 +29,7 @@ repository wants it?
 parse text:
 
 ```text
-$ yashy check --json main.ya
+$ yashyc check --json main.ya
 {
   "schema_version": 1,
   "tool": "check",
@@ -44,13 +44,13 @@ failed tests, `2` a usage or configuration error, `3` an internal error.
 
 ## The format gate
 
-`yashy fmt --check` writes nothing, prints one line per file that is not
+`yashyc fmt --check` writes nothing, prints one line per file that is not
 already canonical, and exits `1` if there is at least one. It is the gate CI
 enforces, so a pull request that reformats a file is caught by the machine
 rather than by a reviewer:
 
 ```text
-$ yashy fmt --check src/main.ya
+$ yashyc fmt --check src/main.ya
 src/main.ya
 ```
 
@@ -60,13 +60,13 @@ people disable.
 
 ## The index
 
-`yashy index` prints every symbol a tree defines — functions, structs,
+`yashyc index` prints every symbol a tree defines — functions, structs,
 enums, traits and methods — with its signature, its effects, its contracts
 and its documentation. The output is sorted, so it is byte-identical across
 runs:
 
 ```text
-$ yashy index --json
+$ yashyc index --json
 {
   "schema_version": 1,
   "tool": "index",
@@ -76,7 +76,7 @@ $ yashy index --json
 
 ## The context pack
 
-`yashy context --task "add pagination to the API"` reads the tree and returns
+`yashyc context --task "add pagination to the API"` reads the tree and returns
 a pack: the functions the task touches, the tests that cover them, and
 nothing else. The pack says what it dropped, so a reader knows what they are
 not seeing.

@@ -6,7 +6,7 @@
 // but the panic lands first, so the task table names both with the
 // blocked one marked `pending` and the correct function name.
 //
-// `yashy tasks async_debug_tasks.ya` and `yashy run --debug
+// `yashyc tasks async_debug_tasks.ya` and `yashyc run --debug
 // async_debug_tasks.ya` both print the table to standard error.
 async fn blocked_on_channel(Channel[int] ch) -> int {
     let int n = -1;

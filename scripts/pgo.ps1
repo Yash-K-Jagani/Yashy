@@ -22,13 +22,13 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
-$yashy = Join-Path $root 'target\release\yashy.exe'
+$yashyc = Join-Path $root 'target\release\yashyc.exe'
 $corpus = Join-Path $root 'benchmarks\pgo'
 $build = Join-Path $root 'benchmarks\build\pgo'
 $exe = '.exe'
 
-if (-not (Test-Path $yashy)) {
-    throw "no release binary at $yashy - run: cargo build --release -p yashy-driver"
+if (-not (Test-Path $yashyc)) {
+    throw "no release binary at $yashyc - run: cargo build --release -p yashy-driver"
 }
 if (-not (Test-Path $corpus)) {
     throw "no PGO corpus at $corpus"
@@ -109,8 +109,8 @@ foreach ($file in Get-ChildItem $corpus -Filter *.ya | Sort-Object Name) {
     $pgo = Join-Path $build "$stem-pgo$exe"
 
     Write-Output "== $stem"
-    Invoke-Tool $yashy @('build', $file.FullName, '-o', $lto, '--release') "yashy build $stem (ThinLTO)" | Out-Null
-    Invoke-Tool $yashy @('build', $file.FullName, '-o', $pgo, '--release', '--pgo') "yashy build $stem (PGO)" | Out-Null
+    Invoke-Tool $yashyc @('build', $file.FullName, '-o', $lto, '--release') "yashyc build $stem (ThinLTO)" | Out-Null
+    Invoke-Tool $yashyc @('build', $file.FullName, '-o', $pgo, '--release', '--pgo') "yashyc build $stem (PGO)" | Out-Null
 
     $profile = Join-Path $build ".yashy\pgo\$stem-pgo.profdata"
     if (-not (Test-Path $profile)) {

@@ -1,7 +1,7 @@
 //! The playground: the sandbox behind an HTTP front end.
 //!
 //! The point of the playground is that it is *not* a second sandbox. Every
-//! run is a `yashy run --sandbox`, so the phase 11 escape corpus is the test
+//! run is a `yashyc run --sandbox`, so the phase 11 escape corpus is the test
 //! that matters: the same attempts, through the same code, must all be
 //! denied.
 
@@ -13,7 +13,7 @@ use std::sync::OnceLock;
 use yashy_driver::playground::{Limits, Reply, Request, Server};
 
 fn compiler() -> PathBuf {
-    PathBuf::from(common::yashy())
+    PathBuf::from(common::yashyc())
 }
 
 /// A server with the default limits, driving the compiler the tests built.

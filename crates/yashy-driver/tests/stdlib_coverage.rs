@@ -26,7 +26,7 @@ fn stdlib_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("yashy-stdlib")
-        .join("yashy")
+        .join("yashyc")
 }
 
 /// `crates/yashy-driver/tests/programs/stdlib`, one program per module.

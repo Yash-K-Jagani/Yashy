@@ -16,9 +16,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-/// The `yashy` binary cargo built for this test run.
-fn yashy() -> &'static str {
-    common::yashy()
+/// The `yashyc` binary cargo built for this test run.
+fn yashyc() -> &'static str {
+    common::yashyc()
 }
 
 /// `crates/yashy-stdlib/yashy`, the directory holding `io.ya` and friends.
@@ -26,7 +26,7 @@ fn stdlib_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("yashy-stdlib")
-        .join("yashy")
+        .join("yashyc")
 }
 
 fn work_dir(name: &str) -> PathBuf {
@@ -58,14 +58,14 @@ fn stdout_of(output: &Output) -> String {
 
 /// Build `source` with the stdlib on the module path.
 fn build(source: &Path, exe: &Path) -> Output {
-    Command::new(yashy())
+    Command::new(yashyc())
         .arg("build")
         .arg(source)
         .arg("-o")
         .arg(exe)
         .env("YASHY_PATH", stdlib_dir())
         .output()
-        .expect("the yashy CLI must be runnable")
+        .expect("the yashyc CLI must be runnable")
 }
 
 /// Run a built program in `dir`, with the leak report and one variable set.
@@ -125,12 +125,12 @@ fn every_module_is_a_program_the_checker_accepts_together() {
     // toolchain, so the test still says something on a machine without clang.
     let dir = work_dir("check");
     write(&dir, "main.ya", DEMO);
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("check")
         .arg(dir.join("main.ya"))
         .env("YASHY_PATH", stdlib_dir())
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     assert!(
         output.status.success(),
         "the stdlib must check:\n{}",
@@ -229,7 +229,7 @@ fn stdlib_is_found_without_yashy_path() {
         "main.ya",
         "import io;\nfn main() { print(\"ok\"); }\n",
     );
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("build")
         .arg(dir.join("main.ya"))
         .arg("-o")
@@ -237,7 +237,7 @@ fn stdlib_is_found_without_yashy_path() {
         .env_remove("YASHY_PATH")
         .env_remove("YASHY_STDLIB")
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
 
     assert!(
         output.status.success(),
@@ -270,10 +270,10 @@ fn main() {
     print(join(\"a/\", \"/b\"));
     print(join(\"\", \"b\"));
     print(join(\"a\", \"\"));
-    print(basename(\"/usr/local/bin/yashy\"));
+    print(basename(\"/usr/local/bin/yashyc\"));
     print(basename(\"/\"));
     print(basename(\"\"));
-    print(dirname(\"/usr/local/bin/yashy\"));
+    print(dirname(\"/usr/local/bin/yashyc\"));
     print(dirname(\"\"));
     print(extension(\"archive.tar.gz\"));
     print(extension(\".gitignore\"));
@@ -314,7 +314,7 @@ fn every_stdlib_module_imports_and_the_path_and_json_helpers_run() {
     assert_eq!(output.status.code(), Some(0), "{}", stderr_of(&output));
     assert_eq!(
         stdout_of(&output),
-        "a/b\na/b\nb\na\nyashy\n/\n\n/usr/local/bin\n.\ngz\n\n\"a\\\"b\\n\"\nin-range\nin-range\n0\ncwd\nclock\n"
+        "a/b\na/b\nb\na\nyashyc\n/\n\n/usr/local/bin\n.\ngz\n\n\"a\\\"b\\n\"\nin-range\nin-range\n0\ncwd\nclock\n"
     );
     assert!(
         stderr_of(&output).contains("yashy: leak report: 0 live allocations"),

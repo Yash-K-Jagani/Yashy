@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "yashy explain --json (schema v1)",
+  "title": "yashyc explain --json (schema v1)",
   "type": "object",
   "required": ["schema_version", "tool", "code", "title", "summary", "page", "docs_url"],
   "properties": {

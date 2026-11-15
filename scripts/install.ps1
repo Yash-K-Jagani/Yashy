@@ -21,7 +21,7 @@ usage: install.ps1 [options]
   -LocalArchive <p>  install from a local zip, for offline installs and tests
   -Checksums <p>     SHA256SUMS for -LocalArchive (default: beside the zip)
   -NoPath            do not add the prefix to the user PATH
-  -NoDoctor          do not run `yashy doctor` after installing
+  -NoDoctor          do not run `yashyc doctor` after installing
   -Uninstall         remove the installed files and the user PATH entry
   -Help              show this help
 '@ | Write-Output
@@ -76,15 +76,15 @@ function Assert-Checksum([string]$Archive, [string]$SumsPath) {
 }
 
 function Find-PackageRoot([string]$ExtractDir) {
-    if (Test-Path -LiteralPath (Join-Path $ExtractDir 'yashy.exe')) {
+    if (Test-Path -LiteralPath (Join-Path $ExtractDir 'yashyc.exe')) {
         return $ExtractDir
     }
     foreach ($child in Get-ChildItem -LiteralPath $ExtractDir -Directory) {
-        if (Test-Path -LiteralPath (Join-Path $child.FullName 'yashy.exe')) {
+        if (Test-Path -LiteralPath (Join-Path $child.FullName 'yashyc.exe')) {
             return $child.FullName
         }
     }
-    throw "the package does not contain yashy.exe: $ExtractDir"
+    throw "the package does not contain yashyc.exe: $ExtractDir"
 }
 
 function Get-NormalizedPath([string]$Path) {
@@ -159,7 +159,7 @@ try {
         $stage = New-TempDirectory
         Expand-Archive -LiteralPath $archive -DestinationPath $stage -Force
     }
-    elseif ($PSScriptRoot -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'yashy.exe'))) {
+    elseif ($PSScriptRoot -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'yashyc.exe'))) {
         # Running install.ps1 from an extracted release zip: install the files
         # beside it instead of going back to the network for "latest".
         $stage = $PSScriptRoot
@@ -209,26 +209,26 @@ try {
     $doctorStatus = 0
     if (-not $NoDoctor) {
         try {
-            & (Join-Path $Prefix 'yashy.exe') doctor
+            & (Join-Path $Prefix 'yashyc.exe') doctor
             $doctorStatus = $LASTEXITCODE
         }
         catch {
             $doctorStatus = 1
-            Write-Warning "could not run yashy doctor: $($_.Exception.Message)"
+            Write-Warning "could not run yashyc doctor: $($_.Exception.Message)"
         }
     }
 
     Write-Output "Installed Yashy to $Prefix"
     if ($doctorStatus -ne 0) {
         Write-Output ''
-        Write-Output 'Yashy installed, but `yashy doctor` found a problem.'
+        Write-Output 'Yashy installed, but `yashyc doctor` found a problem.'
         Write-Output 'Next: winget install LLVM.LLVM'
-        Write-Output 'Then run: yashy doctor'
+        Write-Output 'Then run: yashyc doctor'
     }
     else {
-        Write-Output 'Next: yashy init my-cli'
+        Write-Output 'Next: yashyc init my-cli'
         if ($NoPath) {
-            Write-Output "      (add $Prefix to PATH, or run $Prefix\yashy.exe)"
+            Write-Output "      (add $Prefix to PATH, or run $Prefix\yashyc.exe)"
         }
     }
 }

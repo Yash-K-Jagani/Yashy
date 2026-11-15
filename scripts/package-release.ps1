@@ -14,7 +14,7 @@ $zip = Join-Path $dist "$name.zip"
 if ($Binary) {
     $binary = $Binary
 } else {
-    $binary = Join-Path $root 'target\release\yashy.exe'
+    $binary = Join-Path $root 'target\release\yashyc.exe'
 }
 $stdlib = Join-Path $root 'crates\yashy-stdlib\yashy'
 $stdlibManifest = Join-Path $root 'crates\yashy-stdlib\yashy.toml'
@@ -33,7 +33,7 @@ if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $stage 'yashy-stdlib') | Out-Null
 
-Copy-Item $binary (Join-Path $stage 'yashy.exe')
+Copy-Item $binary (Join-Path $stage 'yashyc.exe')
 Copy-Item -Recurse $stdlib (Join-Path $stage 'yashy-stdlib\yashy')
 # The manifest sits beside the module directory, the layout the compiler
 # searches for the stdlib version that keys its IR cache.

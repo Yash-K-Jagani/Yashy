@@ -6,7 +6,7 @@
 #   sh install.sh --uninstall
 #
 # The script is POSIX sh, not bash, because the quickstart advertises
-# `curl ... | sh`. It installs the compiler at $PREFIX/bin/yashy and the
+# `curl ... | sh`. It installs the compiler at $PREFIX/bin/yashyc and the
 # bundled standard library at $PREFIX/share/yashy/stdlib/yashy, so the
 # compiler finds the library without YASHY_PATH.
 #
@@ -20,7 +20,7 @@
 #   --version <v>       release version
 #   --prefix <dir>      install prefix
 #   --no-path           do not edit shell profiles
-#   --no-doctor         do not run `yashy doctor` after installing
+#   --no-doctor         do not run `yashyc doctor` after installing
 #   --uninstall         remove the installed files and PATH block
 #   --help              show this help
 
@@ -45,7 +45,7 @@ usage: install.sh [options]
   --version <v>   install a specific release (default: latest)
   --prefix <dir>  install prefix (default: $HOME/.local)
   --no-path       do not edit ~/.profile, ~/.bashrc, or ~/.zshrc
-  --no-doctor     do not run `yashy doctor` after installing
+  --no-doctor     do not run `yashyc doctor` after installing
   --uninstall     remove the installed files and the marked PATH block
   --help          show this help
 
@@ -202,9 +202,9 @@ if [ "$uninstall" -eq 1 ]; then
         remove_path_block "$HOME/.zshrc"
     fi
 
-    if [ -f "$prefix/bin/yashy" ]; then
-        rm -f "$prefix/bin/yashy"
-        say "removed $prefix/bin/yashy"
+    if [ -f "$prefix/bin/yashyc" ]; then
+        rm -f "$prefix/bin/yashyc"
+        say "removed $prefix/bin/yashyc"
         removed=1
     fi
     if [ -d "$prefix/share/yashy" ]; then
@@ -281,7 +281,7 @@ if [ -n "$archive" ]; then
     [ "$expected" = "$actual" ] ||
         die "checksum mismatch for $archive_name: expected $expected, got $actual"
     source_mode="archive"
-elif [ -n "$script_dir" ] && [ -f "$script_dir/yashy" ] &&
+elif [ -n "$script_dir" ] && [ -f "$script_dir/yashyc" ] &&
     [ -d "$script_dir/yashy-stdlib/yashy" ]; then
     # The script is inside an extracted release archive. There is no download
     # and no archive to checksum; the user already has the files.
@@ -331,20 +331,20 @@ if [ "$source_mode" = "archive" ] || [ "$source_mode" = "download" ]; then
     esac
     stage=""
     for candidate in "$extract"/*; do
-        if [ -d "$candidate" ] && [ -f "$candidate/yashy" ]; then
+        if [ -d "$candidate" ] && [ -f "$candidate/yashyc" ]; then
             stage=$candidate
             break
         fi
     done
-    [ -n "$stage" ] || die "the archive does not contain a yashy binary"
+    [ -n "$stage" ] || die "the archive does not contain a yashyc binary"
     [ -d "$stage/yashy-stdlib/yashy" ] || die "the archive does not contain yashy-stdlib/yashy"
 else
     stage=$script_dir
 fi
 
 mkdir -p "$prefix/bin" "$prefix/share/yashy/stdlib"
-cp "$stage/yashy" "$prefix/bin/yashy"
-chmod 755 "$prefix/bin/yashy"
+cp "$stage/yashyc" "$prefix/bin/yashyc"
+chmod 755 "$prefix/bin/yashyc"
 rm -rf "$prefix/share/yashy/stdlib"
 mkdir -p "$prefix/share/yashy/stdlib"
 cp -R "$stage/yashy-stdlib/yashy" "$prefix/share/yashy/stdlib/yashy"
@@ -372,19 +372,19 @@ if [ "$do_doctor" -eq 1 ]; then
     doctor_status=0
     # Put the prefix on PATH for this one call so doctor's PATH check sees the
     # install that was just made, even before the user opens a new shell.
-    if ! PATH="$prefix/bin:$PATH" "$prefix/bin/yashy" doctor; then
+    if ! PATH="$prefix/bin:$PATH" "$prefix/bin/yashyc" doctor; then
         doctor_status=1
     fi
     if [ "$doctor_status" -ne 0 ]; then
         say ""
-        say "Yashy installed, but \`yashy doctor\` found a problem."
+        say "Yashy installed, but \`yashyc doctor\` found a problem."
         say "Next: $(llvm_hint)"
-        say "Then run: yashy doctor"
+        say "Then run: yashyc doctor"
         exit 0
     fi
 fi
 
-say "Next: yashy init my-cli"
+say "Next: yashyc init my-cli"
 if [ "$do_path" -eq 0 ]; then
-    say "      (add $prefix/bin to PATH, or run $prefix/bin/yashy)"
+    say "      (add $prefix/bin to PATH, or run $prefix/bin/yashyc)"
 fi

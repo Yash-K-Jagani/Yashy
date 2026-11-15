@@ -45,7 +45,7 @@ curl -fsSL https://github.com/Yash-K-Jagani/Yashy/releases/latest/download/insta
 ```
 
 The installers verify `SHA256SUMS`, install into a prefix, add it to `PATH`, and
-run `yashy doctor`. Use `--prefix` / `-Prefix` for a different location,
+run `yashyc doctor`. Use `--prefix` / `-Prefix` for a different location,
 `--no-path` / `-NoPath` to manage `PATH` yourself, and `--uninstall` /
 `-Uninstall` to remove the install.
 
@@ -59,8 +59,8 @@ directory.
 ## 3. Check it
 
 ```text
-yashy doctor
-yashy doctor --json
+yashyc doctor
+yashyc doctor --json
 ```
 
 `doctor` exits non-zero if `clang` cannot run or the standard library is
@@ -70,23 +70,23 @@ missing. Its final `next:` line is the fix. The JSON form has
 ## 4. Create and run a project
 
 ```text
-yashy init wordcount
+yashyc init wordcount
 cd wordcount
-yashy run main.ya
+yashyc run main.ya
 ```
 
 ```text
 Hello, Yashy!
 ```
 
-`yashy run` compiles and runs in one step. `yashy build main.ya -o wordcount --release`
+`yashyc run` compiles and runs in one step. `yashyc build main.ya -o wordcount --release`
 writes a native binary; `--release` defaults to `-O3`, and an explicit `-O`
 wins.
 
 ## 5. Test it
 
 ```text
-yashy test
+yashyc test
 ```
 
 Every `.ya` file under `tests/` is one test program. A test passes when it exits

@@ -5,7 +5,7 @@
 //! 2.0 project with its own performance story, and the sandbox already
 //! exists.
 //!
-//! Every run is a `yashy run --sandbox` with a directory of its own, the
+//! Every run is a `yashyc run --sandbox` with a directory of its own, the
 //! default-deny capability set, a wall clock, a memory cap and an output
 //! cap. The run may *read* its own directory and write nothing anywhere: a
 //! playground program has no reason to write, and a program that can write is
@@ -329,8 +329,8 @@ fn truncate(text: &mut String, limit: u64) {
 
 /// The compiler the playground drives.
 ///
-/// The server is the compiler's sibling: `yashy playground` runs beside
-/// `yashy`, and the server shells out to the very binary that is running it.
+/// The server is the compiler's sibling: `yashyc playground` runs beside
+/// `yashyc`, and the server shells out to the very binary that is running it.
 /// `YASHY_BIN` names another one, which is what a test does.
 fn default_compiler() -> PathBuf {
     if let Some(path) = std::env::var_os("YASHY_BIN") {
@@ -338,8 +338,8 @@ fn default_compiler() -> PathBuf {
     }
     std::env::current_exe()
         .ok()
-        .and_then(|exe| exe.parent().map(|dir| dir.join("yashy.exe")))
-        .unwrap_or_else(|| PathBuf::from("yashy"))
+        .and_then(|exe| exe.parent().map(|dir| dir.join("yashyc.exe")))
+        .unwrap_or_else(|| PathBuf::from("yashyc"))
 }
 
 /// Parse the request body: `{"source": "...", "args": ["..."]}`.
@@ -744,12 +744,12 @@ mod tests {
         // this test pins does not need a compiler to happen.
         let one = Server::with_paths(
             Limits::default(),
-            PathBuf::from("yashy"),
+            PathBuf::from("yashyc"),
             PathBuf::from("root"),
         );
         let two = Server::with_paths(
             Limits::default(),
-            PathBuf::from("yashy"),
+            PathBuf::from("yashyc"),
             PathBuf::from("root"),
         );
         let mut ids = std::collections::HashSet::new();

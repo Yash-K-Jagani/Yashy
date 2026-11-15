@@ -3,6 +3,6 @@
 The smallest Yashy project.
 
 ```text
-yashy run main.ya
-yashy test
+yashyc run main.ya
+yashyc test
 ```

@@ -3,7 +3,7 @@
 //! A verifier proves what it can. Everything it cannot prove and the program
 //! does anyway -- a call into C, a call that crosses a raw pointer -- is an
 //! assumption, and this pass lists them. The list is evidence, not a verdict:
-//! `yashy verify --inventory` answers "what does this program trust?", so that
+//! `yashyc verify --inventory` answers "what does this program trust?", so that
 //! "verified" never quietly means "trusted, and nobody wrote down what".
 //!
 //! Nothing here changes the exit code. A program with a thousand assumptions is

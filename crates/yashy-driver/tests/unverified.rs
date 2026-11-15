@@ -17,18 +17,18 @@
 
 mod common;
 
-use common::{exe, work_dir, write, yashy};
+use common::{exe, work_dir, write, yashyc};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 fn run(dir: &Path, args: &[&str]) -> Output {
-    Command::new(yashy())
+    Command::new(yashyc())
         .args(args)
         .env_remove("YASHY_REQUIRE_VERIFY")
         .current_dir(dir)
         .output()
-        .expect("the yashy CLI must be runnable")
+        .expect("the yashyc CLI must be runnable")
 }
 
 fn stderr(output: &Output) -> String {
@@ -193,7 +193,7 @@ fn require_verify_makes_no_verify_a_usage_error() {
     write(&dir, "hello.ya", HELLO);
     let output = exe(&dir, "out");
 
-    let refused = Command::new(yashy())
+    let refused = Command::new(yashyc())
         .args([
             "build",
             "hello.ya",
@@ -204,7 +204,7 @@ fn require_verify_makes_no_verify_a_usage_error() {
         .env("YASHY_REQUIRE_VERIFY", "1")
         .current_dir(&dir)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     let errors = stderr(&refused);
     assert_eq!(
         refused.status.code(),
@@ -219,7 +219,7 @@ fn require_verify_makes_no_verify_a_usage_error() {
 
     // The variable demands verification; it does not forbid building. An
     // ordinary build still verifies and still succeeds.
-    let verified = Command::new(yashy())
+    let verified = Command::new(yashyc())
         .args([
             "build",
             "hello.ya",
@@ -229,7 +229,7 @@ fn require_verify_makes_no_verify_a_usage_error() {
         .env("YASHY_REQUIRE_VERIFY", "1")
         .current_dir(&dir)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     assert_eq!(
         verified.status.code(),
         Some(0),

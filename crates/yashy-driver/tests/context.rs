@@ -1,19 +1,19 @@
-//! `yashy context`: the token-budgeted context pack.
+//! `yashyc context`: the token-budgeted context pack.
 
 mod common;
 
 use std::path::PathBuf;
 use std::process::Command;
 
-fn yashy() -> &'static str {
-    common::yashy()
+fn yashyc() -> &'static str {
+    common::yashyc()
 }
 
 fn run(args: &[&str]) -> (bool, String, String) {
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .args(args)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     (
         output.status.success(),
         String::from_utf8_lossy(&output.stdout).into_owned(),

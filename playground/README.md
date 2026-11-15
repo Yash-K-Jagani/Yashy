@@ -7,18 +7,18 @@ sandbox already exists.
 ## Running it
 
 ```text
-yashy playground --port 8080
+yashyc playground --port 8080
 ```
 
 Then open <http://127.0.0.1:8080>.
 
-The server is the compiler's own binary: `yashy playground` serves the static
-front end in this directory and shells out to the very `yashy` that is
+The server is the compiler's own binary: `yashyc playground` serves the static
+front end in this directory and shells out to the very `yashyc` that is
 running it.
 
 ## What a run is
 
-Every request is a `yashy run --sandbox` with:
+Every request is a `yashyc run --sandbox` with:
 
 | Limit | Value | Why |
 |---|---|---|

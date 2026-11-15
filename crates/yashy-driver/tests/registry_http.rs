@@ -1,4 +1,4 @@
-//! A registry served over HTTP: `yashy add` fetches, verifies the hash and
+//! A registry served over HTTP: `yashyc add` fetches, verifies the hash and
 //! builds.
 //!
 //! The registry a release publishes is a static index on a host, not a
@@ -156,14 +156,14 @@ fn a_package_is_fetched_from_an_http_registry_and_built() {
     let server = Server::start(registry);
     let store = dir.join("store");
 
-    let output = Command::new(common::yashy())
+    let output = Command::new(common::yashyc())
         .current_dir(&project)
         .arg("build")
         .arg("main.ya")
         .env("YASHY_REGISTRY", server.url())
         .env("YASHY_PACKAGE_STORE", &store)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     assert!(
         output.status.success(),
         "the build must fetch the package and succeed:\n{}",
@@ -209,14 +209,14 @@ fn a_tampered_tarball_fails_the_hash_check() {
     let server = Server::start(registry);
     let store = dir.join("store");
 
-    let output = Command::new(common::yashy())
+    let output = Command::new(common::yashyc())
         .current_dir(&project)
         .arg("build")
         .arg("main.ya")
         .env("YASHY_REGISTRY", server.url())
         .env("YASHY_PACKAGE_STORE", &store)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     assert!(
         !output.status.success(),
         "a tampered tarball must not build:\n{}",

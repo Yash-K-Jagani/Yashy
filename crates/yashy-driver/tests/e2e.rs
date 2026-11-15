@@ -15,7 +15,7 @@ use std::process::{Command, Output};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-/// The `yashy` binary cargo built for this test run, as a path the host will
+/// The `yashyc` binary cargo built for this test run, as a path the host will
 /// actually start.
 ///
 /// Every test drives the CLI, and a freshly linked binary is exactly what an
@@ -25,14 +25,14 @@ use std::time::{Duration, Instant};
 /// once per test process, because the binary cannot change while the run is in
 /// progress, and the returned path is the image cargo built with nothing but
 /// trailing padding added.
-fn yashy() -> &'static str {
+fn yashyc() -> &'static str {
     static RUNNABLE: OnceLock<String> = OnceLock::new();
     RUNNABLE.get_or_init(runnable_cli).as_str()
 }
 
 /// Find a copy of the CLI the host will start, padding until it does.
 fn runnable_cli() -> String {
-    let original = Path::new(env!("CARGO_BIN_EXE_yashy"));
+    let original = Path::new(env!("CARGO_BIN_EXE_yashyc"));
     for attempt in 0..LAUNCH_ATTEMPTS {
         let Ok(candidate) = launch_candidate(original, attempt) else {
             continue;
@@ -43,13 +43,13 @@ fn runnable_cli() -> String {
             Ok(_) => return candidate.to_string_lossy().into_owned(),
             Err(error) if blocked_by_policy(&error) => continue,
             Err(error) => panic!(
-                "the yashy CLI at {} must start: {error}",
+                "the yashyc CLI at {} must start: {error}",
                 original.display()
             ),
         }
     }
     panic!(
-        "the yashy CLI at {} was blocked by an Application Control / Device \
+        "the yashyc CLI at {} was blocked by an Application Control / Device \
          Guard policy on all {LAUNCH_ATTEMPTS} attempts",
         original.display()
     )
@@ -74,13 +74,13 @@ fn build_program(name: &str) -> (PathBuf, PathBuf, Output) {
     let dir = work_dir(name);
     let source = programs_dir().join(format!("{name}.ya"));
     let exe = dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("build")
         .arg(&source)
         .arg("-o")
         .arg(&exe)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     (dir, exe, output)
 }
 
@@ -327,12 +327,12 @@ fn interning_makes_two_identical_literals_one_global() {
     // the spelling "same bytes" appears twice in the source and must appear
     // once in the module, as one data global and one struct global.
     let source = programs_dir().join("interning.ya");
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("build")
         .arg(&source)
         .arg("--emit-ir")
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     assert!(
         output.status.success(),
         "emitting interning.ya failed:\n{}",
@@ -785,11 +785,11 @@ fn the_default_output_path_sits_beside_the_source() {
     let source = dir.join("hello.ya");
     fs::copy(programs_dir().join("hello.ya"), &source).expect("copy hello.ya");
 
-    let compile = Command::new(yashy())
+    let compile = Command::new(yashyc())
         .arg("build")
         .arg(&source)
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
     assert!(
         compile.status.success(),
         "compiling failed:\n{}",
@@ -816,13 +816,13 @@ fn building_leaves_no_intermediate_object_file() {
     let dir = work_dir("no-object");
     let source = programs_dir().join("hello.ya");
     let exe = dir.join(format!("hello{}", std::env::consts::EXE_SUFFIX));
-    let compile = Command::new(yashy())
+    let compile = Command::new(yashyc())
         .arg("build")
         .arg(&source)
         .arg("-o")
         .arg(&exe)
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
     assert!(
         compile.status.success(),
         "compiling hello.ya failed:\n{}",
@@ -848,11 +848,11 @@ fn a_type_error_produces_a_caret_diagnostic_and_exit_1() {
     let source = dir.join("bad.ya");
     fs::write(&source, "fn main() {\n    const x = 1 + true;\n}\n").expect("write bad.ya");
 
-    let compile = Command::new(yashy())
+    let compile = Command::new(yashyc())
         .arg("build")
         .arg(&source)
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
 
     assert_eq!(
         compile.status.code(),
@@ -882,11 +882,11 @@ fn a_float_bitwise_operand_is_e0103() {
     )
     .expect("write bits.ya");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("check")
         .arg(&source)
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
 
     assert_eq!(
         output.status.code(),
@@ -914,11 +914,11 @@ fn mixed_bitwise_operands_are_e0104() {
     )
     .expect("write bits.ya");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("check")
         .arg(&source)
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
 
     assert_eq!(
         output.status.code(),
@@ -946,11 +946,11 @@ fn a_compound_bitwise_assignment_to_a_const_is_e0400() {
     )
     .expect("write bits.ya");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("check")
         .arg(&source)
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
 
     assert_eq!(
         output.status.code(),
@@ -1057,11 +1057,11 @@ fn a_constant_shift_out_of_range_is_e0105_at_compile_time() {
     let source = dir.join("shift.ya");
     fs::write(&source, "fn main() {\n    const int BAD = 1 << 64;\n}\n").expect("write shift.ya");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("check")
         .arg(&source)
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
 
     assert_eq!(
         output.status.code(),
@@ -1088,12 +1088,12 @@ fn ir_of(name: &str, source: &str) -> String {
     let dir = work_dir(name);
     let file = dir.join(format!("{name}.ya"));
     fs::write(&file, source).expect("writing the test program");
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("build")
         .arg(&file)
         .arg("--emit-ir")
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
     assert!(
         output.status.success(),
         "--emit-ir failed for {name}:\n{}",
@@ -1172,11 +1172,11 @@ fn a_catalogued_error_prints_its_code() {
     let source = dir.join("coded.ya");
     fs::write(&source, "fn main() {\n    print(nope);\n}\n").expect("write coded.ya");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("check")
         .arg(&source)
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
 
     assert_eq!(output.status.code(), Some(1), "an unknown name is an error");
     let stderr = stderr_of(&output);
@@ -1202,11 +1202,11 @@ fn var_is_reported_with_a_caret() {
     let source = dir.join("bad.ya");
     fs::write(&source, "fn main() {\n    var x = 1;\n}\n").expect("write bad.ya");
 
-    let compile = Command::new(yashy())
+    let compile = Command::new(yashyc())
         .arg("build")
         .arg(&source)
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
 
     assert_eq!(compile.status.code(), Some(1), "`var` is a compile error");
     let stderr = stderr_of(&compile);
@@ -1228,14 +1228,14 @@ fn emit_ir_prints_llvm_without_invoking_llvm() {
     let source = dir.join("hello.ya");
     fs::copy(programs_dir().join("hello.ya"), &source).expect("copy hello.ya");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("build")
         .arg(&source)
         .arg("--emit-ir")
         .env("PATH", "")
         .env("YASHY_LLC", dir.join("no-such-llc"))
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
 
     assert!(
         output.status.success(),
@@ -1260,13 +1260,13 @@ fn missing_llvm_toolchain_fails_with_an_install_hint() {
 
     // No PATH entry can resolve `llc` or `clang`, and the override points at
     // nothing, so detection has to fail before any compilation happens.
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("build")
         .arg(&source)
         .env("PATH", "")
         .env("YASHY_LLC", dir.join("no-such-llc"))
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
 
     assert_eq!(output.status.code(), Some(1));
     let stderr = stderr_of(&output);
@@ -1284,24 +1284,24 @@ fn missing_llvm_toolchain_fails_with_an_install_hint() {
 
 #[test]
 fn version_prints_a_version_and_exits_zero() {
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("version")
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
     assert!(output.status.success());
     let stdout = stdout_of(&output);
-    assert!(stdout.starts_with("yashy "), "no version line:\n{stdout}");
+    assert!(stdout.starts_with("yashyc "), "no version line:\n{stdout}");
 }
 
 #[test]
 fn the_help_text_names_yashy_and_the_ya_extension() {
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("--help")
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
     assert!(output.status.success());
     let stdout = stdout_of(&output);
-    assert!(stdout.contains("yashy build <file.ya>"), "help:\n{stdout}");
+    assert!(stdout.contains("yashyc build <file.ya>"), "help:\n{stdout}");
     // The old name is spelled here on purpose: this assertion is the regression
     // guard, so it must keep naming the thing it forbids.
     assert!(
@@ -1312,7 +1312,7 @@ fn the_help_text_names_yashy_and_the_ya_extension() {
 
 #[test]
 fn no_command_is_a_usage_error() {
-    let output = Command::new(yashy()).output().expect("run the yashy CLI");
+    let output = Command::new(yashyc()).output().expect("run the yashyc CLI");
 
     assert_eq!(
         output.status.code(),
@@ -1326,10 +1326,10 @@ fn no_command_is_a_usage_error() {
 
 #[test]
 fn an_unknown_command_is_a_usage_error() {
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("frobnicate")
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
 
     assert_eq!(
         output.status.code(),
@@ -1351,12 +1351,12 @@ fn an_unknown_optimization_level_is_a_usage_error() {
     let source = dir.join("hello.ya");
     fs::copy(programs_dir().join("hello.ya"), &source).expect("copy hello.ya");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("build")
         .arg(&source)
         .arg("-O9")
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
 
     assert_eq!(output.status.code(), Some(2), "-O9 is a usage error");
     let stderr = stderr_of(&output);
@@ -1376,14 +1376,14 @@ fn every_optimization_level_builds_a_working_binary() {
 
     for level in ["-O0", "-O1", "-O2", "-O3"] {
         let exe = dir.join(format!("hello{level}{}", std::env::consts::EXE_SUFFIX));
-        let compile = Command::new(yashy())
+        let compile = Command::new(yashyc())
             .arg("build")
             .arg(&source)
             .arg("-o")
             .arg(&exe)
             .arg(level)
             .output()
-            .expect("run the yashy CLI");
+            .expect("run the yashyc CLI");
         assert!(
             compile.status.success(),
             "building at {level} failed:\n{}",
@@ -1426,10 +1426,10 @@ fn every_cpu_tier_builds() {
             continue;
         }
         let exe = dir.join(format!("hello-{index}{}", std::env::consts::EXE_SUFFIX));
-        let mut command = Command::new(yashy());
+        let mut command = Command::new(yashyc());
         command.arg("build").arg(&source).arg("-o").arg(&exe);
         command.args(*extra);
-        let compile = command.output().expect("run the yashy CLI");
+        let compile = command.output().expect("run the yashyc CLI");
         assert!(
             compile.status.success(),
             "building with {extra:?} failed:\n{}",
@@ -1440,14 +1440,14 @@ fn every_cpu_tier_builds() {
 
     // `--native` is a synonym for `--cpu native`, so it must still work.
     let exe = dir.join(format!("hello-alias{}", std::env::consts::EXE_SUFFIX));
-    let compile = Command::new(yashy())
+    let compile = Command::new(yashyc())
         .arg("build")
         .arg(&source)
         .arg("-o")
         .arg(&exe)
         .arg("--native")
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
     assert!(
         compile.status.success(),
         "the `--native` alias failed:\n{}",
@@ -1466,7 +1466,7 @@ fn a_cpu_tier_is_a_backend_choice_not_an_ir_change() {
     let source = programs_dir().join("floats.ya");
 
     let dump = |extra: &[&str]| {
-        let mut command = Command::new(yashy());
+        let mut command = Command::new(yashyc());
         command
             .arg("build")
             .arg(&source)
@@ -1478,7 +1478,7 @@ fn a_cpu_tier_is_a_backend_choice_not_an_ir_change() {
             .arg("--target")
             .arg("x86_64-unknown-linux-gnu")
             .args(extra);
-        let output = command.output().expect("run the yashy CLI");
+        let output = command.output().expect("run the yashyc CLI");
         assert!(
             output.status.success(),
             "--emit-ir {extra:?} failed:\n{}",
@@ -1503,12 +1503,12 @@ fn an_unrecognised_cpu_target_is_a_usage_error() {
     let source = dir.join("hello.ya");
     fs::copy(programs_dir().join("hello.ya"), &source).expect("copy hello.ya");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("build")
         .arg(&source)
         .arg("--cpu=x86-64-v9")
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
     assert_eq!(output.status.code(), Some(2), "a bad tier is a usage error");
     let stderr = stderr_of(&output);
     for tier in ["portable", "x86-64-v2", "x86-64-v3", "x86-64-v4", "native"] {
@@ -1520,12 +1520,12 @@ fn an_unrecognised_cpu_target_is_a_usage_error() {
 
     // A bare `--cpu` with nothing after it is a usage error too, not a panic
     // and not a silent default.
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("build")
         .arg(&source)
         .arg("--cpu")
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
     assert_eq!(output.status.code(), Some(2));
     assert!(stderr_of(&output).contains("needs a value"));
 }
@@ -1542,14 +1542,14 @@ fn an_x86_feature_level_is_refused_for_a_non_x86_target() {
     fs::copy(programs_dir().join("hello.ya"), &source).expect("copy hello.ya");
 
     for tier in ["x86-64-v2", "x86-64-v3", "x86-64-v4"] {
-        let output = Command::new(yashy())
+        let output = Command::new(yashyc())
             .arg("build")
             .arg(&source)
             .arg("--target")
             .arg("aarch64-apple-darwin")
             .arg(format!("--cpu={tier}"))
             .output()
-            .expect("run the yashy CLI");
+            .expect("run the yashyc CLI");
         assert_eq!(
             output.status.code(),
             Some(2),
@@ -1568,7 +1568,7 @@ fn an_x86_feature_level_is_refused_for_a_non_x86_target() {
 
     // The x86-64 triple keeps accepting them, so the check is about the
     // architecture and not a blanket refusal.
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("build")
         .arg(&source)
         .arg("--target")
@@ -1576,7 +1576,7 @@ fn an_x86_feature_level_is_refused_for_a_non_x86_target() {
         .arg("--cpu=x86-64-v3")
         .arg("--emit-ir")
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
     assert!(
         output.status.success(),
         "an x86-64 target must accept an x86-64 tier:\n{}",
@@ -1592,13 +1592,13 @@ fn fast_math_reaches_codegen_and_leaves_a_non_fusing_program_alone() {
     //    `--emit-ir` shows that deterministically, without depending on which
     //    instructions the machine running the test can execute.
     let dump = |extra: &[&str]| {
-        let mut command = Command::new(yashy());
+        let mut command = Command::new(yashyc());
         command
             .arg("build")
             .arg(&source)
             .arg("--emit-ir")
             .args(extra);
-        let output = command.output().expect("run the yashy CLI");
+        let output = command.output().expect("run the yashyc CLI");
         assert!(
             output.status.success(),
             "--emit-ir {extra:?} failed:\n{}",
@@ -1631,7 +1631,7 @@ fn fast_math_reaches_codegen_and_leaves_a_non_fusing_program_alone() {
     //    purpose is that it can change one.
     let dir = work_dir("fast-math");
     let exe = dir.join(format!("floats{}", std::env::consts::EXE_SUFFIX));
-    let compile = Command::new(yashy())
+    let compile = Command::new(yashyc())
         .arg("build")
         .arg(&source)
         .arg("-o")
@@ -1639,7 +1639,7 @@ fn fast_math_reaches_codegen_and_leaves_a_non_fusing_program_alone() {
         .arg("--native")
         .arg("--fast-math")
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
     assert!(
         compile.status.success(),
         "building with `--fast-math` failed:\n{}",
@@ -1664,12 +1664,12 @@ fn native_optimization_does_not_change_what_the_program_prints() {
     let mut outputs = Vec::new();
     for (label, flag) in builds {
         let exe = dir.join(format!("floats-{label}{}", std::env::consts::EXE_SUFFIX));
-        let mut command = Command::new(yashy());
+        let mut command = Command::new(yashyc());
         command.arg("build").arg(&source).arg("-o").arg(&exe);
         if let Some(flag) = flag {
             command.arg(flag);
         }
-        let compile = command.output().expect("run the yashy CLI");
+        let compile = command.output().expect("run the yashyc CLI");
         assert!(
             compile.status.success(),
             "building the {label} variant failed:\n{}",
@@ -1693,11 +1693,11 @@ fn check_reports_a_type_error_without_building() {
     let source = dir.join("bad.ya");
     fs::write(&source, "fn main() {\n    const x = 1 + true;\n}\n").expect("write bad.ya");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("check")
         .arg(&source)
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
     assert_eq!(output.status.code(), Some(1));
     assert!(stderr_of(&output).contains("error:"));
 }
@@ -1780,13 +1780,13 @@ fn a_unit_main_exits_zero_even_when_its_last_call_returns_nonzero() {
     )
     .expect("write entry_exit_status.ya");
     let exe = dir.join(format!("entry_exit_status{}", std::env::consts::EXE_SUFFIX));
-    let compile = Command::new(yashy())
+    let compile = Command::new(yashyc())
         .arg("build")
         .arg(&source)
         .arg("-o")
         .arg(&exe)
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
     assert!(
         compile.status.success(),
         "compiling entry_exit_status.ya failed:\n{}",
@@ -1995,13 +1995,13 @@ fn a_deferred_free_after_a_rebind_does_not_double_free() {
         "deferred_free_rebind{}",
         std::env::consts::EXE_SUFFIX
     ));
-    let compile = Command::new(yashy())
+    let compile = Command::new(yashyc())
         .arg("build")
         .arg(&source)
         .arg("-o")
         .arg(&exe)
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
     assert!(
         compile.status.success(),
         "compiling deferred_free_rebind.ya failed:\n{}",
@@ -2061,11 +2061,11 @@ fn a_double_free_is_a_compile_error_with_a_caret() {
     )
     .expect("write double_free.ya");
 
-    let compile = Command::new(yashy())
+    let compile = Command::new(yashyc())
         .arg("build")
         .arg(&source)
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
 
     assert_eq!(
         compile.status.code(),
@@ -2104,13 +2104,13 @@ fn a_public_item_is_usable_from_another_module_and_a_private_one_is_not() {
     fs::write(&public, "import vis_lib;\nfn main() { print(seven()); }\n")
         .expect("write public.ya");
     let exe = dir.join(format!("public{}", std::env::consts::EXE_SUFFIX));
-    let compile = Command::new(yashy())
+    let compile = Command::new(yashyc())
         .arg("build")
         .arg(&public)
         .arg("-o")
         .arg(&exe)
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
     assert!(
         compile.status.success(),
         "a `pub fn` is another module's to use:\n{}",
@@ -2124,13 +2124,13 @@ fn a_public_item_is_usable_from_another_module_and_a_private_one_is_not() {
         "import vis_lib;\nfn main() { print(secret()); }\n",
     )
     .expect("write private.ya");
-    let compile = Command::new(yashy())
+    let compile = Command::new(yashyc())
         .arg("build")
         .arg(&private)
         .arg("-o")
         .arg(dir.join(format!("private{}", std::env::consts::EXE_SUFFIX)))
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
     assert_eq!(
         compile.status.code(),
         Some(1),
@@ -2198,13 +2198,13 @@ fn an_integer_literal_that_does_not_fit_is_a_compile_error_with_a_caret() {
         .expect("write huge_literal.ya");
 
     let exe = dir.join(format!("huge_literal{}", std::env::consts::EXE_SUFFIX));
-    let compile = Command::new(yashy())
+    let compile = Command::new(yashyc())
         .arg("build")
         .arg(&source)
         .arg("-o")
         .arg(&exe)
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
 
     assert_eq!(compile.status.code(), Some(1), "the literal cannot compile");
     let stderr = stderr_of(&compile);
@@ -2261,13 +2261,13 @@ fn the_smallest_i64_can_be_written_and_printed() {
     .expect("write i64_min.ya");
     let exe = dir.join(format!("i64_min{}", std::env::consts::EXE_SUFFIX));
 
-    let compile = Command::new(yashy())
+    let compile = Command::new(yashyc())
         .arg("build")
         .arg(&source)
         .arg("-o")
         .arg(&exe)
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
     assert!(
         compile.status.success(),
         "compiling i64_min.ya failed:\n{}",
@@ -2292,20 +2292,20 @@ fn compile_and_run(name: &str, source: &str) -> Output {
     compile_and_run_with(name, source, &[])
 }
 
-/// The same, with extra `yashy build` flags -- `--release`, say.
+/// The same, with extra `yashyc build` flags -- `--release`, say.
 fn compile_and_run_with(name: &str, source: &str, flags: &[&str]) -> Output {
     let dir = work_dir(name);
     let file = dir.join(format!("{name}.ya"));
     fs::write(&file, source).expect("writing the test program");
     let exe = dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
-    let mut command = Command::new(yashy());
+    let mut command = Command::new(yashyc());
     command
         .arg("build")
         .arg(&file)
         .arg("-o")
         .arg(&exe)
         .args(flags);
-    let compile = command.output().expect("run the yashy CLI");
+    let compile = command.output().expect("run the yashyc CLI");
     assert!(
         compile.status.success(),
         "compiling {name}.ya failed:\n{}",
@@ -2824,8 +2824,8 @@ fn assertions_that_hold_do_nothing_at_all() {
             "    assert_eq(n * 2, 6);\n",
             "    assert_eq(1.5 + 0.5, 2.0);\n",
             "    assert_eq(true, true);\n",
-            "    assert_eq(\"yashy\", \"yashy\");\n",
-            "    assert_ne(\"yashy\", \"other\");\n",
+            "    assert_eq(\"yashyc\", \"yashyc\");\n",
+            "    assert_ne(\"yashyc\", \"other\");\n",
             "    print(\"done\");\n",
             "}\n"
         ),
@@ -3048,9 +3048,9 @@ fn the_release_flag_reaches_the_ir_dump() {
     )
     .expect("writing the test program");
     let dump = |extra: &[&str]| {
-        let mut command = Command::new(yashy());
+        let mut command = Command::new(yashyc());
         command.arg("build").arg(&file).arg("--emit-ir").args(extra);
-        let output = command.output().expect("run the yashy CLI");
+        let output = command.output().expect("run the yashyc CLI");
         assert!(
             output.status.success(),
             "--emit-ir {extra:?} failed:\n{}",
@@ -3192,11 +3192,11 @@ fn a_symbol_declared_with_two_signatures_is_e0900() {
     )
     .expect("write dup.ya");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("check")
         .arg(&source)
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
 
     assert_eq!(
         output.status.code(),
@@ -3249,11 +3249,11 @@ fn a_symbol_the_program_defines_is_e0900() {
     )
     .expect("write clash.ya");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("check")
         .arg(&source)
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
 
     assert_eq!(
         output.status.code(),
@@ -3289,11 +3289,11 @@ fn link_name_on_a_yashy_fn_is_e0901() {
     )
     .expect("write fn.ya");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("check")
         .arg(&source)
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
 
     assert_eq!(output.status.code(), Some(1));
     let stderr = stderr_of(&output);
@@ -3325,11 +3325,11 @@ fn an_empty_link_name_is_e0901() {
     )
     .expect("write empty.ya");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("check")
         .arg(&source)
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
 
     assert_eq!(output.status.code(), Some(1));
     let stderr = stderr_of(&output);
@@ -3358,12 +3358,12 @@ fn fmt_round_trips_link_name() {
     );
     fs::write(&file, canonical).expect("write link.ya");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("fmt")
         .arg("-w")
         .arg(&file)
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
     assert!(
         output.status.success(),
         "fmt -w failed:\n{}",
@@ -3389,17 +3389,17 @@ const VARIADIC_PRINTF: &str = concat!(
     "}\n",
 );
 
-/// Write `source` into a fresh directory, run `yashy check`, and return the
+/// Write `source` into a fresh directory, run `yashyc check`, and return the
 /// stderr of a failing check.
 fn check_fails(name: &str, source: &str) -> String {
     let dir = work_dir(name);
     let file = dir.join(format!("{name}.ya"));
     fs::write(&file, source).expect("write the test program");
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("check")
         .arg(&file)
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
     assert_eq!(
         output.status.code(),
         Some(1),
@@ -3596,12 +3596,12 @@ fn fmt_round_trips_a_variadic_marker() {
     );
     fs::write(&file, canonical).expect("write variadic.ya");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("fmt")
         .arg("-w")
         .arg(&file)
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
     assert!(
         output.status.success(),
         "fmt -w failed:\n{}",
@@ -3780,7 +3780,7 @@ fn a_multi_file_program_counts_json_keys() {
     // `map[string]i64` deduplicates. Three lines, three keys, two distinct.
     let output = build_and_run_with_input(
         "json_count",
-        "{\"name\": \"yashy\"}\n{\"age\": 3}\n{\"name\": \"again\"}\n",
+        "{\"name\": \"yashyc\"}\n{\"age\": 3}\n{\"name\": \"again\"}\n",
     );
     assert_eq!(stdout_of(&output), "3\n2\n");
 }
@@ -3963,11 +3963,11 @@ fn the_async_opt_list_names_the_poll_pass_and_no_opt_disables_it() {
         "compiling async_basic.ya failed:\n{}",
         stderr_of(&compile)
     );
-    let listed = Command::new(yashy())
+    let listed = Command::new(yashyc())
         .arg("build")
         .arg("--opt-list")
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     assert!(
         listed.status.success(),
         "--opt-list failed:\n{}",
@@ -3982,14 +3982,14 @@ fn the_async_opt_list_names_the_poll_pass_and_no_opt_disables_it() {
     let dir = work_dir("async-no-opt");
     let source = programs_dir().join("async_basic.ya");
     let no_opt_exe = dir.join(format!("async_basic_noopt{}", std::env::consts::EXE_SUFFIX));
-    let built = Command::new(yashy())
+    let built = Command::new(yashyc())
         .arg("build")
         .arg(&source)
         .arg("--no-opt=async")
         .arg("-o")
         .arg(&no_opt_exe)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     assert!(
         built.status.success(),
         "compiling with --no-opt=async failed:\n{}",
@@ -4008,19 +4008,19 @@ fn the_async_opt_list_names_the_poll_pass_and_no_opt_disables_it() {
 
 #[test]
 fn fmt_rewrites_a_file_in_place_and_refuses_a_broken_one() {
-    // `-w` is the only part of `yashy fmt` a library test cannot prove: that a
+    // `-w` is the only part of `yashyc fmt` a library test cannot prove: that a
     // good file is replaced with the canonical text, and a file that does not
     // parse is left byte for byte as it was.
     let dir = work_dir("fmt-cli");
 
     let messy = dir.join("messy.ya");
     fs::write(&messy, "fn  main( ){print(\"hi\") ;}\n").expect("the test file must be writable");
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("fmt")
         .arg("-w")
         .arg(&messy)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     assert!(
         output.status.success(),
         "fmt -w failed:\n{}",
@@ -4033,12 +4033,12 @@ fn fmt_rewrites_a_file_in_place_and_refuses_a_broken_one() {
 
     let broken = dir.join("broken.ya");
     fs::write(&broken, "fn main( {\n").expect("the test file must be writable");
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("fmt")
         .arg("-w")
         .arg(&broken)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     assert!(
         !output.status.success(),
         "a file that does not parse must fail"
@@ -4053,7 +4053,7 @@ fn an_i64_annotation_is_reported_with_a_caret() {
     let dir = work_dir("old-int-spelling");
     let source = dir.join("old.ya");
     fs::write(&source, "fn main() { const i64 n = 1; }\n").expect("write the program");
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("check")
         .arg(&source)
         .output()
@@ -4078,11 +4078,11 @@ fn a_misspelled_name_gets_a_did_you_mean_label() {
     )
     .expect("write typo.ya");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("check")
         .arg(&source)
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
     assert_eq!(output.status.code(), Some(1));
     let stderr = stderr_of(&output);
     assert!(
@@ -4221,11 +4221,11 @@ fn a_char_does_not_become_an_int_without_a_conversion() {
     )
     .expect("write silent.ya");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("check")
         .arg(&source)
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
 
     assert_eq!(output.status.code(), Some(1), "a `char` is not an `int`");
     let stderr = stderr_of(&output);
@@ -4265,13 +4265,13 @@ fn writing_bytes_to_a_directory_reports_not_a_file() {
     .expect("write directory.ya");
 
     let exe = dir.join(format!("directory{}", std::env::consts::EXE_SUFFIX));
-    let built = Command::new(yashy())
+    let built = Command::new(yashyc())
         .arg("build")
         .arg(&source)
         .arg("-o")
         .arg(&exe)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     assert!(
         built.status.success(),
         "directory.ya must build:\n{}",
@@ -4305,11 +4305,11 @@ fn offsetof_on_a_non_repr_c_struct_explains_the_fix() {
     )
     .expect("write plain.ya");
 
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .arg("check")
         .arg(&source)
         .output()
-        .expect("run the yashy CLI");
+        .expect("run the yashyc CLI");
 
     assert_eq!(output.status.code(), Some(1), "an offset needs a layout");
     let stderr = stderr_of(&output);
@@ -4385,7 +4385,7 @@ fn stdlib_programs_are_deterministic_and_release_everything() {
     let stdlib = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("yashy-stdlib")
-        .join("yashy");
+        .join("yashyc");
     let programs = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("programs")
@@ -4409,7 +4409,7 @@ fn stdlib_programs_are_deterministic_and_release_everything() {
             .to_string();
         let dir = work_dir(&format!("stdlib-{name}"));
         let exe = dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
-        let compile = Command::new(yashy())
+        let compile = Command::new(yashyc())
             .arg("build")
             .arg(source)
             .arg("-o")
@@ -4417,7 +4417,7 @@ fn stdlib_programs_are_deterministic_and_release_everything() {
             .env("YASHY_PATH", &stdlib)
             .env("YASHY_CACHE_DIR", dir.join("cache"))
             .output()
-            .expect("the yashy CLI must be runnable");
+            .expect("the yashyc CLI must be runnable");
         assert!(
             compile.status.success(),
             "compiling {} failed:\n{}",

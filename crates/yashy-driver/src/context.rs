@@ -1,4 +1,4 @@
-//! `yashy context`: a token-budgeted pack for an agent.
+//! `yashyc context`: a token-budgeted pack for an agent.
 //!
 //! The pack answers one task ("fix the leak in file_cli") with the
 //! compiler's own facts, added in a fixed relevance order until the next
@@ -50,7 +50,7 @@ impl ContextPack {
     pub fn to_json(&self) -> Json {
         let mut root = Json::object();
         root.set("schema_version", Json::number(1));
-        root.set("tool", Json::string("yashy"));
+        root.set("tool", Json::string("yashyc"));
         root.set("task", Json::string(&self.task));
         root.set("tokens", Json::number(self.tokens() as i64));
         root.set("budget", Json::number(self.budget as i64));

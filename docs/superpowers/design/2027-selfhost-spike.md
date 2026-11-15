@@ -13,7 +13,7 @@ A Yashy program (`selfhost/main.ya`) that:
 2. Parses a **declared subset** of the grammar into a canonical digest string: nested s-expressions like `(program (fn main (params) (ret) (block ...)))`, plus a cursor threaded through as `"<cursor>;<digest>"` because Yashy arrays cannot hold structs/enums and tuples cannot hold `string` — there is no tree data structure available.
 3. Compares its output with the Rust front end over the whole corpus (`crates/yashy-driver/tests/programs/*.ya` + `examples/*/main.ya`, 163 files).
 
-The differential test (`crates/yashy-driver/tests/selfhost_diff.rs`) renders the Rust parser's real tree into the same shape and classifies each file as `agree` / `reproduced` / `unsupported` / `mismatch`. `yashy test selfhost\tests` is a cheaper self-check that needs neither Rust nor 30 seconds.
+The differential test (`crates/yashy-driver/tests/selfhost_diff.rs`) renders the Rust parser's real tree into the same shape and classifies each file as `agree` / `reproduced` / `unsupported` / `mismatch`. `yashyc test selfhost\tests` is a cheaper self-check that needs neither Rust nor 30 seconds.
 
 ## The subset
 
@@ -38,7 +38,7 @@ Everything the spike parses parses identically to the Rust front end. Anything o
 
 **Build:** spike builds in 10.5 s with the debug compiler; the binary is 331,264 bytes.
 
-**Performance:** spike lexes the whole corpus in 7.3 s vs `yashy` no-arg baseline 6.8 s (~45 ms/launch); `yashy outline` over the corpus takes 31.4 s vs baseline 30.7 s (~189 ms/launch). The front-end work is within noise — process start dominates.
+**Performance:** spike lexes the whole corpus in 7.3 s vs `yashyc` no-arg baseline 6.8 s (~45 ms/launch); `yashyc outline` over the corpus takes 31.4 s vs baseline 30.7 s (~189 ms/launch). The front-end work is within noise — process start dominates.
 
 ## What self-hosting would take
 
@@ -47,7 +47,7 @@ Everything the spike parses parses identically to the Rust front end. Anything o
 Yashy compiles to native binaries through LLVM, and there is no garbage collector, so a Yashy compiler binary is a self-contained native program. The bootstrap is therefore a **source-to-source** problem, not a cross-compiler problem:
 
 1. Write the whole front end (lexer, parser, sema, codegen driver) in Yashy.
-2. Compile it with the Rust `yashy` to get a Yashy compiler binary.
+2. Compile it with the Rust `yashyc` to get a Yashy compiler binary.
 3. Compile that Yashy source with itself: the second binary must produce the same output as the first. Differential tests like the one in this spike are the check at every step.
 
 The spike shows the front end *can* be written in Yashy and agrees with the Rust implementation on everything inside the subset. The remaining 121 unsupported files are mostly language features (structs, enums, objects, traits, `switch`, `if let`, async) rather than front-end architecture, so they fall out of the same work that implements those features in the compiler — not of a separate self-hosting effort.
@@ -58,7 +58,7 @@ The spike is parse-only: no type checking, no verification, no codegen. A self-h
 
 ### Performance cost of a Yashy parser
 
-The spike's corpus sweep is within noise of `yashy` itself; process start (~45–189 ms per launch) dominates, not front-end work. That measurement is for a debug compiler with no optimisation pass manager, so it is an upper bound on front-end cost, not a prediction of a self-hosted compiler's throughput. It does suggest a Yashy parser is not obviously slower at the source level — but it also does not measure memory, cache behaviour, or the verifier, which dominate real compile time.
+The spike's corpus sweep is within noise of `yashyc` itself; process start (~45–189 ms per launch) dominates, not front-end work. That measurement is for a debug compiler with no optimisation pass manager, so it is an upper bound on front-end cost, not a prediction of a self-hosted compiler's throughput. It does suggest a Yashy parser is not obviously slower at the source level — but it also does not measure memory, cache behaviour, or the verifier, which dominate real compile time.
 
 ### Maintenance cost of two implementations of one grammar
 
@@ -82,6 +82,6 @@ The numbers above (42 agree / 121 unsupported / 0 mismatched, lexer 163/163) are
 - `selfhost/src/parser.ya` — the Yashy parser, digest-based (940 lines)
 - `selfhost/src/ast.ya` — `pack`/`packed_pos`/`packed_body` digest vocabulary (37 lines)
 - `selfhost/main.ya` — `lex`/`parse` CLI (64 lines)
-- `selfhost/tests/differential.ya` — self-check, `yashy test selfhost\tests` (71 lines)
+- `selfhost/tests/differential.ya` — self-check, `yashyc test selfhost\tests` (71 lines)
 - `crates/yashy-driver/tests/selfhost_diff.rs` — differential harness + Rust subset renderer
 - `docs/superpowers/design/2027-selfhost-spike.md` — this record

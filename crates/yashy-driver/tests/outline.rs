@@ -1,19 +1,19 @@
-//! `yashy outline`, `yashy graph` and `yashy search`.
+//! `yashyc outline`, `yashyc graph` and `yashyc search`.
 
 mod common;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-fn yashy() -> &'static str {
-    common::yashy()
+fn yashyc() -> &'static str {
+    common::yashyc()
 }
 
 fn run(args: &[&str]) -> (bool, String, String) {
-    let output = Command::new(yashy())
+    let output = Command::new(yashyc())
         .args(args)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     (
         output.status.success(),
         String::from_utf8_lossy(&output.stdout).into_owned(),
@@ -68,7 +68,7 @@ fn the_dot_output_is_a_digraph() {
     let dir = fixture_dir("graph-dot");
     let (ok, stdout, stderr) = run(&["graph", "--dot", dir.to_str().unwrap()]);
     assert!(ok, "graph must succeed: {stderr}");
-    assert!(stdout.starts_with("digraph yashy {"), "a digraph:\n{stdout}");
+    assert!(stdout.starts_with("digraph yashyc {"), "a digraph:\n{stdout}");
     assert!(stdout.trim_end().ends_with('}'), "closed:\n{stdout}");
 }
 

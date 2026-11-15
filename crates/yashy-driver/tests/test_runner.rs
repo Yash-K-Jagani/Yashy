@@ -1,15 +1,15 @@
 mod common;
 
-use common::{work_dir, write, yashy};
+use common::{work_dir, write, yashyc};
 use std::process::Command;
 
 fn run_test(dir: &std::path::Path, args: &[&str]) -> std::process::Output {
-    Command::new(yashy())
+    Command::new(yashyc())
         .arg("test")
         .args(args)
         .current_dir(dir)
         .output()
-        .expect("the yashy CLI must be runnable")
+        .expect("the yashyc CLI must be runnable")
 }
 
 #[test]

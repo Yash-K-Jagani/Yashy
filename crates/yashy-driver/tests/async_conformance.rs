@@ -37,13 +37,13 @@ fn build(name: &str) -> PathBuf {
     let dir = common::work_dir(&format!("async-{name}"));
     let source = programs_dir().join(format!("{name}.ya"));
     let exe = dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
-    let compile = Command::new(common::yashy())
+    let compile = Command::new(common::yashyc())
         .arg("build")
         .arg(&source)
         .arg("-o")
         .arg(&exe)
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
     assert!(
         compile.status.success(),
         "compiling {name}.ya failed:\n{}",
@@ -87,10 +87,10 @@ fn run_with_threads(exe: &Path, threads: Option<&str>) -> Output {
 
 #[test]
 fn every_async_program_agrees_across_both_executor_modes() {
-    // Warm the shared CLI copy once: `common::yashy` hands one padded copy
+    // Warm the shared CLI copy once: `common::yashyc` hands one padded copy
     // to every thread, and its `OnceLock` makes that safe, after which the
     // per-program builds below run in parallel on their own directories.
-    let _ = common::yashy();
+    let _ = common::yashyc();
     let names = program_names();
     assert_eq!(names.len(), 30, "the conformance suite has 30 programs");
     let failures: Vec<String> = std::thread::scope(|scope| {

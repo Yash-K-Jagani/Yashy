@@ -252,7 +252,7 @@ pub fn stdlib_module_count(sources: &[ModuleSource]) -> usize {
         .count()
 }
 
-/// The stdlib layouts an installed `yashy` binary can sit next to.
+/// The stdlib layouts an installed `yashyc` binary can sit next to.
 fn stdlib_root_near_exe(exe: &Path) -> Option<PathBuf> {
     let dir = exe.parent()?;
     let candidates = [
@@ -777,7 +777,7 @@ mod tests {
         fs::create_dir_all(&stdlib).expect("the stdlib directory must be creatable");
         fs::write(stdlib.join("io.ya"), "").expect("the stdlib file must be writable");
 
-        assert_eq!(stdlib_root_near_exe(&dir.join("yashy.exe")), Some(stdlib));
+        assert_eq!(stdlib_root_near_exe(&dir.join("yashyc.exe")), Some(stdlib));
     }
 
     #[test]
@@ -791,7 +791,7 @@ mod tests {
         fs::create_dir_all(&stdlib).expect("the stdlib directory must be creatable");
         fs::write(stdlib.join("io.ya"), "").expect("the stdlib file must be writable");
 
-        let found = stdlib_root_near_exe(&bin.join("yashy"))
+        let found = stdlib_root_near_exe(&bin.join("yashyc"))
             .expect("the nested shared-prefix layout must be found");
         assert_eq!(
             found.canonicalize().expect("the found path must exist"),
@@ -811,7 +811,7 @@ mod tests {
         fs::create_dir_all(&stdlib).expect("the stdlib directory must be creatable");
         fs::write(stdlib.join("io.ya"), "").expect("the stdlib file must be writable");
 
-        let found = stdlib_root_near_exe(&bin.join("yashy"))
+        let found = stdlib_root_near_exe(&bin.join("yashyc"))
             .expect("the shared-prefix layout must be found");
         assert_eq!(
             found.canonicalize().expect("the found path must exist"),

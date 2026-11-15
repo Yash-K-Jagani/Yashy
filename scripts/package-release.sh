@@ -4,7 +4,7 @@
 # The layout is the same on every platform:
 #
 #   yashy-<version>-<target>/
-#     yashy
+#     yashyc
 #     yashy-stdlib/yashy/*.ya
 #     yashy-stdlib/yashy.toml
 #     install.sh
@@ -14,7 +14,7 @@
 # Usage:
 #   scripts/package-release.sh --version <version> [--target <triple>] [--binary <path>]
 #
-# The default binary is target/release/yashy, which is what a native
+# The default binary is target/release/yashyc, which is what a native
 # `cargo build --release -p yashy-driver` produces. --binary exists so a test
 # or a cross build can name the artifact explicitly.
 
@@ -31,7 +31,7 @@ usage: scripts/package-release.sh --version <version> [--target <triple>] [--bin
 
   --version <version>  release version, without a leading v (required)
   --target <triple>    target triple (default: x86_64-unknown-linux-gnu)
-  --binary <path>      compiler binary (default: target/release/yashy)
+  --binary <path>      compiler binary (default: target/release/yashyc)
   --format tar|zip     archive format (default: zip for an apple-darwin
                         target, tar for every other one)
 EOF
@@ -111,7 +111,7 @@ case "$format" in
 esac
 
 if [ -z "$binary" ]; then
-    binary="$root/target/release/yashy"
+    binary="$root/target/release/yashyc"
 fi
 
 [ -f "$binary" ] || die "no release binary at $binary - run: cargo build --release -p yashy-driver"
@@ -124,8 +124,8 @@ fi
 rm -rf "$stage" "$archive"
 mkdir -p "$stage/yashy-stdlib"
 
-cp "$binary" "$stage/yashy"
-chmod 755 "$stage/yashy"
+cp "$binary" "$stage/yashyc"
+chmod 755 "$stage/yashyc"
 cp -R "$stdlib" "$stage/yashy-stdlib/yashy"
 cp "$stdlib_manifest" "$stage/yashy-stdlib/yashy.toml"
 cp "$installer" "$stage/install.sh"

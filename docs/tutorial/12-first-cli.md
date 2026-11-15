@@ -2,12 +2,12 @@
 
 ## What you will learn
 
-- How to install Yashy and confirm the install with `yashy doctor`.
-- How to create a project with `yashy init`.
+- How to install Yashy and confirm the install with `yashyc doctor`.
+- How to create a project with `yashyc init`.
 - How to read a command-line argument, split the work into a module, and print a
   result.
-- How to run the project's tests with `yashy test`.
-- How to build an optimized binary with `yashy build --release`.
+- How to run the project's tests with `yashyc test`.
+- How to build an optimized binary with `yashyc build --release`.
 - What to do when `clang`, the standard library, or `PATH` is missing.
 
 This chapter is the path from an empty machine to a working command-line
@@ -16,7 +16,7 @@ line and prints the number of lines, words, and bytes. It is deliberately
 ordinary -- the kind of program you would write on your first afternoon -- so
 the parts you have already learned stay in the background.
 
-The five-minute path is: install, `yashy doctor`, `yashy init`, `yashy run`.
+The five-minute path is: install, `yashyc doctor`, `yashyc init`, `yashyc run`.
 The rest of the chapter explains the program and the tools around it.
 
 ## Install
@@ -37,7 +37,7 @@ cd yashy-<version>-<target>
 
 The installer copies the compiler and its standard library into a prefix
 (`~/.local` by default), verifies the archive against `SHA256SUMS`, adds the
-prefix to `PATH`, and runs `yashy doctor`. Use `./install.sh --prefix
+prefix to `PATH`, and runs `yashyc doctor`. Use `./install.sh --prefix
 /usr/local` for a system-wide install, `--no-path` if you manage `PATH`
 yourself, and `--no-doctor` if you only want the files copied.
 
@@ -46,7 +46,7 @@ command for your distribution, for example:
 
 ```text
 Next: sudo apt install clang llvm
-Then run: yashy doctor
+Then run: yashyc doctor
 ```
 
 macOS is a 1.0 target, not an R1 target: this release does not ship a macOS
@@ -68,7 +68,7 @@ If PowerShell refuses to run a local script, use
 
 The installer verifies the archive, copies Yashy into
 `%LOCALAPPDATA%\Yashy`, adds that directory to your user `PATH`, and runs
-`yashy doctor`. If LLVM is missing, install it with:
+`yashyc doctor`. If LLVM is missing, install it with:
 
 ```powershell
 winget install LLVM.LLVM
@@ -86,25 +86,25 @@ cargo build --release
 export YASHY_STDLIB="$PWD/crates/yashy-stdlib/yashy"
 ```
 
-On Windows, use `target\release\yashy.exe` and set `YASHY_STDLIB` to the
+On Windows, use `target\release\yashyc.exe` and set `YASHY_STDLIB` to the
 absolute path of `crates\yashy-stdlib\yashy`.
 
 ## Check the install
 
 ```text
-yashy doctor
+yashyc doctor
 ```
 
 A healthy install prints the version, the target, the `clang` it will use, the
 standard library it found, and where the executable lives:
 
 ```text
-yashy 1.0.0
+yashyc 1.0.0
 target: x86_64-unknown-linux-gnu
 clang: /usr/bin/clang
   clang version 18.1.8
 stdlib: /home/you/.local/share/yashy/stdlib/yashy
-path: /home/you/.local/bin/yashy
+path: /home/you/.local/bin/yashyc
 ```
 
 `doctor` exits non-zero if `clang` cannot be run or the standard library is
@@ -114,7 +114,7 @@ informational: a compiler invoked by its full path still works.
 For scripts and agents, ask for the stable JSON form:
 
 ```text
-yashy doctor --json
+yashyc doctor --json
 ```
 
 The top-level fields are `schema_version`, `tool`, `ok`, `yashy_version`,
@@ -125,7 +125,7 @@ change to the shape is a schema change, not a cosmetic one. The `next` field is
 ## Create the project
 
 ```text
-yashy init wordcount
+yashyc init wordcount
 cd wordcount
 ```
 
@@ -135,7 +135,7 @@ project rather than editing one. It writes `yashy.toml`, `main.ya`,
 is already runnable:
 
 ```text
-yashy run main.ya
+yashyc run main.ya
 ```
 
 ```text
@@ -298,7 +298,7 @@ Create a small file and run the project with its path after `--`:
 
 ```text
 printf 'hello world\nsecond line\n' > notes.txt
-yashy run main.ya -- notes.txt
+yashyc run main.ya -- notes.txt
 ```
 
 ```text
@@ -314,7 +314,7 @@ program.
 Run it with no argument and it prints the usage line instead:
 
 ```text
-yashy run main.ya
+yashyc run main.ya
 ```
 
 ```text
@@ -345,7 +345,7 @@ fn main() {
 once and releases it, so the caller does not free it again. `pad_start` and
 `pad_end` answer new strings. The full list, with one section per module, is
 [the standard library reference](../stdlib.md); it is generated from the same
-doc blocks `yashy doc` reads.
+doc blocks `yashyc doc` reads.
 
 The modules worth knowing on day one: `string` (and `text` for base64 and hex),
 `path`, `fs`, `env`, `args`, `io`, `process`, `time`, `datetime`, `hash`,
@@ -378,21 +378,21 @@ function is reached as `count.words(line)`. Then add it to the word-count
 project:
 
 ```text
-yashy add count --path ../count
+yashyc add count --path ../count
 ```
 
 `add` appends a `[dependencies.count]` table to `yashy.toml` and runs
-`yashy update`, which writes `yashy.lock`. Resolution is a set of exact pins,
-so the lock and the manifest must agree; `yashy lock --check` says so. From
+`yashyc update`, which writes `yashy.lock`. Resolution is a set of exact pins,
+so the lock and the manifest must agree; `yashyc lock --check` says so. From
 then on `import count;` reaches `count/src/count.ya` without any `YASHY_PATH`
-setup, and `yashy build --offline` works from the warm store.
+setup, and `yashyc build --offline` works from the warm store.
 
-The manifest grammar, the lockfile, `yashy audit`, and the publish → depend →
+The manifest grammar, the lockfile, `yashyc audit`, and the publish → depend →
 build cycle with a local registry are in [packages](../packages.md).
 
 ## Add a test
 
-`yashy test` runs every program under `tests/`. A test is an ordinary Yashy
+`yashyc test` runs every program under `tests/`. A test is an ordinary Yashy
 program with a `main`; it passes when it exits with status 0 and fails when it
 panics or exits non-zero. There is no test attribute and no test macro.
 
@@ -410,7 +410,7 @@ fn main() {
 Then run:
 
 ```text
-yashy test
+yashyc test
 ```
 
 ```text
@@ -429,14 +429,14 @@ call the built executable as a subprocess.
 ## Build a release binary
 
 ```text
-yashy build main.ya -o wordcount --release
+yashyc build main.ya -o wordcount --release
 ```
 
 `--release` compiles out `debug_assert` and defaults to `-O3`. An explicit
 `-O` wins over the default:
 
 ```text
-yashy build main.ya -o wordcount-fast --release -O2
+yashyc build main.ya -o wordcount-fast --release -O2
 ```
 
 The result is a native executable that does not need the Yashy compiler at run
@@ -464,7 +464,7 @@ zip is gone.
 
 They remove the compiler and the standard library, take the installer's `PATH`
 entry out again, and leave your projects alone. Running the uninstall twice is
-safe: the second run reports that there is nothing to remove. `yashy uninstall`
+safe: the second run reports that there is nothing to remove. `yashyc uninstall`
 as a subcommand is an R2 convenience; the installer-level uninstall is the R1
 contract.
 
@@ -476,8 +476,8 @@ contract.
 - **`stdlib: missing`.** The bundled standard library was not found. Set
   `YASHY_STDLIB` to the directory that contains `io.ya`, or reinstall Yashy.
   An install puts it under `share/yashy/stdlib/yashy`; a Windows install puts
-  it under `yashy-stdlib\yashy` beside `yashy.exe`.
-- **`yashy` is not recognized after installing on Windows.** Open a new
+  it under `yashy-stdlib\yashy` beside `yashyc.exe`.
+- **`yashyc` is not recognized after installing on Windows.** Open a new
   terminal. The installer updates the user `PATH`, and a process that was
   already running keeps the old environment.
 - **A build works but the program cannot find a module.** The module must be
@@ -490,8 +490,8 @@ contract.
 ## Try it
 
 1. Change the program to print a label before each number, then update the
-   test and the expected output in this chapter. Run `yashy test` and
-   `yashy run` again.
+   test and the expected output in this chapter. Run `yashyc test` and
+   `yashyc run` again.
 2. Add a `summary` function that prints only the word count, call it from
    `main`, and update the test. A real `--quiet` mode can read a second
    argument from `args()`; remember to free the slice.

@@ -2,11 +2,11 @@
 
 ## What you will learn
 
-- `yashy index`, `outline`, `graph` and `search`: the compiler's
+- `yashyc index`, `outline`, `graph` and `search`: the compiler's
   symbol table in four shapes.
-- `yashy context`: the token-budgeted pack an agent reads first.
-- `yashy doc`: the public surface rendered from the compiler's tables.
-- `yashy mcp`: the same verbs over JSON-RPC, sandboxed to the workspace.
+- `yashyc context`: the token-budgeted pack an agent reads first.
+- `yashyc doc`: the public surface rendered from the compiler's tables.
+- `yashyc mcp`: the same verbs over JSON-RPC, sandboxed to the workspace.
 - `run --sandbox`: a default-deny capability set for a program launch.
 - `log`, `metrics` and `--deterministic`: program observability that a
   test can compare byte for byte.
@@ -18,16 +18,16 @@ first and renders the human form from it, so the two cannot drift.
 
 ## The index
 
-`yashy index` walks a directory and answers what the compiler knows about
+`yashyc index` walks a directory and answers what the compiler knows about
 its symbols: name, kind, file, span, signature, effects, contracts,
 typestate, visibility and docs. A fact the compiler does not know is
 `null`, never omitted and never invented.
 
 ```text
-$ yashy index examples/hello --json
+$ yashyc index examples/hello --json
 {
   "schema_version": 1,
-  "tool": "yashy",
+  "tool": "yashyc",
   "files": ["E:/.../examples/hello/main.ya"],
   "symbols": [
     {
@@ -49,7 +49,7 @@ $ yashy index examples/hello --json
 
 ## Context
 
-`yashy context --task "fix the bug in main"` assembles a pack — the
+`yashyc context --task "fix the bug in main"` assembles a pack — the
 enclosing function, its callees' signatures, the tests that cover it —
 in a fixed relevance order, adding each section only if the whole pack
 still fits its token budget. `tokens`, `budget`, `included` and `dropped`
@@ -59,20 +59,20 @@ bytes of ASCII, one per non-ASCII character, rounded up.
 
 ## Docs and the editor
 
-`yashy doc` writes one Markdown file per module into `target/doc/` plus an
+`yashyc doc` writes one Markdown file per module into `target/doc/` plus an
 `index.md`. A private item appears only with `--private`; an undocumented
 one still appears, marked `No documentation.` — an undocumented public
 item is a fact worth printing, not a gap to hide. `--json` emits the same
 model the Markdown renders from. The output is byte-identical across runs
 and operating systems, so CI can assert the committed docs are current.
 
-`yashy lsp` execs the sibling `yashy-lsp` binary on stdio, so an editor
-needs one command. When the sibling is missing, `yashy lsp` exits 2
-naming the path, and `yashy doctor` says whether it was found.
+`yashyc lsp` execs the sibling `yashy-lsp` binary on stdio, so an editor
+needs one command. When the sibling is missing, `yashyc lsp` exits 2
+naming the path, and `yashyc doctor` says whether it was found.
 
 ## MCP
 
-`yashy mcp --root <dir>` speaks JSON-RPC 2.0 over stdio with seven tools:
+`yashyc mcp --root <dir>` speaks JSON-RPC 2.0 over stdio with seven tools:
 `check`, `build`, `test`, `verify`, `explain`, `context`, `index`. Every
 tool returns the schema-v1 payload the CLI returns. No tool accepts a path
 outside `--root`, no tool accepts a shell string, and a malformed request
@@ -80,7 +80,7 @@ is answered with an error while the server stays alive.
 
 ## The sandbox
 
-`yashy run --sandbox --allow-read <path> --allow-write <path>` runs the
+`yashyc run --sandbox --allow-read <path> --allow-write <path>` runs the
 program with a default-deny capability set: those paths, and nothing
 else. A read or write outside the allowlist is `E1900` naming the
 capability; a time, memory or output breach is `E1901` naming the limit.

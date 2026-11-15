@@ -14,9 +14,9 @@ use std::process::{Command, Output};
 
 use yashy_driver::modules::resolve_import;
 
-/// The `yashy` binary cargo built for this test run.
-fn yashy() -> &'static str {
-    common::yashy()
+/// The `yashyc` binary cargo built for this test run.
+fn yashyc() -> &'static str {
+    common::yashyc()
 }
 
 /// A fresh, empty directory for one test, unique per test name and process.
@@ -43,7 +43,7 @@ fn exe(dir: &Path) -> PathBuf {
 /// Build `entry` with an explicit `YASHY_PATH` (`None` removes the variable, so
 /// the default root is what is under test).
 fn build(dir: &Path, entry: &Path, search: Option<&Path>) -> Output {
-    let mut command = Command::new(yashy());
+    let mut command = Command::new(yashyc());
     command.arg("build").arg(entry).arg("-o").arg(exe(dir));
     match search {
         Some(root) => command.env("YASHY_PATH", root),
@@ -51,7 +51,7 @@ fn build(dir: &Path, entry: &Path, search: Option<&Path>) -> Output {
     };
     command
         .output()
-        .expect("the yashy CLI must be runnable")
+        .expect("the yashyc CLI must be runnable")
 }
 
 fn stderr_of(output: &Output) -> String {
@@ -158,7 +158,7 @@ fn a_missing_module_is_a_diagnostic_naming_every_root_tried() {
         path_separator(),
         second.display()
     );
-    let mut command = Command::new(yashy());
+    let mut command = Command::new(yashyc());
     command
         .arg("build")
         .arg(dir.join("main.ya"))
@@ -167,7 +167,7 @@ fn a_missing_module_is_a_diagnostic_naming_every_root_tried() {
         .env("YASHY_PATH", &search);
     let output = command
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
 
     assert!(!output.status.success(), "a missing module must fail the build");
     let stderr = stderr_of(&output);
@@ -376,14 +376,14 @@ fn check_accepts_a_multi_file_program_without_building_it() {
     );
     write(&dir, "lib/util.ya", "pub fn seven() -> int { return 7; }\n");
 
-    let mut command = Command::new(yashy());
+    let mut command = Command::new(yashyc());
     command
         .arg("check")
         .arg(dir.join("main.ya"))
         .env_remove("YASHY_PATH");
     let output = command
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
 
     assert!(
         output.status.success(),
@@ -406,14 +406,14 @@ fn an_import_used_only_through_its_alias_is_not_unused() {
     );
     write(&dir, "lib/vendor.ya", "pub fn helper() -> int { return 9; }\n");
 
-    let mut command = Command::new(yashy());
+    let mut command = Command::new(yashyc());
     command
         .arg("check")
         .arg(dir.join("main.ya"))
         .env_remove("YASHY_PATH");
     let output = command
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
 
     assert!(
         output.status.success(),
@@ -437,14 +437,14 @@ fn a_truly_unused_import_still_warns() {
     );
     write(&dir, "lib/vendor.ya", "pub fn helper() -> int { return 9; }\n");
 
-    let mut command = Command::new(yashy());
+    let mut command = Command::new(yashyc());
     command
         .arg("check")
         .arg(dir.join("main.ya"))
         .env_remove("YASHY_PATH");
     let output = command
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
 
     assert!(
         stderr_of(&output).contains("E2001"),
@@ -474,14 +474,14 @@ fn an_import_used_only_by_a_trait_impl_is_not_unused() {
          }\n",
     );
 
-    let mut command = Command::new(yashy());
+    let mut command = Command::new(yashyc());
     command
         .arg("check")
         .arg(dir.join("main.ya"))
         .env_remove("YASHY_PATH");
     let output = command
         .output()
-        .expect("the yashy CLI must be runnable");
+        .expect("the yashyc CLI must be runnable");
 
     assert!(
         output.status.success(),
