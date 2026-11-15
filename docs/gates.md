@@ -158,6 +158,20 @@ signal than a recorded gap.
 |---|---|---|---|---|---|
 | `--per-pass` on both operating systems | comparator tested, never run end to end | no `async_run_ms` row; sequential runner variance (~25% on Windows) is an order of magnitude above the 2% threshold | benchmark owner | an `async` workload row exists **and** the harness interleaves on/off measurements (A/B, n of m) so the 2% threshold is measured against noise, then the table is recorded for both OSes | `yashy-bench --per-pass` |
 
+#### Compile-time regression detection — carried forward after 1.0 (2026-11-15)
+
+`benchmarks/thresholds.bench` used to gate `*_compile_ms` at 20% (25% for
+`large_compile_ms`). Three Bench runs of one compiler binary measured Windows
+`fib_compile_ms` at 1374, 1964 and 2439 ms and Linux at 955, 1196 and 1490 ms,
+so 20% is inside the row's noise band: the gate fired on a busy runner, not on a
+code change. It is now `compile=100`, which keeps the row visible and catches a
+doubled build, but an honest compiler regression of 30% in build time would pass.
+That is a real gap, owned rather than papered over:
+
+| Row | State (2026-11-15) | Why | Owner | Closes when | Re-run |
+|---|---|---|---|---|---|
+| `*_compile_ms` at 20% | tracked in the baseline, gated at 100% | the same binary measured 955-2439 ms across three runs on the shared runners; cache state, ThinLTO link and neighbour load dominate the number | benchmark owner | the harness measures a runner-speed reference on the same run (clang's `fib_c_run_ms` is already one) and normalizes compile rows against it, **or** the job runs on a dedicated runner with a measured noise band under 20%; then the row returns to a percentage gate | `benchmarks/ci.sh` / `ci.ps1` in the Bench job |
+
 #### Feature-row budget — carried forward after 1.0 (2026-11-15)
 
 The phase 3 and phase 4 tables used to promise "feature rows ≤ 2×" and "≤ 1.8×"

@@ -46,9 +46,17 @@ checks their fixed output, and writes the gate rows as `key=value`:
 Each row is the median of 3 runs locally (5 in CI) after one untimed warm-up.
 `crates/yashy-bench` compares a fresh measurement with
 `benchmarks/baselines/<os>.bench`; a row fails when it grows past the percent in
-`benchmarks/thresholds.bench` (`compile=20`, `binary=10`, `runtime=20`, with
-`large_compile_ms=25`). A baseline row that the measurement lost fails; a new
-row is reported and not gated.
+`benchmarks/thresholds.bench` (`compile=100`, `binary=10`, `runtime=20`). A
+baseline row that the measurement lost fails; a new row is reported and not
+gated.
+
+**Why compile rows get 100%.** They are tracked, but they are not gated, because
+the same compiler on the same runner moves 20-50% between runs (`fib_compile_ms`
+on Windows measured 1374, 1964 and 2439 ms for three runs of one commit, and
+`hello_compile_ms` 1366, 1902 and 2444 ms). A 20% compile gate would flap on
+runner noise, not on a code change. Compile time is in the baseline for a
+tripwire — a doubled build is still visible in the table — but the rows that
+carry a claim are the ratios (asserted in the scripts) and the run-time rows.
 
 The comparison only gates the `*_compile_ms`, `*_binary_bytes`, `*_run_ms` and
 `instantiation_count` rows; anything else in the file is metadata. Two of those
@@ -119,7 +127,7 @@ reason rather than a code change.
 
 **Both baselines are now Bench runner measurements (2026-11-15, `6e8ea75`).**
 `fib_compile_ms` moves the most: the measurement builds with `--release`, and
-since phase 4 the release link is ThinLTO, so the row is 1.2-2.2 s where the
+since phase 4 the release link is ThinLTO, so the row is 1.0-2.4 s where the
 older baselines recorded 0.2 s. It is a compile-time budget for the release
 build, not a regression; compare it with the row in the file, not with the
 number in an older commit.
@@ -130,20 +138,39 @@ measurement of the same compiler, not the newest one.** Two runs of `6ee9d40` /
 — measured the Linux runner 20-32% apart on every gate row and the Windows
 runner 20-85% apart (`maps_run_ms` 24.9 → 46.0 ms). Adopting the newer (slower)
 number alone would leave the gate one fast run away from failing again, so each
-gate row in both files is now the **per-row maximum** of runs 43677701573 and
+gate row in both files is the **per-row maximum** of runs 43677701573 and
 43678163058, whichever direction the noise went, and the file's second header
 line says so. A row that measures faster than its baseline is not a failure
-(nothing regresses by being quick), so what the baseline states is: *no run of
-this compiler has been slower than this.*
+(nothing regresses by being quick).
 
-That is deliberately a coarse instrument, and `benchmarks/thresholds.bench` says
-why the alternative was worse: an absolute millisecond row on a shared runner
-has 25% of noise in it, so the rows that carry a *claim* are the ratios
-(`fib_wrap_ratio`, `fib_checked_ratio`), which cancel the machine's speed
-because numerator and denominator are measured on it. The absolute rows are a
-tripwire for a doubled cost; the ratio assertions in `ci.sh`/`ci.ps1` are the
-claim. The two smallest rows (`hello_run_ms`, `release_run_ms`) and the C row
-get percentage room in `thresholds.bench` for the same reason.
+**A third run then showed which rows that rule can hold and which it cannot.**
+Run 43679410791 measured:
+
+| | Linux | Windows |
+|---|---|---|
+| run-time rows vs the per-row-max baseline | 31-54% **faster** (`fib_run_ms` 34.8 vs 50.7, `wordcount_run_ms` 91.0 vs 155.5) — trivially inside the bound | **+8.8% to +13.3%** (`fib_run_ms` 51.8 vs 45.7, `wordcount_run_ms` 209.4 vs 192.5, `maps_run_ms` −5.0%) — inside 20%, which is the row doing its job |
+| compile rows vs the same baseline | 35-38% faster (`fib_compile_ms` 955.4 vs 1489.6) | **+24.2% to +28.5%** (`fib_compile_ms` 2439 vs 1964, `hello_compile_ms` 2444 vs 1902, `large_compile_ms` 2819 vs 2239) — same compiler binary |
+| ratio rows | 0.97 | 1.05 |
+| `promoted_sites` | 1 | 1 |
+
+Three measurements of one compiler binary are enough to describe the compile
+row: Windows `fib_compile_ms` measured 1374, 1964 and 2439 ms (78% spread),
+Linux 955, 1196 and 1490 ms (56%). Twenty percent is inside that noise band, so
+no per-row maximum makes a 20% compile gate stable — and a gate that fails on a
+busy runner teaches the team to ignore it. `benchmarks/thresholds.bench`
+therefore sets `compile=100`: compile rows stay in the baseline and in the
+table, and the gate fails on a doubled build, not on a noisy neighbour. Run-time
+rows keep 20%, because they are medians of five runs of a fixed binary and they
+held at +8.8-13.3% under the same noise.
+
+That is deliberately a coarse instrument for the absolute rows, and the ratio
+rows say why they are the ones that carry a claim: `fib_wrap_ratio` and
+`fib_checked_ratio` cancel the machine's speed because numerator and
+denominator are measured on it, and they moved by 1-4% across all three runs
+while absolute rows moved by 50%+. Those ratios, the promotion count and the
+program answers are asserted in `ci.sh`/`ci.ps1`; the two smallest rows
+(`hello_run_ms`, `release_run_ms`) and the C row get extra room in
+`thresholds.bench` because they are milliseconds.
 
 ### The per-pass gate
 
