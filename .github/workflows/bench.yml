@@ -53,6 +53,13 @@ jobs:
       # `yashy_llc_must_not_hijack_the_clang_lookup` pins it). So this step
       # puts the chosen compiler *on `PATH` under the name `clang`* — the
       # driver, `benchmarks/ci.sh`'s C row and the sanitizer corpus all see it.
+      #
+      # `llvm-profdata` goes in the same directory because `--pgo` asks the
+      # driver to merge raw counters, and the driver looks beside the compiler
+      # first. It has to be the *same* LLVM release as the compiler: the
+      # image's `llvm-profdata` is 14, which cannot read a 15 profile, and the
+      # `llvm-15` package that carries the matching one is not a dependency of
+      # `clang-15`.
       - name: Select clang >= 15 (Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -60,25 +67,40 @@ jobs:
           # The image ships several LLVM versions; name them in the log so the
           # next run can pick a higher one without guessing.
           ls -d /usr/lib/llvm-* 2>/dev/null || true
-          ls /usr/bin/clang* 2>/dev/null || true
-          chosen=''
-          for c in clang-18 clang-17 clang-16 clang-15; do
-            if command -v "$c" >/dev/null 2>&1; then
-              chosen=$(command -v "$c"); break
+          ls /usr/bin/clang* /usr/bin/llvm-profdata* 2>/dev/null || true
+
+          version=''
+          for v in 18 17 16 15; do
+            if [ -x "/usr/lib/llvm-$v/bin/clang" ] || command -v "clang-$v" >/dev/null 2>&1; then
+              version=$v; break
             fi
           done
-          if [ -z "$chosen" ]; then
-            echo "No clang >= 15 on PATH; installing clang-15" >&2
+          if [ -z "$version" ]; then
+            echo "No clang >= 15 installed; installing clang-15 and llvm-15" >&2
             sudo apt-get update -y
-            sudo apt-get install -y --no-install-recommends clang-15
-            chosen=$(command -v clang-15)
+            sudo apt-get install -y --no-install-recommends clang-15 llvm-15
+            version=15
           fi
+
+          clang_bin="/usr/lib/llvm-$version/bin/clang"
+          [ -x "$clang_bin" ] || clang_bin=$(command -v "clang-$version")
+          profdata_bin="/usr/lib/llvm-$version/bin/llvm-profdata"
+          if [ ! -x "$profdata_bin" ]; then
+            echo "No llvm-profdata for LLVM $version; installing llvm-$version" >&2
+            sudo apt-get update -y
+            sudo apt-get install -y --no-install-recommends "llvm-$version"
+          fi
+          [ -x "$profdata_bin" ] || profdata_bin=$(command -v "llvm-profdata-$version")
+
           shim="$RUNNER_TEMP/clang-bin"
           mkdir -p "$shim"
-          ln -sf "$chosen" "$shim/clang"
+          ln -sf "$clang_bin" "$shim/clang"
+          ln -sf "$profdata_bin" "$shim/llvm-profdata"
           echo "$shim" >> "$GITHUB_PATH"
-          echo "using $chosen as $shim/clang"
+          echo "using $clang_bin as $shim/clang"
+          echo "using $profdata_bin as $shim/llvm-profdata"
           "$shim/clang" --version
+          "$shim/llvm-profdata" --version
 
       - name: Verify clang (Windows)
         if: runner.os == 'Windows'

@@ -111,6 +111,32 @@ measure_median() {
     printf '%s\n' "$median"
 }
 
+# Runs one build and, on failure, prints what the compiler said.
+#
+# Both build lines used to discard it, so a failed PGO build named only the
+# program: the first Linux run of this script reported `yashy build fib (PGO)
+# failed` and nothing else, while the cause was a `llvm-profdata` from a
+# different LLVM release than the `clang` on PATH. Quote the output, and name
+# the tools, because `--pgo` is the one row whose answer depends on both.
+build_or_fail() {
+    desc=$1
+    shift
+    status=0
+    "$@" >"$build/failure.out" 2>&1 || status=$?
+    if [ "$status" -ne 0 ]; then
+        printf '%s failed (exit %s)\n' "$desc" "$status" >&2
+        cat "$build/failure.out" >&2
+        exit 1
+    fi
+}
+
+if command -v clang >/dev/null 2>&1; then
+    printf 'clang: %s\n' "$(clang --version | head -n 1)"
+fi
+if command -v llvm-profdata >/dev/null 2>&1; then
+    printf 'llvm-profdata: %s\n' "$(llvm-profdata --version | head -n 1)"
+fi
+
 rows=$(mktemp)
 printf '%-12s %8s %8s %8s %9s %9s %8s\n' \
     'program' 'lto ms' 'pgo ms' 'faster%' 'lto bytes' 'pgo bytes' 'size%' > "$rows"
@@ -122,10 +148,8 @@ for file in "$corpus"/*.ya; do
     pgo="$build/$stem-pgo"
 
     say "== $stem"
-    "$yashy" build "$file" -o "$lto" --release >/dev/null 2>&1 \
-        || fail "yashy build $stem (ThinLTO) failed"
-    "$yashy" build "$file" -o "$pgo" --release --pgo >/dev/null 2>&1 \
-        || fail "yashy build $stem (PGO) failed"
+    build_or_fail "yashy build $stem (ThinLTO)" "$yashy" build "$file" -o "$lto" --release
+    build_or_fail "yashy build $stem (PGO)" "$yashy" build "$file" -o "$pgo" --release --pgo
 
     # The driver names the merged profile after the output it was asked for
     # (`$stem-pgo`), not after the corpus file (`$stem`). Check for that name.

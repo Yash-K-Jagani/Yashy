@@ -59,6 +59,15 @@ function Format-Ms {
     $Value.ToString('F1', [System.Globalization.CultureInfo]::InvariantCulture)
 }
 
+# `--pgo` is the one row whose answer depends on the compiler *and* the profile
+# merger, so the report names both before it starts.
+if (Get-Command clang -ErrorAction SilentlyContinue) {
+    Write-Output "clang: $((& clang --version | Select-Object -First 1))"
+}
+if (Get-Command llvm-profdata -ErrorAction SilentlyContinue) {
+    Write-Output "llvm-profdata: $((& llvm-profdata --version | Select-Object -First 1))"
+}
+
 # One untimed warm-up, then the median of $Samples timed runs. The output is
 # discarded; correctness was checked before the first timing.
 function Measure-Median {
