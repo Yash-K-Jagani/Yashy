@@ -274,14 +274,14 @@ fn a_stdlib_version_change_invalidates_the_ir_cache() {
     fs::create_dir_all(&copy).expect("the copy must be creatable");
     copy_tree(
         &root().join("crates/yashy-stdlib/yashy"),
-        &copy.join("yashyc"),
+        &copy.join("yashy"),
     );
     fs::copy(
         root().join("crates/yashy-stdlib/yashy.toml"),
         copy.join("yashy.toml"),
     )
     .expect("the manifest must be copied");
-    let stdlib = copy.join("yashyc");
+    let stdlib = copy.join("yashy");
 
     let cache = work_dir("stdlib-version-cache");
     let dir = work_dir("stdlib-version-out");

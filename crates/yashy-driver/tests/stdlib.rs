@@ -23,10 +23,16 @@ fn yashyc() -> &'static str {
 
 /// `crates/yashy-stdlib/yashy`, the directory holding `io.ya` and friends.
 fn stdlib_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("yashy-stdlib")
-        .join("yashyc")
+        .join("yashy");
+    assert!(
+        dir.is_dir(),
+        "the stdlib source directory must exist: {}",
+        dir.display()
+    );
+    dir
 }
 
 fn work_dir(name: &str) -> PathBuf {

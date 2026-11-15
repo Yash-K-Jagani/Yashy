@@ -113,7 +113,7 @@ fn quickstart_and_reference_links_resolve() {
 /// `UPDATE_GOLDEN=1` rewrites the page instead of comparing it.
 #[test]
 fn stdlib_reference_is_generated_from_doc_blocks() {
-    let stdlib = root().join("crates").join("yashy-stdlib").join("yashyc");
+    let stdlib = root().join("crates").join("yashy-stdlib").join("yashy");
     let model = yashy_driver::doc::build_doc(&stdlib, false)
         .expect("the standard library must build a documentation model");
     // `build_doc` skips a module that does not check, so compare the model

@@ -255,7 +255,7 @@ struct Named {
 fn main() {
     const named = Named { name: "yas" + "hy", count: 2 };
     print(named.name);
-    // => yashyc
+    // => yashy
 }
 ```
 

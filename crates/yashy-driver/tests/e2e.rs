@@ -4385,7 +4385,7 @@ fn stdlib_programs_are_deterministic_and_release_everything() {
     let stdlib = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("yashy-stdlib")
-        .join("yashyc");
+        .join("yashy");
     let programs = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("programs")
