@@ -175,14 +175,14 @@ compiler grows more phases to measure.
 - Modify: `crates/yashy-lsp/src/server.rs`
 - Test: `crates/yashy-parser/tests/recovery.rs`, `crates/yashy-lsp/tests/recovery.rs`
 
-- [ ] **Step 1: Write the failing test.** Half-typed inputs: `fn`, `fn main(`,
+- [x] **Step 1: Write the failing test.** Half-typed inputs: `fn`, `fn main(`,
   an unclosed string, a missing `}`. Assert at least one diagnostic, a stable
   span, and that the LSP still answers `hover`/`completion`.
-- [ ] **Step 2: Recover at item and statement boundaries.** Skip to the next
+- [x] **Step 2: Recover at item and statement boundaries.** Skip to the next
   `;`, `}`, or item keyword; never loop without consuming a token; cap
   diagnostics per file. A recovered parse is never used for `build`; it is for
   the LSP only.
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ### Task 8: T2, while the parser is open
 
