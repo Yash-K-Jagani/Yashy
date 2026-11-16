@@ -12,11 +12,11 @@ pub mod span;
 pub mod suggest;
 
 pub use codes::Code;
-pub use diagnostic::{
-    Applicability, Diagnostic, DiagnosticBag, ProofTrace, Severity, Suggestion, EXIT_COMPILE_ERROR,
-    EXIT_INTERNAL, EXIT_OK, EXIT_USAGE,
-};
 pub use effect::{DeclaredEffect, Effect};
+pub use diagnostic::{
+    Applicability, Diagnostic, DiagnosticBag, ProofTrace, Severity, Suggestion,
+    EXIT_COMPILE_ERROR, EXIT_INTERNAL, EXIT_OK, EXIT_USAGE,
+};
 pub use json::Json;
 pub use proof_facts::{ParamAttrs, ParamFacts, ProofFacts};
 pub use source::{FileId, Location, SourceMap};

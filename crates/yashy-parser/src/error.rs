@@ -75,11 +75,7 @@ impl ParseError {
     /// understood the source or it did not, and a warning about a source that
     /// did not parse would be a warning about a file nobody will compile.
     pub fn to_diagnostic(&self, file: FileId) -> Diagnostic {
-        let mut diagnostic =
-            Diagnostic::new(Severity::Error, file, self.span, self.message.clone());
-        // The handful of removed-keyword refusals have an exact, safe edit.
-        // Attaching it where the message becomes a diagnostic keeps ParseError
-        // itself a two-field description of a parse failure.
+        let mut diagnostic = Diagnostic::new(Severity::Error, file, self.span, self.message.clone());
         let replacement = if self.message.starts_with("`var` was removed") {
             Some(("let", 3))
         } else if self.message.starts_with("`println` was removed") {

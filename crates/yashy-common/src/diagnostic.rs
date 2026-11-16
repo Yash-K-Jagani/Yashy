@@ -81,10 +81,6 @@ pub struct ProofTrace {
 }
 
 /// A machine-applicable edit for one diagnostic.
-///
-/// An edit is a byte span, the replacement text, and how sure the compiler is
-/// that the edit is right. The CLI, the LSP and agents apply this same struct;
-/// none of them formats source on its own.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Suggestion {
     pub span: Span,
@@ -96,9 +92,7 @@ pub struct Suggestion {
 /// How sure the compiler is that a suggestion is right.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Applicability {
-    /// Applying this edit preserves the program's meaning.
     MachineApplicable,
-    /// The edit is a likely fix but the compiler cannot prove it.
     MaybeIncorrect,
 }
 
@@ -141,12 +135,7 @@ pub struct Diagnostic {
 
 impl Diagnostic {
     /// A warning diagnostic: the program is fine, but something is worth saying.
-    pub fn warning(
-        code: &'static str,
-        file: FileId,
-        span: Span,
-        message: impl Into<String>,
-    ) -> Diagnostic {
+    pub fn warning(code: &'static str, file: FileId, span: Span, message: impl Into<String>) -> Diagnostic {
         Diagnostic {
             severity: Severity::Warning,
             message: message.into(),
@@ -161,12 +150,7 @@ impl Diagnostic {
     }
 
     /// A diagnostic of the given severity at `span`, with no label.
-    pub fn new(
-        severity: Severity,
-        file: FileId,
-        span: Span,
-        message: impl Into<String>,
-    ) -> Diagnostic {
+    pub fn new(severity: Severity, file: FileId, span: Span, message: impl Into<String>) -> Diagnostic {
         Diagnostic {
             severity,
             message: message.into(),
@@ -206,7 +190,6 @@ impl Diagnostic {
         self
     }
 
-    /// Attaches machine-applicable edits, and returns the diagnostic.
     pub fn with_suggestions(mut self, suggestions: Vec<Suggestion>) -> Diagnostic {
         self.suggestions = suggestions;
         self
@@ -289,12 +272,7 @@ mod tests {
     use crate::span::Span;
 
     fn a_diagnostic(severity: Severity) -> Diagnostic {
-        Diagnostic::new(
-            severity,
-            FileId::from_index(0),
-            Span::new(0, 1),
-            "something",
-        )
+        Diagnostic::new(severity, FileId::from_index(0), Span::new(0, 1), "something")
     }
 
     #[test]
