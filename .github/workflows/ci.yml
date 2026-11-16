@@ -87,25 +87,8 @@ jobs:
           & ./target/debug/yashyc.exe fmt --check @($files.FullName)
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Test (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -o pipefail
-          cargo test --workspace --no-fail-fast 2>&1 | tee ci-test.log
-
-      - name: Test (Windows/macOS)
-        if: runner.os != 'Linux'
+      - name: Test
         run: cargo test --workspace --no-fail-fast
-
-      - name: Surface a workspace test failure
-        if: failure() && runner.os == 'Linux'
-        shell: bash
-        run: |
-          grep -E "panicked at|FAILED|assertion \`|left:|right:|error: test failed" ci-test.log \
-            | head -40 | cut -c1-500 | while IFS= read -r line; do
-              echo "::error::CI_TEST_FAILURE $line"
-            done
 
       # The workspace command already runs both, but naming them puts a
       # formatting or language-server failure in its own step instead of
