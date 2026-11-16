@@ -294,11 +294,14 @@ fn emit(
                 // path. The test harness renames each test's `main` to a unique
                 // symbol (`__yashy_test_<n>`) while keeping entry-point
                 // semantics, so many tests can link into one harness binary.
-                if f.name == "main" {
+                // `__yashy_test_<n>` is a renamed entry point emitted by the
+                // test harness: several of them can share one module, so each
+                // needs the entry signature and the OS symbol is its own name.
+                if f.name == "main" || f.name.starts_with("__yashy_test_") {
                     if let Some(symbol) = entry_symbol {
                         gen_main_with_symbol(&mut module, f, symbol);
                     } else {
-                        gen_main(&mut module, f);
+                        gen_main_with_symbol(&mut module, f, &f.name);
                     }
                 } else {
                     gen_fn(&mut module, f);

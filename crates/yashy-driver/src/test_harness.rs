@@ -285,6 +285,10 @@ pub fn build_harness(
     // below. A hundred tiny modules must not cost a hundred clang processes
     // started one after another.
     let mut pending: Vec<(usize, String, String, PathBuf, String, PathBuf, PathBuf)> = Vec::new();
+    // When every test is a lone `fn main`, all of them share one IR module and
+    // one clang invocation: 100 tests cost one compiler, not a hundred.
+    let mut merged_items: Vec<yashy_sema::HirItem> = Vec::new();
+    let mut can_merge = true;
 
     let opt = OptLevel::None;
     let cpu = CpuTarget::default();
@@ -357,6 +361,21 @@ pub fn build_harness(
             continue;
         }
 
+        // Merge only the trivial shape: one function, named main. Anything
+        // else (helpers, structs, imports) could collide across tests, so it
+        // keeps the per-test path below.
+        if hir.items.len() == 1
+            && matches!(&hir.items[0], yashy_sema::HirItem::Fn(f) if f.name == "main")
+        {
+            let mut item = hir.items[0].clone();
+            if let yashy_sema::HirItem::Fn(f) = &mut item {
+                f.name = symbol.clone();
+            }
+            merged_items.push(item);
+        } else {
+            can_merge = false;
+        }
+
         let ir = emit_program_with_entry(
             &hir,
             &entry_str,
@@ -391,88 +410,162 @@ pub fn build_harness(
         ));
     }
 
-    // Compile every test's IR in parallel, bounded by `--jobs` (0 = all cores).
-    // Deterministic order is restored by indexing the results, never by which
-    // worker finished first.
-    let workers = if jobs == 0 {
-        std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(1)
-    } else {
-        jobs
-    }
-    .max(1)
-    .min(pending.len().max(1));
-    let next = std::sync::atomic::AtomicUsize::new(0);
-    let opaque = crate::pipeline::opaque_pointers_args(toolchain);
-    let compiled: std::sync::Mutex<Vec<Option<(TestEntry, PathBuf)>>> =
-        std::sync::Mutex::new((0..pending.len()).map(|_| None).collect());
-    std::thread::scope(|scope| {
-        let mut handles = Vec::new();
-        for _ in 0..workers {
-            let next = &next;
-            let pending = &pending;
-            let opaque = &opaque;
-            let compiled = &compiled;
-            handles.push(scope.spawn(move || {
-                let mut failures = Vec::new();
-                loop {
-                    let slot = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    let Some((index, name, stem, source, symbol, ir_path, object)) =
-                        pending.get(slot)
-                    else {
-                        break;
-                    };
-                    let mut args = vec![
-                        "-x".to_string(),
-                        "ir".to_string(),
-                        ir_path.to_string_lossy().into_owned(),
-                        "-c".to_string(),
-                        "-o".to_string(),
-                        object.to_string_lossy().into_owned(),
-                        format!("--target={target}"),
-                        opt.flag().to_string(),
-                    ];
-                    args.extend(opaque.iter().map(|flag| flag.to_string()));
-                    let result = run_tool(toolchain, &args, name, "compiling a test", None);
-                    let entry = match result {
-                        Ok(()) => Some((
-                            TestEntry {
-                                index: *index,
-                                name: name.clone(),
-                                stem: stem.clone(),
-                                source: source.clone(),
-                                symbol: symbol.clone(),
-                            },
-                            object.clone(),
-                        )),
-                        Err(diagnostic) => {
-                            failures.push((
-                                *index,
-                                crate::diagnostics_json(&SourceMap::new(), &diagnostic),
-                            ));
-                            None
-                        }
-                    };
-                    compiled
-                        .lock()
-                        .expect("the compile-result lock was poisoned")[slot] = entry;
+    // The fast path: all simple tests in one IR module, one compiler call.
+    let merged_object = if can_merge && !merged_items.is_empty() {
+        let combined = yashy_sema::HirProgram {
+            items: merged_items,
+            instantiations: 0,
+            uses_threads: false,
+            uses_async: false,
+        };
+        let ir = yashy_codegen::emit_program(
+            &combined,
+            "harness",
+            CodegenOptions {
+                target,
+                ..Default::default()
+            },
+            &yashy_common::ProofFacts::empty(),
+        );
+        let source = tmp_dir.join("combined.ll");
+        let object = tmp_dir.join("combined.o");
+        let compile = fs::write(&source, ir.as_bytes())
+            .map_err(|error| error.to_string())
+            .and_then(|_| {
+                let mut args = vec![
+                    "-x".to_string(),
+                    "ir".to_string(),
+                    source.to_string_lossy().into_owned(),
+                    "-c".to_string(),
+                    "-o".to_string(),
+                    object.to_string_lossy().into_owned(),
+                    format!("--target={target}"),
+                    opt.flag().to_string(),
+                ];
+                args.extend(
+                    crate::pipeline::opaque_pointers_args(toolchain)
+                        .into_iter()
+                        .map(str::to_string),
+                );
+                run_tool(
+                    toolchain,
+                    &args,
+                    "harness",
+                    "compiling the harness IR",
+                    None,
+                )
+                .map_err(|diagnostics| format!("{:?}", diagnostics))
+            });
+        match compile {
+            Ok(()) => Some(object),
+            Err(error) => {
+                for (index, _, _, _, _, _, _) in &pending {
+                    compile_errors.push((*index, vec![json_error(error.clone())]));
                 }
-                failures
-            }));
-        }
-        for handle in handles {
-            if let Ok(failures) = handle.join() {
-                compile_errors.extend(failures);
+                None
             }
         }
-    });
-    for slot in compiled
-        .into_inner()
-        .expect("the compile-result lock was poisoned")
-    {
-        if let Some(entry) = slot {
-            entries.push(entry);
+    } else {
+        None
+    };
+
+    if let Some(object) = merged_object {
+        for (index, name, stem, source, symbol, _, _) in pending {
+            entries.push((
+                TestEntry {
+                    index,
+                    name,
+                    stem,
+                    source,
+                    symbol,
+                },
+                object.clone(),
+            ));
+        }
+    } else {
+        // Compile every test's IR in parallel, bounded by `--jobs` (0 = all cores).
+        // Deterministic order is restored by indexing the results, never by which
+        // worker finished first.
+        let workers = if jobs == 0 {
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(1)
+        } else {
+            jobs
+        }
+        .max(1)
+        .min(pending.len().max(1));
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        let opaque = crate::pipeline::opaque_pointers_args(toolchain);
+        let compiled: std::sync::Mutex<Vec<Option<(TestEntry, PathBuf)>>> =
+            std::sync::Mutex::new((0..pending.len()).map(|_| None).collect());
+        std::thread::scope(|scope| {
+            let mut handles = Vec::new();
+            for _ in 0..workers {
+                let next = &next;
+                let pending = &pending;
+                let opaque = &opaque;
+                let compiled = &compiled;
+                handles.push(scope.spawn(move || {
+                    let mut failures = Vec::new();
+                    loop {
+                        let slot = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some((index, name, stem, source, symbol, ir_path, object)) =
+                            pending.get(slot)
+                        else {
+                            break;
+                        };
+                        let mut args = vec![
+                            "-x".to_string(),
+                            "ir".to_string(),
+                            ir_path.to_string_lossy().into_owned(),
+                            "-c".to_string(),
+                            "-o".to_string(),
+                            object.to_string_lossy().into_owned(),
+                            format!("--target={target}"),
+                            opt.flag().to_string(),
+                        ];
+                        args.extend(opaque.iter().map(|flag| flag.to_string()));
+                        let result = run_tool(toolchain, &args, name, "compiling a test", None);
+                        let entry = match result {
+                            Ok(()) => Some((
+                                TestEntry {
+                                    index: *index,
+                                    name: name.clone(),
+                                    stem: stem.clone(),
+                                    source: source.clone(),
+                                    symbol: symbol.clone(),
+                                },
+                                object.clone(),
+                            )),
+                            Err(diagnostic) => {
+                                failures.push((
+                                    *index,
+                                    crate::diagnostics_json(&SourceMap::new(), &diagnostic),
+                                ));
+                                None
+                            }
+                        };
+                        compiled
+                            .lock()
+                            .expect("the compile-result lock was poisoned")[slot] = entry;
+                    }
+                    failures
+                }));
+            }
+            for handle in handles {
+                if let Ok(failures) = handle.join() {
+                    compile_errors.extend(failures);
+                }
+            }
+        });
+        for slot in compiled
+            .into_inner()
+            .expect("the compile-result lock was poisoned")
+        {
+            if let Some(entry) = slot {
+                entries.push(entry);
+            }
         }
     }
 
