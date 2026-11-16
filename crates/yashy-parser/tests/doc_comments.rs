@@ -32,8 +32,34 @@ fn parse_err(src: &str) -> Vec<Diagnostic> {
 }
 
 #[test]
+fn lf_and_crlf_produce_one_identical_doc_block() {
+    let lf = "/// Adds two numbers.\n/// And a second line.\nfn add(int a, int b) -> int { return a + b; }\n";
+    let crlf = lf.replace('\n', "\r\n");
+    let docs = |program: Program| -> Vec<String> {
+        match program.items.as_slice() {
+            [Item::Documented { docs, .. }] => docs.clone(),
+            other => panic!("expected one documented item, got {other:?}"),
+        }
+    };
+    let from_lf = docs(parse_ok(lf));
+    let from_crlf = docs(parse_ok(&crlf));
+    assert_eq!(
+        from_lf, from_crlf,
+        "CRLF must not leak a carriage return into docs"
+    );
+    assert_eq!(
+        from_lf,
+        vec![
+            "Adds two numbers.".to_string(),
+            "And a second line.".to_string()
+        ]
+    );
+}
+
+#[test]
 fn a_doc_block_above_a_function_is_stored() {
-    let program = parse_ok("/// Adds two numbers.\nfn add(int a, int b) -> int { return a + b; }\n");
+    let program =
+        parse_ok("/// Adds two numbers.\nfn add(int a, int b) -> int { return a + b; }\n");
     match program.items.as_slice() {
         [Item::Documented { docs, item, .. }] => {
             assert_eq!(docs, &["Adds two numbers.".to_string()]);

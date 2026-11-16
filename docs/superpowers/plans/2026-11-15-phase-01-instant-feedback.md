@@ -190,11 +190,11 @@ compiler grows more phases to measure.
 - Modify: `crates/yashy-lexer/src/lexer.rs` (`skip_line_comment`)
 - Test: `crates/yashy-parser/tests/doc_comments.rs`
 
-- [ ] **Step 1: Write the failing test.** The same source with LF and CRLF:
+- [x] **Step 1: Write the failing test.** The same source with LF and CRLF:
   one doc block, one `yashyc doc` byte stream.
-- [ ] **Step 2: Stop comment scanning at `\r\n` as well as `\n`.** Run the
+- [x] **Step 2: Stop comment scanning at `\r\n` as well as `\n`.** Run the
   existing doc tests; update `docs/triage.md` to close T2.
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ## Gates
 

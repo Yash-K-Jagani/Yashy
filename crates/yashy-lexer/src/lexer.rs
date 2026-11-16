@@ -172,7 +172,9 @@ impl<'src> Lexer<'src> {
     fn skip_line_comment(&mut self) {
         let bytes = self.src.as_bytes();
         while let Some(byte) = peek(bytes, self.pos) {
-            if byte == b'\n' {
+            // Stop at either newline kind: the `\r` of a CRLF file must not
+            // become part of a doc comment's text.
+            if byte == b'\n' || byte == b'\r' {
                 break;
             }
             self.pos = self.pos.saturating_add(1);
