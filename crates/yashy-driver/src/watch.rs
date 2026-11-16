@@ -212,10 +212,12 @@ pub struct WatchOptions {
 pub fn watch(options: WatchOptions) -> io::Result<()> {
     let mut watcher = Watcher::new(&options.root, options.only.as_deref())?;
     let interval = Duration::from_millis(options.interval_ms);
-    let mut good = Vec::new();
+    // The last successfully built program is the one kept running. A failed
+    // edit leaves this child alone: a server must stay up while the user fixes
+    // the source, which is the point of watch --run.
+    let mut running: Option<std::process::Child> = None;
     loop {
         std::thread::sleep(interval);
-        let started = Instant::now();
         for event in watcher.poll() {
             if options.json {
                 println!("{}", yashy_common::json_rpc::to_string(&event.to_json()));
@@ -224,30 +226,42 @@ pub fn watch(options: WatchOptions) -> io::Result<()> {
             }
             match &event {
                 WatchEvent::Success { file } => {
-                    good.push(file.clone());
                     if options.run {
-                        run_program(file);
+                        if let Some(mut child) = running.take() {
+                            let _ = child.kill();
+                            let _ = child.wait();
+                        }
+                        running = run_program(file);
                     }
                     if options.test {
                         run_tests(&options.root);
                     }
                 }
-                _ => {}
+                WatchEvent::Diagnostics { .. } | WatchEvent::Error(_) => {
+                    // Keep `running` untouched; report the failure and go on.
+                }
+                WatchEvent::Changed(_) => {}
             }
         }
-        let _ = started;
     }
 }
 
-fn run_program(file: &Path) {
-    let out = std::env::temp_dir().join(format!("yashy-watch-{}.bin", std::process::id()));
+/// Build and start the program, returning the live child. The caller owns it:
+/// a short-lived program is reaped by waiting, and a server keeps running
+/// until a later successful edit replaces it.
+fn run_program(file: &Path) -> Option<std::process::Child> {
+    let out = std::env::temp_dir().join(format!(
+        "yashy-watch-{}-{}.bin",
+        std::process::id(),
+        file.file_stem()?.to_string_lossy()
+    ));
     let source = match fs::read_to_string(file) {
         Ok(source) => source,
-        Err(_) => return,
+        Err(_) => return None,
     };
     let toolchain = match crate::detect() {
         Ok(toolchain) => toolchain,
-        Err(_) => return,
+        Err(_) => return None,
     };
     if crate::compile_to_binary(
         &source,
@@ -256,10 +270,11 @@ fn run_program(file: &Path) {
         &toolchain,
         crate::BuildOptions::default(),
     )
-    .is_ok()
+    .is_err()
     {
-        let _ = std::process::Command::new(&out).status();
+        return None;
     }
+    std::process::Command::new(&out).spawn().ok()
 }
 
 fn run_tests(root: &Path) {

@@ -323,6 +323,12 @@ emit_block() {
     printf 'commit=%s\n' "$commit"
     printf 'toolchain=%s\n' "$(clang --version | head -n 1)"
     printf 'fib_compile_ms=%s\n' "$fib_compile"
+    # A same-run reference: clang compiling the equivalent C program on the
+    # same runner. The ratio, not the raw millisecond, is the compile claim a
+    # noisy shared runner can honestly gate.
+    if [ -n "$c_compile" ] && [ "$c_compile" -gt 0 ] 2>/dev/null; then
+        printf 'fib_compile_ratio=%s\n' "$(awk -v a="$fib_compile" -v b="$c_compile" 'BEGIN { printf "%.4f", a / b }')"
+    fi
     printf 'fib_binary_bytes=%s\n' "$fib_bytes"
     printf 'fib_run_ms=%s\n' "$fib_run"
     printf 'fib_c_run_ms=%s\n' "$c_run"

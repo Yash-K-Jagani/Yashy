@@ -317,6 +317,10 @@ if ($Output) {
         "commit=$commit"
         "toolchain=$toolchain"
         "fib_compile_ms=$fibCompileText"
+        # Same-run reference: clang compiling the equivalent C program here.
+        if ($cCompile -gt 0) {
+            "fib_compile_ratio=$([math]::Round($fibCompile / $cCompile, 4).ToString([cultureinfo]::InvariantCulture))"
+        }
         "fib_binary_bytes=$fibBytes"
         "fib_run_ms=$fibRunText"
         "fib_c_run_ms=$cRunText"
