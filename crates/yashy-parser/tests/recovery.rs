@@ -73,7 +73,7 @@ fn a_missing_brace_reports_a_diagnostic_with_a_stable_span() {
     assert!(
         first
             .iter()
-            .all(|diagnostic| usize::from(diagnostic.span.start) <= source.len()),
+            .all(|diagnostic| diagnostic.span.start as usize <= source.len()),
         "every diagnostic must name a span inside the file"
     );
 }
