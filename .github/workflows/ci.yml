@@ -102,8 +102,10 @@ jobs:
         if: failure() && runner.os == 'Linux'
         shell: bash
         run: |
-          message=$(grep -E "panicked at|FAILED|assertion|left:|right:" ci-test.log | head -60 | tr '\n' ' ' | cut -c1-3500)
-          echo "::error::CI_TEST_FAILURE $message"
+          grep -E "panicked at|FAILED|assertion \`|left:|right:|error: test failed" ci-test.log \
+            | head -40 | cut -c1-500 | while IFS= read -r line; do
+              echo "::error::CI_TEST_FAILURE $line"
+            done
 
       # The workspace command already runs both, but naming them puts a
       # formatting or language-server failure in its own step instead of
