@@ -55,9 +55,10 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          tail -200 tutorial-test.log >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          # An annotation is visible through the public checks API, so a red
+          # gate names its own cause instead of only "exit code 101".
+          message=$(tail -c 3500 tutorial-test.log | tr '\n' ' ' | cut -c1-3500)
+          echo "::error::TUTORIAL_FAILURE $message"
 
       # The book's own pages have blocks too, and the same script that drives
       # the install test drives them.
