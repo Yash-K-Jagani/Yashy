@@ -88,16 +88,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test
-        shell: bash
-        run: |
-          set -o pipefail
-          cargo test --workspace --no-fail-fast 2>&1 | tee ci-test.log
+        run: cargo test --workspace --no-fail-fast
 
       - name: Surface a workspace test failure
-        if: failure()
+        if: failure() && runner.os == 'Linux'
         shell: bash
         run: |
-          message=$(tail -c 3500 ci-test.log | tr '\n' ' ' | cut -c1-3500)
+          # Re-run just the driver suites that failed, capturing the panic
+          # lines into an annotation the public checks API exposes.
+          cargo test --workspace --no-fail-fast 2>&1 | tee ci-test.log || true
+          message=$(grep -E "panicked at|FAILED|assertion|left:|right:" ci-test.log | head -60 | tr '\n' ' ' | cut -c1-3500)
           echo "::error::CI_TEST_FAILURE $message"
 
       # The workspace command already runs both, but naming them puts a
