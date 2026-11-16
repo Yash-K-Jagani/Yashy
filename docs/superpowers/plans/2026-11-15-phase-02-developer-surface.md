@@ -271,11 +271,11 @@ This phase makes both renderings of the compiler's facts.
   a corpus, report tokens per keyword/operator and corpus totals for `o200k`,
   `cl100k` and a Llama-family tokenizer. The tokenizer tables are vendored as
   data (no network). Phase 4 uses it to audit new syntax; Phase 13 gates it.
-- [ ] **Step 3: Document the architecture drift test.** `cargo test -p
+- [x] **Step 3: Document the architecture drift test.** `cargo test -p
   yashy-driver --test architecture` asserts that `docs/architecture.md` lists
   every workspace crate and every dispatch verb, and that the phase table in
   the master plan names every phase file that exists.
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ### Task 9: Editors, one grammar source
 

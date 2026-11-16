@@ -327,6 +327,11 @@ model. 1.0 ships `build`, `run`, `check`, `verify`, `test`, `fmt`, `explain`,
 and `tokens` (Phases 2, 3, 9, 13, 14). Each new verb has a human and a `--json`
 form; a schema diff in CI forbids removing a field.
 
+The installed CLI also exposes `cache` (inspect the content-addressed store),
+`help` (the one command table) and `completions` (bash, zsh, fish and
+PowerShell, generated from that same table). A test checks that every verb in
+the command table is named here.
+
 `yashyc doc` is the documentation source of truth, rendered from the compiler's
 own tables and byte-stable across runs and operating systems. `docs/stdlib.md`
 is generated; edit the module, never the page.
