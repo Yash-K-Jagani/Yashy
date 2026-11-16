@@ -104,15 +104,15 @@ compiler grows more phases to measure.
 - Modify: `crates/yashy-driver/src/main.rs` (`watch`)
 - Test: `crates/yashy-driver/tests/watch.rs`
 
-- [ ] **Step 1: Write the failing test.** Watch a fixture, touch a file, assert
+- [x] **Step 1: Write the failing test.** Watch a fixture, touch a file, assert
   a diagnostics event arrives in under 100 ms on the test host; then fix the
   file and assert a success event.
-- [ ] **Step 2: Implement the loop.** Watch the project root (`yashy.toml`) or
+- [x] **Step 2: Implement the loop.** Watch the project root (`yashy.toml`) or
   the named file; debounce 50 ms; send `Check`; print human diagnostics or
   `--json` events; `--run` builds and runs on success, `--test` runs the test
   suite. A failed build keeps the last good binary running (server mode) and
   reports the failure.
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ### Task 4: Incremental cache v2
 

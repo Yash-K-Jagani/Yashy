@@ -66,6 +66,7 @@ usage:
   yashyc verify <file.ya> [--json] [--timings] [--jobs <n>] [--inventory]
   yashyc test [path] [--filter <substring>] [--list] [--json] [--timings] [--jobs <n>]
   yashyc serve [path]
+  yashyc watch [path] [--json] [--run] [--test] [--interval <ms>]
   yashyc explain <code> [--json]
   yashyc init [path]
   yashyc doctor [--json]
@@ -194,6 +195,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "verify" => verify(rest),
         "test" => test(rest),
         "serve" => serve(rest),
+        "watch" => watch_cmd(rest),
         "explain" => explain(rest),
         "init" => init(rest),
         "doctor" => doctor(rest),
@@ -1317,6 +1319,65 @@ fn blocked_by_policy(error: &std::io::Error) -> bool {
         || error.raw_os_error() == Some(4551)
         || error.to_string().contains("blocked")
         || error.to_string().contains("Application Control")
+}
+
+/// `yashyc watch [path]`: re-check the tree whenever a source file changes.
+fn watch_cmd(args: &[String]) -> ExitCode {
+    let mut path: Option<PathBuf> = None;
+    let mut json = false;
+    let mut run = false;
+    let mut test = false;
+    let mut interval_ms = 50u64;
+    let mut iter = args.iter();
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
+            "--json" => json = true,
+            "--run" => run = true,
+            "--test" => test = true,
+            "--interval" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`--interval` needs a value");
+                };
+                match value.parse::<u64>() {
+                    Ok(value) => interval_ms = value,
+                    Err(_) => return usage_error("`--interval` needs a whole number"),
+                }
+            }
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `watch`"))
+            }
+            other => {
+                if path.is_some() {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+                path = Some(PathBuf::from(other));
+            }
+        }
+    }
+    let path = path.unwrap_or_else(|| PathBuf::from("."));
+    let (root, only) = if path.is_file() {
+        (
+            path.parent().unwrap_or(Path::new(".")).to_path_buf(),
+            Some(path),
+        )
+    } else {
+        (path, None)
+    };
+    let options = yashy_driver::watch::WatchOptions {
+        root,
+        only,
+        json,
+        run,
+        test,
+        interval_ms,
+    };
+    match yashy_driver::watch::watch(options) {
+        Ok(()) => exit_code(EXIT_OK),
+        Err(error) => {
+            eprintln!("error: cannot watch: {error}");
+            exit_code(EXIT_USAGE)
+        }
+    }
 }
 
 /// `yashyc serve [path]`: keep a warm compiler daemon until stdin closes.

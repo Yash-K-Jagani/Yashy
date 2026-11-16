@@ -28,6 +28,7 @@ pub mod sandbox;
 pub mod target;
 pub mod test_harness;
 pub mod toolchain;
+pub mod watch;
 
 use yashy_common::{Diagnostic, FileId, Json, SourceMap, Span};
 
