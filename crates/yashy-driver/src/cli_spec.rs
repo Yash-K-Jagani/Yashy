@@ -1,0 +1,335 @@
+//! One declaration of the CLI's verbs, flags and examples.
+//!
+//! Help, shell completions and the man page are renderings of this table. A
+//! verb added here is in every surface; a verb added only to `dispatch` is a
+//! bug the terminal tests catch.
+
+/// One command the compiler exposes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CommandSpec {
+    pub name: &'static str,
+    pub summary: &'static str,
+    pub usage: &'static str,
+    pub flags: &'static [&'static str],
+    /// Whether the verb takes a path argument.
+    pub takes_path: bool,
+}
+
+pub const COMMANDS: &[CommandSpec] = &[
+    CommandSpec {
+        name: "build",
+        summary: "compile a program to a binary",
+        usage: "yashyc build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--timings] [--jobs <n>]",
+        flags: &[
+            "-o",
+            "-O0",
+            "-O1",
+            "-O2",
+            "-O3",
+            "--release",
+            "--timings",
+            "--jobs",
+            "--target",
+            "--emit-ir",
+            "--opt-report",
+            "--no-verify",
+            "--reproducible",
+        ],
+        takes_path: true,
+    },
+    CommandSpec {
+        name: "run",
+        summary: "build and run a program",
+        usage: "yashyc run <file.ya> [--debug] [--sandbox] [-- <args>...]",
+        flags: &[
+            "--debug",
+            "--sandbox",
+            "--timings",
+            "--jobs",
+            "--target",
+            "--reproducible",
+        ],
+        takes_path: true,
+    },
+    CommandSpec {
+        name: "check",
+        summary: "check a program and print diagnostics",
+        usage: "yashyc check <file.ya> [--json] [--timings] [--jobs <n>]",
+        flags: &[
+            "--json",
+            "--timings",
+            "--jobs",
+            "--target",
+            "--deny",
+            "--allow",
+        ],
+        takes_path: true,
+    },
+    CommandSpec {
+        name: "verify",
+        summary: "check and verify a program's proofs",
+        usage: "yashyc verify <file.ya> [--json] [--inventory]",
+        flags: &["--json", "--timings", "--jobs", "--inventory"],
+        takes_path: true,
+    },
+    CommandSpec {
+        name: "test",
+        summary: "compile and run the programs under tests/",
+        usage: "yashyc test [path] [--filter <substring>] [--list] [--json] [--timings]",
+        flags: &[
+            "--filter",
+            "--list",
+            "--json",
+            "--timings",
+            "--jobs",
+            "--sandbox",
+            "--target",
+        ],
+        takes_path: false,
+    },
+    CommandSpec {
+        name: "serve",
+        summary: "keep a warm compiler daemon",
+        usage: "yashyc serve [path]",
+        flags: &[],
+        takes_path: false,
+    },
+    CommandSpec {
+        name: "watch",
+        summary: "re-check sources on change",
+        usage: "yashyc watch [path] [--json] [--run] [--test]",
+        flags: &["--json", "--run", "--test", "--interval"],
+        takes_path: false,
+    },
+    CommandSpec {
+        name: "cache",
+        summary: "inspect the content-addressed cache",
+        usage: "yashyc cache verify <file.ya>",
+        flags: &[],
+        takes_path: false,
+    },
+    CommandSpec {
+        name: "explain",
+        summary: "print the long-form page for an error code",
+        usage: "yashyc explain [--all] [--json] <code>",
+        flags: &["--all", "--json"],
+        takes_path: false,
+    },
+    CommandSpec {
+        name: "init",
+        summary: "create a new project",
+        usage: "yashyc init [path]",
+        flags: &[],
+        takes_path: false,
+    },
+    CommandSpec {
+        name: "new",
+        summary: "create a project from a template",
+        usage: "yashyc new <name> [--template <name>]",
+        flags: &["--template"],
+        takes_path: false,
+    },
+    CommandSpec {
+        name: "fmt",
+        summary: "format Yashy sources",
+        usage: "yashyc fmt [-w] <files...>",
+        flags: &["-w", "--check"],
+        takes_path: true,
+    },
+    CommandSpec {
+        name: "completions",
+        summary: "print a shell completion script",
+        usage: "yashyc completions <bash|zsh|fish|powershell>",
+        flags: &[],
+        takes_path: false,
+    },
+    CommandSpec {
+        name: "help",
+        summary: "print this help, or help for one verb",
+        usage: "yashyc help [verb]",
+        flags: &[],
+        takes_path: false,
+    },
+    CommandSpec {
+        name: "doctor",
+        summary: "report the toolchain's health",
+        usage: "yashyc doctor [--json]",
+        flags: &["--json"],
+        takes_path: false,
+    },
+    CommandSpec {
+        name: "lsp",
+        summary: "run the language server over stdio",
+        usage: "yashyc lsp [--stdio]",
+        flags: &["--stdio"],
+        takes_path: false,
+    },
+    CommandSpec {
+        name: "mcp",
+        summary: "run the compiler's MCP server",
+        usage: "yashyc mcp",
+        flags: &[],
+        takes_path: false,
+    },
+    CommandSpec {
+        name: "doc",
+        summary: "render the documentation tables",
+        usage: "yashyc doc [--json] [--serve]",
+        flags: &["--json", "--serve", "--port"],
+        takes_path: false,
+    },
+    CommandSpec {
+        name: "profile",
+        summary: "report where a build spent its time",
+        usage: "yashyc profile [--json]",
+        flags: &["--json", "--sample"],
+        takes_path: false,
+    },
+    CommandSpec {
+        name: "version",
+        summary: "print the compiler version",
+        usage: "yashyc version",
+        flags: &[],
+        takes_path: false,
+    },
+];
+
+pub fn find(name: &str) -> Option<&'static CommandSpec> {
+    COMMANDS.iter().find(|command| command.name == name)
+}
+
+/// The nearest verb to a misspelling, by edit distance.
+pub fn closest(name: &str) -> Option<&'static str> {
+    COMMANDS
+        .iter()
+        .map(|command| (distance(name, command.name), command.name))
+        .min_by_key(|(distance, _)| *distance)
+        .filter(|(distance, _)| *distance <= 2)
+        .map(|(_, name)| name)
+}
+
+fn distance(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut previous = row[0];
+        row[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let old = row[j + 1];
+            row[j + 1] = (row[j + 1] + 1)
+                .min(row[j] + 1)
+                .min(previous + usize::from(ca != *cb));
+            previous = old;
+        }
+    }
+    row[b.len()]
+}
+
+/// Print one line per verb for `yashyc help`.
+pub fn render_help() -> String {
+    let width = COMMANDS
+        .iter()
+        .map(|command| command.name.len())
+        .max()
+        .unwrap_or(0);
+    let mut out = String::from("usage: yashyc <command> [options]\n\ncommands:\n");
+    for command in COMMANDS {
+        out.push_str(&format!(
+            "  {:<width$}  {}\n",
+            command.name,
+            command.summary,
+            width = width
+        ));
+    }
+    out
+}
+
+/// Print a single verb's usage and flags.
+pub fn render_verb(name: &str) -> Option<String> {
+    let command = find(name)?;
+    let mut out = format!("{}\n\nflags:\n", command.usage);
+    for flag in command.flags {
+        out.push_str(&format!("  {flag}\n"));
+    }
+    Some(out)
+}
+
+/// Generate a completion script for one shell.
+pub fn render_completions(shell: &str) -> Result<String, String> {
+    let names: Vec<&str> = COMMANDS.iter().map(|command| command.name).collect();
+    let all_flags: Vec<&str> = COMMANDS
+        .iter()
+        .flat_map(|command| command.flags.iter().copied())
+        .collect();
+    let unique_flags = {
+        let mut flags = Vec::new();
+        for flag in all_flags {
+            if !flags.contains(&flag) {
+                flags.push(flag);
+            }
+        }
+        flags
+    };
+    match shell {
+        "bash" => {
+            let mut out =
+                String::from("_yashyc() {\n  local cur=${COMP_WORDS[COMP_CWORD]}\n  local verbs='");
+            out.push_str(&names.join(" "));
+            out.push_str("'\n  local flags='");
+            out.push_str(&unique_flags.join(" "));
+            out.push_str("'\n  if (( COMP_CWORD == 1 )); then\n    COMPREPLY=( $(compgen -W \"$verbs\" -- \"$cur\") )\n  else\n    COMPREPLY=( $(compgen -W \"$flags\" -- \"$cur\") )\n  fi\n}\ncomplete -F _yashyc yashyc\n");
+            Ok(out)
+        }
+        "zsh" => {
+            let mut out =
+                String::from("#compdef yashyc\n_yashyc() {\n  local -a verbs flags\n  verbs=(");
+            out.push_str(
+                &names
+                    .iter()
+                    .map(|name| format!("'{name}'"))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            );
+            out.push_str(")\n  flags=(");
+            out.push_str(
+                &unique_flags
+                    .iter()
+                    .map(|flag| format!("'{flag}'"))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            );
+            out.push_str(")\n  if (( CURRENT == 2 )); then\n    _describe 'verb' verbs\n  else\n    _describe 'flag' flags\n  fi\n}\ncompdef _yashyc yashyc\n");
+            Ok(out)
+        }
+        "fish" => {
+            let mut out = String::new();
+            for name in &names {
+                out.push_str(&format!(
+                    "complete -c yashyc -n '__fish_use_subcommand' -a '{name}'\n"
+                ));
+            }
+            for flag in &unique_flags {
+                out.push_str(&format!(
+                    "complete -c yashyc -l '{}' -d 'compiler flag'\n",
+                    flag.trim_start_matches('-')
+                ));
+            }
+            Ok(out)
+        }
+        "powershell" => {
+            let mut out = String::from("Register-ArgumentCompleter -Native -CommandName 'yashyc' -ScriptBlock {\n  param($wordToComplete)\n  @(");
+            out.push_str(
+                &names
+                    .iter()
+                    .map(|name| format!("'{name}'"))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
+            out.push_str(") | Where-Object { $_ -like \"$wordToComplete*\" }\n}\n");
+            Ok(out)
+        }
+        other => Err(format!(
+            "unknown shell `{other}`; expected bash, zsh, fish or powershell"
+        )),
+    }
+}

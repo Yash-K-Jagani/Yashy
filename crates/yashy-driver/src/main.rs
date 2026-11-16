@@ -89,6 +89,8 @@ usage:
   yashyc publish [dir] --registry <dir>
   yashyc search <query> --registry <dir>
   yashyc fmt [-w | --check] [--json] <files...>
+  yashyc help [verb]
+  yashyc completions <bash|zsh|fish|powershell>
   yashyc version
 
   build   compile a program to a native executable
@@ -185,10 +187,8 @@ fn dispatch(args: &[String]) -> ExitCode {
             println!("yashyc {}", env!("CARGO_PKG_VERSION"));
             exit_code(EXIT_OK)
         }
-        "help" | "--help" | "-h" => {
-            println!("{USAGE}");
-            exit_code(EXIT_OK)
-        }
+        "help" | "--help" | "-h" => help_cmd(rest),
+        "completions" => completions_cmd(rest),
         "build" => build(CommandKind::Build, rest),
         "run" => run(rest),
         "tasks" => tasks(rest),
@@ -220,7 +220,52 @@ fn dispatch(args: &[String]) -> ExitCode {
         "fmt" => fmt(rest),
         "playground" => playground(rest),
         other => {
-            eprintln!("error: unknown command `{other}`\n{USAGE}");
+            match yashy_driver::cli_spec::closest(other) {
+                Some(near) => eprintln!("error: unknown command `{other}`; did you mean `{near}`?"),
+                None => eprintln!("error: unknown command `{other}`"),
+            }
+            exit_code(EXIT_USAGE)
+        }
+    }
+}
+
+/// `yashyc help [verb]`: the full table, or one verb's flags.
+fn help_cmd(args: &[String]) -> ExitCode {
+    if args.is_empty() {
+        print!("{}", yashy_driver::cli_spec::render_help());
+        return exit_code(EXIT_OK);
+    }
+    if args.len() > 1 {
+        return usage_error("`help` takes at most one verb");
+    }
+    let name = &args[0];
+    match yashy_driver::cli_spec::render_verb(name) {
+        Some(text) => {
+            print!("{text}");
+            exit_code(EXIT_OK)
+        }
+        None => {
+            eprintln!("error: no help for unknown verb `{name}`");
+            exit_code(EXIT_USAGE)
+        }
+    }
+}
+
+/// `yashyc completions <shell>`: one generated script per shell.
+fn completions_cmd(args: &[String]) -> ExitCode {
+    let Some(shell) = args.first() else {
+        return usage_error("`completions` needs a shell: bash, zsh, fish or powershell");
+    };
+    if args.len() > 1 {
+        return usage_error("`completions` takes one shell");
+    }
+    match yashy_driver::cli_spec::render_completions(shell) {
+        Ok(script) => {
+            print!("{script}");
+            exit_code(EXIT_OK)
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
             exit_code(EXIT_USAGE)
         }
     }
@@ -1919,11 +1964,13 @@ fn display_test_path(path: &Path) -> String {
 /// near miss names the code the reader probably meant.
 fn explain(args: &[String]) -> ExitCode {
     let mut json = false;
+    let mut all = false;
     let mut code: Option<&str> = None;
 
     for argument in args {
         match argument.as_str() {
             "--json" => json = true,
+            "--all" => all = true,
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown option `{other}`"));
             }
@@ -1934,6 +1981,31 @@ fn explain(args: &[String]) -> ExitCode {
                 code = Some(other);
             }
         }
+    }
+
+    if all {
+        if code.is_some() {
+            return usage_error("`--all` cannot be combined with a code");
+        }
+        let mut report = Json::object();
+        report.set("schema_version", Json::number(1));
+        report.set("tool", Json::string("explain"));
+        report.set("yashy_version", Json::string(env!("CARGO_PKG_VERSION")));
+        report.set("total", Json::number(codes::CODES.len() as i64));
+        let entries: Vec<Json> = codes::CODES
+            .iter()
+            .map(|entry| {
+                let mut value = Json::object();
+                value.set("id", Json::string(entry.id));
+                value.set("title", Json::string(entry.title));
+                value.set("summary", Json::string(entry.summary));
+                value.set("docs_url", Json::string(codes::docs_url(entry.id)));
+                value
+            })
+            .collect();
+        report.set("codes", Json::array(entries));
+        println!("{}", report.render());
+        return exit_code(EXIT_OK);
     }
 
     let Some(code) = code else {

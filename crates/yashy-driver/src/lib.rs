@@ -9,6 +9,7 @@
 
 pub mod audit;
 pub mod cfg;
+pub mod cli_spec;
 pub mod context;
 pub mod daemon;
 pub mod daemon_protocol;

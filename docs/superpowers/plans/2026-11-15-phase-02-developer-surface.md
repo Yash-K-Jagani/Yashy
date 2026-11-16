@@ -166,16 +166,16 @@ This phase makes both renderings of the compiler's facts.
 - Create: `crates/yashy-driver/tests/error_catalog.rs`
 - Modify: `crates/yashy-driver/src/main.rs` (`explain --all`)
 
-- [ ] **Step 1: Write the failing test.** For every code in the registry,
+- [x] **Step 1: Write the failing test.** For every code in the registry,
   assert: a page exists, the page's first heading contains the code, the
   catalog lists it, `explain --json` returns `title`/`summary`/`page`/
   `docs_url`, and at least one test or fixture triggers it.
-- [ ] **Step 2: Make the catalog generated.** `yashyc explain --all --json` is
+- [x] **Step 2: Make the catalog generated.** `yashyc explain --all --json` is
   the machine form; `docs/errors.md` is rendered from it plus the pages. A code
   without a page fails the build; a page without a code fails the docs test.
 - [ ] **Step 3: Rule ids.** Every code names the rule it enforces (`OWN-3`,
   `ALIAS-2`, `DET-4`, …). Phase 9 turns this into the full traceability matrix.
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ### Task 5: `new`, `task`, `repl`, `doc --serve`
 
@@ -336,17 +336,17 @@ This phase makes both renderings of the compiler's facts.
 - `Style::{Auto, Always, Never}`, `Pager::{Auto, Never, Command(String)}`
 - `yashyc completions <bash|zsh|fish|powershell>`, `yashyc help [verb]`
 
-- [ ] **Step 1: Write the failing test.** Pipe `yashyc check` on a file with a
+- [x] **Step 1: Write the failing test.** Pipe `yashyc check` on a file with a
   diagnostic: no ANSI escape, no spinner, no prompt, one line per diagnostic,
   stable order. `--color=always` emits SGR; `NO_COLOR`, `CLICOLOR=0` and
   `TERM=dumb` degrade to ASCII; `COLUMNS=40` wraps. `yashyc`, `yashyc help`,
   `yashyc help build`, `--help` and `-h` all answer, and an unknown verb
   suggests the nearest one and exits `2`.
-- [ ] **Step 2: One command table.** A verb is declared once with its flags,
+- [x] **Step 2: One command table.** A verb is declared once with its flags,
   defaults, examples and completion kind. Help, the man page, the shell
   completions and `index --json` render from that table; a flag added in one
   place cannot be missing from another.
-- [ ] **Step 3: Shell integration is generated.** `yashyc completions bash`
+- [x] **Step 3: Shell integration is generated.** `yashyc completions bash`
   (and zsh, fish, PowerShell) prints a script that completes verbs, flags and
   file arguments; the generated files under `scripts/completions/` are
   diff-checked and syntax-checked in CI. `docs/terminal.md` shows the one-line
