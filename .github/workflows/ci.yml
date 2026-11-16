@@ -88,7 +88,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test
-        run: cargo test --workspace --no-fail-fast
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --workspace --no-fail-fast 2>&1 | tee ci-test.log
+
+      - name: Surface a workspace test failure
+        if: failure()
+        shell: bash
+        run: |
+          message=$(tail -c 3500 ci-test.log | tr '\n' ' ' | cut -c1-3500)
+          echo "::error::CI_TEST_FAILURE $message"
 
       # The workspace command already runs both, but naming them puts a
       # formatting or language-server failure in its own step instead of
