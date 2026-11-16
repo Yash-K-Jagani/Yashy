@@ -168,6 +168,34 @@ fn jobs_one_and_jobs_zero_produce_identical_json() {
 }
 
 #[test]
+fn test_jobs_one_and_jobs_four_produce_identical_json() {
+    // The test harness passes `--jobs` through to the same checker, so the
+    // suite envelope must be just as deterministic as `check --json`.
+    let dir = work_dir("parallel-test-json");
+    for index in 0..6 {
+        write(
+            &dir,
+            &format!("tests/t{index}.ya"),
+            &format!("fn main() {{ assert({index} >= 0); }}\n"),
+        );
+    }
+    let serial = run(&dir, &["test", "--json", "--jobs", "1"]);
+    let parallel = run(&dir, &["test", "--json", "--jobs", "4"]);
+    assert_eq!(
+        serial.status.code(),
+        Some(0),
+        "the suite must pass:\n{}",
+        stderr(&serial)
+    );
+    assert_eq!(parallel.status.code(), Some(0), "{}", stderr(&parallel));
+    assert_eq!(
+        stdout(&serial),
+        stdout(&parallel),
+        "the test envelope must not depend on the scheduler"
+    );
+}
+
+#[test]
 fn one_files_errors_are_reported_in_span_order() {
     let dir = work_dir("parallel-span-order");
     write(

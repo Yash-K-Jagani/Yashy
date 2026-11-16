@@ -144,13 +144,13 @@ compiler grows more phases to measure.
 - Modify: `crates/yashy-driver/src/pipeline.rs` (`--jobs`)
 - Test: `crates/yashy-driver/tests/parallel_determinism.rs` (extend)
 
-- [ ] **Step 1: Write the failing test.** Check a 20-module fixture with
+- [x] **Step 1: Write the failing test.** Check a 20-module fixture with
   `--jobs 1` and `--jobs 4`; assert byte-identical JSON and `frontend_threads
   > 1` in the latter.
-- [ ] **Step 2: Shard the query database per file.** Parse and check in
+- [x] **Step 2: Shard the query database per file.** Parse and check in
   parallel; codegen per module in parallel; merge in source order so diagnostics
   and IR are deterministic.
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ### Task 6: An honest compile-time regression row
 
