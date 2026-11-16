@@ -2081,7 +2081,7 @@ fn xcrun_find(tool: &str) -> Option<PathBuf> {
 /// Kept as a named function so the rule has one testable home: the IR spelling
 /// and the flag have to travel together, and a future backend change should
 /// have to delete a named decision rather than an argument buried in a vector.
-fn opaque_pointers_args(toolchain: &Toolchain) -> Vec<&'static str> {
+pub(crate) fn opaque_pointers_args(toolchain: &Toolchain) -> Vec<&'static str> {
     opaque_pointers_args_for(toolchain.found, clang_major(&toolchain.llc))
 }
 

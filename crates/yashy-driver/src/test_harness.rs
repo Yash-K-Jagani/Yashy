@@ -376,7 +376,7 @@ pub fn build_harness(
         }
 
         let object = tmp_dir.join(format!("test_{index}.o"));
-        let args = vec![
+        let mut args = vec![
             "-x".to_string(),
             "ir".to_string(),
             ir_path.to_string_lossy().into_owned(),
@@ -386,6 +386,14 @@ pub fn build_harness(
             format!("--target={target}"),
             opt.flag().to_string(),
         ];
+        // The emitted IR uses opaque pointers. clang 14/15 need the same
+        // compatibility flag the normal build passes, or the `ptr` spelling
+        // fails to parse with "expected type" on Linux CI runners.
+        args.extend(
+            crate::pipeline::opaque_pointers_args(toolchain)
+                .into_iter()
+                .map(str::to_string),
+        );
         if let Err(diagnostic) = run_tool(toolchain, &args, &name, "compiling a test", None) {
             compile_errors.push((
                 index,
@@ -558,6 +566,12 @@ fn link_harness(
 
     let out = tmp_dir.join(format!("harness{}", std::env::consts::EXE_SUFFIX));
     let mut args = vec![opt.flag().to_string(), format!("--target={target}")];
+    // Same compatibility flag as the test objects and the normal link.
+    args.extend(
+        crate::pipeline::opaque_pointers_args(toolchain)
+            .into_iter()
+            .map(str::to_string),
+    );
     for flag in cpu.flags_for(target) {
         args.push(flag.to_string());
     }
