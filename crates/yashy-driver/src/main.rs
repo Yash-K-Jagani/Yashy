@@ -623,7 +623,6 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
                     escape,
                     facts,
                     intern,
-                    entry_symbol: None,
                     async_,
                     target,
                 };
@@ -654,7 +653,6 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
                     escape,
                     facts,
                     intern,
-                    entry_symbol: None,
                     async_,
                     target,
                 };

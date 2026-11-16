@@ -53,7 +53,7 @@ use yashy_sema::{HirFn, HirItem, HirProgram, TypeKind};
 /// The default is deliberately the semantics-preserving one: the IR does not
 /// depend on which machine the program is built for, and every floating-point
 /// operation rounds exactly as the source spells it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CodegenOptions {
     /// Allow floating-point contraction.
     ///
@@ -94,12 +94,6 @@ pub struct CodegenOptions {
     /// literal points at, never the bytes it reads. `--no-opt=intern` emits one
     /// global per literal for bisecting.
     pub intern: bool,
-    /// When set, `fn main` is emitted under this symbol while keeping
-    /// entry-point semantics (the `i32(i32, i8**)` signature and the runtime
-    /// initialisation) instead of being emitted as `@main`. The test harness
-    /// renames every test's `main` to `__yashy_test_<n>` so that many tests
-    /// can be compiled and linked into a single harness binary.
-    pub entry_symbol: Option<String>,
     /// Generate poll functions for `async fn`s.
     ///
     /// On by default. `--no-opt=async` disables suspension: every `await`
@@ -129,7 +123,6 @@ impl Default for CodegenOptions {
             escape: false,
             facts: true,
             intern: true,
-            entry_symbol: None,
             async_: true,
             target: module::host_target_triple(),
         }
@@ -156,7 +149,23 @@ pub fn emit_program(
     options: CodegenOptions,
     facts: &yashy_common::ProofFacts,
 ) -> String {
-    emit(hir, entry, options, facts, false).0
+    emit(hir, entry, options, facts, false, None).0
+}
+
+/// Emit a whole program whose `fn main` uses `entry_symbol` instead of `@main`.
+///
+/// The test harness renames each test's entry point to `__yashy_test_<n>` so
+/// many tests can compile to separate objects and link into one binary.
+/// Entry-point semantics (the `i32(i32, i8**)` signature and runtime
+/// initialisation) are unchanged; only the emitted symbol differs.
+pub fn emit_program_with_entry(
+    hir: &HirProgram,
+    entry: &str,
+    options: CodegenOptions,
+    facts: &yashy_common::ProofFacts,
+    entry_symbol: &str,
+) -> String {
+    emit(hir, entry, options, facts, false, Some(entry_symbol)).0
 }
 
 /// Emit a whole program and the reasons behind every decision that survived.
@@ -170,7 +179,7 @@ pub fn emit_program_with_notes(
     options: CodegenOptions,
     facts: &yashy_common::ProofFacts,
 ) -> (String, module::OptReport) {
-    emit(hir, entry, options, facts, true)
+    emit(hir, entry, options, facts, true, None)
 }
 
 fn emit(
@@ -179,15 +188,13 @@ fn emit(
     options: CodegenOptions,
     facts: &yashy_common::ProofFacts,
     record: bool,
+    entry_symbol: Option<&str>,
 ) -> (String, module::OptReport) {
     let mut module = Module::new();
     module.set_source_filename(entry);
     module.set_target(options.target);
     module.set_fp_contract(options.fp_contract);
     module.set_report(record);
-    // The entry-point symbol override is needed after `options` is moved into
-    // the pass context, so capture it first.
-    let entry_symbol = options.entry_symbol.clone();
     // The registered passes, in their one order. A pass reads its switch from
     // `options`, so disabling one changes only what that pass contributes.
     {
@@ -288,10 +295,11 @@ fn emit(
                 // symbol (`__yashy_test_<n>`) while keeping entry-point
                 // semantics, so many tests can link into one harness binary.
                 if f.name == "main" {
-                    let symbol: String = entry_symbol
-                        .clone()
-                        .unwrap_or_else(|| crate::ir::fn_symbol(&f.name));
-                    gen_main_with_symbol(&mut module, f, &symbol);
+                    if let Some(symbol) = entry_symbol {
+                        gen_main_with_symbol(&mut module, f, symbol);
+                    } else {
+                        gen_main(&mut module, f);
+                    }
                 } else {
                     gen_fn(&mut module, f);
                 }

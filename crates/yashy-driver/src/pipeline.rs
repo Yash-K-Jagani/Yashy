@@ -1452,7 +1452,6 @@ pub fn compile_hir_timed(
                         escape: options.escape,
                         facts: options.facts,
                         intern: options.intern,
-                        entry_symbol: None,
                         async_: options.async_,
                         target: options.target,
                     },

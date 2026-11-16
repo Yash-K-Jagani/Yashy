@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::Instant;
 
-use yashy_codegen::{check_main_exists, emit_program, CodegenOptions};
+use yashy_codegen::{check_main_exists, emit_program_with_entry, CodegenOptions};
 use yashy_common::{Diagnostic, Json, SourceMap};
 use yashy_verify::{ContractMode, VerifyOptions};
 
@@ -104,6 +104,34 @@ pub fn run_suite(
     sandbox_env: &[(&str, &str)],
 ) -> TestReport {
     let tmp = temp_harness_dir();
+    if let Err(error) = fs::create_dir_all(&tmp) {
+        // Without the directory no IR can be written, which would turn every
+        // test into a compile error and hide the real cause.
+        let mut results: Vec<Option<TestResult>> = (0..tests.len()).map(|_| None).collect();
+        for (index, path) in tests.iter().enumerate() {
+            results[index] = Some(TestResult {
+                name: display_test_path(path),
+                file: display_test_path(path),
+                status: TestStatus::CompileError,
+                exit: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                duration_ms: 0,
+                diagnostics: vec![json_error(format!(
+                    "cannot create {}: {error}",
+                    tmp.display()
+                ))],
+                messages: vec![format!("cannot create {}: {error}", tmp.display())],
+            });
+        }
+        return TestReport {
+            passed: 0,
+            failed: 0,
+            compile_errors: tests.len(),
+            results: results.into_iter().flatten().collect(),
+            timings: Vec::new(),
+        };
+    }
     let mut timings: Vec<TimingRow> = Vec::new();
     let mut results: Vec<Option<TestResult>> = (0..tests.len()).map(|_| None).collect();
     let mut passed = 0usize;
@@ -286,31 +314,23 @@ pub fn build_harness(
             }
         }
 
-        // Rename the entry point at the HIR boundary so the test still
-        // type-checks and verifies as an ordinary program, then emit it under
-        // its unique symbol while keeping entry-point semantics.
-        let mut hir = hir;
+        // The test is checked as an ordinary program with its `main` intact.
+        // Only the emitted symbol is renamed, so codegen still gives it the
+        // entry-point signature and runtime initialisation.
         if let Err(diagnostic) = check_main_exists(&hir.items) {
             compile_errors.push((index, vec![crate::diagnostic_json(&sources, &diagnostic)]));
             continue;
         }
-        for item in &mut hir.items {
-            if let yashy_sema::HirItem::Fn(f) = item {
-                if f.name == "main" {
-                    f.name = symbol.clone();
-                }
-            }
-        }
 
-        let ir = emit_program(
+        let ir = emit_program_with_entry(
             &hir,
             &entry_str,
             CodegenOptions {
-                entry_symbol: Some(symbol.clone()),
                 target,
                 ..Default::default()
             },
             &facts,
+            &symbol,
         );
         let ir_path = tmp_dir.join(format!("test_{index}.ll"));
         if let Err(error) = fs::write(&ir_path, ir.as_bytes()) {
@@ -326,7 +346,8 @@ pub fn build_harness(
 
         let object = tmp_dir.join(format!("test_{index}.o"));
         let args = vec![
-            "-x ir".to_string(),
+            "-x".to_string(),
+            "ir".to_string(),
             ir_path.to_string_lossy().into_owned(),
             "-c".to_string(),
             "-o".to_string(),
@@ -400,13 +421,13 @@ fn link_harness(
     src.push_str(
         "int main(int argc, char** argv) {\n    yashy_args_init(argc, argv);\n    int any_failed = 0;\n",
     );
-    for (entry, _) in entries {
+    for (index, (entry, _)) in entries.iter().enumerate() {
         let name = c_string(&entry.name);
         src.push_str(&format!(
-            "    printf(\"{s} %s\\n\", {name}); fflush(stdout);\n\
-             \x20   int rc = {symbol}(0, NULL);\n\
-             \x20   printf(\"{e} %s %d\\n\", {name}, rc); fflush(stdout);\n\
-             \x20   if (rc != 0) any_failed = 1;\n",
+            "    printf(\"{s} %s\\n\", \"{name}\"); fflush(stdout);\n\
+             \x20   int rc_{index} = {symbol}(0, NULL);\n\
+             \x20   printf(\"{e} %s %d\\n\", \"{name}\", rc_{index}); fflush(stdout);\n\
+             \x20   if (rc_{index} != 0) any_failed = 1;\n",
             s = TEST_START,
             e = TEST_END,
             name = name,

@@ -33,7 +33,7 @@ fn fixture(name: &str) -> std::path::PathBuf {
     write(
         &dir,
         "tests/c_prints.ya",
-        "fn main() { println(\"stdout from c_prints\"); }\n",
+        "fn main() { print(\"stdout from c_prints\"); }\n",
     );
     dir
 }
@@ -44,14 +44,11 @@ fn builds_one_harness_binary_for_the_whole_suite() {
     // This checks the build path directly so it can run where launching fresh
     // binaries is restricted by the host.
     let dir = fixture("test-runner-v2-build");
-    let tests: Vec<std::path::PathBuf> = [
-        "tests/a_pass.ya",
-        "tests/b_exit.ya",
-        "tests/c_prints.ya",
-    ]
-    .iter()
-    .map(|name| dir.join(name))
-    .collect();
+    let tests: Vec<std::path::PathBuf> =
+        ["tests/a_pass.ya", "tests/b_exit.ya", "tests/c_prints.ya"]
+            .iter()
+            .map(|name| dir.join(name))
+            .collect();
     let toolchain = yashy_driver::detect().expect("a toolchain must be installed");
     let tmp = dir.join("harness-tmp");
     std::fs::create_dir_all(&tmp).expect("the build directory must be creatable");
@@ -67,7 +64,12 @@ fn builds_one_harness_binary_for_the_whole_suite() {
     .expect("the harness must build");
 
     assert!(built.binary.is_file(), "one harness binary must be linked");
-    assert_eq!(built.tests.len(), 3, "every test is in the harness");
+    assert_eq!(
+        built.tests.len(),
+        3,
+        "every test is in the harness; compile errors: {:?}",
+        built.compile_errors
+    );
     assert!(built.compile_errors.is_empty());
     for (index, entry) in built.tests.iter().enumerate() {
         assert_eq!(entry.symbol, format!("__yashy_test_{index}"));
