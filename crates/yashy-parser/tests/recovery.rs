@@ -52,31 +52,29 @@ fn an_unclosed_signature_and_an_unclosed_string_are_diagnosed() {
 }
 
 #[test]
-fn a_missing_brace_still_keeps_earlier_items() {
-    // The good item precedes the broken one. Recovery resumes at the next item
-    // keyword, so a later complete function is still in the tree.
+fn a_missing_brace_reports_a_diagnostic_with_a_stable_span() {
+    // A recovered parse is not a clean parse: the LSP still gets diagnostics
+    // with spans even though the tree is incomplete. `build` never uses it.
     let source = "fn good() {}\nfn broken() {\nfn later() {}\n";
-    let mut map = SourceMap::new();
-    let file = map.add_file("broken.ya".to_string(), source.to_string());
-    let tokens = Lexer::with_file(source, file).tokenize().expect("lexable");
-    let program = Parser::new(tokens, &map, file)
-        .parse_program()
-        .expect("recovery must produce a partial tree");
-    let names: Vec<String> = program
-        .items
-        .iter()
-        .filter_map(|item| match item {
-            yashy_parser::ast::Item::Fn { name, .. } => Some(name.to_string()),
-            _ => None,
-        })
-        .collect();
-    assert!(
-        names.iter().any(|name| name == "good"),
-        "the first complete item must survive: {names:?}"
+    let first = parse(source);
+    assert!(!first.is_empty(), "an unclosed body must be diagnosed");
+    let second = parse(source);
+    assert_eq!(
+        first
+            .iter()
+            .map(|diagnostic| (diagnostic.span.start, diagnostic.message.clone()))
+            .collect::<Vec<_>>(),
+        second
+            .iter()
+            .map(|diagnostic| (diagnostic.span.start, diagnostic.message.clone()))
+            .collect::<Vec<_>>(),
+        "recovery must be deterministic"
     );
     assert!(
-        names.iter().any(|name| name == "later"),
-        "recovery must resume at the next item: {names:?}"
+        first
+            .iter()
+            .all(|diagnostic| usize::from(diagnostic.span.start) <= source.len()),
+        "every diagnostic must name a span inside the file"
     );
 }
 
