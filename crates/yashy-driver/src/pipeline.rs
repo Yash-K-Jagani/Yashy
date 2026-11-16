@@ -1474,24 +1474,6 @@ pub fn compile_hir_timed(
         .as_ref()
         .map(|_| ir_cache_key(sources, entry_name, &options));
 
-    // A no-change build needs neither LLVM nor a link: the key names every
-    // input, so a stored binary is the exact output this run would produce.
-    if let (Some(store), Some(key)) = (&cache, &key) {
-        if let Some(cached_binary) = store.get_binary(key) {
-            if let Some(parent) = out.parent() {
-                let _ = fs::create_dir_all(parent);
-            }
-            if fs::copy(&cached_binary, out).is_ok() {
-                timings.push(TimingRow::Phase {
-                    phase: "link",
-                    ms: 0,
-                });
-                timings.push(TimingRow::IrCache { hit: true });
-                return Ok(());
-            }
-        }
-    }
-
     let cached = match (&cache, &key) {
         (Some(store), Some(key)) => store
             .get(key)
@@ -1545,6 +1527,26 @@ pub fn compile_hir_timed(
     // question, and it should not require re-running with a flag.
     let ir_path = with_extension(out, "ll");
     write_or_report(&ir_path, ir_text.as_bytes(), entry_name)?;
+
+    // A no-change build needs neither LLVM nor a link: the key names every
+    // input, so a stored binary is the exact output this run would produce.
+    // This runs after the IR artifact is written so `--emit-ir` and the cache
+    // tests still see the `.ll` file on a binary-cache hit.
+    if let (Some(store), Some(key)) = (&cache, &key) {
+        if let Some(cached_binary) = store.get_binary(key) {
+            if let Some(parent) = out.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            if fs::copy(&cached_binary, out).is_ok() {
+                timings.push(TimingRow::Phase {
+                    phase: "link",
+                    ms: 0,
+                });
+                timings.push(TimingRow::IrCache { hit });
+                return Ok(());
+            }
+        }
+    }
 
     let work_dir = out.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
     let runtime_dir = work_dir.join(format!(
