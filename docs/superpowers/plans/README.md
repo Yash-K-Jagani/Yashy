@@ -20,13 +20,49 @@ The master plan remains the index of what 1.0 shipped:
   … through
   [`history/2026-10-27-phase-13-hardening.md`](history/2026-10-27-phase-13-hardening.md)
 
-The design those plans implemented is still current:
+The design those plans implemented is still the identity authority:
 [`docs/superpowers/specs/2026-10-27-yashy-master-design.md`](../specs/2026-10-27-yashy-master-design.md).
+2.0 does not contradict it; it extends it.
 
-## The next plan
+## The 2.0 plan set is active (proposed)
 
-The next master plan has not been written yet. When it is agreed it lands in
-this directory as `<date>-yashy-master-plan.md`, and each of its phases lands
-beside it as `<date>-phase-<id>-<name>.md`. The rules for a plan are in
-[`docs/gates.md`](../../gates.md) and in `AGENTS.md` under *Working with the
-plans*.
+The **2026-11-15** set is the active proposal. It is one master index plus
+fifteen phase files, and it is not started: no phase is in progress until the
+set is approved.
+
+- [`2026-11-15-yashy-2.0-master-plan.md`](2026-11-15-yashy-2.0-master-plan.md)
+  — the index: global constraints, review focus, phase spine, gate protocol,
+  cut order, first 30 days.
+- Phases 1–14, with Phase 11 in two slices:
+
+```text
+2026-11-15-phase-01-instant-feedback.md
+2026-11-15-phase-02-developer-surface.md
+2026-11-15-phase-03-packages-distribution.md
+2026-11-15-phase-04-language-power.md
+2026-11-15-phase-05-core-data-text.md
+2026-11-15-phase-06-network-web.md
+2026-11-15-phase-07-data-persistence.md
+2026-11-15-phase-08-application-stack.md
+2026-11-15-phase-09-quality-stack.md
+2026-11-15-phase-10-concurrency-parallelism.md
+2026-11-15-phase-11a-representation.md
+2026-11-15-phase-11b-codegen.md
+2026-11-15-phase-12-reach-interop.md
+2026-11-15-phase-13-ai-native.md
+2026-11-15-phase-14-selfhost-spec-release.md
+```
+
+The design it implements is
+[`../specs/2026-11-15-yashy-2.0-design.md`](../specs/2026-11-15-yashy-2.0-design.md);
+the identity authority is still the 1.0 design
+[`../specs/2026-10-27-yashy-master-design.md`](../specs/2026-10-27-yashy-master-design.md),
+and [`docs/architecture.md`](../../architecture.md) is normative for the pipeline,
+memory, aliasing and determinism contracts.
+
+Detail falls off with distance on purpose: phases 1–3 are executable to the
+task; 4–8 name deliverables, interfaces and gates; 9–14 name outcomes and gates.
+A phase plan is revised at phase start, never rewritten from scratch, and a
+phase does not start before its predecessor's gate passes. The rules for a plan
+are in [`docs/gates.md`](../../gates.md) and in `AGENTS.md` under *Working with
+the plans*.
