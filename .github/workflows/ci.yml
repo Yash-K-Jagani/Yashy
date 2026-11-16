@@ -87,16 +87,21 @@ jobs:
           & ./target/debug/yashyc.exe fmt --check @($files.FullName)
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Test
+      - name: Test (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --workspace --no-fail-fast 2>&1 | tee ci-test.log
+
+      - name: Test (Windows/macOS)
+        if: runner.os != 'Linux'
         run: cargo test --workspace --no-fail-fast
 
       - name: Surface a workspace test failure
         if: failure() && runner.os == 'Linux'
         shell: bash
         run: |
-          # Re-run just the driver suites that failed, capturing the panic
-          # lines into an annotation the public checks API exposes.
-          cargo test --workspace --no-fail-fast 2>&1 | tee ci-test.log || true
           message=$(grep -E "panicked at|FAILED|assertion|left:|right:" ci-test.log | head -60 | tr '\n' ' ' | cut -c1-3500)
           echo "::error::CI_TEST_FAILURE $message"
 
