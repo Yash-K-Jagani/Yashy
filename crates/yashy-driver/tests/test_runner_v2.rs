@@ -13,6 +13,7 @@
 mod common;
 
 use common::{work_dir, write, yashyc};
+use std::fs;
 use std::process::Command;
 
 fn run_test(dir: &std::path::Path, args: &[&str]) -> std::process::Output {
@@ -96,6 +97,40 @@ fn one_harness_names_every_test_and_keeps_each_status() {
     assert!(
         stdout.contains("2 passed; 1 failed; 0 compile errors"),
         "the summary must count the two passing tests and the one failure:\n{stdout}"
+    );
+}
+
+#[test]
+fn one_hundred_tests_finish_inside_the_two_second_budget() {
+    // The phase's acceptance gate: 100 ordinary programs must run in under two
+    // seconds. The 1.0 runner took 1235 s for 101 tests because it linked once
+    // per test; the harness links once for the whole suite.
+    let dir = work_dir("test-runner-v2-100");
+    fs::create_dir_all(dir.join("tests")).expect("the test directory must be creatable");
+    for index in 0..100 {
+        write(
+            &dir,
+            &format!("tests/t{index:03}.ya"),
+            &format!("fn main() {{ assert({index} >= 0); }}\n"),
+        );
+    }
+
+    let started = std::time::Instant::now();
+    let output = run_test(&dir, &[]);
+    let elapsed = started.elapsed();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "all 100 tests must pass:\n{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("100 passed"),
+        "the report must name all 100 tests:\n{stdout}"
+    );
+    assert!(
+        elapsed.as_secs_f64() < 2.0,
+        "100 tests must finish in < 2 s, took {elapsed:?}"
     );
 }
 
