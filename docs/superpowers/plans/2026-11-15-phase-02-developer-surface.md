@@ -115,21 +115,21 @@ This phase makes both renderings of the compiler's facts.
 - `apply_suggestions(source: &str, suggestions: &[Suggestion]) -> Result<String, FixError>`
 - `to_sarif(diagnostics: &[Diagnostic]) -> SarifLog`
 
-- [ ] **Step 1: Write the failing test.** A program with a name typo, a missing
+- [x] **Step 1: Write the failing test.** A program with a name typo, a missing
   `move`, and a wrong argument order. Assert `check --json` carries one
   `suggestions[]` per fixable diagnostic, `yashyc fix` rewrites the file, and a
   second `check` is clean. Assert the same suggestion applies through the LSP
   code action.
-- [ ] **Step 2: One edit model.** A suggestion is a byte span, replacement text
+- [x] **Step 2: One edit model.** A suggestion is a byte span, replacement text
   and an applicability class. The CLI, LSP and (Phase 13) MCP apply the same
   struct; none of them formats text on its own.
-- [ ] **Step 3: Apply safely.** Suggestions are applied back-to-front,
+- [x] **Step 3: Apply safely.** Suggestions are applied back-to-front,
   non-overlapping, and only to a file whose content hash matches the one the
   diagnostic was computed from. `--dry-run` prints the patch; `--json` emits
   it. A conflicting fix is refused, never guessed.
 - [ ] **Step 4: SARIF.** Emit §2.1.0 with rules, levels, physical locations and
   fixes. CI uploads it; a schema test pins the shape.
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ### Task 3: Lint and formatter completeness
 

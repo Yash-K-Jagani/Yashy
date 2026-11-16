@@ -15,6 +15,7 @@ pub mod daemon;
 pub mod daemon_protocol;
 pub mod doc;
 pub mod fetch;
+pub mod fix;
 pub mod index;
 pub mod mcp;
 pub mod modules;
@@ -91,6 +92,27 @@ pub fn diagnostic_json(sources: &SourceMap, diagnostic: &Diagnostic) -> Json {
         proof_object.set("missing_fact", Json::string(proof.missing_fact.as_str()));
         proof_object.set("remedy", Json::string(proof.remedy.as_str()));
         object.set("proof", proof_object);
+    }
+    if !diagnostic.suggestions.is_empty() {
+        let suggestions: Vec<Json> = diagnostic
+            .suggestions
+            .iter()
+            .map(|suggestion| {
+                let mut value = Json::object();
+                value.set("span", span_range_json(suggestion.span));
+                value.set("replacement", Json::string(&suggestion.replacement));
+                value.set("message", Json::string(&suggestion.message));
+                value.set(
+                    "applicability",
+                    Json::string(match suggestion.applicability {
+                        yashy_common::Applicability::MachineApplicable => "machine-applicable",
+                        yashy_common::Applicability::MaybeIncorrect => "maybe-incorrect",
+                    }),
+                );
+                value
+            })
+            .collect();
+        object.set("suggestions", Json::array(suggestions));
     }
     object
 }

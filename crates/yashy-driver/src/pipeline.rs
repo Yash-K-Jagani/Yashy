@@ -2272,6 +2272,7 @@ fn toolchain_diagnostic(entry_name: &str, message: String) -> Diagnostic {
         notes: Vec::new(),
         code: None,
         proof: None,
+        suggestions: Vec::new(),
     }
 }
 

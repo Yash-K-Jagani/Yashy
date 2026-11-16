@@ -56,6 +56,7 @@ impl TypeError {
             notes: self.notes.clone(),
             code: self.code,
             proof: None,
+            suggestions: Vec::new(),
         }
     }
 }

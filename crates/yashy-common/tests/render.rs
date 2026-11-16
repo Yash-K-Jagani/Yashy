@@ -38,6 +38,7 @@ fn at(file: FileId, span: Span) -> Diagnostic {
         notes: Vec::new(),
         code: None,
         proof: None,
+        suggestions: Vec::new(),
     }
 }
 
@@ -138,7 +139,13 @@ fn span_past_end_of_file_clamps_instead_of_panicking() {
     let (sm, f) = sample_map();
     // SAMPLE is 29 bytes long and ends with a newline, so offset 29 is the
     // empty line 4. Both halves of the span are far out of bounds.
-    let d = at(f, Span { start: 5_000, end: 9_999 });
+    let d = at(
+        f,
+        Span {
+            start: 5_000,
+            end: 9_999,
+        },
+    );
 
     let out = sm.render(&d);
 
@@ -152,14 +159,26 @@ fn span_past_end_of_file_clamps_instead_of_panicking() {
     // range, which would leave a single caret at the first character.
     let mut unterminated = SourceMap::new();
     let uf = unterminated.add_file("unterminated.ya", "let x = 1;".to_string());
-    let out = unterminated.render(&at(uf, Span { start: 5, end: 5_000 }));
+    let out = unterminated.render(&at(
+        uf,
+        Span {
+            start: 5,
+            end: 5_000,
+        },
+    ));
     assert_eq!(line(&out, 0), "unterminated.ya:1:6", "got: {out}");
     assert_eq!(line(&out, 2), "let x = 1;", "got: {out}");
     assert_eq!(line(&out, 3), "     ^^^^^", "got: {out}");
 
     // A span entirely past the end lands one column past the last character,
     // which is the end-of-file position, and still renders.
-    let out = unterminated.render(&at(uf, Span { start: 5_000, end: 9_999 }));
+    let out = unterminated.render(&at(
+        uf,
+        Span {
+            start: 5_000,
+            end: 9_999,
+        },
+    ));
     assert_eq!(line(&out, 0), "unterminated.ya:1:11", "got: {out}");
     assert_eq!(line(&out, 3), "          ^", "got: {out}");
 }
@@ -246,14 +265,20 @@ fn a_caret_inside_a_multibyte_character_falls_back_to_its_start() {
 fn a_carriage_return_before_a_newline_is_not_rendered() {
     // Windows line endings: the `\r` belongs to the terminator, not the line.
     let mut sm = SourceMap::new();
-    let f = sm.add_file("crlf.ya", "fn main() {\r\n\tlet x = 1;\r\n}\r\n".to_string());
+    let f = sm.add_file(
+        "crlf.ya",
+        "fn main() {\r\n\tlet x = 1;\r\n}\r\n".to_string(),
+    );
     let d = at(f, Span { start: 18, end: 19 }); // the `x`, line 2 starts at 13
 
     let out = sm.render(&d);
 
     assert_eq!(line(&out, 0), "crlf.ya:2:6", "got: {out}");
     assert_eq!(line(&out, 2), "\tlet x = 1;", "got: {out}");
-    assert!(!out.contains('\r'), "no carriage return may be rendered: {out}");
+    assert!(
+        !out.contains('\r'),
+        "no carriage return may be rendered: {out}"
+    );
 }
 
 #[test]
@@ -266,14 +291,23 @@ fn a_repeated_carriage_return_is_stripped_from_the_line_too() {
     let mut sm = SourceMap::new();
     let f = sm.add_file("crcrlf.ya", "ab\r\r\ncd\r\r\n".to_string());
 
-    assert_eq!(sm.locate(f, Span { start: 1, end: 2 }), Location { line: 1, col: 2 });
-    assert_eq!(sm.locate(f, Span { start: 6, end: 7 }), Location { line: 2, col: 2 });
+    assert_eq!(
+        sm.locate(f, Span { start: 1, end: 2 }),
+        Location { line: 1, col: 2 }
+    );
+    assert_eq!(
+        sm.locate(f, Span { start: 6, end: 7 }),
+        Location { line: 2, col: 2 }
+    );
 
     let out = sm.render(&at(f, Span { start: 6, end: 7 }));
     assert_eq!(line(&out, 0), "crcrlf.ya:2:2", "got: {out}");
     assert_eq!(line(&out, 2), "cd", "got: {out}");
     assert_eq!(line(&out, 3), " ^", "got: {out}");
-    assert!(!out.contains('\r'), "no carriage return may be rendered: {out}");
+    assert!(
+        !out.contains('\r'),
+        "no carriage return may be rendered: {out}"
+    );
 }
 
 #[test]
@@ -285,10 +319,19 @@ fn a_column_on_the_line_ending_is_reported_past_the_last_character() {
     let mut sm = SourceMap::new();
     let f = sm.add_file("crlf.ya", "ab\r\ncd\r\n".to_string());
 
-    assert_eq!(sm.locate(f, Span { start: 2, end: 3 }), Location { line: 1, col: 3 });
-    assert_eq!(sm.locate(f, Span { start: 3, end: 4 }), Location { line: 1, col: 3 });
+    assert_eq!(
+        sm.locate(f, Span { start: 2, end: 3 }),
+        Location { line: 1, col: 3 }
+    );
+    assert_eq!(
+        sm.locate(f, Span { start: 3, end: 4 }),
+        Location { line: 1, col: 3 }
+    );
     // Line 2 is unaffected: its own CR is at byte 6, and the `c` is column 1.
-    assert_eq!(sm.locate(f, Span { start: 4, end: 5 }), Location { line: 2, col: 1 });
+    assert_eq!(
+        sm.locate(f, Span { start: 4, end: 5 }),
+        Location { line: 2, col: 1 }
+    );
 
     let out = sm.render(&at(f, Span { start: 3, end: 4 }));
     assert_eq!(line(&out, 0), "crlf.ya:1:3", "got: {out}");
@@ -301,13 +344,29 @@ fn a_column_on_the_line_ending_is_reported_past_the_last_character() {
 #[test]
 fn locate_reports_one_based_positions_across_lines() {
     let (sm, f) = sample_map();
-    let at_ = |offset| sm.locate(f, Span { start: offset, end: offset });
+    let at_ = |offset| {
+        sm.locate(
+            f,
+            Span {
+                start: offset,
+                end: offset,
+            },
+        )
+    };
 
     assert_eq!(at_(0), Location { line: 1, col: 1 });
     assert_eq!(at_(10), Location { line: 1, col: 11 });
-    assert_eq!(at_(11), Location { line: 1, col: 12 }, "the newline sits one past the last character");
+    assert_eq!(
+        at_(11),
+        Location { line: 1, col: 12 },
+        "the newline sits one past the last character"
+    );
     assert_eq!(at_(12), Location { line: 2, col: 1 });
-    assert_eq!(at_(29), Location { line: 4, col: 1 }, "past the final newline");
+    assert_eq!(
+        at_(29),
+        Location { line: 4, col: 1 },
+        "past the final newline"
+    );
 }
 
 #[test]
@@ -315,7 +374,10 @@ fn locate_reports_line_one_for_a_file_it_does_not_have() {
     let (sm, _) = sample_map();
     let bogus = FileId::from_index(9_999);
 
-    assert_eq!(sm.locate(bogus, Span { start: 0, end: 1 }), Location { line: 1, col: 1 });
+    assert_eq!(
+        sm.locate(bogus, Span { start: 0, end: 1 }),
+        Location { line: 1, col: 1 }
+    );
     assert_eq!(sm.file(bogus), "");
     assert_eq!(sm.path(bogus), "<unknown>");
 
@@ -330,11 +392,7 @@ fn locate_reports_line_one_for_a_file_it_does_not_have() {
         "error: cannot find value `y` in this scope",
         "the severity and message must survive a missing file: {out}"
     );
-    assert_eq!(
-        line(&out, 2),
-        "<source line unavailable>",
-        "got: {out}"
-    );
+    assert_eq!(line(&out, 2), "<source line unavailable>", "got: {out}");
     assert_eq!(out.lines().count(), 3, "got: {out}");
 }
 
@@ -399,13 +457,25 @@ fn a_snippet_is_the_text_a_span_names() {
 
     // Both ends are clamped into the file rather than trusted: an end past the
     // last byte is the last byte, and a reversed range names nothing.
-    assert_eq!(sm.snippet(f, Span { start: 0, end: u32::MAX }), SAMPLE);
+    assert_eq!(
+        sm.snippet(
+            f,
+            Span {
+                start: 0,
+                end: u32::MAX
+            }
+        ),
+        SAMPLE
+    );
     assert_eq!(sm.snippet(f, Span { start: 21, end: 16 }), "");
 
     // An id this map does not have, and a synthetic span, both degrade to the
     // empty string. Nothing here may panic: the input that produces a bad span
     // is exactly the input a reader needs reported.
-    assert_eq!(sm.snippet(FileId::from_index(7), Span { start: 0, end: 1 }), "");
+    assert_eq!(
+        sm.snippet(FileId::from_index(7), Span { start: 0, end: 1 }),
+        ""
+    );
     assert_eq!(sm.snippet(f, Span::default()), "");
 }
 
@@ -474,11 +544,7 @@ fn a_note_renders_below_the_caret() {
 
     let out = sm.render(&d);
 
-    assert_eq!(
-        out.lines().count(),
-        5,
-        "the note is a fifth line:\n{out}"
-    );
+    assert_eq!(out.lines().count(), 5, "the note is a fifth line:\n{out}");
     assert_eq!(
         line(&out, 4),
         "note: use `let` for a mutable binding",
@@ -495,7 +561,10 @@ fn no_notes_means_no_note_line() {
 
     assert_eq!(out.lines().count(), 4, "got:\n{out}");
     assert!(!out.contains("note:"), "got:\n{out}");
-    assert!(!out.contains("docs:"), "an uncoded diagnostic has no page: {out}");
+    assert!(
+        !out.contains("docs:"),
+        "an uncoded diagnostic has no page: {out}"
+    );
 }
 
 #[test]

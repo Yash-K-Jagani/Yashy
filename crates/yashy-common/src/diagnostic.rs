@@ -80,6 +80,28 @@ pub struct ProofTrace {
     pub remedy: String,
 }
 
+/// A machine-applicable edit for one diagnostic.
+///
+/// An edit is a byte span, the replacement text, and how sure the compiler is
+/// that the edit is right. The CLI, the LSP and agents apply this same struct;
+/// none of them formats source on its own.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Suggestion {
+    pub span: Span,
+    pub replacement: String,
+    pub applicability: Applicability,
+    pub message: String,
+}
+
+/// How sure the compiler is that a suggestion is right.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Applicability {
+    /// Applying this edit preserves the program's meaning.
+    MachineApplicable,
+    /// The edit is a likely fix but the compiler cannot prove it.
+    MaybeIncorrect,
+}
+
 /// One thing the compiler wants to tell the user about a piece of source.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -113,11 +135,18 @@ pub struct Diagnostic {
     /// diagnostic sets it so a tool can act on the obligation without parsing
     /// the message.
     pub proof: Option<ProofTrace>,
+    /// Machine-applicable edits, additive to schema v1.
+    pub suggestions: Vec<Suggestion>,
 }
 
 impl Diagnostic {
     /// A warning diagnostic: the program is fine, but something is worth saying.
-    pub fn warning(code: &'static str, file: FileId, span: Span, message: impl Into<String>) -> Diagnostic {
+    pub fn warning(
+        code: &'static str,
+        file: FileId,
+        span: Span,
+        message: impl Into<String>,
+    ) -> Diagnostic {
         Diagnostic {
             severity: Severity::Warning,
             message: message.into(),
@@ -127,11 +156,17 @@ impl Diagnostic {
             notes: Vec::new(),
             code: Some(code),
             proof: None,
+            suggestions: Vec::new(),
         }
     }
 
     /// A diagnostic of the given severity at `span`, with no label.
-    pub fn new(severity: Severity, file: FileId, span: Span, message: impl Into<String>) -> Diagnostic {
+    pub fn new(
+        severity: Severity,
+        file: FileId,
+        span: Span,
+        message: impl Into<String>,
+    ) -> Diagnostic {
         Diagnostic {
             severity,
             message: message.into(),
@@ -141,6 +176,7 @@ impl Diagnostic {
             notes: Vec::new(),
             code: None,
             proof: None,
+            suggestions: Vec::new(),
         }
     }
 
@@ -167,6 +203,12 @@ impl Diagnostic {
     /// diagnostic.
     pub fn with_proof(mut self, proof: ProofTrace) -> Diagnostic {
         self.proof = Some(proof);
+        self
+    }
+
+    /// Attaches machine-applicable edits, and returns the diagnostic.
+    pub fn with_suggestions(mut self, suggestions: Vec<Suggestion>) -> Diagnostic {
+        self.suggestions = suggestions;
         self
     }
 
@@ -247,7 +289,12 @@ mod tests {
     use crate::span::Span;
 
     fn a_diagnostic(severity: Severity) -> Diagnostic {
-        Diagnostic::new(severity, FileId::from_index(0), Span::new(0, 1), "something")
+        Diagnostic::new(
+            severity,
+            FileId::from_index(0),
+            Span::new(0, 1),
+            "something",
+        )
     }
 
     #[test]

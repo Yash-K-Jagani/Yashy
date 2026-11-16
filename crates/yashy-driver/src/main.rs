@@ -193,6 +193,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "run" => run(rest),
         "tasks" => tasks(rest),
         "check" => check(rest),
+        "fix" => fix_cmd(rest),
         "verify" => verify(rest),
         "test" => test(rest),
         "cache" => cache_cmd(rest),
@@ -2880,6 +2881,82 @@ fn print_inventory(sources: &SourceMap, assumptions: &[Assumption]) {
             line = location.line,
             column = location.col,
         );
+    }
+}
+
+/// `yashyc fix <file.ya> [--dry-run]`: apply machine-applicable edits, but only
+/// to the exact bytes the diagnostic was computed from.
+fn fix_cmd(args: &[String]) -> ExitCode {
+    let mut dry_run = false;
+    let mut input: Option<PathBuf> = None;
+    for argument in args {
+        match argument.as_str() {
+            "--dry-run" => dry_run = true,
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `fix`"));
+            }
+            other => {
+                if input.is_some() {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+                input = Some(PathBuf::from(other));
+            }
+        }
+    }
+    let Some(input) = input else {
+        return usage_error("`fix` needs a source file");
+    };
+    let source = match read_source_with(&input, EXIT_USAGE) {
+        Ok(source) => source,
+        Err(code) => return code,
+    };
+    let hash = yashy_driver::fix::source_hash(&source);
+    let mut sources = SourceMap::new();
+    let outcome = load_and_check_exports_timed(
+        &mut sources,
+        &input,
+        source.clone(),
+        false,
+        host_target_triple(),
+        0,
+        &mut Vec::new(),
+    );
+    let diagnostics = match outcome {
+        Ok((hir, exports)) => {
+            let mut warnings = Vec::new();
+            yashy_verify::pass::warnings::check(&hir, &exports, &mut warnings);
+            warnings
+        }
+        Err(diagnostics) => diagnostics,
+    };
+    let suggestions: Vec<yashy_common::Suggestion> = diagnostics
+        .iter()
+        .flat_map(|diagnostic| diagnostic.suggestions.clone())
+        .collect();
+    if suggestions.is_empty() {
+        println!("nothing to fix in {}", input.display());
+        return exit_code(EXIT_OK);
+    }
+    match yashy_driver::fix::apply_suggestions_checked(&source, &suggestions, Some(hash)) {
+        Ok(fixed) => {
+            if dry_run {
+                println!("{fixed}");
+            } else if let Err(error) = fs::write(&input, fixed) {
+                eprintln!("error: cannot write {}: {error}", input.display());
+                return exit_code(EXIT_INTERNAL);
+            } else {
+                println!(
+                    "fixed {} diagnostic(s) in {}",
+                    suggestions.len(),
+                    input.display()
+                );
+            }
+            exit_code(EXIT_OK)
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
+            exit_code(EXIT_COMPILE_ERROR)
+        }
     }
 }
 
