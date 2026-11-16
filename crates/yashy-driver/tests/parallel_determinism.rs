@@ -188,9 +188,17 @@ fn test_jobs_one_and_jobs_four_produce_identical_json() {
         stderr(&serial)
     );
     assert_eq!(parallel.status.code(), Some(0), "{}", stderr(&parallel));
+    // Timing is a measurement, not a diagnostic: two runs can differ by the
+    // warmth of the cache. Strip the field and compare the facts.
+    let strip = |text: &str| -> String {
+        text.lines()
+            .filter(|line| !line.trim_start().starts_with("\"duration_ms\""))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
     assert_eq!(
-        stdout(&serial),
-        stdout(&parallel),
+        strip(&stdout(&serial)),
+        strip(&stdout(&parallel)),
         "the test envelope must not depend on the scheduler"
     );
 }

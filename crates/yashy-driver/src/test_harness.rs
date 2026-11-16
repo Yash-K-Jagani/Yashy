@@ -186,6 +186,12 @@ pub fn run_suite(
         Ok(HarnessOutcome::AllPassed(per_test)) => {
             for (position, entry) in build.tests.iter().enumerate() {
                 let run = &per_test[position];
+                let diagnostics = build
+                    .warnings
+                    .iter()
+                    .find(|(index, _)| *index == entry.index)
+                    .map(|(_, list)| list.clone())
+                    .unwrap_or_default();
                 let result = TestResult {
                     name: entry.stem.clone(),
                     file: entry.name.clone(),
@@ -194,8 +200,8 @@ pub fn run_suite(
                     stdout: run.stdout.clone(),
                     stderr: run.stderr.clone(),
                     duration_ms: 0,
-                    diagnostics: Vec::new(),
-                    messages: Vec::new(),
+                    messages: messages_from_json(&diagnostics),
+                    diagnostics,
                 };
                 results[entry.index] = Some(result);
                 passed += 1;
@@ -268,6 +274,9 @@ pub struct BuiltHarness {
     pub binary: PathBuf,
     pub tests: Vec<TestEntry>,
     pub compile_errors: Vec<(usize, Vec<Json>)>,
+    /// Non-fatal diagnostics from the verifier, carried into the report so a
+    /// warning stays visible even when the test itself passed.
+    pub warnings: Vec<(usize, Vec<Json>)>,
 }
 
 pub fn build_harness(
@@ -280,6 +289,7 @@ pub fn build_harness(
 ) -> Result<BuiltHarness, Vec<Diagnostic>> {
     let mut entries: Vec<(TestEntry, PathBuf)> = Vec::new();
     let mut compile_errors: Vec<(usize, Vec<Json>)> = Vec::new();
+    let mut warnings: Vec<(usize, Vec<Json>)> = Vec::new();
     let mut libs: Vec<String> = Vec::new();
     // IR is written here and compiled to objects in one bounded worker pool
     // below. A hundred tiny modules must not cost a hundred clang processes
@@ -346,6 +356,10 @@ pub fn build_harness(
             continue;
         }
         let facts = report.facts;
+        let rendered_warnings = crate::diagnostics_json(&sources, &report.diagnostics);
+        if !rendered_warnings.is_empty() {
+            warnings.push((index, rendered_warnings));
+        }
 
         for flag in link_directives(&hir) {
             if !libs.contains(&flag) {
@@ -576,6 +590,7 @@ pub fn build_harness(
         binary,
         tests: entries.into_iter().map(|(entry, _)| entry).collect(),
         compile_errors,
+        warnings,
     })
 }
 

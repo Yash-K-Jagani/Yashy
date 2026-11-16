@@ -215,9 +215,10 @@ impl Daemon {
     }
 
     fn fail(&mut self, message: String) -> ResponseKind {
-        self.last_diagnostics = vec![error_value(&message)];
+        let diagnostic = error_value(&message);
+        self.last_diagnostics = vec![diagnostic.clone()];
         ResponseKind::Diagnostics {
-            diagnostics: Vec::new(),
+            diagnostics: vec![diagnostic],
             cache_hits: self.cache_hits,
         }
     }
