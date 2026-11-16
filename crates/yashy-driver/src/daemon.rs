@@ -342,6 +342,10 @@ impl DaemonHandle {
 
 fn serve_connection(stream: TcpStream, daemon: &mut Daemon, stop: &AtomicBool) {
     let mut stream = stream;
+    // A client that connects and then goes quiet must not keep the server
+    // thread in read() forever: shutdown wakes accept() and sets the flag, and
+    // this timeout is what lets the thread observe it.
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(1)));
     let mut reader = io::BufReader::new(match stream.try_clone() {
         Ok(clone) => clone,
         Err(_) => return,
