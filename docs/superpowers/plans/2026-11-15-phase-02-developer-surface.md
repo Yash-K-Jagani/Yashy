@@ -127,7 +127,7 @@ This phase makes both renderings of the compiler's facts.
   non-overlapping, and only to a file whose content hash matches the one the
   diagnostic was computed from. `--dry-run` prints the patch; `--json` emits
   it. A conflicting fix is refused, never guessed.
-- [ ] **Step 4: SARIF.** Emit §2.1.0 with rules, levels, physical locations and
+- [x] **Step 4: SARIF.** Emit §2.1.0 with rules, levels, physical locations and
   fixes. CI uploads it; a schema test pins the shape.
 - [x] **Step 5: Commit.**
 

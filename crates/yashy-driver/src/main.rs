@@ -2963,6 +2963,7 @@ fn fix_cmd(args: &[String]) -> ExitCode {
 /// `yashyc check <file.ya> [--json]`.
 fn check(args: &[String]) -> ExitCode {
     let mut json = false;
+    let mut sarif = false;
     let mut timings_flag = false;
     let mut print_cfg = false;
     let mut target: Option<&'static str> = None;
@@ -2974,6 +2975,7 @@ fn check(args: &[String]) -> ExitCode {
     while i < args.len() {
         match args[i].as_str() {
             "--json" => json = true,
+            "--sarif" => sarif = true,
             "--timings" => timings_flag = true,
             "--print-cfg" => print_cfg = true,
             "--target" => {
@@ -3111,7 +3113,9 @@ fn check(args: &[String]) -> ExitCode {
                 }
             }
             let has_denied = deny_warnings && !warning_diags.is_empty();
-            if json {
+            if sarif {
+                println!("{}", yashy_driver::sarif::to_sarif(&warning_diags).render());
+            } else if json {
                 let mut all = warning_diags;
                 print_check_json("check", &sources, &all, reported, None);
             } else {
@@ -3127,7 +3131,14 @@ fn check(args: &[String]) -> ExitCode {
             }
         }
         Err(diagnostics) => {
-            if json {
+            if sarif {
+                println!("{}", yashy_driver::sarif::to_sarif(&diagnostics).render());
+                if diagnostics.iter().any(|diagnostic| diagnostic.is_error()) {
+                    exit_code(EXIT_COMPILE_ERROR)
+                } else {
+                    exit_code(EXIT_OK)
+                }
+            } else if json {
                 let errors = diagnostics
                     .iter()
                     .filter(|diagnostic| diagnostic.is_error())
