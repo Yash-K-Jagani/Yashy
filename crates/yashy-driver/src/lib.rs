@@ -26,6 +26,7 @@ pub mod profile;
 pub mod registry;
 pub mod resolve;
 pub mod sandbox;
+pub mod scaffold;
 pub mod target;
 pub mod test_harness;
 pub mod toolchain;

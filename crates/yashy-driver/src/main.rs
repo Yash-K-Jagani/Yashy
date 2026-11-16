@@ -200,6 +200,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "watch" => watch_cmd(rest),
         "explain" => explain(rest),
         "init" => init(rest),
+        "new" => new_cmd(rest),
         "doctor" => doctor(rest),
         "expand" => expand(rest),
         "index" => index_cmd(rest),
@@ -2044,6 +2045,56 @@ fn print_explain_json(code: &codes::Code) {
     report.set("page", Json::string(code.page));
     report.set("docs_url", Json::string(codes::docs_url(code.id)));
     println!("{}", report.render());
+}
+
+/// `yashyc new <name> [--template <name>] [--list]`.
+fn new_cmd(args: &[String]) -> ExitCode {
+    let mut template = "bin".to_string();
+    let mut name: Option<String> = None;
+    let mut list = false;
+    let mut iter = args.iter();
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
+            "--template" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`--template` needs a name");
+                };
+                template = value.clone();
+            }
+            "--list" => list = true,
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `new`"));
+            }
+            other => {
+                if name.is_some() {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+                name = Some(other.to_string());
+            }
+        }
+    }
+    if list {
+        for item in yashy_driver::scaffold::TEMPLATES {
+            println!("{item}");
+        }
+        return exit_code(EXIT_OK);
+    }
+    let Some(name) = name else {
+        return usage_error("`new` needs a project name");
+    };
+    match yashy_driver::scaffold::create(Path::new("."), &name, &template) {
+        Ok(created) => {
+            println!(
+                "created {} ({template}, edition 2027)",
+                created.root.display()
+            );
+            exit_code(EXIT_OK)
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
+            exit_code(EXIT_USAGE)
+        }
+    }
 }
 
 /// `yashyc init [path]`.

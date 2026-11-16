@@ -185,7 +185,7 @@ This phase makes both renderings of the compiler's facts.
 - Create: `crates/yashy-driver/tests/new.rs`, `crates/yashy-driver/tests/task.rs`, `crates/yashy-driver/tests/repl.rs`, `crates/yashy-driver/tests/doc_server.rs`
 - Add templates under `templates/{bin,lib,http,cli}`
 
-- [ ] **Step 1: Write the failing `new` test.** `yashyc new hello --template bin`
+- [x] **Step 1: Write the failing `new` test.** `yashyc new hello --template bin`
   creates a project whose first `yashyc test` passes in under a minute on a cold
   machine; `--list` is the machine form; an unknown template is a diagnostic,
   not a panic.
