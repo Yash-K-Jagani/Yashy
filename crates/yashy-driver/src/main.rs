@@ -201,6 +201,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "explain" => explain(rest),
         "init" => init(rest),
         "new" => new_cmd(rest),
+        "task" => task_cmd(rest),
         "doctor" => doctor(rest),
         "expand" => expand(rest),
         "index" => index_cmd(rest),
@@ -2045,6 +2046,49 @@ fn print_explain_json(code: &codes::Code) {
     report.set("page", Json::string(code.page));
     report.set("docs_url", Json::string(codes::docs_url(code.id)));
     println!("{}", report.render());
+}
+
+/// `yashyc task <name>`: run a named sequence of compiler verbs.
+fn task_cmd(args: &[String]) -> ExitCode {
+    let tasks = match yashy_driver::task::load(Path::new(".")) {
+        Ok(tasks) => tasks,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    let names: Vec<&str> = tasks.iter().map(|task| task.name.as_str()).collect();
+    if args.first().map(String::as_str) == Some("--list") {
+        for name in &names {
+            println!("{name}");
+        }
+        return exit_code(EXIT_OK);
+    }
+    let Some(name) = args.first() else {
+        return usage_error("`task` needs a name (or `--list`)");
+    };
+    let Some(task) = tasks.iter().find(|task| task.name == *name) else {
+        eprintln!(
+            "error: no task named `{name}`; available: {}",
+            names.join(", ")
+        );
+        return exit_code(EXIT_USAGE);
+    };
+    let known: Vec<&str> = yashy_driver::cli_spec::COMMANDS
+        .iter()
+        .map(|command| command.name)
+        .collect();
+    if let Err(error) = yashy_driver::task::validate(&[task.clone()], &known) {
+        eprintln!("error: {error}");
+        return exit_code(EXIT_USAGE);
+    }
+    for step in &task.steps {
+        let code = dispatch(step);
+        if code != exit_code(EXIT_OK) {
+            return code;
+        }
+    }
+    exit_code(EXIT_OK)
 }
 
 /// `yashyc new <name> [--template <name>] [--list]`.

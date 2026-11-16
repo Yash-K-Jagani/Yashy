@@ -189,10 +189,10 @@ This phase makes both renderings of the compiler's facts.
   creates a project whose first `yashyc test` passes in under a minute on a cold
   machine; `--list` is the machine form; an unknown template is a diagnostic,
   not a panic.
-- [ ] **Step 2: `task` is a named command, not a shell.** `yashy.toml` gains
+- [x] **Step 2: `task` is a named command, not a shell.** `yashy.toml` gains
   `[tasks] test = "yashyc test"`, `fmt = "yashyc fmt -w ."`. `yashyc task <name>`
   runs the named compiler verb sequence. It never executes an arbitrary shell
-  string; a task is a list of verbs and arguments, and `--json` lists them.
+  string; a task is a list of verbs and arguments, and `--list` names them.
 - [ ] **Step 3: A REPL with honest limits.** The REPL parses and checks a
   snippet, then evaluates it in a persistent HIR interpreter for the supported
   subset (values, functions, structs, `Option`/`Result`, no FFI, threads, or

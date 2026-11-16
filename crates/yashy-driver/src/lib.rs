@@ -28,6 +28,7 @@ pub mod resolve;
 pub mod sandbox;
 pub mod scaffold;
 pub mod target;
+pub mod task;
 pub mod test_harness;
 pub mod toolchain;
 pub mod watch;
