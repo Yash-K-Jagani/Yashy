@@ -33,7 +33,11 @@ const SUITE_END: &str = "__YASHY_SUITE_END__";
 /// One discovered test. `index` is its position in the discovered list.
 pub struct TestEntry {
     pub index: usize,
+    /// The display path (`tests/foo.ya`), used as the human-facing name and in
+    /// the harness markers.
     pub name: String,
+    /// The file stem (`foo`), used as the `name` in schema-v1 JSON output.
+    pub stem: String,
     pub source: PathBuf,
     /// The unique symbol its `main` was renamed to for the harness.
     pub symbol: String,
@@ -140,10 +144,16 @@ pub fn run_suite(
 
     let build = match build_harness(&tmp, tests, toolchain, target, jobs, &mut timings) {
         Ok(build) => build,
-        Err(_global) => {
+        Err(global) => {
+            // A global failure is not any one test's fault. Name it so a
+            // failing CI run says what broke instead of only "tests failed".
+            for diagnostic in &global {
+                eprintln!("test harness: {}", diagnostic.message);
+            }
             for (index, path) in tests.iter().enumerate() {
                 let result = run_single(
                     path,
+                    &stem_of(path),
                     &display_test_path(path),
                     &tmp,
                     toolchain,
@@ -170,7 +180,7 @@ pub fn run_suite(
     for (index, diagnostics) in &build.compile_errors {
         let path = &tests[*index];
         results[*index] = Some(TestResult {
-            name: display_test_path(path),
+            name: stem_of(path),
             file: display_test_path(path),
             status: TestStatus::CompileError,
             exit: None,
@@ -188,7 +198,7 @@ pub fn run_suite(
             for (position, entry) in build.tests.iter().enumerate() {
                 let run = &per_test[position];
                 let result = TestResult {
-                    name: entry.name.clone(),
+                    name: entry.stem.clone(),
                     file: entry.name.clone(),
                     status: TestStatus::Passed,
                     exit: Some(run.exit),
@@ -202,12 +212,34 @@ pub fn run_suite(
                 passed += 1;
             }
         }
-        _ => {
-            // The harness failed or could not be started: re-run every test
-            // in its own process so each failure is attributed precisely.
+        Err(error) => {
+            eprintln!(
+                "test harness: cannot start {}: {error}",
+                build.binary.display()
+            );
             for entry in &build.tests {
                 let result = run_single(
                     &entry.source,
+                    &entry.stem,
+                    &entry.name,
+                    &tmp,
+                    toolchain,
+                    target,
+                    jobs,
+                    sandbox_env,
+                    &mut timings,
+                );
+                tally(&result, &mut passed, &mut failed, &mut compile_errors);
+                results[entry.index] = Some(result);
+            }
+        }
+        Ok(HarnessOutcome::Fallback) => {
+            // The harness exited non-zero or a marker was missing: re-run every
+            // test in its own process so each failure is attributed precisely.
+            for entry in &build.tests {
+                let result = run_single(
+                    &entry.source,
+                    &entry.stem,
                     &entry.name,
                     &tmp,
                     toolchain,
@@ -278,10 +310,16 @@ pub fn build_harness(
             }
         };
         let name = display_test_path(path);
+        let stem = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or(name.as_str())
+            .to_string();
         let symbol = format!("__yashy_test_{index}");
 
         let mut sources = SourceMap::new();
         let entry_str = path.to_string_lossy().into_owned();
+        let mut phases: Vec<TimingRow> = Vec::new();
         let outcome = check_and_verify_timed(
             &mut sources,
             path,
@@ -290,8 +328,9 @@ pub fn build_harness(
             target,
             &VERIFY_OPTIONS,
             jobs,
-            timings,
+            &mut phases,
         );
+        accumulate(timings, &phases);
         let (hir, report) = match outcome {
             Ok(result) => result,
             Err(diagnostics) => {
@@ -367,6 +406,7 @@ pub fn build_harness(
             TestEntry {
                 index,
                 name,
+                stem,
                 source: path.clone(),
                 symbol,
             },
@@ -594,6 +634,7 @@ fn run_harness(
 pub fn run_single(
     path: &Path,
     name: &str,
+    file: &str,
     tmp_dir: &Path,
     toolchain: &Toolchain,
     target: &'static str,
@@ -604,7 +645,7 @@ pub fn run_single(
     let started = Instant::now();
     let mut result = TestResult {
         name: name.to_string(),
-        file: name.to_string(),
+        file: file.to_string(),
         status: TestStatus::CompileError,
         exit: None,
         stdout: String::new(),
@@ -721,6 +762,13 @@ fn display_test_path(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
+fn stem_of(path: &Path) -> String {
+    match path.file_stem().and_then(|stem| stem.to_str()) {
+        Some(stem) => stem.to_string(),
+        None => path.to_string_lossy().into_owned(),
+    }
+}
+
 fn c_string(text: &str) -> String {
     text.replace('\\', "\\\\").replace('"', "\\\"")
 }
@@ -739,17 +787,46 @@ fn messages_from_json(diagnostics: &[Json]) -> Vec<String> {
         .iter()
         .filter_map(|diagnostic| match diagnostic {
             Json::Object(fields) => {
-                fields
+                let message =
+                    fields
+                        .iter()
+                        .find(|(key, _)| key == "message")
+                        .and_then(|(_, value)| match value {
+                            Json::String(message) => Some(message.clone()),
+                            _ => None,
+                        })?;
+                let code = fields
                     .iter()
-                    .find(|(key, _)| key == "message")
+                    .find(|(key, _)| key == "code")
                     .and_then(|(_, value)| match value {
-                        Json::String(message) => Some(message.clone()),
+                        Json::String(code) => Some(code.clone()),
                         _ => None,
-                    })
+                    });
+                Some(match code {
+                    Some(code) => format!("{code}: {message}"),
+                    None => message,
+                })
             }
             _ => None,
         })
         .collect()
+}
+
+/// Add one test's phase rows to the suite's totals, keeping first-seen order.
+/// A suite of N tests must report one `timing: load` line, not N.
+fn accumulate(total: &mut Vec<TimingRow>, timings: &[TimingRow]) {
+    for timing in timings {
+        if let TimingRow::Phase { phase, ms } = timing {
+            if let Some(TimingRow::Phase { ms: seen, .. }) = total
+                .iter_mut()
+                .find(|seen| matches!(seen, TimingRow::Phase { phase: p, .. } if p == phase))
+            {
+                *seen = seen.saturating_add(*ms);
+                continue;
+            }
+        }
+        total.push(timing.clone());
+    }
 }
 
 fn json_error(message: String) -> Json {

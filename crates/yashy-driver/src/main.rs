@@ -1489,18 +1489,18 @@ fn test(args: &[String]) -> ExitCode {
 
     for result in &report.results {
         match result.status {
-            TestStatus::Passed => println!("test {} ... ok", result.name),
+            TestStatus::Passed => println!("test {} ... ok", result.file),
             TestStatus::Failed => {
                 let suffix = result
                     .exit
                     .map(|code| format!(" (exit {code})"))
                     .unwrap_or_default();
-                println!("test {} ... FAILED{}", result.name, suffix);
+                println!("test {} ... FAILED{}", result.file, suffix);
                 print!("{}", result.stdout);
                 eprint!("{}", result.stderr);
             }
             TestStatus::CompileError => {
-                println!("test {} ... FAILED (compile error)", result.name);
+                println!("test {} ... FAILED (compile error)", result.file);
                 for message in &result.messages {
                     eprintln!("{message}");
                 }
