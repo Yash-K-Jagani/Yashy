@@ -65,6 +65,7 @@ usage:
   yashyc check <file.ya> [--json] [--timings] [--jobs <n>] [--deny warnings] [--allow warnings] [--print-cfg] [--target <triple>]
   yashyc verify <file.ya> [--json] [--timings] [--jobs <n>] [--inventory]
   yashyc test [path] [--filter <substring>] [--list] [--json] [--timings] [--jobs <n>]
+  yashyc serve [path]
   yashyc explain <code> [--json]
   yashyc init [path]
   yashyc doctor [--json]
@@ -192,6 +193,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "check" => check(rest),
         "verify" => verify(rest),
         "test" => test(rest),
+        "serve" => serve(rest),
         "explain" => explain(rest),
         "init" => init(rest),
         "doctor" => doctor(rest),
@@ -1315,6 +1317,34 @@ fn blocked_by_policy(error: &std::io::Error) -> bool {
         || error.raw_os_error() == Some(4551)
         || error.to_string().contains("blocked")
         || error.to_string().contains("Application Control")
+}
+
+/// `yashyc serve [path]`: keep a warm compiler daemon until stdin closes.
+///
+/// The daemon is optional: every other command works one-shot. It keeps the
+/// source map, query cache and toolchain warm and answers the same seven
+/// compiler verbs over a local JSON-RPC socket.
+fn serve(args: &[String]) -> ExitCode {
+    if args.len() > 1 {
+        return usage_error("`serve` takes at most one path");
+    }
+    let root = args
+        .first()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let handle = match yashy_driver::daemon::DaemonHandle::start(&root) {
+        Ok(handle) => handle,
+        Err(error) => {
+            eprintln!("error: cannot start the daemon: {error}");
+            return exit_code(EXIT_INTERNAL);
+        }
+    };
+    println!("yashy daemon listening on {}", handle.addr());
+    use std::io::BufRead as _;
+    let mut line = String::new();
+    let _ = std::io::stdin().lock().read_line(&mut line);
+    handle.shutdown();
+    exit_code(EXIT_OK)
 }
 
 /// `yashyc test [path] [--filter <substring>] [--list]`.

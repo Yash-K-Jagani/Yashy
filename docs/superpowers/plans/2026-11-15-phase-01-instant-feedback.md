@@ -85,17 +85,17 @@ compiler grows more phases to measure.
 - `Response::{Diagnostics(Vec<Diagnostic>), Built(PathBuf), Error(String)}`
 - JSON-RPC over a local socket; the same protocol the LSP can reuse.
 
-- [ ] **Step 1: Write the failing test.** Start a daemon on a fixture, send
+- [x] **Step 1: Write the failing test.** Start a daemon on a fixture, send
   `Check`, assert diagnostics; edit the file, send `Check` again, assert the
   new diagnostics and `cache_hits > 0`.
-- [ ] **Step 2: Implement the daemon as a cache, not a second compiler.** It
+- [x] **Step 2: Implement the daemon as a cache, not a second compiler.** It
   owns a `SourceMap`, the query `Db`, the content-addressed cache and the
   toolchain. Every request routes to the same driver functions as the one-shot
   path. `shutdown` closes cleanly; a daemon crash never loses source.
-- [ ] **Step 3: Make it optional.** Every command works one-shot. `serve` is
+- [x] **Step 3: Make it optional.** Every command works one-shot. `serve` is
   opt-in; `watch` and the LSP may use it. A stale daemon is detected by
   protocol version and compiler version and is replaced.
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ### Task 3: `yashyc watch`
 

@@ -10,6 +10,8 @@
 pub mod audit;
 pub mod cfg;
 pub mod context;
+pub mod daemon;
+pub mod daemon_protocol;
 pub mod doc;
 pub mod fetch;
 pub mod index;
