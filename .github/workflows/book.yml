@@ -46,7 +46,18 @@ jobs:
       # The language guide's blocks are the tutorial's chapters; the tutorial
       # harness compiles them.
       - name: Run the tutorial's blocks
-        run: cargo test -p yashy-driver --test tutorial
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test -p yashy-driver --test tutorial 2>&1 | tee tutorial-test.log
+
+      - name: Surface a tutorial failure
+        if: failure()
+        shell: bash
+        run: |
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          tail -200 tutorial-test.log >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       # The book's own pages have blocks too, and the same script that drives
       # the install test drives them.
