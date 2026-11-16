@@ -159,13 +159,13 @@ compiler grows more phases to measure.
 - Modify: `benchmarks/thresholds.bench`
 - Test: `crates/yashy-bench/src/lib.rs` (comparator tests)
 
-- [ ] **Step 1: Write the failing test.** Synthetic measurement files: a 30%
+- [x] **Step 1: Write the failing test.** Synthetic measurement files: a 30%
   regression fails, a 15% regression passes, a noisy pair with the same median
   passes.
-- [ ] **Step 2: Normalize.** Measure a same-run reference (clang on the same
+- [x] **Step 2: Normalize.** Measure a same-run reference (clang on the same
   program) and report the ratio; interleave A/B measurements so machine drift
   hits both. Gate compile rows at 20% on the ratio, not the raw millisecond.
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ### Task 7: Parser error recovery
 

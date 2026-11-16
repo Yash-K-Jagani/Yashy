@@ -300,6 +300,98 @@ pub fn compare(
     results
 }
 
+/// The median of one row across interleaved samples.
+///
+/// A single timing is noise on a shared runner. Taking the median of several
+/// A/B pairs is what lets a 20% gate mean 20% instead of "the loudest sample".
+pub fn median(values: &[f64]) -> Option<f64> {
+    if values.is_empty() {
+        return None;
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let middle = sorted.len() / 2;
+    if sorted.len() % 2 == 1 {
+        Some(sorted[middle])
+    } else {
+        Some((sorted[middle - 1] + sorted[middle]) / 2.0)
+    }
+}
+
+/// A compile-time claim normalized against a same-run reference.
+///
+/// Raw milliseconds move with the runner; the ratio between Yashy's compile of
+/// a program and clang's compile of the same program in the same run does not.
+/// Gate the ratio at 20%, not the raw number.
+pub fn normalized_ratio(current: &Measurement, target: &str, reference: &str) -> Option<f64> {
+    let target = current.number(target)?;
+    let reference = current.number(reference)?;
+    if reference <= 0.0 {
+        return None;
+    }
+    Some(target / reference)
+}
+
+/// Compare two interleaved sample sets, gate row by gate row, using medians.
+///
+/// Every `Measurement` is one A/B pair captured in the same run; both sets must
+/// contain the row or it is `Missing`. A pair whose medians move less than the
+/// threshold passes even when individual samples are noisy.
+pub fn compare_samples(
+    baselines: &[Measurement],
+    currents: &[Measurement],
+    thresholds: &Thresholds,
+) -> Vec<RowResult> {
+    let Some(first) = baselines.first() else {
+        return Vec::new();
+    };
+    let mut results = Vec::new();
+    for row in first.gate_rows() {
+        let threshold = thresholds.for_row(row);
+        let base_values: Vec<f64> = baselines.iter().filter_map(|m| m.number(row)).collect();
+        let cur_values: Vec<f64> = currents.iter().filter_map(|m| m.number(row)).collect();
+        if base_values.len() != baselines.len() || cur_values.len() != currents.len() {
+            results.push(RowResult {
+                row: row.to_string(),
+                baseline: median(&base_values),
+                current: median(&cur_values),
+                change_pct: None,
+                threshold_pct: threshold,
+                verdict: Verdict::Missing,
+            });
+            continue;
+        }
+        let (base, cur) = match (median(&base_values), median(&cur_values)) {
+            (Some(base), Some(cur)) if base > 0.0 => (base, cur),
+            _ => {
+                results.push(RowResult {
+                    row: row.to_string(),
+                    baseline: median(&base_values),
+                    current: median(&cur_values),
+                    change_pct: None,
+                    threshold_pct: threshold,
+                    verdict: Verdict::Unmeasurable,
+                });
+                continue;
+            }
+        };
+        let change = (cur - base) / base * 100.0;
+        let verdict = match threshold {
+            Some(limit) if change > limit => Verdict::Fail,
+            _ => Verdict::Pass,
+        };
+        results.push(RowResult {
+            row: row.to_string(),
+            baseline: Some(base),
+            current: Some(cur),
+            change_pct: Some(change),
+            threshold_pct: threshold,
+            verdict,
+        });
+    }
+    results
+}
+
 /// Render the comparison as a fixed-width table.
 pub fn format_table(results: &[RowResult]) -> String {
     let mut out = String::new();
@@ -533,6 +625,54 @@ fib_run_ms=50.0
         let results =
             compare_with("fib_compile_ms=100.0\nfib_binary_bytes=1110\nfib_run_ms=50.0\n");
         assert_eq!(row(&results, "fib_binary_bytes").verdict, Verdict::Fail);
+    }
+
+    #[test]
+    fn interleaved_samples_gate_on_the_median_not_the_loudest_run() {
+        // Three A/B pairs. The baseline medians to 100; the current medians to
+        // 130, 115 and 100 for the three rows: a 30% regression, a 15% move,
+        // and a pair whose samples straddle the baseline but agree in median.
+        let a = vec![
+            measurement("fib_compile_ms=100.0\nsmall_compile_ms=100.0\nnoisy_compile_ms=100.0\n"),
+            measurement("fib_compile_ms=102.0\nsmall_compile_ms=98.0\nnoisy_compile_ms=90.0\n"),
+            measurement("fib_compile_ms=98.0\nsmall_compile_ms=102.0\nnoisy_compile_ms=110.0\n"),
+        ];
+        let b = vec![
+            measurement("fib_compile_ms=130.0\nsmall_compile_ms=115.0\nnoisy_compile_ms=100.0\n"),
+            measurement("fib_compile_ms=132.0\nsmall_compile_ms=117.0\nnoisy_compile_ms=80.0\n"),
+            measurement("fib_compile_ms=128.0\nsmall_compile_ms=113.0\nnoisy_compile_ms=120.0\n"),
+        ];
+        let results = compare_samples(&a, &b, &Thresholds::default());
+        assert_eq!(row(&results, "fib_compile_ms").verdict, Verdict::Fail);
+        assert_eq!(row(&results, "small_compile_ms").verdict, Verdict::Pass);
+        assert_eq!(row(&results, "noisy_compile_ms").verdict, Verdict::Pass);
+    }
+
+    #[test]
+    fn the_same_run_reference_normalizes_the_compile_claim() {
+        let same_run = measurement("fib_compile_ms=120.0\nclang_fib_compile_ms=100.0\n");
+        assert_eq!(
+            normalized_ratio(&same_run, "fib_compile_ms", "clang_fib_compile_ms"),
+            Some(1.2)
+        );
+        // Doubling both numbers leaves the claim unchanged.
+        let slower_runner = measurement("fib_compile_ms=240.0\nclang_fib_compile_ms=200.0\n");
+        assert_eq!(
+            normalized_ratio(&slower_runner, "fib_compile_ms", "clang_fib_compile_ms"),
+            Some(1.2)
+        );
+        assert_eq!(
+            normalized_ratio(&slower_runner, "fib_compile_ms", "missing"),
+            None
+        );
+    }
+
+    #[test]
+    fn a_missing_sample_in_one_pair_is_reported() {
+        let a = vec![measurement("fib_compile_ms=100.0\n")];
+        let b = vec![measurement("fib_binary_bytes=1000\n")];
+        let results = compare_samples(&a, &b, &Thresholds::default());
+        assert_eq!(row(&results, "fib_compile_ms").verdict, Verdict::Missing);
     }
 
     #[test]
