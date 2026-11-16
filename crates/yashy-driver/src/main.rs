@@ -1487,6 +1487,11 @@ fn test(args: &[String]) -> ExitCode {
         &sandbox_env_refs,
     );
 
+    if let Some(message) = &report.internal_error {
+        eprintln!("error: {message}");
+        return exit_code(EXIT_INTERNAL);
+    }
+
     for result in &report.results {
         match result.status {
             TestStatus::Passed => println!("test {} ... ok", result.file),
@@ -1567,6 +1572,16 @@ fn test_json(
     };
 
     let report = test_harness::run_suite(tests, &toolchain, target, jobs, sandbox_env);
+    if let Some(message) = &report.internal_error {
+        let diagnostic = Diagnostic::new(
+            Severity::Error,
+            FileId::from_index(0),
+            Span::SYNTHETIC,
+            message.clone(),
+        );
+        print_test_json(&global_sources, &[diagnostic], &[], 0, 0, 0, None);
+        return exit_code(EXIT_INTERNAL);
+    }
     let test_objects: Vec<Json> = report
         .results
         .iter()

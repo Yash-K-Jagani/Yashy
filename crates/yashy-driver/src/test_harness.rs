@@ -89,6 +89,9 @@ pub struct TestReport {
     pub compile_errors: usize,
     pub results: Vec<TestResult>,
     pub timings: Vec<TimingRow>,
+    /// A failure of the runner itself (for example, an unusable temp
+    /// directory), not of any test. The CLI reports it as an internal error.
+    pub internal_error: Option<String>,
 }
 
 const VERIFY_OPTIONS: VerifyOptions = VerifyOptions {
@@ -109,31 +112,16 @@ pub fn run_suite(
 ) -> TestReport {
     let tmp = temp_harness_dir();
     if let Err(error) = fs::create_dir_all(&tmp) {
-        // Without the directory no IR can be written, which would turn every
-        // test into a compile error and hide the real cause.
-        let mut results: Vec<Option<TestResult>> = (0..tests.len()).map(|_| None).collect();
-        for (index, path) in tests.iter().enumerate() {
-            results[index] = Some(TestResult {
-                name: display_test_path(path),
-                file: display_test_path(path),
-                status: TestStatus::CompileError,
-                exit: None,
-                stdout: String::new(),
-                stderr: String::new(),
-                duration_ms: 0,
-                diagnostics: vec![json_error(format!(
-                    "cannot create {}: {error}",
-                    tmp.display()
-                ))],
-                messages: vec![format!("cannot create {}: {error}", tmp.display())],
-            });
-        }
+        // Without the directory no IR can be written. This is a failure of the
+        // runner itself, not of any test; the CLI reports it as exit 3 with an
+        // empty `tests` array, as `test --json` always has.
         return TestReport {
             passed: 0,
             failed: 0,
-            compile_errors: tests.len(),
-            results: results.into_iter().flatten().collect(),
+            compile_errors: 0,
+            results: Vec::new(),
             timings: Vec::new(),
+            internal_error: Some(format!("cannot create {}: {error}", tmp.display())),
         };
     }
     let mut timings: Vec<TimingRow> = Vec::new();
@@ -172,6 +160,7 @@ pub fn run_suite(
                 compile_errors,
                 results: results.into_iter().flatten().collect(),
                 timings,
+                internal_error: None,
             };
         }
     };
@@ -261,6 +250,7 @@ pub fn run_suite(
         compile_errors,
         results: results.into_iter().flatten().collect(),
         timings,
+        internal_error: None,
     }
 }
 
@@ -318,11 +308,13 @@ pub fn build_harness(
         let symbol = format!("__yashy_test_{index}");
 
         let mut sources = SourceMap::new();
-        let entry_str = path.to_string_lossy().into_owned();
+        // Diagnostics name the display path (`tests/foo.ya`) on every OS, so
+        // the checker gets that spelling rather than the native path.
+        let entry_str = name.clone();
         let mut phases: Vec<TimingRow> = Vec::new();
         let outcome = check_and_verify_timed(
             &mut sources,
-            path,
+            Path::new(&name),
             source,
             false,
             target,
@@ -667,7 +659,7 @@ pub fn run_single(
     let mut sources = SourceMap::new();
     let outcome = check_and_verify_timed(
         &mut sources,
-        path,
+        Path::new(file),
         source,
         false,
         target,
@@ -700,7 +692,7 @@ pub fn run_single(
     if let Err(diagnostic) = compile_hir_timed(
         &sources,
         &hir,
-        path.to_string_lossy().as_ref(),
+        file,
         &exe,
         toolchain,
         BuildOptions {
