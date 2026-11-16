@@ -8,12 +8,15 @@ cache, graceful shutdown and observability — proven by three production-shaped
 examples.
 
 **Outcome:** `cli`, `config`, `template`, `auth`, `session`, `mail`, `jobs` and
-`cache` packages; a service skeleton with health/readiness/metrics; and three
-examples (an API service, a CLI + SQLite tool, and a server-rendered web app)
-that pass their own tests, a security review and a load test on both operating
-systems.
+`cache` packages; a service skeleton with health/readiness/metrics; a
+development loop with `yashyc dev`; an OpenAPI contract generated from typed
+routes with a generated client; OAuth/OIDC client, WebAuthn, CSRF, rate limiting
+and security headers; OpenTelemetry traces, metrics and logs with redaction; and
+three examples (an API service, a CLI + SQLite tool, and a server-rendered web
+app) that pass their own tests, a security review and a load test on both
+operating systems.
 
-**Time:** ~8 weeks.
+**Time:** ~9 weeks.
 **Depends on:** Phase 7 gate.
 **Spec:** [`../specs/2026-11-15-yashy-2.0-design.md`](../specs/2026-11-15-yashy-2.0-design.md) §6.2, §6.8.
 
@@ -39,6 +42,10 @@ the stack is not done, no matter how many modules exist.
 | Sessions | none |
 | Email/jobs/cache | none |
 | Service skeleton | none |
+| Dev loop | edit, rebuild and restart by hand; no watcher, no reload boundary |
+| HTTP contract | handlers hand-written; no OpenAPI document, no generated client |
+| Auth breadth | password/session only; no OAuth/OIDC client, no WebAuthn, no rate limit |
+| Observability | a log line and a metrics endpoint; no traces, no redaction, no OTLP |
 
 ## Deliverables
 
@@ -173,6 +180,85 @@ the stack is not done, no matter how many modules exist.
   checklist; findings are fixed or recorded as exceptions with a date.
 - [ ] **Step 5: Commit.**
 
+### Task 8: `yashyc dev` — the development loop
+
+**Files:**
+- Create: `crates/yashy-driver/src/dev.rs`
+- Modify: `crates/yashy-driver/src/main.rs` (`dev`)
+- Create: `docs/dev-loop.md`
+- Test: `crates/yashy-driver/tests/dev.rs`
+
+- [ ] **Step 1: Write the failing test.** `yashyc dev` watches the program's
+  sources, rebuilds on a change, restarts the process, and prints one line per
+  generation with the changed files and the build time. A build error keeps the
+  previous process running and prints the diagnostic; a fix restarts it. A
+  change to a dependency, a template, a `cfg` key or a migration triggers a
+  rebuild, not only a change to `main.ya`.
+- [ ] **Step 2: Restart is graceful and bounded.** The old process gets the
+  documented shutdown signal and a drain deadline; a hung process is killed and
+  reported. The listening socket is inherited where the platform allows it, so a
+  restart does not drop a connection; where it does not, that is stated.
+- [ ] **Step 3: The loop is the same pipeline.** It uses the Phase 1 daemon and
+  incremental cache, not a second compiler path; `--json` emits one event per
+  generation (build start, diagnostic, restart, exit) and is the form the editor
+  and the agent consume. A watch that misses a file is a bug: the watcher
+  registers directories, not an assumed list.
+- [ ] **Step 4: Commit.**
+
+### Task 9: An HTTP contract, not a convention
+
+**Files:**
+- Create: `packages/http/src/route.rs`, `packages/http/src/openapi.rs`, `packages/http/src/validate.rs`
+- Modify: `packages/http/src/server/` (typed routes)
+- Create: `crates/yashy-driver/src/client_gen.rs` (`yashyc client`)
+- Test: `packages/http/tests/openapi.rs`, `crates/yashy-driver/tests/client_gen.rs`
+
+- [ ] **Step 1: Write the failing test.** A route declares path, query, body,
+  response and error types once; `yashyc openapi` emits an OpenAPI 3.1 document
+  that validates against the schema; `yashyc client --from openapi.json` emits
+  a typed Yashy client whose calls fail to compile when the document changes a
+  required field. A body that does not match its type is a 400 with a JSON
+  problem document, never a 500.
+- [ ] **Step 2: The document is generated, never hand-maintained.** Routes,
+  types, status codes, auth requirements and examples come from the typed
+  handler table; a route added without a response type is a build error. The
+  client generator consumes the same model, so server and client cannot drift.
+- [ ] **Step 3: Compatibility is checked.** `yashyc openapi --check <old>`
+  classifies a change as additive, breaking or internal, and CI fails on a
+  breaking change without a version bump. Error responses use one problem
+  document shape across the framework.
+- [ ] **Step 4: Commit.**
+
+### Task 10: Browser-grade auth and production observability
+
+**Files:**
+- Create: `packages/auth/src/{oidc,webauthn,ratelimit,headers}.ya`
+- Create: `packages/otel/src/{trace,metric,log,redact,export}.ya`
+- Modify: `packages/http/src/server/` (middleware, OTLP export)
+- Create: `docs/security.md` (headers, cookies, rate limits, token validation)
+- Test: `packages/auth/tests/`, `packages/otel/tests/`
+
+- [ ] **Step 1: Write the failing test.** An OIDC authorization-code + PKCE
+  flow against a local fixture validates issuer, audience, nonce, `exp`/`nbf`
+  and signing key, and refuses `alg: none` and a swapped key; a WebAuthn
+  registration and assertion verify the challenge, origin and RP id; a rate
+  limiter admits the budget and returns `429` with `Retry-After`; the default
+  headers include HSTS, CSP, frame-ancestors, nosniff and a referrer policy.
+- [ ] **Step 2: OAuth is a client, not a provider.** The package validates and
+  refreshes tokens and never runs an authorization server; provider-specific
+  quirks are configuration, not forks. WebAuthn is the second factor with a
+  documented fallback, and a credential is bound to its RP id and origin.
+- [ ] **Step 3: Observability is one trace across a request.** A request opens
+  a span, a job and a query inherit it, and the exported OTLP trace, metric and
+  log carry the same trace id. A secret, a cookie, an authorization header and
+  a declared private field are redacted before export; a test asserts the
+  redaction on every exporter. Sampling is explicit and documented.
+- [ ] **Step 4: Health, readiness and shutdown are one contract.** `/health` is
+  liveness only, `/ready` names each dependency's state, `/metrics` is
+  Prometheus text, and an OTLP exporter failure degrades to a bounded buffer
+  rather than blocking the request path. Each has a test.
+- [ ] **Step 5: Commit.**
+
 ## Gates
 
 | Gate | Command | Passes when |
@@ -181,6 +267,10 @@ the stack is not done, no matter how many modules exist.
 | Config/secrets | `packages/config/tests` | layered precedence; a secret never prints |
 | Templates | `packages/template/tests` | contextual escaping; missing field is an error |
 | Auth | `packages/auth/tests` | Argon2id, signed session, CSRF, JWT, constant-time key compare |
+| Dev loop | `cargo test -p yashy-driver --test dev` | change rebuilds and restarts; an error keeps the old process; a dependency change is seen |
+| Contract | `cargo test -p yashy-driver --test client_gen`, `packages/http/tests/openapi.rs` | document validates; generated client compiles; breaking change is classified |
+| Auth breadth | `packages/auth/tests` (`oidc`, `webauthn`, `ratelimit`, `headers`) | PKCE/issuer/audience enforced; `alg:none` refused; challenge/origin checked; 429 and headers hold |
+| Observability | `packages/otel/tests` | one trace id across request/job/query; secrets redacted on every exporter; exporter failure degrades |
 | Jobs/mail | `packages/jobs/tests`, `packages/mail/tests` | retry/backoff/dead-letter; SMTP fixture over STARTTLS |
 | Examples | `cargo test -p yashy-driver --test examples` | all three pass on Windows and Linux |
 | Load | `examples/api-service/load.ya` | 50 clients, p99 under budget, zero errors |
@@ -200,6 +290,26 @@ POST /login 303  set-cookie: session=…; HttpOnly; Secure; SameSite=Lax
 GET /orders 200  text/html  4,812 bytes
 ```
 
+```console
+$ yashyc dev
+watching src/ (18 files, 4 dirs)
+gen 1  built in 124 ms  running  pid 4188  http://127.0.0.1:8080
+main.ya:57  E1001: unknown field `totle` on Order  (previous process still serving)
+gen 2  built in 131 ms  restarted  pid 4212  drained 0 in-flight
+
+$ yashyc openapi --check api.v1.json
+additive: GET /orders/{id}/history  ok
+breaking: POST /orders response 201 -> 200  requires a version bump
+```
+
+```console
+$ yashyc run main.ya
+GET /health 200  {"status":"ok"}
+GET /ready  200  {"db":"ok","cache":"ok","queue":"ok"}
+GET /orders 200  trace-id 7c1e…  span http.request 42 ms  (otel exported)
+POST /login 429  retry-after: 30  rate limit 10/min per ip
+```
+
 ## Out of scope
 
 - OAuth/OIDC provider implementations; verification of a token is in scope,
@@ -209,6 +319,10 @@ GET /orders 200  text/html  4,812 bytes
   at-least-once contract.
 - Payment or tax integrations.
 - Multi-tenant isolation guarantees beyond what the examples test.
+- A graphical API console; the OpenAPI document is the interface and any
+  existing console can read it.
+- A hosted observability backend; OTLP export is the boundary and the backend
+  is the operator's choice.
 
 ## Risks
 
@@ -220,3 +334,6 @@ GET /orders 200  text/html  4,812 bytes
 | Config leaks a secret into a log | A distinct secret type that cannot print or serialise; a test asserts redaction |
 | Examples rot | They are built and tested by the examples harness; a break is a gate failure |
 | Graceful shutdown drops a request | Drain with a deadline; a test sends a request during shutdown |
+| The dev loop restarts a process that is mid-write | Drain deadline, a socket handoff where supported, and a hang is killed and reported |
+| The generated contract and the server drift | One typed route table generates both the document and the client; CI classifies a breaking change |
+| A trace, metric or log leaks a secret | Redaction by declaration and by header/cookie/key list, tested per exporter; an exporter failure degrades to a bounded buffer |

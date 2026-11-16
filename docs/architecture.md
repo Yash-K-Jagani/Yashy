@@ -60,7 +60,7 @@ pluggable runtime — are hard constraints. See §4 of the 2.0 design.
                                         yashy-codegen       textual LLVM IR
                                                 │
                                                 ▼
-                                            clang           object + link
+                                       llc + link           object + link
                                                 │
                                                 ▼
                                           native binary
@@ -71,6 +71,22 @@ pluggable runtime — are hard constraints. See §4 of the 2.0 design.
 contract; the daemon (2.0) is a cache and an event loop in front of the same
 functions, never a second compiler.
 
+In 1.0 the last two boxes are one `clang` process: it compiles the embedded C
+runtime, assembles the textual IR and links the binary. From Phase 11C they are
+separate facts. The runtime is a signed per-target archive, `llc` turns IR into
+an object, and a `LinkSpec` is rendered by `ld.lld`, `lld-link`, Apple `ld` or
+`link.exe`, with the sysroot and CRT discovered explicitly. `clang` remains a
+compatibility and sanitizer backend, not the driver. A normal build never
+invokes it, and the clean-machine gate proves that on Windows and Linux.
+
+A package's `[native]` libraries join the link as explicit inputs: `pkg-config`
+or a recorded path for a system library, a hashed static archive for a prebuilt
+one, or a sandboxed `build.ya` for vendored sources. The `-sys` package owns the
+generated `unsafe` declarations and the layout assertions; the safe wrapper is
+ordinary checked Yashy. A Yashy library exports through one list that generates
+the C header, the version script and every host bridge, so the ABI is one fact
+with many renderings, not a hand-written adapter per language.
+
 | Stage | Input | Output | Refuses |
 |---|---|---|---|
 | `yashy-lexer` | bytes | tokens, doc lines | invalid UTF-8, bad escapes |
@@ -79,7 +95,7 @@ functions, never a second compiler.
 | `yashy-sema` | AST | HIR | names, types, exhaustiveness, arity |
 | `yashy-verify` | HIR | proofs | ownership (`E1000`), effects, contracts, typestate |
 | `yashy-codegen` | HIR | LLVM IR | nothing: it spends only proved facts |
-| `clang` | IR + runtime | binary | toolchain faults |
+| `llc` + linker | IR + runtime archive | binary | toolchain faults (`E2200`-`E2201`) |
 
 A build is deterministic in the sense of §7: the same inputs produce the same
 IR, the same diagnostics in the same order, and — with `--reproducible` — the
@@ -97,7 +113,7 @@ same bytes.
 | `yashy-hir` | typed program, layout, escape, exhaustiveness | shared vocabulary |
 | `yashy-verify` | ownership, effects, contracts, typestate | the only judge |
 | `yashy-codegen` | HIR to textual LLVM IR | one file per module |
-| `yashy-runtime` | C shim embedded in the compiler | linked into every program |
+| `yashy-runtime` | C shim; source and signed per-target archive | source is the truth, archive is what ships |
 | `yashy-cache` | content-addressed results | key covers every input |
 | `yashy-query` | memoised pipeline, parallel schedule | shard per file |
 | `yashy-manifest` | `yashy.toml`, `yashy.lock` | exact pins today |
@@ -319,8 +335,12 @@ is generated; edit the module, never the page.
 
 A package is a manifest plus source. The lockfile pins exact versions; ranges
 resolve once and are pinned (2.0). A package tarball is signed; the index is
-signed; the SBOM lists every input hash, the toolchain and the runtime. CI uses
-`--locked` and never trusts a cache it did not create.
+signed; the SBOM lists every input hash, the toolchain, the runtime and every
+native library; an in-toto/SLSA statement records the materials and is verified
+by a rebuild. A package declares its capabilities (`fs`, `net`, `env`, `clock`,
+`proc`, `rng`, `ffi`); the workspace policy is the ceiling and a missing
+declaration grants nothing. CI uses `--locked` and never trusts a cache it did
+not create.
 
 `--reproducible` fixes the build id, removes timestamps and absolute paths,
 sorts symbols and honours `SOURCE_DATE_EPOCH`. The gate builds twice in two
@@ -357,18 +377,19 @@ BOLT, incremental link).
 | Phase | Change to this document |
 |---|---|
 | 1 | test harness, daemon, watch, incremental cache, parser recovery |
-| 2 | LSP surface, `fix`/`lint`, debugger, profiler, `inspect`, error catalog |
-| 3 | semver, workspaces, features, signing, SBOM, reproducible install |
-| 4 | generic traits, associated types, patterns, pointers/`unsafe`, layout, aliasing rules |
+| 2 | LSP surface, `fix`/`lint`, debugger, profiler, `inspect`, error catalog, generated editor grammars, terminal surface |
+| 3 | semver, workspaces, features, signing, SBOM, provenance, capabilities/policy, reproducible install |
+| 4 | generic traits, associated types, patterns, `const fn`, pointers/`unsafe`, layout, aliasing rules |
 | 5 | collections as types, allocation interface, deterministic iteration |
-| 6–8 | network, data, application stack |
-| 9 | traceability matrix, quality stack |
-| 10 | atomics, locks, deterministic scheduler |
+| 6–8 | network, data, application stack, `yashyc dev`, OpenAPI, OTel |
+| 9 | traceability matrix, quality stack, mutation and differential harness |
+| 10 | atomics, locks, deterministic scheduler, record/replay |
 | 11A | layout optimisation, stack/heap reporting, aliasing audit |
 | 11B | inlining, passes, vectorisation, PGO/LTO/BOLT |
-| 12 | WASM, SIMD, bindgen, more triples |
-| 13 | MCP v1, semantic graph, BPE alignment gate |
-| 14 | language reference, conformance, editions, release |
+| 11C | runtime archive, `llc`/`lld` pipeline, toolchain package, clean-machine install |
+| 12 | WASM, SIMD, bindgen, native C libraries, C ABI library, host bridges, more triples |
+| 13 | MCP v1, semantic graph, agent policy/audit/approval, review/impact, SDK, BPE alignment gate |
+| 14 | language reference, conformance, editions, channels, advisories, release |
 
 ---
 

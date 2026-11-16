@@ -3,15 +3,18 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make testing, benchmarking, fuzzing and coverage ordinary parts of
-writing Yashy, and make every rule traceable from the language reference to the
-code that enforces it and the test that proves it.
+writing Yashy, make the test suite tell the truth about its own strength, and
+make every rule traceable from the language reference to the code that enforces
+it and the test that proves it.
 
 **Outcome:** A test framework (assertions, table, property, snapshot, mock), a
 benchmark harness with a baseline gate, a fuzzer with a shrinking corpus, a
-coverage report wired into CI, first-party CI templates, a maintained examples
-set and book, and a generated traceability matrix that fails on an orphan.
+coverage report wired into CI, mutation testing for Yashy programs and the
+verifier, a differential harness across compilers and targets, test selection
+by impacted source, first-party CI templates, a maintained examples set and
+book, and a generated traceability matrix that fails on an orphan.
 
-**Time:** ~6 weeks.
+**Time:** ~7 weeks.
 **Depends on:** Phase 8 gate.
 **Spec:** [`../specs/2026-11-15-yashy-2.0-design.md`](../specs/2026-11-15-yashy-2.0-design.md) §6.8, §6.9.
 
@@ -25,7 +28,7 @@ snapshot, no mock, no benchmark gate, no fuzzer, no coverage.
 The traceability matrix is the other half. Every rule in this plan names an id;
 every diagnostic code names a rule; every conformance case and stdlib function
 names the rule it covers. Generating the matrix — instead of writing it — is
-what keeps a 119-week programme honest.
+what keeps a 138-week programme honest.
 
 ## Starting point
 
@@ -39,6 +42,9 @@ what keeps a 119-week programme honest.
 | Fuzz | none |
 | Coverage | none until Phase 2 |
 | CI | workflows exist; no first-party template |
+| Mutation testing | none; a green suite says nothing about its strength |
+| Differential testing | ad hoc; no harness comparing compilers, targets or toolchains |
+| Test selection | run every test; no impacted-test graph |
 | Traceability | rules, codes and tests are separate lists |
 
 ## Deliverables
@@ -67,7 +73,13 @@ what keeps a 119-week programme honest.
 - [ ] **Step 5: The runner protocol is stable.** `test --json` emits one event
   per test start/end with name, status, duration, stdout and a failure message;
   the harness attributes stdout and exit codes to the test that produced them.
-- [ ] **Step 6: Commit.**
+- [ ] **Step 6: Select tests by impact, conservatively.** `yashyc test --affected
+  <base>` walks the call graph from changed files and selects the tests that
+  reach them; a changed type, trait impl, macro expansion or `cfg` key widens the
+  selection rather than missing a test. `--json` names every selected and skipped
+  test with the reason, and `--all` is the default in CI. A selection that would
+  skip a test whose dependency the graph cannot see is a bug, not a speed win.
+- [ ] **Step 7: Commit.**
 
 ### Task 2: `yashyc bench`
 
@@ -170,6 +182,44 @@ what keeps a 119-week programme honest.
   debugging, AI-native workflows, migration from 1.0.
 - [ ] **Step 3: Commit.**
 
+### Task 7: Mutation and differential testing
+
+**Files:**
+- Create: `crates/yashy-mutate/src/lib.rs`, `crates/yashy-driver/src/mutate.rs`, `crates/yashy-driver/src/differential.rs`
+- Modify: `crates/yashy-driver/src/main.rs` (`test --mutate`, `test --differential`)
+- Create: `scripts/mutants.toml` (compiler campaign), `docs/testing.md`
+- Test: `crates/yashy-driver/tests/mutate.rs`, `crates/yashy-driver/tests/differential.rs`
+
+**Interfaces:**
+- `Mutant { id, file, span, original, replacement, kind }`
+- `mutate(program) -> Vec<Mutant>`; `run_mutants(tests, mutants) -> MutationReport`
+- `differential(left: Compiler, right: Compiler, corpus) -> Vec<Mismatch>`
+
+- [ ] **Step 1: Write the failing test.** A suite with a weak assertion and a
+  suite with a strong one: `yashyc test --mutate` kills the mutants in the strong
+  suite and reports the survivors in the weak one. Mutations cover arithmetic,
+  comparison, boolean operators, return values, `Option`/`Result` arms, bounds
+  and ownership annotations; a mutant inside a comment or string is never
+  produced.
+- [ ] **Step 2: A mutation score is measured, not claimed.** `--json` reports
+  killed, survived, timed out and equivalent mutants with spans; `--fail-under`
+  gates a project; the compiler's own verifier corpus has a required floor. The
+  campaign is deterministic: same seed, same mutants, same order.
+- [ ] **Step 3: Differential testing is one harness.** `yashyc test
+  --differential <other-yashyc>` runs the corpus under two compilers, targets or
+  toolchains and compares exit code, stdout, stderr (with paths and timings
+  normalized), the leak report and the deterministic trace. A mismatch is a P0
+  with both outputs attached.
+- [ ] **Step 4: Use it where a second opinion exists.** The 1.0 corpus against
+  2.0, the same program under two LLVM toolchains from Phase 11C, and the Yashy
+  front end against the Rust reference in Phase 14 all use the same harness. A
+  difference that is expected is recorded as an allowlist entry with a reason.
+- [ ] **Step 5: The compiler is tested with mutants too.** A bounded
+  `cargo-mutants` campaign over the verifier and parser runs nightly; a surviving
+  mutant is a finding, not a coverage number. The tool is a development
+  dependency and is never linked into `yashyc`.
+- [ ] **Step 6: Commit.**
+
 ## Gates
 
 | Gate | Command | Passes when |
@@ -178,6 +228,9 @@ what keeps a 119-week programme honest.
 | Bench gate | `yashyc bench --check-baseline` | a 10% regression fails; noise passes; the baseline names its inputs |
 | Fuzz | `yashyc fuzz --replay` on the corpus | no open finding; shrink and replay work |
 | Coverage | `yashyc coverage --fail-under` | the floor holds; lcov and JSON agree; SARIF uploads |
+| Mutation | `cargo test -p yashy-driver --test mutate` | weak and strong suites score differently; the verifier corpus meets its floor; the campaign is deterministic |
+| Differential | `cargo test -p yashy-driver --test differential` | 1.0 vs 2.0 and two toolchains agree; a mismatch names both outputs |
+| Test selection | `yashyc test --affected <base>` | selected tests cover every changed reachable test; a hidden dependency widens, never skips; `--all` is a CI default |
 | CI | `ci` dry run | template passes on Windows and Linux; cache hit measured |
 | Traceability | `cargo test -p yashy-driver --test traceability` | zero orphans; every discharged obligation has a certificate and a rule |
 | Examples/book | `cargo test -p yashy-driver --test examples --test docs` | every example and code block runs |
@@ -199,10 +252,25 @@ $ yashyc trace --matrix --json | yashyc trace orphans
 0 orphans: 214 rules, 96 codes, 1,208 tests, 412 conformance cases
 ```
 
+```console
+$ yashyc test --mutate --fail-under 85
+mutants 412  killed 371  survived 34  equivalent 7  score 91.6%  ok
+survivors (first 3)
+  main.ya:41  `i < n` -> `i <= n`        test_sum misses the boundary
+  main.ya:58  `x - 1` -> `x + 1`         no test calls negative
+  main.ya:73  `Some(v)` -> `None`        unwrap path not asserted
+
+$ yashyc test --differential yashyc-1.0 --json
+corpus 1,208  agree 1,208  mismatched 0  allowlisted 2
+```
+
 ## Out of scope
 
 - GUI test automation; browser testing is Phase 6's HTTP client.
-- Mutation testing as a required gate (a later experiment).
+- A universal mutation-score gate for every user project; the compiler's
+  verifier corpus has a floor, user projects opt in.
+- Differential execution of arbitrary third-party binaries; the harness compares
+  Yashy programs under known compilers and targets.
 - A hosted coverage or benchmark service.
 - Property generation for user-defined arbitrary instances beyond the built-in
   generators; the RFC can add more.
@@ -217,3 +285,6 @@ $ yashyc trace --matrix --json | yashyc trace orphans
 | Benchmarks game the machine | Interleaved A/B, baseline per OS, thresholds per row |
 | Coverage becomes the goal | A floor, not a target; review reads tests, not the percentage |
 | The matrix is gamed by empty tests | A test must fail when the rule is removed; the orphan check also requires a triggering test |
+| Mutation testing is slow and noisy | Bounded campaigns, a deterministic seed and order, equivalent mutants recorded, the verifier corpus as the required floor, user projects opt in |
+| Differential normalization hides a real difference | Compare exit code, stdout and stderr before normalization; normalize only paths, timings and addresses; every allowlist entry names its reason |
+| Test selection skips a test it should run | The graph widens on a type/trait/macro/`cfg` change; `--all` is the CI default; a skipped test is named with its reason |

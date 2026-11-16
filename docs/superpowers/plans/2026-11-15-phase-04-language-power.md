@@ -4,18 +4,21 @@
 
 **Goal:** Give the language the pieces a library needs — generic traits,
 associated types, default methods, complete patterns, built-in derives, explicit
-captures, const generics for fixed buffers — and the pieces a systems programmer
-needs — typed pointers with provenance, `unsafe` blocks, a written aliasing
-model, `repr` completeness, and allocation that is visible and deterministic.
+captures, const generics for fixed buffers, compile-time evaluation — and the
+pieces a systems programmer needs — typed pointers with provenance, `unsafe`
+blocks, a written aliasing model, `repr` completeness, and allocation that is
+visible and deterministic.
 
 **Outcome:** Every form in §6.1 of the 2.0 design has a parser rule, a HIR
 lowering (or a desugar proof), a verifier rule, a diagnostic, a test and a
 BPE measurement. `E1511` changes from "user generic traits are refused" to the
-new trait surface. `alloc` zeroes; `alloc_uninit` is `unsafe`. The aliasing
+new trait surface. `alloc` zeroes; `alloc_uninit` is `unsafe`. `const fn`
+evaluates pure code at compile time with a fuel cap and no I/O, so tables,
+fixed buffers and validated constants cost nothing at run time. The aliasing
 rules in `docs/architecture.md` §5.3 become normative, and an alias corpus keeps
 them honest.
 
-**Time:** ~10 weeks.
+**Time:** ~12 weeks.
 **Depends on:** Phase 3 gate.
 **Spec:** [`../specs/2026-11-15-yashy-2.0-design.md`](../specs/2026-11-15-yashy-2.0-design.md) §6.1, §6.6, §6.8, §14.
 
@@ -48,6 +51,7 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 | Allocation | `alloc(n)` is uninitialised; no allocator interface |
 | Layout | `repr(C)` only; no `size_of`/`align_of`/`offset_of` |
 | Const generics | fixed arrays with literal lengths; no const parameters |
+| Compile-time evaluation | `const` values and layout facts; no `const fn`, no compile-time tables, loops or validation |
 | `cfg` keys | platform/debug, closed set; no features |
 | `defer` | block form only |
 
@@ -193,7 +197,52 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   a zero-length array is legal and has size 0.
 - [ ] **Step 5: Commit.**
 
-### Task 8: BPE audit, rule ids, and the architecture update
+### Task 9: `const fn` and compile-time evaluation
+
+**Files:**
+- Modify: `crates/yashy-parser/src/items.rs` (`const fn`, const methods)
+- Modify: `crates/yashy-sema/src/const_eval.rs`, `crates/yashy-sema/src/check_expr.rs`, `crates/yashy-sema/src/lib.rs`
+- Modify: `crates/yashy-hir/src/hir.rs`, `crates/yashy-hir/src/const_value.rs`
+- Modify: `crates/yashy-verify/src/lib.rs`, `crates/yashy-codegen/src/expr_gen.rs`
+- Modify: `crates/yashy-common/src/codes.rs`
+- Create: `docs/const-eval.md`
+- Test: `crates/yashy-sema/tests/const_fn.rs`, `crates/yashy-driver/tests/programs/const_eval/`
+
+**Interfaces:**
+- `const fn table[const N: int]() -> [int; N] { ... }`
+- `ConstValue = Int | Float | Bool | String | Array | Struct | Enum`
+- `eval_const(fn_id, args, fuel) -> Result<ConstValue, ConstEvalError>`
+
+- [ ] **Step 1: Write the failing test.** A `const fn` builds a lookup table, a
+  `const` item calls it, a fixed buffer size is computed from it, and a
+  compile-time assertion rejects a bad constant. Assert the table is a literal in
+  the IR, the run-time program and a hand-written table produce the same values,
+  and the compiler does not emit the function body when it is only called at
+  compile time.
+- [ ] **Step 2: Const evaluation is ordinary code, not a macro.** A `const fn`
+  is parsed and checked like any function, then evaluated by the same typed
+  interpreter that evaluates `size_of`, array lengths and const generic
+  arguments. It may call other `const fn`s, loop, branch, index fixed arrays and
+  construct structs/enums. It may not perform I/O, allocate, use `unsafe`, call
+  `extern`, await, or read a capability; each refusal is a diagnostic at the
+  call.
+- [ ] **Step 3: Evaluation is total and bounded.** A step/fuel cap, a recursion
+  depth cap and the same overflow/division rules as run time make every failure
+  a diagnostic with the expression span. A `const fn` that does not terminate
+  is an error, never a compiler hang. Evaluation is deterministic and produces
+  the same bytes on both OSes.
+- [ ] **Step 4: Const and run time agree.** For every `const fn`, a differential
+  test evaluates it at compile time and calls it at run time on the same inputs
+  and compares the values. A mismatch is a compiler bug, not a language
+  difference. A `const fn` that is only used at compile time is not emitted; one
+  that is also called at run time is emitted once.
+- [ ] **Step 5: The evaluator is not a second compiler.** It consumes HIR and
+  the layout table, reports through the same diagnostics, and is covered by the
+  `never_panics` suite. `--emit-ir` shows the folded constant and the source
+  span that produced it.
+- [ ] **Step 6: Commit.**
+
+### Task 10: BPE audit, rule ids, and the architecture update
 
 **Files:**
 - Modify: `crates/yashy-driver/src/tokens.rs` (Phase 2 owns the measurement)
@@ -201,9 +250,9 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 - Modify: `docs/architecture.md`, `docs/tutorial/*` for every new form
 - Test: `crates/yashy-driver/tests/bpe.rs`, `crates/yashy-driver/tests/rules.rs`
 
-- [ ] **Step 1: Write the failing test.** Every keyword and operator introduced by this phase (`trait`, `type`, `derive`, `unsafe`, `noalias`, `packed`, `align`, `transparent`, `let else`, `matches`, `@`) is one token in `o200k`, `cl100k` and a Llama-family tokenizer. The corpus reports ≥ 97% single-token lexical tokens.
+- [ ] **Step 1: Write the failing test.** Every keyword and operator introduced by this phase (`trait`, `type`, `derive`, `unsafe`, `noalias`, `packed`, `align`, `transparent`, `const fn`, `let else`, `matches`, `@`) is one token in `o200k`, `cl100k` and a Llama-family tokenizer. The corpus reports ≥ 97% single-token lexical tokens.
 - [ ] **Step 2: Reject a spelling before it ships.** If a candidate keyword splits, choose a single-token synonym and record the measurement in `docs/bpe.md`. No aesthetic rewrites; only measured ones.
-- [ ] **Step 3: Rule ids.** Every new diagnostic names a rule (`TRAIT-1`, `PAT-2`, `ALIAS-3`, `LAYOUT-1`, `DET-1`). `yashyc trace` (Phase 9) will consume the registry; this phase fills it.
+- [ ] **Step 3: Rule ids.** Every new diagnostic names a rule (`TRAIT-1`, `PAT-2`, `ALIAS-3`, `LAYOUT-1`, `CONST-1`, `DET-1`). `yashyc trace` (Phase 9) will consume the registry; this phase fills it.
 - [ ] **Step 4: Update the architecture document.** §4 (program model), §5 (memory, aliasing, layout, allocation, determinism) and §12 (phase map) are updated in the same commit as the code.
 - [ ] **Step 5: Commit.**
 
@@ -219,6 +268,7 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 | Allocation | `cargo test -p yashy-driver --test programs` | `alloc` is zeroed; `alloc_uninit` needs `unsafe`; a custom allocator sees every call |
 | Layout | `cargo test -p yashy-driver --test layout` | `size_of`/`align_of`/`offset_of` agree with the IR; `repr(C)` is stable; packed misalignment is diagnosed |
 | Const generics | `cargo test -p yashy-sema --test const_generics` | `Buffer[16]` and `Buffer[64]` are distinct; evaluation is total; the cap holds |
+| Const evaluation | `cargo test -p yashy-sema --test const_fn --test const_eval` | compile-time and run-time values agree; fuel/depth caps terminate; I/O, allocation, `unsafe` and `extern` are refused; no panic |
 | BPE | `cargo test -p yashy-driver --test bpe` | 100% of keywords/operators single-token; corpus ≥ 97% |
 | No false positives | `yashyc verify --json examples/ crates/yashy-driver/tests/programs/` | zero |
 | No regression | `cargo test --workspace` | green on Windows and Linux |
@@ -248,12 +298,26 @@ unsafe sites: 2
   main.ya:21  deref *const u8           ALIAS-2
 ```
 
+```console
+$ yashyc run examples/const_eval/main.ya
+table[0] = 1  table[15] = 987          // a const fn table, folded to a literal
+buffer[32] = 32 bytes                   // length computed at compile time
+checked  = ok                           // const assertion rejected the bad case
+$ yashyc build examples/const_eval/main.ya --emit-ir | grep -c 'call.*build_table'
+0                                       // compile-time-only fn is not emitted
+```
+
 ## Out of scope
 
 - `dyn`, vtables, trait objects, async traits (`E1703`), trait fields (`E1514`).
 - Specialisation, negative impls and coherence beyond local-type/local-trait.
 - Named read-only views; views stay unnamed.
 - Generators/`yield`.
+- Compile-time code generation, reflection or macros. `const fn` evaluates
+  typed HIR; it does not print source, reflect on names or run at run time.
+- `const` trait methods and const dispatch across a generic bound; the first
+  release covers free functions, inherent methods and pure operators.
+- JIT or run-time compilation.
 - `noalias` on safe parameters; that stays illegal for the life of the edition.
 - The layout optimiser and stack promotion (Phase 11A); this phase makes the
   facts available, not the optimisation.
@@ -271,3 +335,5 @@ unsafe sites: 2
 | `Option[*const T]` niche leaks into layout | A layout test and an FFI round-trip pin the representation; the niche is documented, not incidental |
 | `unsafe` erodes the safety claim | Every site is inventoried and counted; the count is a release note number, not a footnote |
 | Const generics explode code size or const evaluation loops | A step/depth cap, the existing 64/4096 instantiation cap, and a diagnostic naming the substitution |
+| `const fn` becomes a second execution model | It evaluates typed HIR with the same overflow and layout rules; a compile-time/run-time differential test; no I/O, allocation, `unsafe`, `extern` or capability access |
+| Const evaluation hangs the compiler | Fuel, depth and size caps; every failure is a diagnostic at the expression; the `never_panics` suite covers the evaluator |

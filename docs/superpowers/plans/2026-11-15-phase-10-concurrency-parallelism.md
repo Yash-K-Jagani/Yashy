@@ -4,16 +4,18 @@
 
 **Goal:** Make concurrency a complete, provable part of the language: atomics
 with explicit orderings, locks and condition variables, scoped threads, MPMC
-channels, `select`, cancellation, parallel iterators, race proofs, and a
-deterministic scheduler that makes a concurrent test reproducible.
+channels, `select`, cancellation, parallel iterators, race proofs, a
+deterministic scheduler that makes a concurrent test reproducible, and
+record/replay that makes a failing concurrent run debuggable.
 
 **Outcome:** `Atomic*`, `RwLock`, `Condvar`, `Once`, `Barrier`, scoped threads,
 an MPMC channel with `select` and timeouts, cancellation tokens, parallel
 iterators, verifier rules for races/lock order/lock-across-await, a TSan
-differential, a concurrency corpus, and `--deterministic` execution that
-produces the same trace at 1 and 4 workers.
+differential, a concurrency corpus, `--deterministic` execution that produces
+the same trace at 1 and 4 workers, and `--record`/`replay` with backward
+stepping through a recorded trace.
 
-**Time:** ~8 weeks.
+**Time:** ~9 weeks.
 **Depends on:** Phase 9 gate.
 **Spec:** [`../specs/2026-11-15-yashy-2.0-design.md`](../specs/2026-11-15-yashy-2.0-design.md) §6.1, §6.6, §6.8.
 
@@ -171,6 +173,67 @@ the AI phase's reproducible agent runs.
   difference names the first divergent event.
 - [ ] **Step 4: Commit.**
 
+### Task 7: Deterministic record/replay and backward stepping
+
+**Files:**
+- Create: `crates/yashy-driver/src/record.rs` (`--record`, `replay`), `crates/yashy-driver/src/trace_schema.rs`
+- Create: `crates/yashy-runtime/sched/checkpoint.rs` (snapshot and restore)
+- Modify: `crates/yashy-driver/src/main.rs` (`--record`, `yashyc replay`, `yashyc trace inspect`)
+- Modify: `crates/yashy-lsp/src/debug.rs`, `crates/yashy-lsp/src/main.rs` (reverse stepping in DAP)
+- Create: `docs/traces.md`, `crates/yashy-driver/tests/programs/replay/`
+- Test: `crates/yashy-driver/tests/replay.rs`, `crates/yashy-lsp/tests/reverse_step.rs`
+
+**Interfaces:**
+- `record run -> trace.yat` with a versioned header (compiler hash, target triple, toolchain, program hash, capability set)
+- `replay trace.yat [--step|--reverse|--to <event>] -> same stdout, exit code and trace`
+- `Event = TaskSpawn | Run | Yield | Block | Wake | Complete | Lock { id, acq|rel } | Chan { id, send|recv } | Timer | Io { syscall, args, result } | Rng { value } | Clock { value }`
+- `Checkpoint { seq, registers, stack, heap-pages, lock-state, channel-state }`
+
+- [ ] **Step 1: Write the failing test.** A program with a data race, a
+  nondeterministic channel order and a clock read is recorded once; replaying
+  the trace three times produces identical stdout, exit code and event log. A
+  debugger session steps backward over a channel receive, sees the same value it
+  saw forward, and resumes to the same end state. A trace whose header names a
+  different compiler, target or toolchain is refused with a diagnostic naming
+  the mismatch, never replayed approximately.
+- [ ] **Step 2: A trace is a program, not a log.** Replay drives the same runtime
+  through recorded nondeterminism (scheduler choices, syscall results, clock,
+  RNG, address-space layout) and asserts that unrecorded nondeterminism is
+  zero: a replay that reaches an unrecorded decision fails loudly instead of
+  guessing. The header pins the compiler content hash, the target triple, the
+  toolchain archive hash and the program hash; replay checks all four before it
+  runs a single instruction.
+- [ ] **Step 3: Backward stepping uses checkpoints, not rewind.** The recorder
+  writes a checkpoint every N events (N tunable, default tied to a memory
+  budget); reverse stepping restores the nearest earlier checkpoint and
+  replays forward to the requested event. Registers, stack, heap pages touched,
+  lock state and channel state are in the checkpoint; a step backward costs
+  bounded work and is measured. A debugger UI that asks for a step the trace
+  cannot prove is refused, never shown as a guess.
+- [ ] **Step 4: Redaction and size are part of the format.** Every recorded I/O
+  buffer, environment value, path and argument is redacted by capability and by
+  user-declared secret keys before it is written; a `--record-secrets=no`
+  default means a trace never contains a credential. Traces are compressed,
+  chunked and capped (`--record-max-bytes`, a per-event cap and a per-field
+  cap); exceeding a cap truncates with an explicit marker and keeps replay
+  sound for everything before the marker. A trace says what it redacted and how
+  many bytes it dropped.
+- [ ] **Step 5: Replay is portable only where it is provable.** Same OS, same
+  target and the recorded toolchain is the supported case. A different OS, a
+  different libc or a different toolchain is refused with the "record again"
+  remedy, because syscall and layout differences would make the replay a lie.
+  An architecture change is refused for the same reason. A trace is a build
+  artefact: it is content-hashed, signed by the same tool that signs packages,
+  and never executed if its hash or signature fails.
+- [ ] **Step 6: Record/replay is wired into the tools that need it.** The test
+  framework records a failing concurrent test and writes a trace next to the
+  failure; the fuzzer keeps the trace that produced a crash; the agent's
+  sandbox returns a trace with every `run`; the debugger opens a recorded trace
+  without the original process. `yashyc trace inspect` prints the header,
+  event counts, redaction summary and the first divergent event between two
+  traces.
+- [ ] **Step 7: Commit.**
+
 ## Gates
 
 | Gate | Command | Passes when |
@@ -178,6 +241,9 @@ the AI phase's reproducible agent runs.
 | Corpus | `cargo test -p yashy-driver --test concurrency_corpus` | every seeded race/inversion/escape is caught; the clean corpus is clean |
 | TSan | `cargo test -p yashy-driver --test concurrency_corpus -- --tsan` | TSan finds no race the verifier missed |
 | Determinism | `cargo test -p yashy-driver --test deterministic` | identical bytes and traces at 1 and 4 workers |
+| Record/replay | `cargo test -p yashy-driver --test replay` | three replays agree; unrecorded nondeterminism fails loudly; a mismatched header is refused |
+| Reverse stepping | `cargo test -p yashy-lsp --test reverse_step` | backward and forward stepping agree; checkpoints bound the work; a cost is measured |
+| Trace safety | `cargo test -p yashy-driver --test replay -- --redaction` | no secret in a default trace; caps truncate with a marker; a bad hash or signature is refused |
 | Parallel scaling | `yashyc bench par_iter --threads 1,2,4,8` | speedup within the recorded budget; no row lost |
 | Atomics | `crates/yashy-driver/tests/programs/sync` | orderings behave; `AcqRel` misuse is refused |
 | Locks | `crates/yashy-driver/tests/programs/sync` | guard typestate, condvar predicate, once and barrier pass |
@@ -195,6 +261,30 @@ $ yashyc test examples/workers --deterministic
 12 passed  0 failed  (0.42 s)  trace stable at 1 and 4 workers
 ```
 
+```console
+$ yashyc run examples/workers/main.ya --record workers.yat --deterministic
+4 workers, 1000 jobs, 0 duplicates
+trace workers.yat  3f2a…  8,912 events  checkpoint every 256 events  0 secrets  capped 0 B
+
+$ yashyc replay workers.yat
+4 workers, 1000 jobs, 0 duplicates
+replay ok: stdout matches, exit 0, event log identical, header verified
+
+$ yashyc debug --trace workers.yat
+(yashy) break main.ya:88
+breakpoint 1 at main.ya:88
+(yashy) continue
+stopped: jobs 512/1000  worker 3  channel recv
+(yashy) step-back
+stopped: jobs 511/1000  worker 2  channel send  (checkpoint 2 of 35, replayed 68 events)
+(yashy) step-back
+stopped: jobs 511/1000  worker 2  lock acquire  (checkpoint 2 of 35, replayed 12 events)
+
+$ yashyc trace inspect workers.yat --redaction
+events 8,912  io 42  env 6  paths 11  secrets 0 redacted 3 keys  dropped 0 B
+header compiler sha256:9c1e…  target x86_64-pc-windows-msvc  toolchain 2.0.0-llvm18
+```
+
 ## Out of scope
 
 - A work-stealing NUMA-aware scheduler.
@@ -202,6 +292,12 @@ $ yashyc test examples/workers --deterministic
 - Async traits, `Future`, async closures (identity non-goals).
 - Distributed actors or a cluster runtime.
 - A GPU/offload model.
+- Replaying a trace on a different OS, libc, architecture or toolchain; the
+  trace is refused and the remedy is to record again.
+- A production flight recorder that streams traces to a service; recording is
+  local, capped and opt-in.
+- Whole-machine replay or a hypervisor; the trace covers the Yashy program and
+  the syscalls it makes, not the host.
 
 ## Risks
 
@@ -213,3 +309,6 @@ $ yashyc test examples/workers --deterministic
 | `select` fairness is untestable | Declared order, deterministic mode, a stress test with 1e6 selections |
 | Parallel iterators change results | Ordered semantics; a sequential differential for every adapter |
 | Atomics orderings confuse users | No default ordering; docs and diagnostics name the ordering and its guarantee |
+| A replay silently diverges | Unrecorded nondeterminism is an error; the header pins compiler, target, toolchain and program hashes; a mismatch is a refusal with "record again" |
+| A trace leaks a secret or grows unbounded | Redaction by capability and declared secret keys is on by default; per-event and total caps truncate with a marker; a trace is signed and hash-checked |
+| Reverse stepping is too slow or wrong | Checkpoints every N events with a memory budget; a restore is bounded and measured; a step the trace cannot prove is refused |

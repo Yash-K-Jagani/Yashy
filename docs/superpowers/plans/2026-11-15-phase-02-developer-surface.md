@@ -3,15 +3,17 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the compiler pleasant to live in: an editor that knows the whole
-language, a debugger that stops on a line, a profiler that names the hot
-allocation, diagnostics that can fix themselves, and a catalog that answers
-every code.
+language, a terminal that answers before the command is finished, a debugger
+that stops on a line, a profiler that names the hot allocation, diagnostics
+that can fix themselves, and a catalog that answers every code.
 
 **Outcome:** The full LSP surface, machine-applicable diagnostics (`fix`,
 `--sarif`), `lint`, `coverage`, `new`, `task`, `repl`, a DWARF/CodeView
 debugger, sampling and allocation profilers, `doc --serve`, `inspect`, `trace`,
-`tokens`, an error-catalog completeness gate, two editor integrations, and a
-drift test for `docs/architecture.md`.
+`tokens`, an error-catalog completeness gate, one generated grammar that serves
+VS Code, Neovim, Helix, Zed, Emacs and JetBrains, generated shell completions
+and man pages, a TTY-aware output policy, and a drift test for
+`docs/architecture.md`.
 
 **Time:** ~8 weeks.
 **Depends on:** Phase 1 gate.
@@ -32,6 +34,15 @@ model, the CLI, the LSP and the MCP server — is cheaper than building four
 different edit paths. This phase is also the first consumer of the Phase 1
 daemon and the Phase 1 parser recovery.
 
+The same is true of the two places a person actually types. 1.0 ships syntax
+files for VS Code, Vim and Emacs -- hand-maintained keyword lists that a test
+compares against the lexer -- but no LSP client, no debug adapter, no
+format-on-save and no generated grammar. The terminal is hand-rolled too: no
+completions, no man page, no colour policy, no pager and no clickable path. A
+language that is pleasant in the editor but awkward in the shell is only half
+installed, and an agent that later drives `yashyc` inherits the same surface.
+This phase makes both renderings of the compiler's facts.
+
 ## Starting point
 
 | Fact | 1.0 value |
@@ -46,6 +57,9 @@ daemon and the Phase 1 parser recovery.
 | Coverage | none |
 | Scaffolding | `init` only |
 | REPL | none |
+| Editors | VS Code TextMate grammar and language config, Vim syntax, Emacs mode; no client, DAP, format-on-save or generator |
+| Terminal | usage text in `main.rs`; no completions, man page, colour policy, pager or clickable path |
+| Grammar drift test | `crates/yashy-lsp/tests/grammar.rs` compares hand-maintained keyword lists; nothing generates them |
 | Architecture doc | written in the 2.0 planning pass; no drift test |
 
 ## Deliverables
@@ -80,9 +94,10 @@ daemon and the Phase 1 parser recovery.
 - [ ] **Step 4: Pull and push diagnostics.** Keep push diagnostics for
   compatibility; add `textDocument/diagnostic` with result ids and unchanged
   reports. Delta semantic tokens use the same ids.
-- [ ] **Step 5: Two editors, one transcript.** Ship `editors/vscode` (a thin
-  `vscode-languageclient` extension) and `editors/neovim` (built-in LSP
-  config). CI runs the transcript harness and a headless smoke test for each.
+- [ ] **Step 5: Two clients, one transcript.** Wire the VS Code and Neovim
+  clients (Task 9 owns their packaging, grammar and debug adapters) and run the
+  same transcript through both. CI runs the harness and a headless smoke test
+  for each; an editor-specific shortcut never changes what the server answers.
 - [ ] **Step 6: Commit.** `git commit -m "feat(lsp): complete the language server surface"`.
 
 ### Task 2: Machine-applicable diagnostics
@@ -262,30 +277,100 @@ daemon and the Phase 1 parser recovery.
   the master plan names every phase file that exists.
 - [ ] **Step 4: Commit.**
 
-### Task 9: Editor integrations
+### Task 9: Editors, one grammar source
 
 **Files:**
-- Create: `editors/vscode/{package.json,src/extension.ts,README.md}`
-- Create: `editors/neovim/{init.lua,README.md}`
+- Modify: `crates/yashy-lexer/src/lib.rs`
+- Create: `crates/yashy-lexer/src/grammar.rs`
+- Create: `crates/yashy-driver/src/grammar.rs`
+- Modify: `crates/yashy-driver/src/tokens.rs`, `crates/yashy-driver/src/main.rs`
+- Create: `editors/grammars/{yashy.tmLanguage.json,yashy.vim,yashy.el,helix/languages.toml}`
+- Create: `editors/grammars/tree-sitter-yashy/{grammar.js,queries/highlights.scm,queries/locals.scm,queries/folds.scm}`
+- Modify: `editors/vscode/{package.json,language-configuration.json}`
+- Create: `editors/vscode/{src/extension.ts,snippets/yashy.json,README.md}`
+- Create: `editors/neovim/{lua/yashy/init.lua,README.md}`
+- Create: `editors/zed/{extension.toml,src/lib.rs}`, `editors/jetbrains/README.md`
+- Modify: `editors/vim/yashy.vim`, `editors/emacs/yashy.el` (now generated)
 - Create: `editors/README.md`
-- Test: CI job `editors` (headless smoke for both)
+- Test: `crates/yashy-driver/tests/grammar.rs`, `crates/yashy-lsp/tests/grammar.rs` (extend), CI job `editors`
 
-- [ ] **Step 1: VS Code.** Syntax highlighting from the lexer's token set,
-  LSP client, debug adapter configuration that calls `yashyc debug`, task
-  provider for `yashyc task`, and a status item for `yashyc doctor`.
-- [ ] **Step 2: Neovim.** `vim.lsp.start` config, treesitter grammar generated
-  from the same token set, `:make` mapped to `yashyc check`, and a DAP config.
-- [ ] **Step 3: One grammar source.** Both editors read a generated
-  `yashy.tmLanguage.json` and `grammar.js` from `crates/yashy-lexer` keywords, so
-  a new keyword cannot be highlighted in one editor and not the other.
-- [ ] **Step 4: Commit.**
+**Interfaces:**
+- `GrammarModel { keywords, types, operators, delimiters, comments, docs, literals }`
+- `render_textmate(&GrammarModel) -> String`, `render_tree_sitter(&GrammarModel) -> String`, `render_vim`, `render_emacs`
+- `yashyc tokens --grammar <dir>` writes every generated file.
+
+- [ ] **Step 1: Write the failing test.** Run `yashyc tokens --grammar
+  editors/grammars` and assert `git diff --exit-code` is clean; add a keyword to
+  `TokenKind::KEYWORDS` and assert generation fails until the files are
+  rewritten. Every keyword, operator and delimiter has exactly one highlight
+  class, and TextMate, tree-sitter, Vim and Emacs list the same set.
+- [ ] **Step 2: One model, several renderings.** The lexer owns the token
+  classes; the generator owns the file formats. Tree-sitter's rule skeleton is
+  hand-written once, but its keyword and operator tables are generated from the
+  same model. The existing keyword drift test stays as the backstop rather than
+  the mechanism.
+- [ ] **Step 3: Wire the clients.** VS Code gets a thin
+  `vscode-languageclient` extension, a DAP configuration that calls `yashyc
+  debug`, a task provider for `yashyc task`, a `doctor` status item, snippets
+  and a language configuration. Neovim gets `vim.lsp.start`, the generated
+  tree-sitter grammar, `:make` mapped to `yashyc check` and a DAP config.
+  Helix, Zed, Emacs and JetBrains get documented LSP/DAP configurations that
+  point at `yashyc lsp --stdio`; none of them bundles a second compiler.
+- [ ] **Step 4: Two gated, four documented.** VS Code and Neovim are the gate;
+  the other editor configurations are validated when the editor's headless CLI
+  is available and are cuttable. Format-on-save, run, test and debug work from
+  the same compiler verbs, never from an editor-only script.
+- [ ] **Step 5: Commit.**
+
+### Task 10: The terminal surface
+
+**Files:**
+- Create: `crates/yashy-driver/src/cli_spec.rs`, `term.rs`, `completions.rs`, `man.rs`, `hyperlink.rs`
+- Modify: `crates/yashy-driver/src/main.rs` (dispatch, help, colour, pager)
+- Create: `scripts/completions/{yashyc.bash,yashyc.zsh,yashyc.fish,yashyc.ps1}` (generated)
+- Create: `docs/man/yashyc.1` (generated), `docs/terminal.md`
+- Test: `crates/yashy-driver/tests/terminal.rs`, `.../completions.rs`, `.../man.rs`
+
+**Interfaces:**
+- `CommandSpec { name, aliases, summary, usage, flags, examples, completion }`
+- `Style::{Auto, Always, Never}`, `Pager::{Auto, Never, Command(String)}`
+- `yashyc completions <bash|zsh|fish|powershell>`, `yashyc help [verb]`
+
+- [ ] **Step 1: Write the failing test.** Pipe `yashyc check` on a file with a
+  diagnostic: no ANSI escape, no spinner, no prompt, one line per diagnostic,
+  stable order. `--color=always` emits SGR; `NO_COLOR`, `CLICOLOR=0` and
+  `TERM=dumb` degrade to ASCII; `COLUMNS=40` wraps. `yashyc`, `yashyc help`,
+  `yashyc help build`, `--help` and `-h` all answer, and an unknown verb
+  suggests the nearest one and exits `2`.
+- [ ] **Step 2: One command table.** A verb is declared once with its flags,
+  defaults, examples and completion kind. Help, the man page, the shell
+  completions and `index --json` render from that table; a flag added in one
+  place cannot be missing from another.
+- [ ] **Step 3: Shell integration is generated.** `yashyc completions bash`
+  (and zsh, fish, PowerShell) prints a script that completes verbs, flags and
+  file arguments; the generated files under `scripts/completions/` are
+  diff-checked and syntax-checked in CI. `docs/terminal.md` shows the one-line
+  install for each shell.
+- [ ] **Step 4: Pager and streams.** `explain` pages through `PAGER` only on a
+  TTY; `--no-pager` wins; `--json` never pages and never colours. `run`
+  forwards stdin, stdout, stderr and signals and returns the program's exit
+  code. `watch` redraws only on a TTY and prints one line per diagnostic when
+  piped; `test` progress appears only on a TTY and never in `--json`.
+- [ ] **Step 5: Paths are clickable when the terminal can click.** A diagnostic
+  path is a `path:line:col` string in plain output and an OSC 8 hyperlink on a
+  capable TTY; `--hyperlink auto|always|never` overrides, and JSON never carries
+  an escape. The same rule covers a source span printed by `inspect` and
+  `trace`.
+- [ ] **Step 6: Commit.**
 
 ## Gates
 
 | Gate | Command | Passes when |
 |---|---|---|
 | LSP conformance | `cargo test -p yashy-lsp --test conformance` | every transcript feature answers with a stable span; no panic on an incomplete file |
-| Two editors | `editors` CI job | VS Code and Neovim each complete, hover, rename, format and stop at a breakpoint in the fixture |
+| Editor matrix | `editors` CI job | VS Code and Neovim each complete, hover, rename, format and stop at a breakpoint in the fixture; Helix, Zed, Emacs and JetBrains configurations validate when their headless CLI is present |
+| Generated grammar | `cargo test -p yashy-driver --test grammar` | `yashyc tokens --grammar` reproduces every committed file; a new keyword fails until regenerated |
+| Terminal | `cargo test -p yashy-driver --test terminal --test completions --test man` | piped output is plain and ordered; colour, pager and hyperlink policy hold; every verb is in help, man and all four completions; each script parses |
 | Machine fixes | `cargo test -p yashy-driver --test fix` | every fixable diagnostic applies; a conflicting fix is refused; a stale hash is refused |
 | Schema | `cargo test -p yashy-driver --test diagnostics_json --test schema_diff` | v1 fields unchanged; `suggestions[]` and `id` are additive; SARIF validates |
 | Error catalog | `cargo test -p yashy-driver --test error_catalog` | every code has a page, a catalog entry, an `explain --json` record and a triggering test |
@@ -323,14 +408,39 @@ $ yashyc coverage --fail-under 90
 lines 94.2% (163/173)  functions 100% (12/12)
 ```
 
+```console
+$ yashyc completions bash > ~/.local/share/bash-completion/completions/yashyc
+$ yashyc he<TAB>
+help       history    hello
+$ man yashyc | head -n 3
+YASHC(1)                         Yashy                         YASHC(1)
+$ yashyc check main.ya | cat
+main.ya:7:5: error[E0100]: ...
+  (plain text: no colour, no spinner; `main.ya:7:5` is clickable in a TTY)
+```
+
+```console
+VS Code: "Yashy: Format Document" formats on save;
+         F5 starts `yashyc debug` and stops at main.ya:12;
+         the status bar shows `yashyc doctor` green.
+Neovim:  :make runs `yashyc check`; <leader>df formats;
+         the DAP session shows the same stack and the same values.
+```
+
 ## Out of scope
 
 - Language forms (Phase 4); the LSP formats the 1.0 grammar and gains each new
   form in the phase that adds it.
 - Signed registry and installers (Phase 3).
 - The traceability matrix (Phase 9); this phase adds rule ids only.
-- A GUI debugger; `yashyc debug` drives an existing backend.
-- Remote debugging over a network.
+- A GUI editor or a GUI debugger; the extensions are thin clients and
+  `yashyc debug` drives an existing backend.
+- Remote development over SSH or a network debug adapter; LSP and DAP speak
+  over stdio, and a remote setup forwards the same streams.
+- A hand-maintained second grammar. Every editor consumes the generated model;
+  an editor whose format cannot consume it gets documentation, not a fork.
+- A terminal UI framework or a shell; `yashyc` is a compiler, and the terminal
+  work is the compiler's own output.
 
 ## Risks
 
@@ -343,3 +453,6 @@ lines 94.2% (163/173)  functions 100% (12/12)
 | The debugger only works on Linux | `yashyc debug` selects LLDB or `cdb`; the gate runs on Windows and Linux |
 | Sampling needs privileges | Fall back to the counter profiler with a diagnostic naming the missing capability |
 | A lint becomes a second verifier | Lints are style/correctness advice over HIR; no lint changes whether a program builds |
+| Six editors become six grammars | One `GrammarModel`; keyword and operator tables are generated, the tree-sitter rule skeleton is written once, and CI diffs every generated file |
+| Terminal behaviour is only tested by eye | Piped, TTY, `NO_COLOR`, `TERM=dumb`, `COLUMNS` and hyperlink modes are transcript tests; JSON never carries an escape |
+| An editor bundles its own compiler | Every client calls `yashyc lsp` and `yashyc debug`; the extension is a protocol adapter, not a second front end |

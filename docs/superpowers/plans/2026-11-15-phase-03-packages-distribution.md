@@ -6,12 +6,14 @@
 rebuild — and make the toolchain itself installable in one command.
 
 **Outcome:** Semver ranges with a lockfile-pinned resolver, workspaces, optional
-features, a signed static registry, package signatures, an SBOM, `yashyc
-verify-package`, reproducible package builds, a signed stdlib with a precompiled
-IR cache, installers for the three claimed platforms, a GitHub Action, and
+features, a signed static registry, package signatures, capability manifests and
+a dependency policy, an SBOM with build provenance, `yashyc verify-package`,
+reproducible package builds, a package surface with `tree`, `why`, `outdated`,
+`vendor`, `info`, `remove` and `yank`, a signed stdlib with a precompiled IR
+cache, installers for the three claimed platforms, a GitHub Action, and
 templates for a workspace and a service.
 
-**Time:** ~8 weeks.
+**Time:** ~10 weeks.
 **Depends on:** Phase 2 gate.
 **Spec:** [`../specs/2026-11-15-yashy-2.0-design.md`](../specs/2026-11-15-yashy-2.0-design.md) §6.3, §6.8, §12.
 
@@ -40,6 +42,9 @@ can make two identical sources produce different bytes.
 | Lockfile | v1, sorted, content-addressed with a hand-written SHA-256 |
 | SBOM | none |
 | `audit` | manifest and lock policy; no signatures, no advisory database |
+| Capabilities | none; a dependency can do anything the process can |
+| Provenance | none; a package names its source but proves nothing about the build |
+| Package surface | `add`, `update`, `remove`; no tree, why, outdated, vendor, info, yank |
 | Reproducible build | `--reproducible` flag exists; no two-directory gate |
 | Installers | PowerShell/bash scripts; archives per OS |
 | CI | no first-party GitHub Action |
@@ -209,7 +214,7 @@ can make two identical sources produce different bytes.
 ### Task 8: Workspace and service templates
 
 **Files:**
-- Add: `templates/workspace/`, `templates/service/`, `templates/lib/`
+- Add: `templates/workspace/`, `templates/service/`, `templates/lib/`, `templates/native/`
 - Modify: `crates/yashy-driver/src/scaffold.rs` (Phase 2 owns `new`)
 - Test: `crates/yashy-driver/tests/new.rs` (extend)
 
@@ -217,7 +222,9 @@ can make two identical sources produce different bytes.
   creates two members, a shared lockfile and a passing `yashyc test
   --workspace`; `--template service` creates a project whose first `yashyc run`
   prints a health response (the HTTP stack itself lands in Phase 6; until then
-  the template uses a loopback TCP handler).
+  the template uses a loopback TCP handler); `--template native` creates a
+  `-sys` package with a generated binding, a safe wrapper and a test against a
+  fixture C library.
 - [ ] **Step 2: Templates are tested programs.** Every template is built and
   tested in CI on both OSes; a template that does not pass its own test is
   removed. No placeholder that compiles but lies.
@@ -243,6 +250,110 @@ can make two identical sources produce different bytes.
   against the key before use. A wrong hit is a P0.
 - [ ] **Step 4: Commit.**
 
+### Task 10: Capability manifests and a dependency policy
+
+**Files:**
+- Modify: `crates/yashy-manifest/src/manifest.rs` (`[capabilities]`, `[policy]`)
+- Create: `crates/yashy-manifest/src/capability.rs`, `crates/yashy-driver/src/policy.rs`
+- Modify: `crates/yashy-driver/src/main.rs` (`add --allow`, `audit --capabilities`)
+- Create: `docs/capabilities.md`
+- Test: `crates/yashy-driver/tests/capabilities.rs`, `crates/yashy-driver/tests/policy.rs`
+
+**Interfaces:**
+- `CapabilitySet { fs: FsRights, net: NetRights, env: EnvRights, clock, proc, rng, ffi }`
+- `FsRights { read: Vec<PathGlob>, write: Vec<PathGlob> }`; `FfiRights { libs: Vec<PathGlob>, dlopen: bool }`
+- `policy: { allow_capabilities, deny_capabilities, max_transitive, allow_licenses, deny_authors, require_signature, require_provenance }`
+
+- [ ] **Step 1: Write the failing test.** A package that declares no
+  capabilities cannot open a file, resolve a name or read the clock; the compiler
+  refuses the call at build time with the capability it needs and the manifest
+  line that would grant it. A package that declares `fs.read = ["data/*"]`
+  reads `data/x` and is refused `data/../secret`. A package that declares `ffi`
+  names the libraries it may load; one that does not cannot `dlopen` or link a
+  native library beyond the stdlib's signed set. A policy that denies `net`
+  refuses a package that asks for it, and `yashyc audit --capabilities` prints
+  the transitive union before anything runs.
+- [ ] **Step 2: The manifest is the grant, the policy is the ceiling.** A
+  dependency's capabilities are the intersection of what it declares and what
+  the workspace policy allows; a missing declaration is no capability, never
+  full access. `yashyc add` prints the union the addition would create and
+  refuses to cross the policy without `--allow`. Capability names, defaults and
+  the refusal diagnostics are one table shared by the compiler, `audit`, the
+  sandbox in Phase 13 and the trace redactor in Phase 10.
+- [ ] **Step 3: Dependency policy is reviewable and machine-readable.**
+  `[policy]` names allowed licenses, denied authors or registries, a transitive
+  depth/size cap, and whether a signature and provenance are required. Each
+  violation is a code with the dependency path (`app -> http -> tls`), and
+  `--json` is the CI form. The default policy is strict: unsigned, unprovenanced
+  and capability-undeclared packages are refused, not warned about.
+- [ ] **Step 4: A capability is enforced where it is used.** The check is at the
+  call site in HIR and repeated by the runtime handle that performs the
+  operation, so a build that bypassed the front end still cannot exceed the
+  grant. `--print-capabilities` prints the resolved set, and a build with no
+  declaration is a program that can compute but not touch the world.
+- [ ] **Step 5: Commit.**
+
+### Task 11: Build provenance and attestations
+
+**Files:**
+- Create: `crates/yashy-manifest/src/provenance.rs`, `crates/yashy-driver/src/attest.rs`
+- Modify: `crates/yashy-driver/src/main.rs` (`attest`, `verify-attestation`)
+- Modify: `crates/yashy-manifest/src/sbom.rs` (subject digests)
+- Create: `docs/provenance.md`
+- Test: `crates/yashy-driver/tests/attest.rs`, `crates/yashy-driver/tests/slsa.rs`
+
+**Interfaces:**
+- `Statement { subject: Vec<Digest>, predicate_type: "https://slsa.dev/provenance/v1", predicate: Provenance }`
+- `Provenance { build_type, builder, invocation, materials: Vec<Digest>, metadata }`
+- `attest(package) -> Envelope`; `verify_attestation(envelope, policy) -> Result<(), AttestError>`
+
+- [ ] **Step 1: Write the failing test.** A reproducible build produces an
+  in-toto/SLSA v1 statement naming the source commit, the lockfile hash, the
+  compiler and toolchain hashes, the target, every native library (path and
+  hash) and every other input material; a verifier rebuilds from those materials
+  and gets the same subject digest. A statement with a changed source hash, a
+  changed compiler, a changed native library or a subject that does not match
+  the tarball is refused with the field that disagrees.
+- [ ] **Step 2: Provenance is produced by the same build that produces the
+  artifact.** The statement is written in the same invocation as the package, is
+  signed by the release key, and is embedded in the registry entry next to the
+  SBOM. A package without provenance fails a policy that requires it; a package
+  with provenance from an unknown builder fails the trust check.
+- [ ] **Step 3: Verification is a rebuild, not a claim.** `yashyc
+  verify-attestation` checks the signature, the subject digest and the material
+  digests, then optionally rebuilds `--reproducible` from the named materials and
+  compares. A provenance that only asserts what the builder says is a claim; the
+  gate is the rebuild.
+- [ ] **Step 4: The format is standard and minimal.** Use in-toto attestation
+  and SLSA provenance v1 JSON; do not invent a schema. A future registry can
+  consume the same envelope, and the release pipeline publishes it unchanged.
+- [ ] **Step 5: Commit.**
+
+### Task 12: The package surface
+
+**Files:**
+- Modify: `crates/yashy-driver/src/main.rs` (`tree`, `why`, `outdated`, `vendor`, `info`, `yank`, `remove`)
+- Create: `crates/yashy-driver/src/pkg_cmd.rs`
+- Modify: `crates/yashy-driver/src/resolve.rs` (reverse edges, vendor directory)
+- Test: `crates/yashy-driver/tests/pkg_cmd.rs`
+
+- [ ] **Step 1: Write the failing test.** `yashyc tree --depth 2` prints the
+  dependency graph in resolution order with features and duplicates marked;
+  `why serde` names the shortest path from the root and every path that needs it;
+  `outdated` compares the lock to the index and marks major/minor/patch and a
+  yanked pin; `vendor` writes a byte-identical tree that builds `--offline`;
+  `info` prints version, license, size, signature, provenance, capabilities,
+  native libraries and reverse dependencies; `remove` takes a dependency out of
+  the manifest, the lock and the cache, and `yank` is refused without a reason.
+- [ ] **Step 2: Every command has one JSON form and one human form.** `--json`
+  is stable and used by the Action and the agent; the human form is the same
+  facts with color only on a TTY. Duplicates and feature conflicts are explained,
+  not merely listed.
+- [ ] **Step 3: Destructive commands are reversible.** `remove` and `yank` write
+  a backup of the manifest and lock, print what changed, and can be undone;
+  `vendor` is additive and reports the bytes and the license files it wrote.
+- [ ] **Step 4: Commit.**
+
 ## Gates
 
 | Gate | Command | Passes when |
@@ -250,10 +361,13 @@ can make two identical sources produce different bytes.
 | Round trip | `cargo test -p yashy-driver --test registry --test resolve` | publish → add → build; `--locked` refuses a drifted lock; yanked pins refused |
 | Tamper | `cargo test -p yashy-driver --test signature --test registry` | one flipped byte, one bad index signature and one missing key each fail with a named code |
 | SBOM | `cargo test -p yashy-driver --test sbom --test audit` | every package, hash, license, supplier and toolchain hash present; policy violations refused |
+| Capabilities | `cargo test -p yashy-driver --test capabilities --test policy` | an undeclared capability is refused at the call; a declared one is enforced; the policy is the ceiling |
+| Provenance | `cargo test -p yashy-driver --test attest --test slsa` | statement names every material; a rebuild matches the subject; a mismatch names the field |
+| Package surface | `cargo test -p yashy-driver --test pkg_cmd` | tree, why, outdated, vendor, info, remove and yank behave; every command has a JSON form |
 | Reproducible | `cargo test -p yashy-driver --test reproducible` | two directories, two runs, identical SHA-256 on both OSes |
 | Stdlib package | `cargo test -p yashy-driver --test stdlib_precompiled` | unchanged stdlib is not re-typechecked; cache key verified; hash mismatch refused |
 | Workspaces | `cargo test -p yashy-driver --test workspace --test features` | `--workspace`, `-p`, optional deps and feature unification behave; features are in the cache key |
-| Install matrix | `scripts/install/test-install.*` | Windows, Linux and macOS install, verify, run `doctor`, uninstall |
+| Install matrix | `scripts/install/test-install.*` | Windows, Linux and macOS install, verify, run `doctor`, uninstall; re-run in Phase 11C on a machine with no C toolchain |
 | Action | `.github/actions/setup-yashy` in CI | cold install < 60 s; cache hit < 10 s; pinned version verified |
 | No regression | `cargo test --workspace` | green on Windows and Linux |
 | No P0 | `docs/triage.md` | no P0 |
@@ -273,6 +387,25 @@ built main  (demo 1.0.0, 3 packages, signature ok)
 
 $ yashyc verify-package demo-1.0.0.tar.gz
 signature ok  checksum ok  sbom ok  index ok
+$ yashyc verify-attestation demo-1.0.0.intoto.jsonl --rebuild
+subject ok  materials ok  rebuilt  identical  builder: release-2027
+```
+
+```console
+$ yashyc add http --registry ./registry
+http ^1.2 -> 1.4.0 (pinned)
+capabilities  fs.read: 0  fs.write: 0  net: tcp 443  env: 1 key  clock: no  proc: no
+policy        ok  (signature, provenance, license MIT)
+
+$ yashyc tree --depth 2
+demo 1.0.0
+  http 1.4.0  [tls, gzip]
+    tls 2.0.1
+    compress 1.1.0  (dup: compress 0.9.0 via legacy)
+  json 1.0.0
+
+$ yashyc why compress --json
+{"package":"compress","paths":[["demo","http","compress"],["demo","legacy","compress"]]}
 ```
 
 ```console
@@ -287,6 +420,13 @@ ok  14 packages, 0 unsigned, 0 policy violations
 - Binary caching across machines (Phase 11B).
 - Publishing to a public service automatically; publishing is an explicit
   command or a reviewed pull request.
+- A hosted transparency log or a certificate authority; provenance is signed by
+  the release key and verified by rebuild.
+- Capability enforcement against a hostile process that ignores the runtime; the
+  grant is enforced by the runtime handle, and the sandbox in Phase 13 is the
+  boundary against arbitrary code.
+- A general-purpose package manager UI; the commands are the compiler's and each
+  has a JSON form.
 - macOS as a claimed platform until the signed archive gate in Phase 14.
 
 ## Risks
@@ -299,3 +439,6 @@ ok  14 packages, 0 unsigned, 0 policy violations
 | Reproducibility is claimed but a path leaks | Two-directory gate on both OSes; `SOURCE_DATE_EPOCH`, locale and username variations tested |
 | Installers drift from the archive | Every channel downloads the same signed archive and verifies the same hash |
 | A feature flag changes the cache key silently | Features are in the key, in the lockfile and in `--print-cfg`; mutation tests prove a miss |
+| A dependency can do more than it declares | Capabilities are declared in the manifest, intersected with the policy, checked at the call and repeated by the runtime handle |
+| Provenance is a signed claim, not a fact | The verifier optionally rebuilds from the named materials and compares the subject; a claim alone never satisfies a policy that requires provenance |
+| The package surface drifts from the resolver | Every command reads the same graph and lock; one JSON model, one human rendering; tests assert they agree |

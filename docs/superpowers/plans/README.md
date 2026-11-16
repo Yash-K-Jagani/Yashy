@@ -27,13 +27,13 @@ The design those plans implemented is still the identity authority:
 ## The 2.0 plan set is active (proposed)
 
 The **2026-11-15** set is the active proposal. It is one master index plus
-fifteen phase files, and it is not started: no phase is in progress until the
+sixteen phase files, and it is not started: no phase is in progress until the
 set is approved.
 
 - [`2026-11-15-yashy-2.0-master-plan.md`](2026-11-15-yashy-2.0-master-plan.md)
   — the index: global constraints, review focus, phase spine, gate protocol,
   cut order, first 30 days.
-- Phases 1–14, with Phase 11 in two slices:
+- Phases 1–14, with Phase 11 in three slices:
 
 ```text
 2026-11-15-phase-01-instant-feedback.md
@@ -48,6 +48,7 @@ set is approved.
 2026-11-15-phase-10-concurrency-parallelism.md
 2026-11-15-phase-11a-representation.md
 2026-11-15-phase-11b-codegen.md
+2026-11-15-phase-11c-toolchain.md
 2026-11-15-phase-12-reach-interop.md
 2026-11-15-phase-13-ai-native.md
 2026-11-15-phase-14-selfhost-spec-release.md

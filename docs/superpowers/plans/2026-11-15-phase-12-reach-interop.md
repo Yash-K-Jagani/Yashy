@@ -10,13 +10,16 @@ layer.
 **Outcome:** WASM32 (`unknown` and WASI) with a working `hello`, a browser
 playground that compiles in the tab, JS interop with a generated binding, a
 `yashyc bindgen` that turns a C header into checkable Yashy declarations and
-back, C++ through the C ABI, Python embedding and Node N-API packages, a
-cross-target matrix with `aarch64` Linux/Windows, macOS `x86_64`/`aarch64` and
-musl static, portable SIMD vectors with a benchmark, `dlopen` on both OSes, and
-an FFI conformance suite.
+back, native C libraries consumed the way Rust consumes them (pkg-config,
+`-sys` packages, vendored sources, safe wrappers), C++ through the C ABI, a
+C-callable shared/static library with a generated header and versioned symbols,
+generated bridges for Python, Node, Java, .NET, Go, Ruby, Swift, PHP, Lua and R,
+a cross-target matrix with `aarch64` Linux/Windows, macOS `x86_64`/`aarch64` and
+musl static, portable SIMD vectors with a benchmark, `dlopen` on both OSes, an
+FFI conformance suite, and a stated binary-size budget.
 
-**Time:** ~8 weeks.
-**Depends on:** Phase 11B gate.
+**Time:** ~11 weeks.
+**Depends on:** Phase 11C gate.
 **Spec:** [`../specs/2026-11-15-yashy-2.0-design.md`](../specs/2026-11-15-yashy-2.0-design.md) §6.7, §14 (calls 7–9).
 
 ## Why this phase
@@ -26,6 +29,13 @@ its strongest claim: ownership is explicit, `repr(C)` is a keyword form, and
 `extern "C"` with `link_name` and variadics exists at 1.0. What is missing is
 everything around the boundary: no second architecture, no WASM, no way to
 generate or verify a binding, no documented ABI conformance corpus, and no SIMD.
+
+Consuming a C library should be as ordinary as it is in Rust: a `-sys` package
+that owns the generated `unsafe` declarations and link metadata, a safe wrapper
+that returns `Result`/`Option`, `pkg-config` or a vendored source as the input,
+and one lockfile and SBOM that name the native library. The same export list
+should make a Yashy library callable from the host languages a team already
+uses, without a hand-written adapter per language.
 
 The phase is deliberately after performance. SIMD is a codegen feature, and
 shipping it before the inliner and bounds work would add a vector path to a
@@ -43,6 +53,9 @@ having before the AI phase writes documentation about the language.
 | JS interop | none |
 | `bindgen` | none; C declarations are hand-written |
 | C++ | C ABI only by hand |
+| C libraries | `extern "C"` declarations written by hand; no pkg-config, no vendored build, no `-sys` convention |
+| Other hosts | none beyond C; no Java, .NET, Go, Ruby, Swift, PHP, Lua or R bridge |
+| Library output | executable only; no `cdylib`/`staticlib`, no generated header |
 | Python/Node | none |
 | SIMD | none; scalar code only |
 | `repr` | `repr(C)` only (Phase 4 adds the rest) |
@@ -229,6 +242,144 @@ having before the AI phase writes documentation about the language.
   corpus.
 - [ ] **Step 4: Commit.**
 
+### Task 8: Yashy as a C library
+
+**Files:**
+- Modify: `crates/yashy-driver/src/main.rs` (`--emit=cdylib|staticlib`, `--header`)
+- Create: `crates/yashy-driver/src/c_header_emit.rs`, `crates/yashy-codegen/src/visibility.rs`
+- Create: `docs/library.md`, `examples/interop/library/`
+- Test: `crates/yashy-driver/tests/library.rs`, `examples/interop/library/tests/`
+
+**Interfaces:**
+- `#[export]`-free surface: `pub extern "C" fn` on a `repr(C)` type is the export list
+- `--emit=cdylib` (`.dll`/`.so`/`.dylib`), `--emit=staticlib` (`.lib`/`.a`)
+- `--header out.h`; a version script or `.def` generated from the same export list
+
+- [ ] **Step 1: Write the failing test.** Build a Yashy library with two
+  exported functions, a `repr(C)` struct, an enum and a callback; compile and run
+  a C caller and a C++ caller against the generated header; assert values, error
+  returns and no leak. Load the shared library from Python through `ctypes` and
+  from Node through `ffi-napi`; assert the same answers. A function that is not
+  `extern "C"` is not exported; an exported symbol that is not in the header is
+  a build error.
+- [ ] **Step 2: The header is generated from the export list, not written.**
+  Declarations, `repr(C)` layout, enum values, ownership comments and the
+  version macro come from the same typed model that emits the object. A layout
+  change changes the header; `--header --check` fails in CI when a checked-in
+  header drifts.
+- [ ] **Step 3: Symbols are versioned and hidden by default.** Only the export
+  list is visible; everything else is internal. The shared object carries a
+  SONAME and a version script (ELF), an export table (PE) or an install name
+  (Mach-O); a symbol removed from the list is a breaking change detected by a
+  test that diffs the exported set against the previous release.
+- [ ] **Step 4: Ownership crosses the boundary in the type system.** A returned
+  string or array is `owned` (caller frees with `yashy_free`) or `borrowed`
+  (lifetime named in the comment); the header says which. A panic never crosses
+  the boundary: it becomes a documented error code and an abort only if the
+  unwind contract cannot be met.
+- [ ] **Step 5: Size is a budget, not an accident.** Record `hello` and a small
+  service as bytes for every target; `--strip`, `--split-debuginfo` and
+  `--gc-sections` are supported and documented; a row that grows more than 5%
+  without a recorded reason fails the benchmark gate. The library build reports
+  its exported symbols and their sizes.
+- [ ] **Step 6: Commit.**
+
+### Task 9: Native C libraries, the Rust way
+
+**Files:**
+- Modify: `crates/yashy-manifest/src/manifest.rs` (`[native]`, `[build]`)
+- Create: `crates/yashy-driver/src/native/{pkg_config,link,cc,build_script}.rs`
+- Create: `crates/yashy-stdlib/yashy/libc.ya` (generated per-target bindings)
+- Create: `docs/native.md`, `packages/sqlite3-sys/`, `packages/sqlite3/` (worked example)
+- Test: `crates/yashy-driver/tests/native.rs`, `crates/yashy-driver/tests/pkg_config.rs`, `crates/yashy-driver/tests/build_script.rs`
+
+**Interfaces:**
+- `[native] pkg_config = "sqlite3 >= 3.40"`, `libs`, `search`, `headers`, `sources`, `defines`, `static`, `frameworks`, `link_args`
+- `yashyc native probe`; `yashyc native add sqlite3`; `yashyc native vendor`
+- `[build] script = "build.ya"` (optional, sandboxed, deterministic)
+- `yashyc libc --target <triple> --header` (curated, generated, signed)
+
+- [ ] **Step 1: Write the failing test.** Add a system library through
+  `pkg-config` and link it dynamically; add the same library as a vendored
+  `sources = ["sqlite3.c"]` and link it statically; add a prebuilt `.lib`/`.a`
+  with `search` and `static = true`; build all three on Windows and Linux and call
+  a function. Assert the manifest records the resolved library path and hash, and
+  that a missing `pkg-config`, a missing header or a version below the requested
+  range is a diagnostic naming the package and the install command.
+- [ ] **Step 2: One `-sys` convention, one safe wrapper.** A native binding is a
+  package named `<lib>-sys` that owns the generated `unsafe` declarations, the
+  link metadata and the static layout assertions; the safe package `<lib>` wraps
+  it in `Result`/`Option`, never exposes a raw pointer without `unsafe`, and
+  documents the C contract it upholds. `yashyc verify --ffi` counts the unsafe
+  surface, and a wrapper that leaks a C allocation fails its tests.
+- [ ] **Step 3: Declarative first, script last.** `[native]` covers pkg-config,
+  libraries, headers, defines, sources and frameworks without running code. A
+  `build.ya` script is allowed only for a build the declarative form cannot
+  express; it runs in the Phase 13 sandbox with `fs` limited to the package and
+  `OUT_DIR`, `proc` limited to a named compiler allowlist, no network, a wall
+  clock and a deterministic environment. Its output is content-hashed and cached,
+  and a script that reads the clock or an unlisted path is refused. It is a
+  package build step, not a macro: it expands no syntax and is not part of the
+  language surface.
+- [ ] **Step 4: Cross-compilation is explicit.** `pkg-config` reads
+  `PKG_CONFIG_SYSROOT_DIR`, `PKG_CONFIG_LIBDIR` and the target's `.pc` path;
+  `search` paths are target-qualified; a host library is refused for a cross
+  target with a diagnostic rather than a link error. `doctor --native` prints
+  the compiler, pkg-config, sysroot and resolved libraries per target.
+- [ ] **Step 5: `libc` is curated, not hand-written.** A per-target `libc`
+  module carries the types, constants and functions a systems program needs,
+  generated from the target's headers and checked by layout assertions. It is
+  versioned with the stdlib, signed, and its `unsafe` surface is the same in
+  every package that uses it.
+- [ ] **Step 6: The boundary is honest about what it costs.** A C library that
+  allocates memory the Yashy side must free gets a `free` function in the
+  wrapper; a callback that outlives the call is documented and requires a
+  lifetime token; `errno` is read immediately and returned as a `Result`. The
+  docs name every case where Yashy cannot make the C library safe.
+- [ ] **Step 7: Commit.**
+
+### Task 10: Every host language
+
+**Files:**
+- Create: `crates/yashy-driver/src/bridge.rs` (one ABI description, N generators)
+- Create: `crates/yashy-driver/src/bridges/{jni,dotnet,go,ruby,swift,php,lua,r}.rs`
+- Create: `packages/bridge/templates/`, `examples/interop/{java,dotnet,go,ruby,swift,php,lua,r}/`
+- Create: `docs/interop-matrix.md` (generated)
+- Test: `crates/yashy-driver/tests/bridge.rs`, one host test per language
+
+**Interfaces:**
+- `bridge(export_list, host) -> GeneratedFiles`; `yashyc bridge --host java|dotnet|go|ruby|swift|php|lua|r`
+- Hosts: Java (JNI and Panama FFM), .NET (P/Invoke and NativeAOT), Go (cgo), Ruby (C extension and Fiddle), Swift (module map), PHP (FFI), Lua (C module), R (C extension)
+- The same export list, ownership annotations and error codes as Task 8
+
+- [ ] **Step 1: Write the failing test.** One Yashy library with a function, a
+  `repr(C)` struct, a callback and a `Result` is called from Java (JNI and
+  Panama), .NET, Go, Ruby, Swift, PHP, Lua and R; each host asserts the value,
+  the error path, the callback and no leak. A host whose toolchain is absent is a
+  skip with a reason, never a green.
+- [ ] **Step 2: One bridge model, N renderings.** The export list, the layout
+  table and the ownership annotations generate every host's glue; no host gets a
+  hand-written ABI. A change to the export list regenerates all of them, and
+  `--check` fails when a checked-in bridge drifts.
+- [ ] **Step 3: Memory belongs to one side.** A value returned to a GC host is
+  copied or transferred with an explicit function; a borrowed value is valid only
+  for the call; a host finalizer never frees Yashy memory and Yashy never frees
+  host memory. The rule is in the generated comment and in a test with both
+  allocators.
+- [ ] **Step 4: Threads and callbacks are documented.** A callback may arrive on
+  a host thread; the generated glue enters the Yashy runtime on that thread and
+  does not assume a thread-local. An async host (Node, .NET, Java) gets a
+  completion callback, not a blocking call smuggled onto its event loop.
+- [ ] **Step 5: Embedding is the other direction.** A Yashy program can embed a
+  Lua, Python or JavaScript (QuickJS) interpreter through a capability-gated
+  package, call a script and receive a typed value; a host exception or script
+  error becomes a `Result`. The same ownership and thread rules apply.
+- [ ] **Step 6: The matrix is generated and honest.** `docs/interop-matrix.md`
+  renders host, version, direction, supported types, async, threads and test
+  status from the tests; a host with a partial bridge says which types are
+  missing, and no host is claimed on a build alone.
+- [ ] **Step 7: Commit.**
+
 ## Gates
 
 | Gate | Command | Passes when |
@@ -240,6 +391,14 @@ having before the AI phase writes documentation about the language.
 | Interop | `examples/interop/cpp/tests`, `packages/{python,node}/tests` | C++, Python and Node calls pass; no cross-allocator free |
 | SIMD | `yashyc bench simd --check-baseline` | correct on both targets; speedup recorded |
 | FFI conformance | `cargo test -p yashy-driver --test ffi_conformance` | every ABI case passes on both OSes and both architectures |
+| Library | `cargo test -p yashy-driver --test library` | C, C++, Python and Node call the shared and static library; header round-trips; only exports are visible |
+| Native libs | `cargo test -p yashy-driver --test native --test pkg_config --test build_script` | pkg-config, vendored source and prebuilt static all link and run; missing input is a diagnostic; a build script is sandboxed and deterministic |
+| `-sys`/wrapper | `yashyc verify --ffi packages/sqlite3` | raw pointers only in `-sys`; safe wrapper returns `Result`; no leak; unsafe surface counted |
+| Host matrix | `cargo test -p yashy-driver --test bridge` plus one host test each | Java, .NET, Go, Ruby, Swift, PHP, Lua and R call the same library; absent host is a reasoned skip |
+| Bridge drift | `yashyc bridge --check` | every generated host file matches the export list; a checked-in drift fails |
+| Embedding | `examples/interop/embed/tests` | Lua/Python/JS script returns a typed value; a script error is a `Result` |
+| Symbol/version | `yashyc build --emit=cdylib --check-symbols <old>` | a removed export is breaking; SONAME and version script are present |
+| Size | `yashyc bench size --check-baseline` | every target's recorded bytes are within the 5% budget |
 | No regression | `cargo test --workspace` | green on Windows and Linux |
 | No P0 | `docs/triage.md` | no P0 |
 
@@ -262,6 +421,42 @@ simd      52.1 ms   7.9×
 ```
 
 ```console
+$ yashyc build examples/interop/library/lib.ya --emit=cdylib --header lib.h
+built lib.so  18,240 B  exports 3  hidden 141  soname libyashy_lib.so.1
+wrote lib.h   3 declarations, 1 struct, 1 enum, 1 callback
+
+$ cc caller.c -L. -lyashy_lib -o caller && ./caller
+sum(2, 3) = 5  order = {id: 7, total: 1250}  callback ok
+
+$ python -c "import ctypes; print(ctypes.CDLL('./lib.so').yashy_sum(2, 3))"
+5
+```
+
+```console
+$ yashyc native add sqlite3
+sqlite3-sys 3.51.0  pkg-config sqlite3 >= 3.40  static  headers 1  libs 1
+wrote packages/sqlite3-sys/{native.toml, sqlite3.ya, build.ya}
+generated 142 declarations  layout checked 142/142  unsafe 96
+sqlite3 3.51.0  safe wrapper 24 functions  tests 18
+
+$ yashyc doctor --native
+target x86_64-pc-windows-msvc
+  pkg-config 0.29  OK
+  cc         cl.exe 19.44  OK
+  sqlite3    3.51.0  static  sha256 5b1e…  C:\vendor\sqlite3.lib
+  libc       generated  target-matched  signed
+```
+
+```console
+$ yashyc bridge --host java --host dotnet --host go --host lua --check
+java    JNI + Panama   3 exports  1 struct  1 callback  ok
+dotnet  P/Invoke       3 exports  1 struct  1 callback  ok
+go      cgo            3 exports  1 struct  1 callback  ok
+lua     C module       3 exports  1 struct  1 callback  ok
+matrix  generated      docs/interop-matrix.md        no drift
+```
+
+```console
 $ yashyc playground --wasm
 serving http://127.0.0.1:8080  (offline, compiler in the tab)
 ```
@@ -274,6 +469,17 @@ serving http://127.0.0.1:8080  (offline, compiler in the tab)
   release.
 - Auto-vectorisation of arbitrary loops; that is Phase 11B's proved patterns.
 - A hosted playground with accounts or storage.
+- A C++ ABI (name mangling, exceptions, templates); the library surface is C.
+- A JVM/CLR/Go runtime written in Yashy; the bridges are native libraries the
+  host loads.
+- Running an arbitrary build system (`make`, CMake, Meson) as part of a build;
+  `[native]` and a sandboxed `build.ya` are the supported forms.
+- A general-purpose package manager for C libraries; pkg-config, a path and a
+  vendored source are the inputs.
+- Auto-generating a safe wrapper from a header without a human contract; the
+  `-sys` package is generated, the safe wrapper is written and tested.
+- A plugin loader with hot reload of a shared library; `dlopen` resolves a
+  symbol and the host owns the lifecycle.
 - Claiming macOS before the Phase 14 signed archive.
 
 ## Risks
@@ -287,4 +493,12 @@ serving http://127.0.0.1:8080  (offline, compiler in the tab)
 | Host and Yashy allocators free each other's memory | Copy or transfer is explicit in the function name; a test with both allocators |
 | SIMD changes results | Scalar differential on both targets; portable surface only |
 | `dlopen` widens the attack surface | Capability-gated under the sandbox; path allowlist; a `Result` on a missing symbol |
+| A library export changes ABI silently | The export list generates the header, the version script and the symbol diff; a removed or re-typed export is breaking |
+| A panic crosses the C boundary | Every export catches and returns a documented error code; unwinding out of an export is a test failure |
+| Binary size drifts | A recorded per-target size row with a 5% budget, strip/split-debuginfo/GC options, and a reason required to raise it |
+| A native library links on one machine and not another | Resolved path/hash recorded, pkg-config and sysroot per target, a missing input is a diagnostic, cross use of a host library is refused |
+| A `build.ya` becomes an unaudited shell | Declarative `[native]` first; the script is sandboxed, capped, deterministic, hashed and only reached when the declarative form cannot express the build |
+| A safe wrapper is not safe | `-sys` owns `unsafe`; wrapper returns `Result`/`Option`; layout assertions; leak tests; `verify --ffi` counts the surface |
+| A host bridge frees the wrong memory | Copy or transfer is in the generated signature and comment; both-allocator tests; a finalizer never frees Yashy memory |
+| A host claims support it does not have | The matrix is generated from tests; a partial bridge names missing types; an absent toolchain is a reasoned skip, never green |
 | macOS slips again | macOS stays unclaimed until the signed archive exists; the matrix says "build only" until then |

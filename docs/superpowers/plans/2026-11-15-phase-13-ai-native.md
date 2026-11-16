@@ -8,15 +8,18 @@ validated patches instead of rewriting files, it runs the compiler inside a
 default-deny sandbox, and it can prove the result deterministically.
 
 **Outcome:** MCP v1 with structured edits, refactor, fix, format, lint, `doc`,
-`bench`, `profile` and a sandboxed `run`; a semantic graph that carries types,
-effects, contracts, ownership and the call graph for every 2.0 form; context
-packs selected by focus/diff/tests/docs and capped at 8k tokens; an agent
-benchmark v2 that runs reproducibly; a sandbox v1 with capabilities and resource
-limits and zero escapes in the corpus; generated `AGENTS.md`/`llms.txt` and
-per-symbol docs; provenance for every edit; and the BPE gate over the whole
+`bench`, `profile` and a sandboxed `run`; a policy file, a hash-chained audit
+log and an approval flow for destructive work; a semantic graph that carries
+types, effects, contracts, ownership and the call graph for every 2.0 form;
+semantic review and impact analysis; context packs selected by
+focus/diff/tests/docs and capped at 8k tokens; an agent benchmark v2 with
+held-out tasks and cost metrics that runs reproducibly; a sandbox v1 with
+capabilities and resource limits and zero escapes in the corpus; generated
+`AGENTS.md`/`llms.txt` and per-symbol docs; a stable `yashy-sdk` for embedding
+the compiler; provenance for every edit; and the BPE gate over the whole
 surface.
 
-**Time:** ~7 weeks.
+**Time:** ~9 weeks.
 **Depends on:** Phase 12 gate.
 **Spec:** [`../specs/2026-11-15-yashy-2.0-design.md`](../specs/2026-11-15-yashy-2.0-design.md) §6.5, §6.8, §14 (calls 11, 14).
 
@@ -45,6 +48,10 @@ agent run reproducible.
 | Index/graph | names, kinds, spans, imports, call edges; no types, effects or contracts per symbol |
 | `context` | budgeted excerpts; no focus/diff/tests/docs modes |
 | Agent docs | `llms.txt` hand-written; no `AGENTS.md` generation |
+| Agent policy | none; an agent with write access can change anything the sandbox path allows |
+| Audit | none; provenance is per edit, not a tamper-evident log |
+| Review/impact | a text diff; no semantic change summary or caller/test impact |
+| SDK | none; tools use the CLI |
 | Agent benchmark | none |
 | BPE | unmeasured (Phase 4 audits new forms) |
 | Determinism | contract from Phase 4; scheduler from Phase 10 |
@@ -199,7 +206,12 @@ agent run reproducible.
 - [ ] **Step 3: The benchmark is a regression gate, not a leaderboard.** It
   runs on the repo's own fixtures, needs no network, and a drop of more than the
   recorded threshold fails CI. No private model is required to run it.
-- [ ] **Step 4: Commit.**
+- [ ] **Step 4: Held-out tasks and cost are part of the result.** A held-out
+  set the implementation never sees is scored separately; every run reports
+  tokens, tool calls, wall time, edits, refused calls and unsafe additions, so a
+  cheap wrong answer and an expensive right one are distinguishable. A task that
+  passes only by disabling verification is scored as a failure.
+- [ ] **Step 5: Commit.**
 
 ### Task 6: Agent docs and provenance
 
@@ -241,6 +253,89 @@ agent run reproducible.
   without a number.
 - [ ] **Step 4: Commit.**
 
+### Task 8: Agent policy, audit and approval
+
+**Files:**
+- Create: `crates/yashy-driver/src/agent_policy.rs`, `crates/yashy-driver/src/audit_log.rs`, `crates/yashy-driver/src/approval.rs`
+- Modify: `crates/yashy-driver/src/mcp.rs`, `crates/yashy-driver/src/sandbox/mod.rs`
+- Create: `docs/agent-policy.md`
+- Test: `crates/yashy-driver/tests/agent_policy.rs`, `crates/yashy-driver/tests/audit_log.rs`, `crates/yashy-driver/tests/approval.rs`
+
+**Interfaces:**
+- `.yashy/policy.toml`: `allow_verbs`, `deny_paths`, `allow_write`, `allow_net`, `allow_ffi`, `max_edits`, `max_tokens`, `max_wall`, `require_approval`, `protected_paths`
+- `AuditEntry { seq, prev_hash, session, verb, args_digest, decision, reason, tree_hash, timestamp, signature }`
+- `Approval { tree_hash, patch_hash, verbs, expires, nonce }`
+
+- [ ] **Step 1: Write the failing test.** A policy that allows `edit` but denies
+  `run` refuses `run` by name and writes the refusal to the audit log. A policy
+  with `protected_paths = ["yashy.lock", ".github/**"]` refuses an edit there
+  even when the sandbox path allows it. A patch that exceeds `max_edits` or a
+  verb that exceeds `max_wall` is refused before it runs. A destructive patch
+  without an approval token is held as a plan; the same patch with a valid token
+  applies once and the token cannot be replayed.
+- [ ] **Step 2: Policy is the product's, not the agent's.** The policy file is
+  read from the workspace root, is itself protected, and a change to it is an
+  audited event that a session cannot self-approve. Precedence is one rule:
+  policy denies, then sandbox denies, then the verb runs. A missing policy is
+  the strict default, never "allow all".
+- [ ] **Step 3: The audit log is tamper-evident.** Entries are append-only
+  JSONL, hash-chained (`prev_hash`), signed by the session key, redacted by the
+  same rules as a trace, and rotated with a size cap. `yashyc agent audit
+  --verify` detects a removed or reordered entry and names the first bad seq. A
+  refused call is an entry; a silent call is a bug.
+- [ ] **Step 4: Approval is a capability, not a prompt.** `plan` returns the
+  diff, the affected symbols, the capabilities and the exact verbs; `approve`
+  mints a short-lived token bound to the tree hash, the patch hash and the verb
+  set. A token from one tree cannot apply to another; an expired token is
+  refused; a replay is refused and logged.
+- [ ] **Step 5: Budgets are enforced, not suggested.** Token, edit, wall-clock
+  and output budgets are counted by the harness, reported in `--json`, and a
+  breach stops the session with a diagnostic. An agent cannot raise its own
+  budget; only the policy can.
+- [ ] **Step 6: Commit.**
+
+### Task 9: Semantic review, impact and a stable SDK
+
+**Files:**
+- Create: `crates/yashy-driver/src/review.rs`, `crates/yashy-driver/src/impact.rs`, `crates/yashy-sdk/src/lib.rs`
+- Modify: `crates/yashy-driver/src/main.rs` (`review`, `impact`), `crates/yashy-lsp/src/main.rs`
+- Modify: `crates/yashy-driver/src/mcp.rs` (resources, prompts, annotations, cancellation, progress)
+- Create: `docs/review.md`, `docs/sdk.md`
+- Test: `crates/yashy-driver/tests/review.rs`, `crates/yashy-driver/tests/impact.rs`, `crates/yashy-sdk/tests/sdk.rs`
+
+**Interfaces:**
+- `Review { changes: Vec<SemanticChange>, public_break: bool, capability_delta, unsafe_delta, test_delta, risk }`
+- `impact(base: Revision, ws: &Workspace) -> Impact { callers, tests, packages, examples, docs }`
+- `yashy_sdk::{check, build, test, verify, explain, context, index, review}`
+
+- [ ] **Step 1: Write the failing test.** A commit that changes a public
+  function's signature, adds an `unsafe` block, widens a capability and drops a
+  test is summarized as four semantic changes with spans, a breaking-API flag and
+  the exact impacted tests. A purely internal rename reports no public break and
+  a bounded impact. `yashyc review --json` and the human rendering agree.
+- [ ] **Step 2: Review reads the graph, not the diff.** Changes are classified
+  by symbol and kind (signature, behaviour, effect, contract, capability,
+  ownership, unsafe, docs) and the public/private boundary comes from the
+  visibility model. A diff that touches only comments is reported as no semantic
+  change. Impact reuses the Phase 9 impacted-test graph and names every test,
+  package, example and doc page to re-run.
+- [ ] **Step 3: The SDK is the one embedding surface.** A Rust crate exposes the
+  seven compiler verbs, review, impact and the graph with a stable typed API and
+  one error type; the CLI, LSP, MCP and the test harness call the same crate, so
+  there is no second pipeline. The SDK is `#![forbid(unsafe_code)]` and has a
+  semver policy from the first release.
+- [ ] **Step 4: MCP is complete, not just verbs.** Tools carry annotations
+  (`readOnly`, `destructive`, `idempotent`), structured content and a result
+  schema; resources expose the graph, diagnostics and docs; prompts are versioned
+  templates shipped by the compiler; long operations support progress and
+  cancellation. A cancelled tool stops work and leaves no partial edit.
+- [ ] **Step 5: Untrusted text is labelled, never obeyed.** A file, an issue
+  body, a dependency README or a tool result that contains instructions is marked
+  `untrusted` in the structured output, and a prompt-injection fixture asserts
+  that the harness never turns it into a policy change, a verb or a path. The
+  label travels with the content into context packs.
+- [ ] **Step 6: Commit.**
+
 ## Gates
 
 | Gate | Command | Passes when |
@@ -250,6 +345,10 @@ agent run reproducible.
 | Context | `cargo test -p yashy-driver --test pack` | every mode ≤ 8k tokens; omissions named; stale revision detected |
 | Sandbox | `cargo test -p yashy-driver --test sandbox_escape --test sandbox_limits` | zero escapes on both OSes; every limit fires with a code |
 | Benchmark | `yashyc agent bench --check-baseline` | 10 tasks; checks pass/fail as intended; deterministic trace; no regression |
+| Policy/audit | `cargo test -p yashy-driver --test agent_policy --test audit_log --test approval` | denied verb refused; protected path refused; audit chain verifies; token cannot be replayed |
+| Review/impact | `cargo test -p yashy-driver --test review --test impact` | semantic changes classified; public break flagged; impacted tests named; comment-only diff is empty |
+| SDK | `cargo test -p yashy-sdk --test sdk` | verbs, review, impact and graph agree with the CLI; no second pipeline |
+| MCP completeness | `cargo test -p yashy-driver --test mcp` | annotations, resources, prompts, progress and cancellation work; injection fixture is labelled and ignored |
 | Docs/provenance | `cargo test -p yashy-driver --test agents --test provenance` | generated docs stable; every edit has provenance |
 | BPE | `cargo test -p yashy-driver --test bpe` | 100% keywords/operators single-token; corpus ≥ 97% |
 | No regression | `cargo test --workspace` | green on Windows and Linux |
@@ -276,6 +375,27 @@ $ yashyc agent bench --deterministic
 ```
 
 ```console
+$ yashyc agent plan --verb edit --patch patch.json
+plan   4 edits  1 file  tree 91c2…  risk: 1 public signature change, 1 test dropped
+approval required  (policy: protected_paths, destructive edit)
+$ yashyc agent approve --plan 91c2… --for 10m
+token  9f3a…  verbs edit  expires 10m  bound tree 91c2…  patch 44d1…
+$ yashyc agent apply --token 9f3a…
+applied  audit seq 812  prev 7c0e…  signature ok
+
+$ yashyc review --base HEAD~1
+semantic changes 4  public break: yes  capabilities: +net  unsafe: +1  tests: -1
+impact  3 tests, 1 package, 1 example, 2 doc pages
+$ yashyc agent audit --verify
+812 entries  chain ok  first bad: none  secrets redacted 3 keys
+```
+
+```console
+$ yashyc agent bench --held-out --json | yashyc agent bench summary
+held-out 8/10  tokens 38,109  tool calls 74  wall 6m12s  refused 3  unsafe added 0
+```
+
+```console
 $ yashyc tokens --bpe --json | yashyc tokens summary
 keywords 100% (68/68)  operators 100% (41/41)  corpus 98.4%
 ```
@@ -289,6 +409,12 @@ keywords 100% (68/68)  operators 100% (41/41)  corpus 98.4%
 - Network access from a sandboxed verb.
 - A GUI agent console; the LSP and MCP are the surfaces.
 - Per-model prompt tuning inside the compiler.
+- A model, an agent runtime or a hosted review service; the SDK, policy, audit
+  log and review are local and provider-neutral.
+- Approving work on the user's behalf; approval is a token the human or CI
+  mints, never the agent.
+- Automatic semantic interpretation of untrusted text as instructions; text is
+  labelled and remains data.
 
 ## Risks
 
@@ -302,3 +428,7 @@ keywords 100% (68/68)  operators 100% (41/41)  corpus 98.4%
 | Generated docs drift | Rendered from compiler tables; a hand-edited generated page fails the test |
 | BPE work becomes aesthetic churn | Every decision records its measurement; only measured rejections |
 | An agent's work is unattributable | Provenance on every edit and every commit annotation, opt-in |
+| An agent exceeds its mandate | Policy file (protected, strict default), sandbox, budgets, approval token bound to tree+patch+verbs, tamper-evident audit log |
+| Review approves a breaking change as internal | Public/private comes from the visibility model; a signature/effect/capability change is breaking; a comment-only diff is empty |
+| The SDK becomes a second pipeline | CLI, LSP, MCP and tests all call `yashy-sdk`; the SDK wraps the same driver |
+| Prompt injection turns text into a verb | Untrusted content is labelled in structured output; a fixture asserts no verb, path or policy change; approval never comes from the agent |

@@ -12,11 +12,13 @@ migration path, and a signed, reproducible, install-tested 2.0 release.
 mismatches and bootstraps a third stage that is byte-identical to the second; a
 versioned language reference and a conformance suite (`yashyc conformance`) pass
 on every claimed target; `edition = "2027"`, `yashyc migrate` and a deprecation
-policy ship; 1.0 gets an 18-month LTS; the RFC process, security audit, CVE
-process and hardening land; and the 2.0 archives are signed, reproducible,
-install-tested on Windows, Linux and macOS, and published with an SBOM.
+policy ship; nightly/beta/stable channels with versioned docs and a live
+benchmark dashboard ship; 1.0 gets an 18-month LTS; the RFC process, security
+audit, advisory database, CVE process and hardening land; and the 2.0 archives
+are signed, reproducible, install-tested on Windows, Linux and macOS, and
+published with an SBOM.
 
-**Time:** ~10 weeks.
+**Time:** ~11 weeks.
 **Depends on:** Phase 13 gate.
 **Spec:** [`../specs/2026-11-15-yashy-2.0-design.md`](../specs/2026-11-15-yashy-2.0-design.md) §6.9, §12, §13, §14.
 
@@ -50,6 +52,11 @@ end stays the reference for the 2.0 release (design call 7).
 | LTS / RFC / deprecation | none |
 | Security audit / CVE process | none |
 | Release | archives per OS; signed secrets absent; `--reproducible` exists |
+| Channels | one archive per release; no nightly, beta or pinned-toolchain command |
+| Docs | one current version; no versioned reference |
+| Benchmark dashboard | ad hoc rows; no published history |
+| Advisories | none; no advisory database, no `yashyc audit` feed |
+| Community | no contributor guide or RFC process |
 | macOS | unsigned, unclaimed |
 | Platform claim | Windows and Linux |
 
@@ -228,6 +235,71 @@ end stays the reference for the 2.0 release (design call 7).
   release.
 - [ ] **Step 6: Commit and tag.**
 
+### Task 8: Release channels, versioned docs and the benchmark dashboard
+
+**Files:**
+- Create: `crates/yashy-driver/src/channel.rs`, `scripts/release/channel.*`
+- Modify: `crates/yashy-driver/src/main.rs` (`toolchain`, `channel`)
+- Create: `docs/channels.md`, `docs/versioned/` (generated)
+- Create: `benchmarks/dashboard/` (generated from `bench --json`)
+- Test: `crates/yashy-driver/tests/channel.rs`, `crates/yashy-driver/tests/docs_versioned.rs`
+
+**Interfaces:**
+- `Channel = Nightly | Beta | Stable | Pinned(Version)`
+- `yashyc toolchain install <channel>`; `yashyc toolchain list`; `yashyc channel set <channel>`
+- `docs/versioned/<version>/` generated from `yashyc doc`; a redirect map for moved pages
+
+- [ ] **Step 1: Write the failing test.** Install nightly, beta and a pinned
+  1.0 and 2.0 side by side; `yashyc +2.0.0 check` uses the pinned toolchain;
+  `channel set beta` changes the default and prints the previous value. A
+  project with a `toolchain = "2.0"` key resolves to the newest stable 2.0 and
+  refuses a version it does not have with the install command in the message.
+- [ ] **Step 2: A channel is a signed pointer, not a branch.** Each channel
+  points at an immutable, signed, reproducible archive; promoting a build writes
+  a new pointer and never rebuilds. Nightly is allowed to fail; beta and stable
+  are gated by the full release checklist. Two toolchains can be installed at
+  once and nothing is mutated in place.
+- [ ] **Step 3: Docs are versioned with the compiler.** `yashyc doc` writes a
+  versioned tree; the current version is a pointer; a removed page gets a
+  redirect with the reason and the replacement. A docs build fails when a code
+  sample in the reference does not compile under the versioned compiler.
+- [ ] **Step 4: The benchmark dashboard is a fact, not a screenshot.** Every
+  merged benchmark row is appended to a JSON history keyed by compiler hash,
+  target and toolchain; the dashboard page is generated from it and shows the
+  row, the baseline and the delta. A row that regresses more than its budget
+  fails CI; a row without history is marked "new", never "green".
+- [ ] **Step 5: Commit.**
+
+### Task 9: Advisories, migration guides and community
+
+**Files:**
+- Create: `docs/advisories/`, `crates/yashy-driver/src/advisory.rs`
+- Modify: `crates/yashy-driver/src/audit.rs` (advisory feed)
+- Create: `docs/migrate/1.0-to-2.0.md`, `docs/migrate/2.0-to-2027.md`
+- Create: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `docs/governance.md`
+- Test: `crates/yashy-driver/tests/advisory.rs`, `crates/yashy-driver/tests/migrate_docs.rs`
+
+- [ ] **Step 1: Write the failing test.** A crafted advisory names a package,
+  a version range, a severity and a fixed version; `yashyc audit` refuses a
+  project inside the range and names the advisory, the range and the fix. An
+  advisory with a bad signature or an unknown schema is refused. A migration
+  guide's code blocks compile under both the old and the new compiler and its
+  claims match `yashyc migrate --dry-run`.
+- [ ] **Step 2: Advisories are a signed feed, not a web page.** The format is
+  a small, versioned JSON document signed by the release key; the feed is
+  fetched only with the `net` capability and cached offline. A project can pin
+  the feed and fail closed; `--offline` uses the cache and says how old it is.
+- [ ] **Step 3: Migration guides are tested programs.** Each edition pair has
+  a guide whose snippets are compiled, whose before/after is produced by
+  `migrate`, and whose breaking changes link to the RFC and the diagnostic code.
+  A guide that drifts from the tool is a docs-test failure.
+- [ ] **Step 4: The community process is in the repo.** A contributor guide
+  names the build, test, format and review commands; an RFC has a decision log;
+  a code of conduct and a security policy name a contact; a good-first-issue
+  list is generated from the traceability matrix, not hand-curated. A release
+  notes page is generated from merged RFCs and advisories.
+- [ ] **Step 5: Commit.**
+
 ## Gates
 
 | Gate | Command | Passes when |
@@ -241,6 +313,11 @@ end stays the reference for the 2.0 release (design call 7).
 | Reproducible | `cargo test -p yashy-driver --test reproducible` | two directories, three OSes, identical bytes |
 | Install matrix | `scripts/install/test-install.*` | Windows, Linux and macOS install, verify, `doctor`, uninstall |
 | Release | `cargo test -p yashy-driver --test release` | signed, SBOM, `self-update` verifies, tamper refused |
+| Channels | `cargo test -p yashy-driver --test channel` | nightly/beta/stable/pinned coexist; a channel is a signed pointer; a missing version names install |
+| Versioned docs | `cargo test -p yashy-driver --test docs_versioned` | versioned tree generated; redirects resolve; samples compile under that version |
+| Benchmark dashboard | `yashyc bench dashboard --check` | history keyed by compiler/target/toolchain; regression fails; a new row is not green |
+| Advisories | `cargo test -p yashy-driver --test advisory` | signed feed; range match refused; bad schema refused; offline age reported |
+| Migration docs | `cargo test -p yashy-driver --test migrate_docs` | snippets compile on both versions; claims match `migrate --dry-run` |
 | No regression | `cargo test --workspace` | green on Windows and Linux (and macOS once claimed) |
 | No P0 | `docs/triage.md` | no P0 |
 
@@ -270,6 +347,21 @@ fuzz ok   asan/ubsan/tsan ok   alias ok   determinism ok   sandbox ok
 no P0   release: yashy 2.0.0
 ```
 
+```console
+$ yashyc toolchain install stable && yashyc toolchain install 1.0.12
+stable 2.0.0 (sha256 4c1e…)  installed
+1.0.12 (sha256 8a02…)       installed
+$ yashyc +1.0.12 check legacy/main.ya
+ok  edition 1.0  toolchain 1.0.12
+
+$ yashyc audit
+1 advisory  RUSTSEC-2027-0003  compress < 2.0.1  severity high
+  fix: yashyc update compress --to 2.0.1   feed age: 2 h
+
+$ yashyc bench dashboard --check
+rows 94  regressions 0  new 1 (marked, not green)  history 2.0.0…2.0.0+41
+```
+
 ## Out of scope
 
 - A fully self-hosted compiler (codegen, verifier, linker). The front end
@@ -278,6 +370,12 @@ no P0   release: yashy 2.0.0
 - Rewriting 1.0 code automatically beyond the documented migration rewrites;
   `migrate` reports, it does not guess.
 - A hosted documentation site with accounts.
+- A general-purpose version manager or a package manager for other languages;
+  `yashyc toolchain` installs Yashy toolchains, not arbitrary software.
+- A live telemetry service or a public benchmark leaderboard; the dashboard is a
+  generated page over in-repo history.
+- A bug bounty programme or legal governance entity; the security policy and
+  advisory feed are technical artefacts the repo can enforce.
 - A long-term support promise beyond the 18-month 1.0 window.
 - Claiming a platform that has not passed the install matrix and conformance.
 
@@ -293,3 +391,7 @@ no P0   release: yashy 2.0.0
 | macOS is claimed without proof | Signed, notarised archive and the full matrix, or the platform stays unclaimed |
 | LTS is a promise nobody can keep | The window is written, the qualifying fixes are named, and the 1.0 branch is tested in CI |
 | The 2.0 tag ships with an open P0 | `doctor --release` refuses; the checklist is executable, not prose |
+| A channel pointer is rebuilt or diverges | Channels point at immutable signed archives; promotion writes a pointer; the archive is never rebuilt |
+| An advisory feed is stale or spoofed | Signed versioned feed, capability-gated, cached with its age, fail-closed when pinned |
+| Docs for an older version rot | Versioned docs are generated and samples compile under that version; a removed page has a redirect |
+| The dashboard becomes decoration | History keyed by compiler/target/toolchain, a regression fails CI, a new row is not green |
