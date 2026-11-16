@@ -254,6 +254,27 @@ pub fn render_verb(name: &str) -> Option<String> {
     Some(out)
 }
 
+/// Render the man page from the command table.
+pub fn render_man() -> String {
+    let mut out = String::from(
+        ".TH YASHC 1 \"2026\" \"Yashy\" \"Yashy Manual\"\n"
+    );
+    out.push_str(".SH NAME\n");
+    out.push_str("yashyc \\- the Yashy compiler\n");
+    out.push_str(".SH SYNOPSIS\n");
+    out.push_str(".B yashyc\n");
+    out.push_str("<command> [options]\n");
+    out.push_str(".SH DESCRIPTION\n");
+    out.push_str("Yashy compiles a statically typed, ownership-explicit language to native binaries through LLVM.\n");
+    out.push_str(".SH COMMANDS\n");
+    for command in COMMANDS {
+        out.push_str(&format!(".TP\n.B {}\n{}\n", command.name, command.summary));
+    }
+    out.push_str(".SH SEE ALSO\n");
+    out.push_str("yashyc help, docs/tutorial/00-intro.md\n");
+    out
+}
+
 /// Generate a completion script for one shell.
 pub fn render_completions(shell: &str) -> Result<String, String> {
     let names: Vec<&str> = COMMANDS.iter().map(|command| command.name).collect();

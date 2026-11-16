@@ -91,6 +91,7 @@ usage:
   yashyc fmt [-w | --check] [--json] <files...>
   yashyc help [verb]
   yashyc completions <bash|zsh|fish|powershell>
+  yashyc man
   yashyc version
 
   build   compile a program to a native executable
@@ -189,6 +190,10 @@ fn dispatch(args: &[String]) -> ExitCode {
         }
         "help" | "--help" | "-h" => help_cmd(rest),
         "completions" => completions_cmd(rest),
+        "man" => {
+            print!("{}", yashy_driver::cli_spec::render_man());
+            exit_code(EXIT_OK)
+        }
         "build" => build(CommandKind::Build, rest),
         "run" => run(rest),
         "tasks" => tasks(rest),

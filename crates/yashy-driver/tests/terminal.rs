@@ -64,6 +64,16 @@ fn completions_cover_every_verb_for_every_shell() {
 }
 
 #[test]
+fn the_man_page_renders_every_verb() {
+    let (code, stdout, stderr) = run(&["man"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.starts_with(".TH YASHC 1"), "{stdout}");
+    for command in COMMANDS {
+        assert!(stdout.contains(&format!(".B {}", command.name)), "{stdout}");
+    }
+}
+
+#[test]
 fn an_unknown_verb_suggests_the_nearest_one() {
     let (code, _, stderr) = run(&["biuld"]);
     assert_eq!(code, 2, "{stderr}");
