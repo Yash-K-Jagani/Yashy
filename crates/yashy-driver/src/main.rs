@@ -33,10 +33,11 @@ use yashy_common::{
     codes, Diagnostic, FileId, Json, Severity, SourceMap, Span, EXIT_COMPILE_ERROR, EXIT_INTERNAL,
     EXIT_OK, EXIT_USAGE,
 };
+use yashy_driver::test_harness::{self, TestStatus};
 use yashy_driver::{
-    check_and_verify_timed, compile_hir_timed, detect, load_and_check_exports_timed,
-    load_and_check_timed, opt_report, resolve_opt, timed, BuildOptions, CommandKind, CpuTarget,
-    OptLevel, TimingRow,
+    check_and_verify_timed, compile_hir_timed, detect, diagnostic_json,
+    load_and_check_exports_timed, load_and_check_timed, opt_report, resolve_opt, span_json, timed,
+    BuildOptions, CommandKind, CpuTarget, OptLevel, TimingRow,
 };
 use yashy_manifest::{Lockfile, Manifest};
 use yashy_verify::{first_contract, Assumption, ContractMode, VerifyOptions, VerifyReport};
@@ -622,6 +623,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
                     escape,
                     facts,
                     intern,
+                    entry_symbol: None,
                     async_,
                     target,
                 };
@@ -652,6 +654,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
                     escape,
                     facts,
                     intern,
+                    entry_symbol: None,
                     async_,
                     target,
                 };
@@ -826,7 +829,8 @@ fn playground(args: &[String]) -> ExitCode {
         .map(|address| address.to_string())
         .unwrap_or_else(|_| format!("{host}:{port}"));
     println!("playground: http://{address}");
-    let mut server = yashy_driver::playground::Server::new(yashy_driver::playground::Limits::default());
+    let mut server =
+        yashy_driver::playground::Server::new(yashy_driver::playground::Limits::default());
     if let Err(error) = yashy_driver::playground::serve(&mut server, listener) {
         eprintln!("error: the playground stopped: {error}");
         return exit_code(EXIT_INTERNAL);
@@ -1327,7 +1331,6 @@ fn test(args: &[String]) -> ExitCode {
     let mut json = false;
     let mut timings_flag = false;
     let mut jobs: usize = 0;
-    let mut jobs_given = false;
     let mut target: Option<&'static str> = None;
 
     let mut iter = args.iter();
@@ -1360,7 +1363,6 @@ fn test(args: &[String]) -> ExitCode {
                 match value.parse::<usize>() {
                     Ok(parsed) => {
                         jobs = parsed;
-                        jobs_given = true;
                     }
                     Err(_) => return usage_error("`--jobs` needs a whole number"),
                 }
@@ -1375,7 +1377,6 @@ fn test(args: &[String]) -> ExitCode {
                 match other["--jobs=".len()..].parse::<usize>() {
                     Ok(parsed) => {
                         jobs = parsed;
-                        jobs_given = true;
                     }
                     Err(_) => return usage_error("`--jobs` needs a whole number"),
                 }
@@ -1451,6 +1452,7 @@ fn test(args: &[String]) -> ExitCode {
             timings_flag,
             jobs,
             target.unwrap_or_else(host_target_triple),
+            &sandbox_env_refs,
         );
     }
 
@@ -1472,80 +1474,58 @@ fn test(args: &[String]) -> ExitCode {
         if tests.len() == 1 { "" } else { "s" }
     );
 
-    let mut passed = 0usize;
-    let mut failed = 0usize;
-    // A test that does not build never runs, so it is not a failing test. The
-    // per-test line already says so; the aggregate says it too.
-    let mut compile_errors = 0usize;
-    // One report for the suite: five lines per test would be noise, and what a
-    // user wants from `test --timings` is where the suite's wall time went.
-    let mut timings: Vec<TimingRow> = Vec::new();
-    for path in &tests {
-        let name = display_test_path(path);
-        let dir = temp_run_dir();
-        if let Err(error) = fs::create_dir_all(&dir) {
-            eprintln!("error: cannot create {}: {error}", dir.display());
-            failed += 1;
-            continue;
+    let toolchain = match detect() {
+        Ok(toolchain) => toolchain,
+        Err(message) => {
+            eprintln!("error: {message}");
+            return exit_code(EXIT_USAGE);
         }
-        let exe = dir.join(format!("test{}", std::env::consts::EXE_SUFFIX));
-        let mut build_args = vec![
-            path.to_string_lossy().into_owned(),
-            "-o".to_string(),
-            exe.to_string_lossy().into_owned(),
-        ];
-        // The build collects only when asked, and `test` prints the aggregate
-        // itself, so the flag travels without `build` printing per test.
-        if timings_flag {
-            build_args.push("--timings".to_string());
-        }
-        if jobs_given {
-            build_args.push("--jobs".to_string());
-            build_args.push(jobs.to_string());
-        }
-        if let Some(triple) = target {
-            build_args.push("--target".to_string());
-            build_args.push(triple.to_string());
-        }
-        let outcome = build_measured(CommandKind::Build, &build_args);
-        accumulate(&mut timings, &outcome.timings);
-        if outcome.code != exit_code(EXIT_OK) {
-            println!("test {name} ... FAILED (compile error)");
-            compile_errors += 1;
-            let _ = fs::remove_dir_all(&dir);
-            continue;
-        }
+    };
+    let report = test_harness::run_suite(
+        &tests,
+        &toolchain,
+        target.unwrap_or_else(host_target_triple),
+        jobs,
+        &sandbox_env_refs,
+    );
 
-        match output_with_env(&exe, &[], &sandbox_env_refs) {
-            Ok(output) if output.status.success() => {
-                println!("test {name} ... ok");
-                passed += 1;
+    for result in &report.results {
+        match result.status {
+            TestStatus::Passed => println!("test {} ... ok", result.name),
+            TestStatus::Failed => {
+                let suffix = result
+                    .exit
+                    .map(|code| format!(" (exit {code})"))
+                    .unwrap_or_default();
+                println!("test {} ... FAILED{}", result.name, suffix);
+                print!("{}", result.stdout);
+                eprint!("{}", result.stderr);
             }
-            Ok(output) => {
-                println!("test {name} ... FAILED");
-                print!("{}", String::from_utf8_lossy(&output.stdout));
-                eprint!("{}", String::from_utf8_lossy(&output.stderr));
-                failed += 1;
-            }
-            Err(error) => {
-                println!("test {name} ... FAILED (cannot run: {error})");
-                failed += 1;
+            TestStatus::CompileError => {
+                println!("test {} ... FAILED (compile error)", result.name);
+                for message in &result.messages {
+                    eprintln!("{message}");
+                }
             }
         }
-        let _ = fs::remove_dir_all(&dir);
     }
 
     println!();
     println!(
-        "test result: {}. {passed} passed; {failed} failed; {compile_errors} compile errors",
-        if failed == 0 && compile_errors == 0 {
+        "test result: {}. {} passed; {} failed; {} compile errors",
+        if report.failed == 0 && report.compile_errors == 0 {
             "ok"
         } else {
             "FAILED"
-        }
+        },
+        report.passed,
+        report.failed,
+        report.compile_errors,
     );
-    report_timings(&timings);
-    if failed == 0 && compile_errors == 0 {
+    if timings_flag {
+        report_timings(&report.timings);
+    }
+    if report.failed == 0 && report.compile_errors == 0 {
         exit_code(EXIT_OK)
     } else {
         exit_code(EXIT_COMPILE_ERROR)
@@ -1564,12 +1544,10 @@ fn test_json(
     timings_flag: bool,
     jobs: usize,
     target: &'static str,
+    sandbox_env: &[(&str, &str)],
 ) -> ExitCode {
     let mut global_sources = SourceMap::new();
-    let root_file = global_sources.add_file(root.display().to_string(), String::new());
-    // The suite's phase totals, so `test --json --timings` answers "where did
-    // the run spend its time?" without a line per test.
-    let mut timings: Vec<TimingRow> = Vec::new();
+    let _root_file = global_sources.add_file(root.display().to_string(), String::new());
 
     if tests.is_empty() {
         print_test_json(&global_sources, &[], &[], 0, 0, 0, None);
@@ -1579,240 +1557,51 @@ fn test_json(
     let toolchain = match detect() {
         Ok(toolchain) => toolchain,
         Err(message) => {
-            let diagnostic = Diagnostic::new(Severity::Error, root_file, Span::SYNTHETIC, message);
+            let diagnostic = Diagnostic::new(
+                Severity::Error,
+                FileId::from_index(0),
+                Span::SYNTHETIC,
+                message,
+            );
             print_test_json(&global_sources, &[diagnostic], &[], 0, 0, 0, None);
             return exit_code(EXIT_USAGE);
         }
     };
 
-    let mut results: Vec<Json> = Vec::new();
-    let mut passed = 0usize;
-    let mut failed = 0usize;
-    // A test that does not compile or does not verify never runs. Counting it
-    // as `failed` would tell a reader an assertion fired when the truth is that
-    // no test code ran, so it gets its own bucket and its own status.
-    let mut compile_errors = 0usize;
-
-    for path in tests {
-        let started = Instant::now();
-        let file = display_test_path(path);
-        let name = path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or(file.as_str())
-            .to_string();
-        let dir = temp_run_dir();
-        if let Err(error) = fs::create_dir_all(&dir) {
-            let file_id = global_sources.add_file(file.clone(), String::new());
-            let diagnostic = Diagnostic::new(
-                Severity::Error,
-                file_id,
-                Span::SYNTHETIC,
-                format!("cannot create {}: {error}", dir.display()),
-            );
-            print_test_json(
-                &global_sources,
-                &[diagnostic],
-                &results,
-                passed,
-                failed,
-                compile_errors,
-                timings_flag.then_some(timings.as_slice()),
-            );
-            return exit_code(EXIT_INTERNAL);
-        }
-
-        let exe = dir.join(format!("test{}", std::env::consts::EXE_SUFFIX));
-        let mut sources = SourceMap::new();
-        let source = match fs::read_to_string(path) {
-            Ok(source) => source,
-            Err(error) => {
-                let file_id = sources.add_file(file.clone(), String::new());
-                let diagnostic = Diagnostic::new(
-                    Severity::Error,
-                    file_id,
-                    Span::SYNTHETIC,
-                    format!("cannot read {}: {error}", path.display()),
-                );
-                failed += 1;
-                results.push(test_json_object(
-                    &name,
-                    &file,
-                    "failed",
-                    elapsed_ms(started),
-                    &sources,
-                    &[diagnostic],
-                ));
-                let _ = fs::remove_dir_all(&dir);
-                continue;
+    let report = test_harness::run_suite(tests, &toolchain, target, jobs, sandbox_env);
+    let test_objects: Vec<Json> = report
+        .results
+        .iter()
+        .map(|result| {
+            let mut object = Json::object();
+            object.set("name", Json::string(&result.name));
+            object.set("file", Json::string(&result.file));
+            object.set("status", Json::string(result.status.as_str()));
+            object.set("duration_ms", Json::number(result.duration_ms));
+            object.set("stdout", Json::string(&result.stdout));
+            object.set("stderr", Json::string(&result.stderr));
+            if let Some(exit) = result.exit {
+                object.set("exit", Json::number(i64::from(exit)));
             }
-        };
-
-        // The display path uses `/` on every platform, so the file named by a
-        // per-test diagnostic is the same string as the test object's `file`.
-        // Windows accepts `/` in a path, and the module loader resolves imports
-        // from this entry just as it does from the native form.
-        let entry = Path::new(&file);
-        let mut phases = Vec::new();
-        // `test` and `test --json` must agree about what passes. The human path
-        // builds through `build_measured`, which verifies, so a test that leaks
-        // is a failure there and has to be one here too. Warnings travel with a
-        // passing test, exactly as `build` prints them and still links.
-        let outcome = match check_and_verify_timed(
-            &mut sources,
-            entry,
-            source,
-            false,
-            target,
-            &OPTIONS,
-            jobs,
-            &mut phases,
-        ) {
-            Ok((hir, report)) => {
-                if report.error_count() > 0 {
-                    Err(report.diagnostics)
-                } else {
-                    let facts = report.facts;
-                    let warnings = report.diagnostics;
-                    match compile_hir_timed(
-                        &sources,
-                        &hir,
-                        &file,
-                        &exe,
-                        &toolchain,
-                        BuildOptions {
-                            opt: OptLevel::None,
-                            target,
-                            ..BuildOptions::default()
-                        },
-                        &facts,
-                        &mut phases,
-                    ) {
-                        Ok(()) => Ok(warnings),
-                        Err(more) => {
-                            let mut diagnostics = warnings;
-                            diagnostics.extend(more);
-                            Err(diagnostics)
-                        }
-                    }
-                }
-            }
-            Err(diagnostics) => Err(diagnostics),
-        };
-        accumulate(&mut timings, &phases);
-
-        match outcome {
-            Ok(warnings) => match output_with_retry(&exe, &[]) {
-                Ok(output) if output.status.success() => {
-                    passed += 1;
-                    results.push(test_json_object(
-                        &name,
-                        &file,
-                        "passed",
-                        elapsed_ms(started),
-                        &sources,
-                        &warnings,
-                    ));
-                }
-                Ok(output) => {
-                    failed += 1;
-                    let mut diagnostics = warnings;
-                    diagnostics.push(Diagnostic::new(
-                        Severity::Error,
-                        FileId::from_index(0),
-                        Span::SYNTHETIC,
-                        match output.status.code() {
-                            Some(code) => format!("test exited with status {code}"),
-                            None => "test was terminated without an exit status".to_string(),
-                        },
-                    ));
-                    results.push(test_json_object(
-                        &name,
-                        &file,
-                        "failed",
-                        elapsed_ms(started),
-                        &sources,
-                        &diagnostics,
-                    ));
-                }
-                Err(error) => {
-                    failed += 1;
-                    let mut diagnostics = warnings;
-                    diagnostics.push(Diagnostic::new(
-                        Severity::Error,
-                        FileId::from_index(0),
-                        Span::SYNTHETIC,
-                        format!("cannot run the test: {error}"),
-                    ));
-                    results.push(test_json_object(
-                        &name,
-                        &file,
-                        "failed",
-                        elapsed_ms(started),
-                        &sources,
-                        &diagnostics,
-                    ));
-                }
-            },
-            Err(diagnostics) => {
-                compile_errors += 1;
-                results.push(test_json_object(
-                    &name,
-                    &file,
-                    "compile_error",
-                    elapsed_ms(started),
-                    &sources,
-                    &diagnostics,
-                ));
-            }
-        }
-
-        let _ = fs::remove_dir_all(&dir);
-    }
+            object.set("diagnostics", Json::array(result.diagnostics.clone()));
+            object
+        })
+        .collect();
 
     print_test_json(
         &global_sources,
         &[],
-        &results,
-        passed,
-        failed,
-        compile_errors,
-        timings_flag.then_some(timings.as_slice()),
+        &test_objects,
+        report.passed,
+        report.failed,
+        report.compile_errors,
+        timings_flag.then_some(report.timings.as_slice()),
     );
-    if failed == 0 && compile_errors == 0 {
+    if report.failed == 0 && report.compile_errors == 0 {
         exit_code(EXIT_OK)
     } else {
         exit_code(EXIT_COMPILE_ERROR)
     }
-}
-
-fn elapsed_ms(started: Instant) -> i64 {
-    i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX)
-}
-
-fn test_json_object(
-    name: &str,
-    file: &str,
-    status: &str,
-    duration_ms: i64,
-    sources: &SourceMap,
-    diagnostics: &[Diagnostic],
-) -> Json {
-    let mut object = Json::object();
-    object.set("name", Json::string(name));
-    object.set("file", Json::string(file));
-    object.set("status", Json::string(status));
-    object.set("duration_ms", Json::number(duration_ms));
-    object.set(
-        "diagnostics",
-        Json::array(
-            diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic_json(sources, diagnostic))
-                .collect(),
-        ),
-    );
-    object
 }
 
 fn print_test_json(
@@ -1930,116 +1719,6 @@ fn set_timings(report: &mut Json, timings: Option<&[TimingRow]>) {
     );
 }
 
-/// Add one row's time to a running total, keeping first-seen order.
-///
-/// Phases add their milliseconds; query counters add their hits and misses and
-/// keep the union of the recomputed names, so a suite of ten tests reports the
-/// database's work once rather than ten partial rows.
-fn accumulate(total: &mut Vec<TimingRow>, timings: &[TimingRow]) {
-    for timing in timings {
-        match timing {
-            TimingRow::Phase { phase, ms } => {
-                match total.iter_mut().find(|seen| {
-                    matches!(seen, TimingRow::Phase { phase: seen_phase, .. } if seen_phase == phase)
-                }) {
-                    Some(TimingRow::Phase { ms: seen_ms, .. }) => {
-                        *seen_ms = seen_ms.saturating_add(*ms)
-                    }
-                    _ => total.push(timing.clone()),
-                }
-            }
-            TimingRow::Query(stats) => {
-                let mut merged = stats.clone();
-                match total.iter_mut().find_map(|seen| match seen {
-                    TimingRow::Query(seen) => Some(seen),
-                    _ => None,
-                }) {
-                    Some(seen) => {
-                        seen.hits = seen.hits.saturating_add(merged.hits);
-                        seen.misses = seen.misses.saturating_add(merged.misses);
-                        seen.recomputed.append(&mut merged.recomputed);
-                        seen.recomputed.sort();
-                        seen.recomputed.dedup();
-                    }
-                    None => total.push(TimingRow::Query(merged)),
-                }
-            }
-            TimingRow::FrontendThreads { threads } => {
-                match total.iter_mut().find_map(|seen| match seen {
-                    TimingRow::FrontendThreads { threads } => Some(threads),
-                    _ => None,
-                }) {
-                    Some(seen) => *seen = (*seen).max(*threads),
-                    None => total.push(timing.clone()),
-                }
-            }
-            TimingRow::Promotion { stack, arena } => {
-                match total.iter_mut().find_map(|seen| match seen {
-                    TimingRow::Promotion { stack, arena } => Some((stack, arena)),
-                    _ => None,
-                }) {
-                    Some((seen_stack, seen_arena)) => {
-                        *seen_stack = seen_stack.saturating_add(*stack);
-                        *seen_arena = seen_arena.saturating_add(*arena);
-                    }
-                    None => total.push(timing.clone()),
-                }
-            }
-            TimingRow::Lto { mode } => {
-                if let Some(TimingRow::Lto { mode: seen }) = total
-                    .iter_mut()
-                    .find(|seen| matches!(seen, TimingRow::Lto { .. }))
-                {
-                    *seen = mode;
-                } else {
-                    total.push(timing.clone());
-                }
-            }
-            // Each stage happened once per build; a suite that builds several
-            // programs reports every stage it ran, in first-seen order.
-            TimingRow::Pgo { stage } => {
-                if !total
-                    .iter()
-                    .any(|seen| matches!(seen, TimingRow::Pgo { stage: seen } if seen == stage))
-                {
-                    total.push(timing.clone());
-                }
-            }
-            TimingRow::Instantiations { count } => match total.iter_mut().find_map(|seen| match seen {
-                TimingRow::Instantiations { count } => Some(count),
-                _ => None,
-            }) {
-                Some(seen) => *seen = (*seen).max(*count),
-                None => total.push(timing.clone()),
-            },
-            TimingRow::Tasks { count } => match total.iter_mut().find_map(|seen| match seen {
-                TimingRow::Tasks { count } => Some(count),
-                _ => None,
-            }) {
-                Some(seen) => *seen = (*seen).max(*count),
-                None => total.push(timing.clone()),
-            },
-            TimingRow::IrCache { hit } => {
-                if let Some(TimingRow::IrCache { hit: seen }) = total
-                    .iter_mut()
-                    .find(|seen| matches!(seen, TimingRow::IrCache { .. }))
-                {
-                    *seen = *hit;
-                } else {
-                    total.push(timing.clone());
-                }
-            }
-            TimingRow::StdlibModules { count } => match total.iter_mut().find_map(|seen| match seen {
-                TimingRow::StdlibModules { count } => Some(count),
-                _ => None,
-            }) {
-                Some(seen) => *seen = (*seen).max(*count),
-                None => total.push(timing.clone()),
-            },
-        }
-    }
-}
-
 /// Print one `timing:` line per phase and one `query_*` line, to stderr.
 ///
 /// stderr is deliberate: stdout belongs to the program under `run` and to the
@@ -2096,34 +1775,6 @@ fn collect_tests(root: &Path, tests: &mut Vec<PathBuf>) -> std::io::Result<()> {
 /// log name the same file the same way.
 fn display_test_path(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
-}
-
-fn output_with_retry(exe: &Path, args: &[String]) -> std::io::Result<std::process::Output> {
-    output_with_env(exe, args, &[])
-}
-
-fn output_with_env(
-    exe: &Path,
-    args: &[String],
-    envs: &[(&str, &str)],
-) -> std::io::Result<std::process::Output> {
-    for attempt in 0..LAUNCH_ATTEMPTS {
-        let candidate = launch_candidate(exe, attempt)?;
-        let mut command = Command::new(&candidate);
-        command.args(args);
-        for (key, value) in envs {
-            command.env(key, value);
-        }
-        match command.output() {
-            Ok(output) => return Ok(output),
-            Err(error) if blocked_by_policy(&error) => continue,
-            Err(error) => return Err(error),
-        }
-    }
-    Err(std::io::Error::new(
-        std::io::ErrorKind::PermissionDenied,
-        "the operating system refused to start the compiled test",
-    ))
 }
 
 /// `yashyc explain <code> [--json]`.
@@ -2930,73 +2581,6 @@ fn print_inventory(sources: &SourceMap, assumptions: &[Assumption]) {
             column = location.col,
         );
     }
-}
-
-fn diagnostic_json(sources: &SourceMap, diagnostic: &Diagnostic) -> Json {
-    let mut object = Json::object();
-    object.set(
-        "code",
-        match diagnostic.code {
-            Some(code) => Json::string(code),
-            None => Json::null(),
-        },
-    );
-    object.set("severity", Json::string(diagnostic.severity.as_str()));
-    object.set("message", Json::string(diagnostic.message.as_str()));
-    object.set("file", Json::string(sources.path(diagnostic.file)));
-    object.set("span", span_json(sources, diagnostic.file, diagnostic.span));
-    if let Some(label) = &diagnostic.label {
-        let mut label_object = Json::object();
-        label_object.set("span", span_range_json(diagnostic.span));
-        label_object.set("message", Json::string(label.as_str()));
-        object.set("labels", Json::array(vec![label_object]));
-    }
-    if !diagnostic.notes.is_empty() {
-        object.set(
-            "notes",
-            Json::array(
-                diagnostic
-                    .notes
-                    .iter()
-                    .map(|note| match note.strip_prefix("expansion: ") {
-                        Some(message) => {
-                            let mut expansion = Json::object();
-                            expansion.set("kind", Json::string("expansion"));
-                            expansion.set("message", Json::string(message));
-                            expansion
-                        }
-                        None => Json::string(note.as_str()),
-                    })
-                    .collect(),
-            ),
-        );
-    }
-    if let Some(url) = diagnostic.docs_url() {
-        object.set("docs_url", Json::string(url));
-    }
-    if let Some(proof) = &diagnostic.proof {
-        let mut proof_object = Json::object();
-        proof_object.set("obligation", Json::string(proof.obligation));
-        proof_object.set("missing_fact", Json::string(proof.missing_fact.as_str()));
-        proof_object.set("remedy", Json::string(proof.remedy.as_str()));
-        object.set("proof", proof_object);
-    }
-    object
-}
-
-fn span_json(sources: &SourceMap, file: FileId, span: Span) -> Json {
-    let location = sources.locate(file, span);
-    let mut object = span_range_json(span);
-    object.set("line", Json::number(i64::from(location.line)));
-    object.set("column", Json::number(i64::from(location.col)));
-    object
-}
-
-fn span_range_json(span: Span) -> Json {
-    let mut object = Json::object();
-    object.set("start", Json::number(i64::from(span.start)));
-    object.set("end", Json::number(i64::from(span.end)));
-    object
 }
 
 /// `yashyc check <file.ya> [--json]`.

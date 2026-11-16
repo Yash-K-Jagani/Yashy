@@ -541,7 +541,7 @@ impl CpuTarget {
 /// elsewhere. The temp directory is the last resort, because a cache that
 /// cannot be written is only a lost optimization and not a failure — see
 /// [`cached_runtime_object`].
-fn runtime_cache_dir() -> Option<PathBuf> {
+pub(crate) fn runtime_cache_dir() -> Option<PathBuf> {
     if let Some(dir) = env::var_os("YASHY_CACHE_DIR") {
         if !dir.is_empty() {
             return Some(PathBuf::from(dir));
@@ -588,7 +588,7 @@ fn fnv1a(state: &mut u64, bytes: &[u8]) {
 /// source cannot: the same runtime compiled by a *different* `clang` is a
 /// different object, and an in-place toolchain upgrade should not silently
 /// reuse what the previous one emitted.
-fn runtime_cache_key(tool: &Path, triple: &str, opt: OptLevel) -> u64 {
+pub(crate) fn runtime_cache_key(tool: &Path, triple: &str, opt: OptLevel) -> u64 {
     let mut state = FNV_OFFSET_BASIS;
     fnv1a(&mut state, RUNTIME_C_SOURCE.as_bytes());
     fnv1a(&mut state, HASHMAP_C_SOURCE.as_bytes());
@@ -724,7 +724,7 @@ fn compiler_stamp() -> String {
 /// would link as if it were complete. Two compilers racing to fill the same
 /// entry both produce the same bytes; whichever renames second finds the
 /// destination already there and keeps it.
-fn cached_runtime_object(
+pub(crate) fn cached_runtime_object(
     cache_dir: &Path,
     source: &Path,
     stem: &str,
@@ -1452,6 +1452,7 @@ pub fn compile_hir_timed(
                         escape: options.escape,
                         facts: options.facts,
                         intern: options.intern,
+                        entry_symbol: None,
                         async_: options.async_,
                         target: options.target,
                     },
@@ -2131,7 +2132,7 @@ fn reproducible_epoch() -> String {
     "0".to_string()
 }
 
-fn run_tool(
+pub(crate) fn run_tool(
     toolchain: &Toolchain,
     args: &[String],
     entry_name: &str,

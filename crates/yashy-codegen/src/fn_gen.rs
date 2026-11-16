@@ -47,7 +47,7 @@ pub fn gen_fn(module: &mut Module, f: &HirFn) {
         crate::async_lower::gen_async_fn(module, f);
         return;
     }
-    gen_fn_impl(module, f, false);
+    gen_fn_impl(module, f, false, &crate::ir::fn_symbol(&f.name));
 }
 
 /// Emit a lambda as a private function `@<name>(i8* %env, args...)`.
@@ -166,12 +166,20 @@ pub fn gen_extern_decl(module: &mut Module, d: &HirExternDecl) {
 /// third case to write. `main`'s own name is left alone, so a recursive `main`
 /// still resolves.
 pub fn gen_main(module: &mut Module, f: &HirFn) {
-    gen_fn_impl(module, f, true);
+    gen_fn_impl(module, f, true, &crate::ir::fn_symbol(&f.name));
+}
+
+/// Emit `f` as the program's entry point under an explicit symbol instead of
+/// `@main`, keeping entry-point semantics (the `i32(i32, i8**)` signature and
+/// the runtime initialisation). The test harness renames each test's `main` to
+/// `__yashy_test_<n>` so many tests link into one harness binary.
+pub fn gen_main_with_symbol(module: &mut Module, f: &HirFn, symbol: &str) {
+    gen_fn_impl(module, f, true, symbol);
 }
 
 /// The shared body of [`gen_fn`] and [`gen_main`]: the only difference is
 /// whether the signature and the terminators use the entry point's `i32`.
-fn gen_fn_impl(module: &mut Module, f: &HirFn, entry_point: bool) {
+fn gen_fn_impl(module: &mut Module, f: &HirFn, entry_point: bool, symbol: &str) {
     let ret_repr = if entry_point {
         "i32".to_string()
     } else {
@@ -208,7 +216,7 @@ fn gen_fn_impl(module: &mut Module, f: &HirFn, entry_point: bool) {
     };
     module.push(format!(
         "define {ret_repr} @{}({}){attributes} {{",
-        crate::ir::fn_symbol(&f.name),
+        symbol,
         params.join(", ")
     ));
 

@@ -24,7 +24,85 @@ pub mod registry;
 pub mod resolve;
 pub mod sandbox;
 pub mod target;
+pub mod test_harness;
 pub mod toolchain;
+
+use yashy_common::{Diagnostic, FileId, Json, SourceMap, Span};
+
+/// Render one diagnostic as a JSON object for schema v1 output.
+pub(crate) fn diagnostics_json(sources: &SourceMap, diagnostics: &[Diagnostic]) -> Vec<Json> {
+    diagnostics
+        .iter()
+        .map(|d| diagnostic_json(sources, d))
+        .collect()
+}
+
+pub fn diagnostic_json(sources: &SourceMap, diagnostic: &Diagnostic) -> Json {
+    let mut object = Json::object();
+    object.set(
+        "code",
+        match diagnostic.code {
+            Some(code) => Json::string(code),
+            None => Json::null(),
+        },
+    );
+    object.set("severity", Json::string(diagnostic.severity.as_str()));
+    object.set("message", Json::string(diagnostic.message.as_str()));
+    object.set("file", Json::string(sources.path(diagnostic.file)));
+    object.set("span", span_json(sources, diagnostic.file, diagnostic.span));
+    if let Some(label) = &diagnostic.label {
+        let mut label_object = Json::object();
+        label_object.set("span", span_range_json(diagnostic.span));
+        label_object.set("message", Json::string(label.as_str()));
+        object.set("labels", Json::array(vec![label_object]));
+    }
+    if !diagnostic.notes.is_empty() {
+        object.set(
+            "notes",
+            Json::array(
+                diagnostic
+                    .notes
+                    .iter()
+                    .map(|note| match note.strip_prefix("expansion: ") {
+                        Some(message) => {
+                            let mut expansion = Json::object();
+                            expansion.set("kind", Json::string("expansion"));
+                            expansion.set("message", Json::string(message));
+                            expansion
+                        }
+                        None => Json::string(note.as_str()),
+                    })
+                    .collect(),
+            ),
+        );
+    }
+    if let Some(url) = diagnostic.docs_url() {
+        object.set("docs_url", Json::string(url));
+    }
+    if let Some(proof) = &diagnostic.proof {
+        let mut proof_object = Json::object();
+        proof_object.set("obligation", Json::string(proof.obligation));
+        proof_object.set("missing_fact", Json::string(proof.missing_fact.as_str()));
+        proof_object.set("remedy", Json::string(proof.remedy.as_str()));
+        object.set("proof", proof_object);
+    }
+    object
+}
+
+pub fn span_json(sources: &SourceMap, file: FileId, span: Span) -> Json {
+    let location = sources.locate(file, span);
+    let mut object = span_range_json(span);
+    object.set("line", Json::number(i64::from(location.line)));
+    object.set("column", Json::number(i64::from(location.col)));
+    object
+}
+
+pub(crate) fn span_range_json(span: Span) -> Json {
+    let mut object = Json::object();
+    object.set("start", Json::number(i64::from(span.start)));
+    object.set("end", Json::number(i64::from(span.end)));
+    object
+}
 
 pub use fetch::{default_store_root, FetchError, Store};
 pub use modules::{

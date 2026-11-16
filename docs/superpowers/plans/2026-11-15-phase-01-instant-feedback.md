@@ -54,22 +54,22 @@ compiler grows more phases to measure.
 - `TestEntry { name: String, source: PathBuf, symbol: String }`
 - `run_harness(harness: &Path, entries: &[TestEntry], jobs: usize) -> TestReport`
 
-- [ ] **Step 1: Write the failing test.** Build a project with three tests:
+- [x] **Step 1: Write the failing test.** Build a project with three tests:
   one passes, one exits 3, one prints and passes. Assert the report names all
   three, the failing one is `Failed { exit: 3 }`, and stdout is attributed to
   the test that wrote it.
-- [ ] **Step 2: Run it and watch it fail** with "one binary per test" or a
+- [x] **Step 2: Run it and watch it fail** with "one binary per test" or a
   missing `TestReport`.
-- [ ] **Step 3: Compile every test into one harness.** For a test build, rename
+- [x] **Step 3: Compile every test into one harness.** For a test build, rename
   each test's `main` to `__yashy_test_<n>` at the HIR boundary, generate a
   harness `main` that prints `TEST <name>` before calling each symbol, and link
   once. A non-zero exit or a crash reruns the tests one at a time in fresh
   processes to attribute the failure; the normal path stays one process.
-- [ ] **Step 4: Preserve the 1.0 semantics.** A test is a Yashy program with
+- [x] **Step 4: Preserve the 1.0 semantics.** A test is a Yashy program with
   `main`; exit 0 is a pass. Keep `--filter`, `--json`, `--timings`, `--list`,
   `--sandbox`, `--target`, `--jobs`. `compile_error` and `failed` stay
   distinct.
-- [ ] **Step 5: Commit.** `git commit -m "feat(test): run a project's tests in one harness"`.
+- [x] **Step 5: Commit.** `git commit -m "feat(test): run a project's tests in one harness"`.
 
 ### Task 2: The daemon
 

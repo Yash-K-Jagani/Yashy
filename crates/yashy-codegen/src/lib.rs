@@ -35,7 +35,7 @@ pub mod threads;
 pub use escape::{promotion_counts, AllocSite, ArenaId, Placement};
 pub use expr_gen::{gen_expr, gen_expr_to_slot, FnCtx, GenValue};
 pub use ffi::gen_ffi_call;
-pub use fn_gen::{fn_return_repr, gen_extern_decl, gen_fn, gen_main};
+pub use fn_gen::{fn_return_repr, gen_extern_decl, gen_fn, gen_main, gen_main_with_symbol};
 pub use ir::{llvm_type_string, repr_type, variant_payload_index, variant_tag};
 pub use module::data_layout;
 pub use module::host_target_triple;
@@ -53,7 +53,7 @@ use yashy_sema::{HirFn, HirItem, HirProgram, TypeKind};
 /// The default is deliberately the semantics-preserving one: the IR does not
 /// depend on which machine the program is built for, and every floating-point
 /// operation rounds exactly as the source spells it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodegenOptions {
     /// Allow floating-point contraction.
     ///
@@ -94,6 +94,12 @@ pub struct CodegenOptions {
     /// literal points at, never the bytes it reads. `--no-opt=intern` emits one
     /// global per literal for bisecting.
     pub intern: bool,
+    /// When set, `fn main` is emitted under this symbol while keeping
+    /// entry-point semantics (the `i32(i32, i8**)` signature and the runtime
+    /// initialisation) instead of being emitted as `@main`. The test harness
+    /// renames every test's `main` to `__yashy_test_<n>` so that many tests
+    /// can be compiled and linked into a single harness binary.
+    pub entry_symbol: Option<String>,
     /// Generate poll functions for `async fn`s.
     ///
     /// On by default. `--no-opt=async` disables suspension: every `await`
@@ -123,6 +129,7 @@ impl Default for CodegenOptions {
             escape: false,
             facts: true,
             intern: true,
+            entry_symbol: None,
             async_: true,
             target: module::host_target_triple(),
         }
@@ -178,6 +185,9 @@ fn emit(
     module.set_target(options.target);
     module.set_fp_contract(options.fp_contract);
     module.set_report(record);
+    // The entry-point symbol override is needed after `options` is moved into
+    // the pass context, so capture it first.
+    let entry_symbol = options.entry_symbol.clone();
     // The registered passes, in their one order. A pass reads its switch from
     // `options`, so disabling one changes only what that pass contributes.
     {
@@ -274,9 +284,14 @@ fn emit(
             HirItem::Fn(f) => {
                 // The entry point is the one function whose signature the
                 // operating system dictates, so it is emitted through its own
-                // path.
+                // path. The test harness renames each test's `main` to a unique
+                // symbol (`__yashy_test_<n>`) while keeping entry-point
+                // semantics, so many tests can link into one harness binary.
                 if f.name == "main" {
-                    gen_main(&mut module, f);
+                    let symbol: String = entry_symbol
+                        .clone()
+                        .unwrap_or_else(|| crate::ir::fn_symbol(&f.name));
+                    gen_main_with_symbol(&mut module, f, &symbol);
                 } else {
                     gen_fn(&mut module, f);
                 }
