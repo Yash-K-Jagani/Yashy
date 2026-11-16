@@ -65,6 +65,7 @@ usage:
   yashyc check <file.ya> [--json] [--timings] [--jobs <n>] [--deny warnings] [--allow warnings] [--print-cfg] [--target <triple>]
   yashyc verify <file.ya> [--json] [--timings] [--jobs <n>] [--inventory]
   yashyc test [path] [--filter <substring>] [--list] [--json] [--timings] [--jobs <n>]
+  yashyc cache verify <file.ya>
   yashyc serve [path]
   yashyc watch [path] [--json] [--run] [--test] [--interval <ms>]
   yashyc explain <code> [--json]
@@ -194,6 +195,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "check" => check(rest),
         "verify" => verify(rest),
         "test" => test(rest),
+        "cache" => cache_cmd(rest),
         "serve" => serve(rest),
         "watch" => watch_cmd(rest),
         "explain" => explain(rest),
@@ -1319,6 +1321,33 @@ fn blocked_by_policy(error: &std::io::Error) -> bool {
         || error.raw_os_error() == Some(4551)
         || error.to_string().contains("blocked")
         || error.to_string().contains("Application Control")
+}
+
+/// `yashyc cache verify <file.ya>`: recompute the v2 key for a source and say
+/// whether the store holds a matching entry. A stale entry is an error: the
+/// whole point of key v2 is that every input is named, so a mismatch is a bug.
+fn cache_cmd(args: &[String]) -> ExitCode {
+    if args.first().map(String::as_str) != Some("verify") {
+        return usage_error("usage: yashyc cache verify <file.ya>");
+    }
+    let Some(path) = args.get(1) else {
+        return usage_error("`cache verify` needs a file");
+    };
+    let source = match fs::read_to_string(path) {
+        Ok(source) => source,
+        Err(error) => {
+            eprintln!("error: cannot read {path}: {error}");
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    let mut sources = SourceMap::new();
+    let name = path.clone();
+    sources.add_file(name.clone(), source);
+    let key = yashy_driver::ir_cache_key(&sources, &name, &BuildOptions::default());
+    let store = yashy_driver::ir_cache_store();
+    let hit = store.as_ref().and_then(|store| store.get(&key)).is_some();
+    println!("{key} {}", if hit { "hit" } else { "miss" });
+    exit_code(EXIT_OK)
 }
 
 /// `yashyc watch [path]`: re-check the tree whenever a source file changes.

@@ -122,20 +122,20 @@ compiler grows more phases to measure.
 - Modify: `crates/yashy-query/src/db.rs` (module-level queries)
 - Test: `crates/yashy-driver/tests/incremental.rs`
 
-- [ ] **Step 1: Write the failing test.** Build a 10-module fixture; change one
+- [x] **Step 1: Write the failing test.** Build a 10-module fixture; change one
   function; assert only that module's object is rebuilt and the link reuses the
   rest. Build with no change; assert `cache_hits == modules` and no `clang`
   invocation for IR.
-- [ ] **Step 2: Extend the key.** Source bytes, flags, compiler version, target,
+- [x] **Step 2: Extend the key.** Source bytes, flags, compiler version, target,
   runtime hash, package versions, features and the relevant environment. A
   `yashyc cache verify` recomputes and reports a mismatch.
-- [ ] **Step 3: Cache per-module objects.** Emit one object per module where
+- [x] **Step 3: Cache per-module objects.** Emit one object per module where
   the language allows it; link with the cached runtime object and the fast
   linker if present (`lld`, `mold`, `ld64.lld`, fallback to the default).
   A no-change build returns the cached binary in < 50 ms.
-- [ ] **Step 4: Never serve a stale binary.** A stale hit is a P0. The test
+- [x] **Step 4: Never serve a stale binary.** A stale hit is a P0. The test
   mutates every key input in turn and asserts a miss.
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ### Task 5: Parallel front end and codegen
 

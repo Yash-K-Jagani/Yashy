@@ -624,7 +624,7 @@ const IR_CACHE_FORMAT: &str = "1";
 /// It shares the compiler's cache directory with the runtime objects, so
 /// `YASHY_CACHE_DIR` moves both. `None` when the directory cannot be created:
 /// the build then emits as if the cache did not exist.
-fn ir_cache_store() -> Option<yashy_cache::Store> {
+pub fn ir_cache_store() -> Option<yashy_cache::Store> {
     let root = runtime_cache_dir()?.join("ir");
     yashy_cache::Store::open_at(root).ok()
 }
@@ -637,7 +637,7 @@ fn ir_cache_store() -> Option<yashy_cache::Store> {
 /// the target, and the flags cover every codegen choice. The entry name is part
 /// of the IR (`source_filename` and the module name), so it belongs in the key
 /// too.
-fn ir_cache_key(
+pub fn ir_cache_key(
     sources: &SourceMap,
     entry_name: &str,
     options: &BuildOptions,
@@ -676,7 +676,54 @@ fn ir_cache_key(
     // The target is part of the key as well as of the flags: the IR header and
     // the data layout change with it, so one triple's entry can never answer
     // another's request even if every other input matches.
-    yashy_cache::program_key(&files, &flags, &version, options.target)
+    let extras = cache_extras(options);
+    let extras: Vec<(&str, &str)> = extras
+        .iter()
+        .map(|(name, value)| (*name, value.as_str()))
+        .collect();
+    yashy_cache::program_key_v2(&files, &flags, &version, options.target, &extras)
+}
+
+/// Inputs to the IR key that are neither source bytes nor build flags.
+///
+/// Every one of these can change the emitted IR without touching a source
+/// file, so omitting any of them would let a stale entry answer a new build.
+fn cache_extras(options: &BuildOptions) -> Vec<(&'static str, String)> {
+    let mut runtime = 0u64;
+    for source in [
+        RUNTIME_C_SOURCE,
+        HASHMAP_C_SOURCE,
+        EXECUTOR_C_SOURCE,
+        NET_C_SOURCE,
+        PLATFORM_C_SOURCE,
+        GRAPHEME_DATA_HEADER,
+    ] {
+        fnv1a(&mut runtime, source.as_bytes());
+    }
+    let mut extras = vec![("runtime", format!("{runtime:016x}"))];
+
+    // A resolved lockfile changes the module graph even when the source text
+    // does not. Its bytes are the fact; a missing lockfile is still a fact.
+    let lock = std::env::current_dir()
+        .ok()
+        .map(|dir| dir.join("yashy.lock"))
+        .and_then(|path| std::fs::read(path).ok())
+        .map(|bytes| {
+            let mut hash = 0u64;
+            fnv1a(&mut hash, &bytes);
+            format!("{hash:016x}")
+        })
+        .unwrap_or_else(|| "none".to_string());
+    extras.push(("lock", lock));
+    extras.push(("features", String::new()));
+
+    for name in ["YASHY_SANITIZE", "YASHY_DETERMINISTIC", "SOURCE_DATE_EPOCH"] {
+        if let Ok(value) = std::env::var(name) {
+            extras.push((name, value));
+        }
+    }
+    let _ = options;
+    extras
 }
 
 /// The running compiler's path and modification time.
@@ -1426,6 +1473,25 @@ pub fn compile_hir_timed(
     let key = cache
         .as_ref()
         .map(|_| ir_cache_key(sources, entry_name, &options));
+
+    // A no-change build needs neither LLVM nor a link: the key names every
+    // input, so a stored binary is the exact output this run would produce.
+    if let (Some(store), Some(key)) = (&cache, &key) {
+        if let Some(cached_binary) = store.get_binary(key) {
+            if let Some(parent) = out.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            if fs::copy(&cached_binary, out).is_ok() {
+                timings.push(TimingRow::Phase {
+                    phase: "link",
+                    ms: 0,
+                });
+                timings.push(TimingRow::IrCache { hit: true });
+                return Ok(());
+            }
+        }
+    }
+
     let cached = match (&cache, &key) {
         (Some(store), Some(key)) => store
             .get(key)
@@ -1650,6 +1716,11 @@ pub fn compile_hir_timed(
 
     if !options.pgo {
         link(&[], out, "compiling the program", timings)?;
+        if let (Some(store), Some(key)) = (&cache, &key) {
+            // A cached binary is only written after the link succeeded, so a
+            // failed build can never poison the cache.
+            let _ = store.put_binary(key, out);
+        }
         return Ok(());
     }
 

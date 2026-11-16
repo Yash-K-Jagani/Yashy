@@ -66,6 +66,28 @@ pub fn program_key(
     CacheKey(key)
 }
 
+/// A v2 cache key: everything that can change the bytes stored for a program.
+///
+/// `extras` carries inputs that are not source or flags — the runtime hash,
+/// resolved package versions, enabled features and the small set of
+/// environment variables that change code generation. Each is folded under
+/// its own name, so changing one cannot accidentally produce another's bytes.
+pub fn program_key_v2(
+    sources: &[(String, String)],
+    flags: &str,
+    version: &str,
+    triple: &str,
+    extras: &[(&str, &str)],
+) -> CacheKey {
+    let mut named: Vec<String> = extras
+        .iter()
+        .map(|(name, value)| format!("{name}={value}"))
+        .collect();
+    named.sort();
+    let flags_v2 = format!("v2|{flags}|{}", named.join("|"));
+    program_key(sources, &flags_v2, version, triple)
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Stats {
     pub entries: u64,
@@ -136,6 +158,33 @@ impl Store {
         // reader that sees the IR without meta still reports a miss.
         std::fs::write(dir.join("meta.json"), meta.as_bytes())?;
         Ok(ir)
+    }
+
+    /// A linked binary for this key, when a previous build produced one.
+    pub fn get_binary(&self, key: &CacheKey) -> Option<PathBuf> {
+        let path = self.root.join(key.hex()).join("binary");
+        if path.is_file() {
+            Some(path)
+        } else {
+            None
+        }
+    }
+
+    /// Store a linked binary under `key`. The copy is staged and renamed so a
+    /// concurrent reader never sees a partial image.
+    pub fn put_binary(&self, key: &CacheKey, source: &Path) -> io::Result<PathBuf> {
+        let dir = self.root.join(key.hex());
+        fs::create_dir_all(&dir)?;
+        let binary = dir.join("binary");
+        let staged = dir.join(format!("binary.tmp-{}", std::process::id()));
+        fs::copy(source, &staged)?;
+        if let Err(error) = fs::rename(&staged, &binary) {
+            let _ = fs::remove_file(&staged);
+            if !binary.is_file() {
+                return Err(error);
+            }
+        }
+        Ok(binary)
     }
 
     pub fn clean(&self) -> io::Result<u64> {
