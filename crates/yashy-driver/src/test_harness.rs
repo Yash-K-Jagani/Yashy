@@ -281,6 +281,10 @@ pub fn build_harness(
     let mut entries: Vec<(TestEntry, PathBuf)> = Vec::new();
     let mut compile_errors: Vec<(usize, Vec<Json>)> = Vec::new();
     let mut libs: Vec<String> = Vec::new();
+    // IR is written here and compiled to objects in one bounded worker pool
+    // below. A hundred tiny modules must not cost a hundred clang processes
+    // started one after another.
+    let mut pending: Vec<(usize, String, String, PathBuf, String, PathBuf, PathBuf)> = Vec::new();
 
     let opt = OptLevel::None;
     let cpu = CpuTarget::default();
@@ -376,42 +380,100 @@ pub fn build_harness(
         }
 
         let object = tmp_dir.join(format!("test_{index}.o"));
-        let mut args = vec![
-            "-x".to_string(),
-            "ir".to_string(),
-            ir_path.to_string_lossy().into_owned(),
-            "-c".to_string(),
-            "-o".to_string(),
-            object.to_string_lossy().into_owned(),
-            format!("--target={target}"),
-            opt.flag().to_string(),
-        ];
-        // The emitted IR uses opaque pointers. clang 14/15 need the same
-        // compatibility flag the normal build passes, or the `ptr` spelling
-        // fails to parse with "expected type" on Linux CI runners.
-        args.extend(
-            crate::pipeline::opaque_pointers_args(toolchain)
-                .into_iter()
-                .map(str::to_string),
-        );
-        if let Err(diagnostic) = run_tool(toolchain, &args, &name, "compiling a test", None) {
-            compile_errors.push((
-                index,
-                crate::diagnostics_json(&SourceMap::new(), &diagnostic),
-            ));
-            continue;
-        }
-
-        entries.push((
-            TestEntry {
-                index,
-                name,
-                stem,
-                source: path.clone(),
-                symbol,
-            },
+        pending.push((
+            index,
+            name.clone(),
+            stem.clone(),
+            path.clone(),
+            symbol.clone(),
+            ir_path,
             object,
         ));
+    }
+
+    // Compile every test's IR in parallel, bounded by `--jobs` (0 = all cores).
+    // Deterministic order is restored by indexing the results, never by which
+    // worker finished first.
+    let workers = if jobs == 0 {
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+    } else {
+        jobs
+    }
+    .max(1)
+    .min(pending.len().max(1));
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let opaque = crate::pipeline::opaque_pointers_args(toolchain);
+    let compiled: std::sync::Mutex<Vec<Option<(TestEntry, PathBuf)>>> =
+        std::sync::Mutex::new((0..pending.len()).map(|_| None).collect());
+    std::thread::scope(|scope| {
+        let mut handles = Vec::new();
+        for _ in 0..workers {
+            let next = &next;
+            let pending = &pending;
+            let opaque = &opaque;
+            let compiled = &compiled;
+            handles.push(scope.spawn(move || {
+                let mut failures = Vec::new();
+                loop {
+                    let slot = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let Some((index, name, stem, source, symbol, ir_path, object)) =
+                        pending.get(slot)
+                    else {
+                        break;
+                    };
+                    let mut args = vec![
+                        "-x".to_string(),
+                        "ir".to_string(),
+                        ir_path.to_string_lossy().into_owned(),
+                        "-c".to_string(),
+                        "-o".to_string(),
+                        object.to_string_lossy().into_owned(),
+                        format!("--target={target}"),
+                        opt.flag().to_string(),
+                    ];
+                    args.extend(opaque.iter().map(|flag| flag.to_string()));
+                    let result = run_tool(toolchain, &args, name, "compiling a test", None);
+                    let entry = match result {
+                        Ok(()) => Some((
+                            TestEntry {
+                                index: *index,
+                                name: name.clone(),
+                                stem: stem.clone(),
+                                source: source.clone(),
+                                symbol: symbol.clone(),
+                            },
+                            object.clone(),
+                        )),
+                        Err(diagnostic) => {
+                            failures.push((
+                                *index,
+                                crate::diagnostics_json(&SourceMap::new(), &diagnostic),
+                            ));
+                            None
+                        }
+                    };
+                    compiled
+                        .lock()
+                        .expect("the compile-result lock was poisoned")[slot] = entry;
+                }
+                failures
+            }));
+        }
+        for handle in handles {
+            if let Ok(failures) = handle.join() {
+                compile_errors.extend(failures);
+            }
+        }
+    });
+    for slot in compiled
+        .into_inner()
+        .expect("the compile-result lock was poisoned")
+    {
+        if let Some(entry) = slot {
+            entries.push(entry);
+        }
     }
 
     let binary = link_harness(

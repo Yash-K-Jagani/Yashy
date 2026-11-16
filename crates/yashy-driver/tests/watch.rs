@@ -51,7 +51,7 @@ fn a_change_reports_diagnostics_and_a_fix_reports_success() {
         "the diagnostic list must not be empty"
     );
     assert!(
-        elapsed.as_millis() < 100,
+        elapsed.as_millis() < 50,
         "edit-to-diagnostic must be fast, took {elapsed:?}"
     );
 
