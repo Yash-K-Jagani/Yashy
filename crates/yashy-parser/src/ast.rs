@@ -94,6 +94,7 @@ pub enum Item {
     /// so a checker or code generator never has to know that a spelling existed.
     TypeAlias {
         name: String,
+        type_params: Vec<TypeParam>,
         target: TypeExpr,
         span: Span,
     },

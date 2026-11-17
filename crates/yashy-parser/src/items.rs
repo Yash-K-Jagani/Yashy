@@ -318,11 +318,17 @@ impl<'src> Parser<'src> {
     fn parse_type_alias(&mut self) -> Result<Item, ParseError> {
         let keyword = self.expect(TokenKind::Type)?;
         let (name, _) = self.identifier()?;
+        let type_params = if self.check(TokenKind::LBracket) {
+            self.parse_type_params()?
+        } else {
+            Vec::new()
+        };
         self.expect(TokenKind::Eq)?;
         let target = self.parse_type_expr()?;
         let semi = self.expect(TokenKind::Semi)?;
         Ok(Item::TypeAlias {
             name,
+            type_params,
             target,
             span: cover(keyword.span, semi.span),
         })

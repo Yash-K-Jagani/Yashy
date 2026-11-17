@@ -100,8 +100,8 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   resolves the target during the declaration pass and stores the resulting
   `TypeKind`, and type resolution returns that kind under the alias's span. No
   HIR item is emitted, and shadowing an existing type is refused. A recursive
-  alias is reported as an unknown type rather than a dedicated `E15xx`, and
-  generic aliases (`type Pair[T] = ...`) are still owed.
+  generic aliases (`type Pair[T] = (T, T)`) are now substituted at each use; a
+  recursive alias is still reported as an unknown type rather than a dedicated E15xx.
 - [ ] **Step 3: Visibility is one lattice.** `private < pub(crate) < pub(super) < pub(in path) < pub` is not a total order; the checker compares the declaring module and the use site, not a rank. `pub use` re-exports the item once; two paths to one item are one symbol in `index`.
 - [ ] **Step 4: Commit.**
 

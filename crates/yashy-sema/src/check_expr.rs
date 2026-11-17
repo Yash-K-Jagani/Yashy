@@ -759,6 +759,9 @@ pub struct Checker<'src> {
     /// Transparent type aliases, expanded during type resolution so they never
     /// reach HIR. A cycle is a diagnostic, not a stack overflow.
     type_aliases: HashMap<String, yashy_hir::ty::TypeKind>,
+    /// Generic aliases: parameter names and the target type expression. They
+    /// are substituted at each use, so the expansion is still a plain type.
+    generic_aliases: HashMap<String, (Vec<String>, TypeExpr)>,
     structs: HashMap<String, StructSig>,
     enums: HashMap<String, EnumSig>,
     fns: HashMap<String, FnSig>,
@@ -1244,6 +1247,7 @@ impl<'src> Checker<'src> {
             fn_instantiations: HashMap::new(),
             fn_instantiation_site: HashMap::new(),
             type_aliases: HashMap::new(),
+            generic_aliases: HashMap::new(),
             active_generics: Vec::new(),
             borrowed_bindings: Vec::new(),
             methods: HashMap::new(),
@@ -3457,19 +3461,35 @@ impl<'src> Checker<'src> {
                 }
             }
             Item::Import { .. } => {}
-            Item::TypeAlias { name, target, span } => {
+            Item::TypeAlias {
+                name,
+                type_params,
+                target,
+                span,
+            } => {
                 if self.structs.contains_key(name)
                     || self.enums.contains_key(name)
                     || self.type_aliases.contains_key(name)
+                    || self.generic_aliases.contains_key(name)
                 {
                     self.error(*span, format!("`{name}` is already a type"));
                     return;
                 }
-                match self.resolve_type(target) {
-                    Ok(resolved) => {
-                        self.type_aliases.insert(name.clone(), resolved.kind);
+                if type_params.is_empty() {
+                    match self.resolve_type(target) {
+                        Ok(resolved) => {
+                            self.type_aliases.insert(name.clone(), resolved.kind);
+                        }
+                        Err(error) => self.report(error),
                     }
-                    Err(error) => self.report(error),
+                } else {
+                    self.generic_aliases.insert(
+                        name.clone(),
+                        (
+                            type_params.iter().map(|param| param.name.clone()).collect(),
+                            target.clone(),
+                        ),
+                    );
                 }
             }
             Item::Trait {
@@ -3962,6 +3982,33 @@ impl<'src> Checker<'src> {
                 }
             }
             TypeExpr::Generic { name, args, span } => {
+                // A generic alias expands to its target with the written
+                // arguments substituted; the expansion is still a plain type.
+                if let Some((params, target)) = self.generic_aliases.get(name).cloned() {
+                    if params.len() != args.len() {
+                        return Err(TypeError::new(
+                            *span,
+                            format!(
+                                "`{name}` declares {} type parameter{}, given {}",
+                                params.len(),
+                                if params.len() == 1 { "" } else { "s" },
+                                args.len()
+                            ),
+                        )
+                        .with_code(codes::WRONG_TYPE_ARG_COUNT));
+                    }
+                    let pairs: Vec<(String, TypeExpr)> = params
+                        .iter()
+                        .cloned()
+                        .zip(args.iter().cloned())
+                        .collect();
+                    let expanded = substitute_type_expr(&target, &pairs);
+                    let resolved = self.resolve_type_in(&expanded, allow_c)?;
+                    return Ok(Type {
+                        kind: resolved.kind,
+                        span: *span,
+                    });
+                }
                 // `Task[T]`: the opaque handle an `async fn` call returns.
                 // It is a built-in like `Option[T]`, not a declared generic
                 // type, so it resolves here before the scheme lookup.

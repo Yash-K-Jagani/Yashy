@@ -2969,3 +2969,19 @@ fn a_type_alias_is_transparent() {
         "an alias must not become a type in HIR"
     );
 }
+
+#[test]
+fn a_generic_alias_expands_per_use() {
+    let source = "type Pair[T] = (T, T); fn f() -> Pair[int] { return (1, 2); }";
+    let (result, _, _) = check_source(source);
+    let hir = result.expect("a generic alias must expand");
+    let f = hir
+        .items
+        .iter()
+        .find_map(|item| match item {
+            HirItem::Fn(function) if function.name == "f" => Some(function),
+            _ => None,
+        })
+        .expect("the function");
+    assert!(matches!(f.ret.kind, yashy_hir::ty::TypeKind::Tuple(_)));
+}
