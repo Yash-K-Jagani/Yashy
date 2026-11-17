@@ -7,12 +7,19 @@
 # Compile time on shared CI runners moves 20-50% for the same compiler, so
 # compile rows are tripwires for catastrophic regressions only: they are tracked
 # in the baseline but never fail the gate on normal runner noise. The claims
-# that are actually gated are the ratios (fib_wrap_ratio ≤ 1.20, asserted in
+# that are actually gated are the ratios (fib_compile_ratio and fib_wrap_ratio,
+# gated at `ratio=20` here and asserted against their absolute bounds in
 # ci.sh/ci.ps1) and the promotion count (promoted_sites == 1, asserted in the
 # scripts), plus run-time rows within their percent.
 compile=100
 binary=10
 runtime=20
+# A same-run ratio is already normalised: its two halves were measured on the
+# same runner, in the same run, interleaved. A 20% move in the ratio is a real
+# regression rather than runner noise, so it is gated where a raw compile
+# millisecond is not. This is the compile-time gate: the row is
+# `fib_compile_ratio` (Yashy's compile of fib over clang's compile of fib.c).
+ratio=20
 
 # There is no `large_compile_ms` override any more: it was 25%, and the same
 # run-to-run noise that makes 20% unusable for a small program made 25%

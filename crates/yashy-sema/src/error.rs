@@ -1,6 +1,6 @@
 //! Errors produced by the type checker, before they become diagnostics.
 
-use yashy_common::{Diagnostic, FileId, Severity, Span};
+use yashy_common::{Diagnostic, FileId, Severity, Span, Suggestion};
 
 /// A type error: what was wrong, and where in the source it was found.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -13,6 +13,13 @@ pub struct TypeError {
     pub notes: Vec<String>,
     /// The stable catalog code, assigned where the error is built.
     pub code: Option<&'static str>,
+    /// Machine-applicable edits that fix the error.
+    ///
+    /// An error that knows the exact rewrite — a missing `move`, an argument
+    /// order that is a permutation of the parameters — carries it here so
+    /// `yashyc fix`, the LSP code action and SARIF all get the same edit
+    /// without re-deriving it from the message.
+    pub suggestions: Vec<Suggestion>,
 }
 
 impl TypeError {
@@ -23,6 +30,7 @@ impl TypeError {
             label: None,
             notes: Vec::new(),
             code: None,
+            suggestions: Vec::new(),
         }
     }
 
@@ -45,6 +53,12 @@ impl TypeError {
         self
     }
 
+    /// Attach machine-applicable edits, and return the error.
+    pub fn with_suggestions(mut self, suggestions: Vec<Suggestion>) -> Self {
+        self.suggestions = suggestions;
+        self
+    }
+
     /// Turn this type error into a diagnostic attached to `file`.
     pub fn into_diagnostic(&self, file: FileId) -> Diagnostic {
         Diagnostic {
@@ -56,7 +70,7 @@ impl TypeError {
             notes: self.notes.clone(),
             code: self.code,
             proof: None,
-            suggestions: Vec::new(),
+            suggestions: self.suggestions.clone(),
         }
     }
 }

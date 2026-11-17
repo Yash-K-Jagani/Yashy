@@ -28,6 +28,100 @@ fn check_json_carries_suggestions_for_a_removed_keyword() {
 }
 
 #[test]
+fn check_json_offers_a_missing_move_and_fix_applies_it() {
+    let dir = work_dir("fix-move");
+    write(
+        &dir,
+        "main.ya",
+        "fn main() {\n    let buf = alloc(16);\n    let other = buf;\n    other.free();\n}\n",
+    );
+    let output = Command::new(yashyc())
+        .args(["check", "--json", "main.ya"])
+        .current_dir(&dir)
+        .output()
+        .expect("the CLI must run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"replacement\": \"move buf\""), "{stdout}");
+    assert!(
+        stdout.contains("\"applicability\": \"machine-applicable\""),
+        "{stdout}"
+    );
+
+    let fix = Command::new(yashyc())
+        .args(["fix", "main.ya"])
+        .current_dir(&dir)
+        .output()
+        .expect("the CLI must run");
+    assert!(
+        fix.status.success(),
+        "{}",
+        String::from_utf8_lossy(&fix.stderr)
+    );
+    let fixed = fs::read_to_string(dir.join("main.ya")).expect("the fixed file");
+    assert!(fixed.contains("let other = move buf;"), "{fixed}");
+
+    let check = Command::new(yashyc())
+        .args(["check", "main.ya"])
+        .current_dir(&dir)
+        .output()
+        .expect("the CLI must run");
+    assert!(
+        check.status.success(),
+        "a second check must be clean:\n{}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+}
+
+#[test]
+fn check_json_offers_the_argument_swap_as_one_fix() {
+    let dir = work_dir("fix-order");
+    write(
+        &dir,
+        "main.ya",
+        "fn pair(int a, string b) -> int {\n    return a;\n}\n\nfn main() {\n    \
+         const v = pair(\"x\", 1);\n    print(v);\n}\n",
+    );
+    let output = Command::new(yashyc())
+        .args(["check", "--json", "main.ya"])
+        .current_dir(&dir)
+        .output()
+        .expect("the CLI must run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("are out of order"), "{stdout}");
+    // Both positions are rewritten; neither edit alone fixes the call.
+    assert_eq!(stdout.matches("\"suggestions\"").count(), 1, "{stdout}");
+    assert!(stdout.contains("\"replacement\": \"1\""), "{stdout}");
+    assert!(
+        stdout.contains("\"replacement\": \"\\\"x\\\"\""),
+        "{stdout}"
+    );
+
+    let fix = Command::new(yashyc())
+        .args(["fix", "main.ya"])
+        .current_dir(&dir)
+        .output()
+        .expect("the CLI must run");
+    assert!(
+        fix.status.success(),
+        "{}",
+        String::from_utf8_lossy(&fix.stderr)
+    );
+    let fixed = fs::read_to_string(dir.join("main.ya")).expect("the fixed file");
+    assert!(fixed.contains("pair(1, \"x\")"), "{fixed}");
+
+    let check = Command::new(yashyc())
+        .args(["check", "main.ya"])
+        .current_dir(&dir)
+        .output()
+        .expect("the CLI must run");
+    assert!(
+        check.status.success(),
+        "a second check must be clean:\n{}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+}
+
+#[test]
 fn fix_rewrites_the_file_and_a_second_check_is_clean() {
     let dir = work_dir("fix-apply");
     write(&dir, "main.ya", "fn main() { var int x = 1; }\n");

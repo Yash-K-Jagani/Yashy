@@ -761,33 +761,42 @@ impl Server {
             }
         }
 
-        // A "did you mean" message is a fact the checker already proved. Turn
-        // it into the edit instead of asking the user to retype the name.
-        for diagnostic in diagnostics_text(&model.text) {
-            let Some(message) = diagnostic.get("message").and_then(Value::as_str) else {
+        // Every edit the checker already proved, offered at the cursor. A
+        // diagnostic's suggestions are one action, not one per edit: an
+        // argument-order fix is two spans that only make sense together, and
+        // applying half of it would produce a different wrong call.
+        for diagnostic in &check_text(&model.text) {
+            let edits: Vec<(usize, usize, String)> = diagnostic
+                .suggestions
+                .iter()
+                .filter(|suggestion| {
+                    suggestion.applicability == yashy_common::Applicability::MachineApplicable
+                })
+                .map(|suggestion| {
+                    let start = (suggestion.span.start as usize).min(model.text.len());
+                    let end = (suggestion.span.end as usize)
+                        .max(start)
+                        .min(model.text.len());
+                    (start, end, suggestion.replacement.clone())
+                })
+                .collect();
+            if edits.is_empty() {
                 continue;
-            };
-            let Some(near) = message
-                .split("did you mean `")
-                .nth(1)
-                .and_then(|rest| rest.split('`').next())
-            else {
-                continue;
-            };
-            let Some(written) = message.split('`').nth(1) else {
-                continue;
-            };
-            for (start, end) in model.occurrences.get(written).cloned().unwrap_or_default() {
-                actions.push(quick_fix(
-                    &uri,
-                    &model,
-                    start,
-                    end,
-                    near,
-                    format!("use `{near}`"),
-                    "quickfix",
-                ));
             }
+            let start = (diagnostic.span.start as usize).min(model.text.len());
+            let end = (diagnostic.span.end as usize)
+                .max(start)
+                .min(model.text.len());
+            if offset < start || offset > end {
+                continue;
+            }
+            actions.push(quick_fix_edits(
+                &uri,
+                &model,
+                &edits,
+                format!("fix: {}", diagnostic.message),
+                "quickfix",
+            ));
         }
 
         // Rename stays as a refactor: the user supplies the new name, so this
@@ -1214,21 +1223,33 @@ fn inferred_bindings(text: &str) -> Vec<(usize, &'static str)> {
 
 /// Diagnostics for a source string, in LSP form, for pull diagnostics.
 fn diagnostics_text(text: &str) -> Vec<Value> {
+    diagnostics_to_lsp(text, &check_text(text))
+}
+
+/// The checker's diagnostics for a source string, with their edits attached.
+///
+/// The LSP and `yashyc check` must agree about what is fixable, so this runs
+/// the driver's loader and the same checker, then the same suggestion
+/// attacher. Nothing here invents an edit the CLI would not also offer.
+fn check_text(text: &str) -> Vec<yashy_common::Diagnostic> {
     let uri = "file:///model.ya";
     let path = uri_to_path(uri);
     let mut sources = SourceMap::new();
-    let modules = match load(&mut sources, &path, text.to_string()) {
-        Ok(modules) => modules,
-        Err(diagnostics) => return diagnostics_to_lsp(text, &diagnostics),
+    let mut diagnostics = match load(&mut sources, &path, text.to_string()) {
+        Ok(modules) => {
+            let borrowed: Vec<(FileId, &yashy_parser::Program)> = modules
+                .iter()
+                .map(|module| (module.file, &module.program))
+                .collect();
+            match check_modules_with(&borrowed, &sources, CheckOptions::default()) {
+                Ok(_) => Vec::new(),
+                Err(diagnostics) => diagnostics,
+            }
+        }
+        Err(diagnostics) => diagnostics,
     };
-    let borrowed: Vec<(FileId, &yashy_parser::Program)> = modules
-        .iter()
-        .map(|module| (module.file, &module.program))
-        .collect();
-    match check_modules_with(&borrowed, &sources, CheckOptions::default()) {
-        Ok(_) => Vec::new(),
-        Err(diagnostics) => diagnostics_to_lsp(text, &diagnostics),
-    }
+    yashy_driver::fix::attach_typo_suggestions(&sources, &mut diagnostics);
+    diagnostics
 }
 
 fn diagnostics_to_lsp(text: &str, diagnostics: &[yashy_common::Diagnostic]) -> Vec<Value> {
@@ -1817,16 +1838,49 @@ fn quick_fix(
     title: String,
     kind: &str,
 ) -> Value {
-    let (sl, sc, el, ec) = model.range(start, end);
-    let edit = object([
-        ("range", range(sl, sc, el, ec)),
-        ("newText", string(replacement)),
-    ]);
-    let changes = object([(uri, Value::Arr(vec![edit]))]);
+    quick_fix_edits(
+        uri,
+        model,
+        &[(start, end, replacement.to_string())],
+        title,
+        kind,
+    )
+}
+
+/// One workspace edit carrying every change a diagnostic proved at once.
+///
+/// `edits` are byte spans in the same document, in any order. The action's own
+/// range spans all of them, so an editor that shows the action at the
+/// diagnostic (`range`) still accepts it from anywhere in the list.
+fn quick_fix_edits(
+    uri: &str,
+    model: &crate::model::LspModel,
+    edits: &[(usize, usize, String)],
+    title: String,
+    kind: &str,
+) -> Value {
+    let mut first = model.text.len();
+    let mut last = 0usize;
+    let changes: Vec<Value> = edits
+        .iter()
+        .map(|(start, end, replacement)| {
+            first = first.min(*start);
+            last = last.max(*end);
+            let (sl, sc, el, ec) = model.range(*start, *end);
+            object([
+                ("range", range(sl, sc, el, ec)),
+                ("newText", string(replacement)),
+            ])
+        })
+        .collect();
+    let (sl, sc, el, ec) = model.range(first, last);
     object([
         ("title", string(title)),
         ("kind", string(kind)),
-        ("edit", object([("changes", changes)])),
+        (
+            "edit",
+            object([("changes", object([(uri, Value::Arr(changes))]))]),
+        ),
         ("range", range(sl, sc, el, ec)),
     ])
 }

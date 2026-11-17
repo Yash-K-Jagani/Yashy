@@ -24,7 +24,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use yashy_common::{codes, Diagnostic, FileId, SourceMap, Span};
+use yashy_common::{codes, Applicability, Diagnostic, FileId, SourceMap, Span, Suggestion};
 use yashy_hir::layout::{self as type_layout, Decls, Layout, NamedType};
 use yashy_parser::ast::{
     BinOp, BindingKeyword, Block, CallArg, Contract, Expr, ExternDecl, InterpFormat, InterpPart,
@@ -1724,10 +1724,25 @@ impl<'src> Checker<'src> {
             let name = path.last().cloned().unwrap_or_default();
             if let Some(binding) = self.scope.resolve(&name) {
                 if matches!(linearity_of(&binding.ty.kind), Linearity::Linear) {
-                    self.error(
-                        *span,
-                        format!("cannot assign linear value `{name}` without `move`"),
-                    );
+                    // The fix is mechanical: the value leaves its binding only
+                    // through `move`, so write one. The replacement is the
+                    // identifier's own source text, which keeps the diagnostic
+                    // honest about what it is editing.
+                    let text = self.sm.snippet(self.file, *span).to_string();
+                    let suggestion = Suggestion {
+                        span: *span,
+                        replacement: format!("move {text}"),
+                        applicability: Applicability::MachineApplicable,
+                        message: format!("move `{name}` out of its binding"),
+                    };
+                    self.errors.push((
+                        self.file,
+                        TypeError::new(
+                            *span,
+                            format!("cannot assign linear value `{name}` without `move`"),
+                        )
+                        .with_suggestions(vec![suggestion]),
+                    ));
                 }
             }
         }
@@ -11434,18 +11449,88 @@ impl<'src> Checker<'src> {
                                 return self.assert_cmp_call(&name, &arg_vals, *span);
                             }
                             let mut arg_exprs = Vec::with_capacity(arg_vals.len());
+                            let mut arg_types = Vec::with_capacity(arg_vals.len());
+                            for (arg, param) in arg_vals.iter().zip(params.iter()) {
+                                let checked = self.check_expr_with_expected(arg, param)?;
+                                arg_types.push(expr_ty(&checked));
+                                arg_exprs.push(checked);
+                            }
+                            let mismatched: Vec<usize> = params
+                                .iter()
+                                .zip(arg_types.iter())
+                                .enumerate()
+                                .filter(|(_, (param, actual))| !fits(param, actual))
+                                .map(|(index, _)| index)
+                                .collect();
+                            if !mismatched.is_empty() {
+                                // A call whose argument *types* are a permutation
+                                // of the parameter types is a wrong order, not a
+                                // wrong program. The fix is mechanical: move each
+                                // argument into the position that wants it, and
+                                // that edit is expressible exactly, so the
+                                // diagnostic carries it instead of making the
+                                // reader re-read the signature.
+                                match argument_permutation(&params, &arg_types) {
+                                    Some(order)
+                                        if order
+                                            .iter()
+                                            .enumerate()
+                                            .any(|(index, from)| index != *from) =>
+                                    {
+                                        let mut suggestions = Vec::new();
+                                        for (index, from) in order.iter().enumerate() {
+                                            if index == *from {
+                                                continue;
+                                            }
+                                            let span = expr_span(&arg_exprs[index]);
+                                            let from_span = expr_span(&arg_exprs[*from]);
+                                            let text =
+                                                self.sm.snippet(self.file, from_span).to_string();
+                                            suggestions.push(Suggestion {
+                                                span,
+                                                replacement: text,
+                                                applicability: Applicability::MachineApplicable,
+                                                message: format!(
+                                                    "move this argument to parameter position {}",
+                                                    index + 1
+                                                ),
+                                            });
+                                        }
+                                        let expected: Vec<String> = params
+                                            .iter()
+                                            .enumerate()
+                                            .map(|(index, param)| {
+                                                format!("`{param}` at position {}", index + 1)
+                                            })
+                                            .collect();
+                                        self.errors.push((
+                                            self.file,
+                                            TypeError::new(
+                                                *span,
+                                                format!(
+                                                    "arguments to `{name}` are out of order: expected {}",
+                                                    expected.join(", ")
+                                                ),
+                                            )
+                                            .with_code(codes::TYPE_MISMATCH)
+                                            .with_suggestions(suggestions),
+                                        ));
+                                    }
+                                    _ => {
+                                        for index in mismatched {
+                                            self.error(
+                                                expr_span(&arg_exprs[index]),
+                                                format!(
+                                                    "expected `{}`, found `{}`",
+                                                    params[index], arg_types[index]
+                                                ),
+                                            );
+                                        }
+                                    }
+                                }
+                            }
                             for (i, (arg, param)) in arg_vals.iter().zip(params.iter()).enumerate()
                             {
-                                let checked = self.check_expr_with_expected(arg, param)?;
-                                if !fits(param, &expr_ty(&checked)) {
-                                    self.error(
-                                        expr_span(&checked),
-                                        format!(
-                                            "expected `{param}`, found `{}`",
-                                            expr_ty(&checked)
-                                        ),
-                                    );
-                                }
                                 // A parameter of linear type takes ownership, so
                                 // passing a bare name moves it out --
                                 // `buf.free()`, and a user function taking
@@ -11479,7 +11564,6 @@ impl<'src> Checker<'src> {
                                         }
                                     }
                                 }
-                                arg_exprs.push(checked);
                             }
                             // The arguments past the fixed parameters are the
                             // variadic tail. C does not check their types, so
@@ -14060,6 +14144,56 @@ fn fits(expected: &Type, found: &Type) -> bool {
     expected.eq_ignoring_span(found)
         || matches!(found.kind, TypeKind::Never)
         || ffi_string_fits(expected, found)
+}
+
+/// The argument order that would satisfy `params`, when one exists.
+///
+/// Returns one source argument index per parameter: `order[i]` names the
+/// argument that fits parameter `i`. `None` when no complete assignment exists
+/// (or the arity differs), which means the call is not merely reordered.
+///
+/// This is what turns "expected `int`, found `string`" twice into one
+/// diagnostic with the exact edit. The search is a plain backtracking
+/// assignment: parameters are few, and the arity cap keeps a pathological call
+/// from costing more than a bounded search. `Never` arguments fit anywhere, so
+/// a permutation with a diverging argument is still reported as a permutation
+/// only when the remaining types force one.
+fn argument_permutation(params: &[Type], args: &[Type]) -> Option<Vec<usize>> {
+    if params.len() != args.len() || params.is_empty() || params.len() > 12 {
+        return None;
+    }
+
+    fn place(
+        index: usize,
+        params: &[Type],
+        args: &[Type],
+        order: &mut Vec<usize>,
+        used: &mut Vec<bool>,
+    ) -> bool {
+        if index == params.len() {
+            return true;
+        }
+        for (candidate, actual) in args.iter().enumerate() {
+            if used[candidate] || !fits(&params[index], actual) {
+                continue;
+            }
+            used[candidate] = true;
+            order[index] = candidate;
+            if place(index + 1, params, args, order, used) {
+                return true;
+            }
+            used[candidate] = false;
+        }
+        false
+    }
+
+    let mut order = vec![0usize; params.len()];
+    let mut used = vec![false; args.len()];
+    if place(0, params, args, &mut order, &mut used) {
+        Some(order)
+    } else {
+        None
+    }
 }
 
 /// Whether a `string` may stand where a C string pointer is wanted.

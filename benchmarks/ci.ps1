@@ -92,6 +92,47 @@ function Format-Ms {
     $Value.ToString('F1', [System.Globalization.CultureInfo]::InvariantCulture)
 }
 
+# Two medians measured as a pair, alternating which side goes first.
+#
+# `Measure-Median` runs one action to completion and then the other, so a
+# machine that heats up or picks up background load between them moves the
+# ratio even though neither compiler changed. Here one sample is one left run
+# and one right run, and the order alternates, so drift lands on both halves.
+function Measure-Median-Pair {
+    param([scriptblock]$Left, [scriptblock]$Right, [int]$Samples)
+    & $Left | Out-Null
+    & $Right | Out-Null
+    $left = New-Object System.Collections.Generic.List[double]
+    $right = New-Object System.Collections.Generic.List[double]
+    for ($i = 0; $i -lt $Samples; $i++) {
+        if ($i % 2 -eq 0) {
+            $watch = [System.Diagnostics.Stopwatch]::StartNew()
+            & $Left
+            $watch.Stop()
+            $left.Add($watch.Elapsed.TotalMilliseconds)
+            $watch = [System.Diagnostics.Stopwatch]::StartNew()
+            & $Right
+            $watch.Stop()
+            $right.Add($watch.Elapsed.TotalMilliseconds)
+        } else {
+            $watch = [System.Diagnostics.Stopwatch]::StartNew()
+            & $Right
+            $watch.Stop()
+            $right.Add($watch.Elapsed.TotalMilliseconds)
+            $watch = [System.Diagnostics.Stopwatch]::StartNew()
+            & $Left
+            $watch.Stop()
+            $left.Add($watch.Elapsed.TotalMilliseconds)
+        }
+    }
+    $leftSorted = @($left | Sort-Object)
+    $rightSorted = @($right | Sort-Object)
+    @(
+        $leftSorted[[int][math]::Floor($leftSorted.Count / 2)]
+        $rightSorted[[int][math]::Floor($rightSorted.Count / 2)]
+    )
+}
+
 # Two medians as one ratio, two decimals, culture-invariant so the measurement
 # file is the same on every machine.
 function Format-Ratio {
@@ -109,9 +150,13 @@ $wordcountYashy = Join-Path $build "wordcount-yashy$exe"
 $mapsYashy = Join-Path $build "maps-yashy$exe"
 $promoteYashy = Join-Path $build "promote-yashy$exe"
 
-$fibCompile = Measure-Median {
+$fibPair = Measure-Median-Pair {
     Invoke-Tool $yashyc (@('build', "$bench\fib.ya", '-o', $fibYashy, '--release') + $noOptArgs) 'yashyc build fib'
+} {
+    Invoke-Tool 'clang' @('-O2', "$bench\fib.c", '-o', $fibC) 'clang build fib'
 } $Runs
+$fibCompile = $fibPair[0]
+$cCompile = $fibPair[1]
 $helloCompile = Measure-Median {
     Invoke-Tool $yashyc (@('build', "$bench\hello.ya", '-o', $helloYashy, '--release') + $noOptArgs) 'yashyc build hello'
 } $Runs
@@ -186,13 +231,9 @@ $helloRun = Measure-Median {
 } $Runs
 
 $cOut = ''
-$cCompile = 0.0
 $cRun = 0.0
 $cBytes = 0
 try {
-    $cCompile = Measure-Median {
-        Invoke-Tool 'clang' @('-O2', "$bench\fib.c", '-o', $fibC) 'clang build fib'
-    } $Runs
     $cRun = Measure-Median {
         $runOut = (& $fibC 2>&1 | Out-String).Trim()
         if ($LASTEXITCODE -ne 0) {

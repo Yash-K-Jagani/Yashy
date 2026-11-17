@@ -137,6 +137,46 @@ measure_compile() {
     printf '%s\n' "$median"
 }
 
+# Yashy's fib compile and clang's fib.c compile, measured as a pair.
+#
+# The two medians are the halves of `fib_compile_ratio`. Measuring the whole
+# Yashy set first and the C row much later lets a machine that heats up or
+# gains a background load drift between the halves, which moves the ratio
+# without either compiler changing. One sample here is one Yashy build and one
+# clang build, and which goes first alternates, so drift lands on both sides.
+# Prints "<yashy ms> <clang ms>".
+measure_fib_compile_pair() {
+    run_checked 'yashyc build fib' "$yashyc" build "$bench/fib.ya" -o "$fib_yashy" --release ${no_opt_arg:+"$no_opt_arg"}
+    run_checked 'clang build fib' clang -O2 "$bench/fib.c" -o "$fib_c"
+    ysamples=$(mktemp)
+    csamples=$(mktemp)
+    i=0
+    while [ "$i" -lt "$runs" ]; do
+        if [ $((i % 2)) -eq 0 ]; then
+            start=$(now_ns)
+            run_checked 'yashyc build fib' "$yashyc" build "$bench/fib.ya" -o "$fib_yashy" --release ${no_opt_arg:+"$no_opt_arg"}
+            end=$(now_ns)
+            elapsed_ms $((end - start)) >> "$ysamples"
+            start=$(now_ns)
+            run_checked 'clang build fib' clang -O2 "$bench/fib.c" -o "$fib_c"
+            end=$(now_ns)
+            elapsed_ms $((end - start)) >> "$csamples"
+        else
+            start=$(now_ns)
+            run_checked 'clang build fib' clang -O2 "$bench/fib.c" -o "$fib_c"
+            end=$(now_ns)
+            elapsed_ms $((end - start)) >> "$csamples"
+            start=$(now_ns)
+            run_checked 'yashyc build fib' "$yashyc" build "$bench/fib.ya" -o "$fib_yashy" --release ${no_opt_arg:+"$no_opt_arg"}
+            end=$(now_ns)
+            elapsed_ms $((end - start)) >> "$ysamples"
+        fi
+        i=$((i + 1))
+    done
+    printf '%s %s\n' "$(median_of "$ysamples" "$runs")" "$(median_of "$csamples" "$runs")"
+    rm -f "$ysamples" "$csamples"
+}
+
 # The same, for a program that must print something: a run that produced no
 # output is not a run (a refused binary would otherwise time as suspiciously
 # fast). The program's own stderr is kept in `$outfile`, so a refusal that
@@ -181,7 +221,9 @@ fib_wrap_out="$build/fib-wrap-yashy.out"
 hello_out="$build/hello-yashy.out"
 c_out="$build/fib-c.out"
 
-fib_compile=$(measure_compile 'yashyc build fib' "$yashyc" build "$bench/fib.ya" -o "$fib_yashy" --release ${no_opt_arg:+"$no_opt_arg"})
+fib_pair=$(measure_fib_compile_pair)
+fib_compile=${fib_pair%% *}
+c_compile=${fib_pair##* }
 hello_compile=$(measure_compile 'yashyc build hello' "$yashyc" build "$bench/hello.ya" -o "$hello_yashy" --release ${no_opt_arg:+"$no_opt_arg"})
 large_compile=$(measure_compile 'yashyc build large' "$yashyc" build "$bench/large.ya" -o "$large_yashy" --release ${no_opt_arg:+"$no_opt_arg"})
 
@@ -243,10 +285,6 @@ hello_bytes=$(file_bytes "$hello_yashy")
 c_compile=''
 c_run=''
 c_bytes=''
-c_compile=$(measure_compile 'clang build fib' clang -O2 "$bench/fib.c" -o "$fib_c") || {
-    say 'the C row is required: it is the denominator of fib_wrap_ratio'
-    exit 1
-}
 c_run=$(measure_run 'clang fib' "$c_out" "$fib_c") || {
     say 'the C row is required: it is the denominator of fib_wrap_ratio'
     exit 1

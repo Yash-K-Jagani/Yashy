@@ -467,6 +467,74 @@ fn main() { let p = Point { x: 1 }; print(describe(p)); }\n";
     assert_eq!(line, 0, "a bound call lands on the trait requirement");
 }
 
+/// The `newText` of every edit an action list makes to `uri`.
+fn edit_texts(actions: &[Value], uri: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for action in actions {
+        let Some(changes) = action
+            .get_path(&["edit", "changes", uri])
+            .and_then(Value::as_array)
+        else {
+            continue;
+        };
+        for edit in changes {
+            if let Some(text) = edit.get("newText").and_then(Value::as_str) {
+                out.push(text.to_string());
+            }
+        }
+    }
+    out
+}
+
+fn actions_for(replies: &[Value], id: i64) -> Vec<Value> {
+    replies
+        .iter()
+        .find(|reply| reply.get("id").and_then(Value::as_i64) == Some(id))
+        .and_then(|reply| reply.get("result"))
+        .and_then(Value::as_array)
+        .map(<[Value]>::to_vec)
+        .unwrap_or_default()
+}
+
+#[test]
+fn code_action_applies_the_missing_move_the_cli_would_apply() {
+    let uri = test_uri("action_move.ya");
+    let messages = vec![
+        did_open(
+            &uri,
+            "fn main() {\n    let buf = alloc(16);\n    let other = buf;\n    other.free();\n}\n",
+        ),
+        // Cursor on `buf` in `let other = buf;`.
+        request(2, "textDocument/codeAction", at(&uri, 2, 17)),
+    ];
+    let replies = run(messages);
+    let actions = actions_for(&replies, 2);
+    let texts = edit_texts(&actions, &uri);
+    assert!(
+        texts.iter().any(|text| text == "move buf"),
+        "the checker's own edit is offered: {actions:?}"
+    );
+}
+
+#[test]
+fn code_action_applies_both_halves_of_the_argument_swap() {
+    let uri = test_uri("action_order.ya");
+    let text = "fn pair(int a, string b) -> int {\n    return a;\n}\n\nfn main() {\n    \
+                const v = pair(\"x\", 1);\n    print(v);\n}\n";
+    let messages = vec![
+        did_open(&uri, text),
+        // Cursor inside the call's arguments.
+        request(2, "textDocument/codeAction", at(&uri, 5, 20)),
+    ];
+    let replies = run(messages);
+    let actions = actions_for(&replies, 2);
+    let texts = edit_texts(&actions, &uri);
+    assert!(
+        texts.iter().any(|text| text == "1") && texts.iter().any(|text| text == "\"x\""),
+        "both argument positions are rewritten together: {actions:?}"
+    );
+}
+
 #[test]
 fn a_uri_keeps_a_windows_paths_characters() {
     let path = PathBuf::from(r"D:\Yashy\examples\main.ya");

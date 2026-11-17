@@ -207,10 +207,13 @@ a `docs:` line naming its page, for example
 `docs: https://yashy.dev/errors/E0100`.
 
 A fixable diagnostic carries a `suggestions[]` array in JSON: a byte span, a
-replacement and an applicability. Removed keywords and checker "did you mean"
-name typos produce machine-applicable edits, applied by `yashyc fix`. The
-language server offers the same edits as quick fixes, and `--sarif` emits them
-as SARIF 2.1.0 `fixes` objects with real line/column regions.
+replacement and an applicability. Removed keywords, checker "did you mean" name
+typos, a linear value copied without `move`, and a call whose argument types are
+a permutation of its parameters all produce machine-applicable edits, applied by
+`yashyc fix`. The language server offers the same checker edits as quick fixes
+(one `WorkspaceEdit` per diagnostic, so a swapped-argument fix moves every
+position together), and `--sarif` emits them as SARIF 2.1.0 `fixes` objects with
+real line/column regions.
 
 | Option | Meaning |
 |---|---|

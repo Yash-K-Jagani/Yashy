@@ -17,6 +17,13 @@ pub const DEFAULT_COMPILE_PCT: f64 = 20.0;
 pub const DEFAULT_BINARY_PCT: f64 = 10.0;
 /// The default percent change allowed for a run-time row.
 pub const DEFAULT_RUNTIME_PCT: f64 = 20.0;
+/// The default percent change allowed for a same-run ratio row.
+///
+/// A ratio row (`fib_compile_ratio`, `fib_wrap_ratio`) already normalises away
+/// the machine: its numerator and denominator were measured on the same runner,
+/// in the same run. Twenty percent is therefore a real gate, unlike a raw
+/// compile millisecond, which shared runners move 20-50% at a time.
+pub const DEFAULT_RATIO_PCT: f64 = 20.0;
 
 /// A malformed line, with the one-based line number that carried it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -115,6 +122,7 @@ enum Kind {
     Binary,
     Runtime,
     Count,
+    Ratio,
 }
 
 fn kind_of(row: &str) -> Option<Kind> {
@@ -124,6 +132,8 @@ fn kind_of(row: &str) -> Option<Kind> {
         Some(Kind::Binary)
     } else if row.ends_with("_run_ms") {
         Some(Kind::Runtime)
+    } else if row.ends_with("_ratio") {
+        Some(Kind::Ratio)
     } else if row == "instantiation_count" {
         // Generic instantiations are a compile-time cost: a pass that
         // instantiates more is held to the compile threshold.
@@ -139,6 +149,8 @@ pub struct Thresholds {
     pub compile: f64,
     pub binary: f64,
     pub runtime: f64,
+    /// The percent a same-run ratio row may move.
+    pub ratio: f64,
     /// Per-row overrides, in percent, keyed by row name.
     pub per_row: BTreeMap<String, f64>,
 }
@@ -149,14 +161,15 @@ impl Default for Thresholds {
             compile: DEFAULT_COMPILE_PCT,
             binary: DEFAULT_BINARY_PCT,
             runtime: DEFAULT_RUNTIME_PCT,
+            ratio: DEFAULT_RATIO_PCT,
             per_row: BTreeMap::new(),
         }
     }
 }
 
 impl Thresholds {
-    /// Parse `compile=20`, `binary=10`, `runtime=20`, and any other key as a
-    /// per-row override in percent.
+    /// Parse `compile=20`, `binary=10`, `runtime=20`, `ratio=20`, and any other
+    /// key as a per-row override in percent.
     pub fn parse(text: &str) -> Result<Self, ParseError> {
         let mut thresholds = Thresholds::default();
         let parsed = Measurement::parse(text)?;
@@ -175,6 +188,7 @@ impl Thresholds {
                 "compile" => thresholds.compile = percent,
                 "binary" => thresholds.binary = percent,
                 "runtime" => thresholds.runtime = percent,
+                "ratio" => thresholds.ratio = percent,
                 _ => {
                     thresholds.per_row.insert(key.to_string(), percent);
                 }
@@ -190,6 +204,7 @@ impl Thresholds {
                 Kind::Compile | Kind::Count => self.compile,
                 Kind::Binary => self.binary,
                 Kind::Runtime => self.runtime,
+                Kind::Ratio => self.ratio,
             })
         })
     }
@@ -860,6 +875,25 @@ fib_run_ms=50.0
     }
 
     #[test]
+    #[test]
+    fn a_same_run_ratio_gates_at_twenty_percent() {
+        let parsed = measurement("fib_compile_ratio=0.50\n");
+        assert_eq!(parsed.gate_rows(), vec!["fib_compile_ratio"]);
+        assert_eq!(
+            Thresholds::default().for_row("fib_compile_ratio"),
+            Some(DEFAULT_RATIO_PCT)
+        );
+
+        // A 20% regression in the ratio is a failure; a 10% one is not.
+        let current = measurement("fib_compile_ratio=0.61\n");
+        let results = compare(&parsed, &current, &Thresholds::default());
+        assert_eq!(row(&results, "fib_compile_ratio").verdict, Verdict::Fail);
+
+        let current = measurement("fib_compile_ratio=0.55\n");
+        let results = compare(&parsed, &current, &Thresholds::default());
+        assert_eq!(row(&results, "fib_compile_ratio").verdict, Verdict::Pass);
+    }
+
     #[test]
     fn instantiation_count_is_a_gate_row() {
         let parsed = measurement("instantiation_count=10\n");

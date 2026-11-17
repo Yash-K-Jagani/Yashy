@@ -923,6 +923,64 @@ fn assigning_a_linear_binding_without_move_is_an_error() {
     );
 }
 
+/// The suggestions attached to the one diagnostic whose message contains
+/// `needle`. Panics when no such diagnostic exists.
+fn suggestions_for(source: &str, needle: &str) -> Vec<yashy_common::Suggestion> {
+    let (result, _, _) = check_source(source);
+    let diagnostics = result.expect_err("expected the program to fail the check");
+    diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.message.contains(needle))
+        .unwrap_or_else(|| {
+            panic!(
+                "no diagnostic containing `{needle}`: {:?}",
+                diagnostics
+                    .iter()
+                    .map(|diagnostic| &diagnostic.message)
+                    .collect::<Vec<_>>()
+            )
+        })
+        .suggestions
+        .clone()
+}
+
+#[test]
+fn a_missing_move_carries_the_move_edit() {
+    let suggestions = suggestions_for(
+        "fn f() { let buf = alloc(16); let other = buf; }",
+        "without `move`",
+    );
+    assert_eq!(suggestions.len(), 1, "{suggestions:?}");
+    assert_eq!(suggestions[0].replacement, "move buf");
+    assert_eq!(
+        suggestions[0].applicability,
+        yashy_common::Applicability::MachineApplicable
+    );
+}
+
+#[test]
+fn swapped_argument_types_carry_the_swap_edit() {
+    let suggestions = suggestions_for(
+        "fn pair(int a, string b) -> int { return a; } \
+         fn f() { pair(\"x\", 1); }",
+        "are out of order",
+    );
+    assert_eq!(suggestions.len(), 2, "{suggestions:?}");
+    // The edit for parameter 1's slot writes the `int` argument, and the edit
+    // for parameter 2's slot writes the `string` one.
+    assert_eq!(suggestions[0].replacement, "1");
+    assert_eq!(suggestions[1].replacement, "\"x\"");
+}
+
+#[test]
+fn an_unrelated_type_mismatch_carries_no_edit() {
+    let suggestions = suggestions_for(
+        "fn f(int a) { } fn g() { f(\"x\"); }",
+        "expected `int`, found `string`",
+    );
+    assert!(suggestions.is_empty(), "{suggestions:?}");
+}
+
 #[test]
 fn moving_a_linear_binding_is_legal_and_releases_it() {
     let (result, _, _) =

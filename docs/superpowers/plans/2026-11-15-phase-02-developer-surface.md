@@ -131,21 +131,26 @@ separate `yashy-lint` crate was created.
   is needed for real line/column regions and for `fixes` artifact URIs; the
   original sketch without it could only print byte offsets as lines.
 
-- [ ] **Step 1: Write the failing test.** A program with a name typo, a missing
+- [x] **Step 1: Write the failing test.** A program with a name typo, a missing
   `move`, and a wrong argument order. Assert `check --json` carries one
   `suggestions[]` per fixable diagnostic, `yashyc fix` rewrites the file, and a
   second `check` is clean. Assert the same suggestion applies through the LSP
   code action.
-  *Current:* `fix.rs` still covers the removed-keyword rewrite, the dry run,
-  back-to-front application and the stale-hash refusal. It now also turns a
-  checker "did you mean `name`?" message into a machine-applicable name-typo
-  edit; the LSP code action offers the same edit and SARIF emits `fixes`.
-  The missing-`move` and wrong-argument-order producers are still absent, so
-  the step stays unchecked.
+  *Current:* all three producers exist and share one `Suggestion` model. A
+  "did you mean `name`?" message becomes a name-typo edit
+  (`fix::attach_typo_suggestions`); a linear value copied without `move` carries
+  a `move <name>` edit from the checker (`forbid_linear_copy`); and a call whose
+  argument types are a permutation of its parameters becomes one "arguments are
+  out of order" diagnostic carrying the exact per-position rewrites
+  (`argument_permutation` in `yashy-sema`). `tests/fix.rs` covers each producer
+  through `check --json`, `yashyc fix` and a clean second check; the LSP's
+  `textDocument/codeAction` now lifts those same checker suggestions into one
+  `WorkspaceEdit` per diagnostic (`crates/yashy-lsp/tests/server.rs`), so `fix`
+  and the editor never derive an edit independently.
 - [x] **Step 2: One edit model.** A suggestion is a byte span, replacement text
-  and an applicability class. The CLI and `check --json` use the same struct;
-  the LSP quick fix is built from the same checker facts (removed keywords and
-  "did you mean" messages) and emits the same replacement in a `WorkspaceEdit`.
+  and an applicability class. The CLI, `check --json`, SARIF and the LSP quick
+  fix all read the checker's own `Suggestion` values; nothing re-derives an edit
+  from a message.
 - [x] **Step 3: Apply safely.** Suggestions are applied back-to-front,
   non-overlapping, and only to a file whose content hash matches the one the
   diagnostic was computed from. `--dry-run` prints the patched file; `--json`

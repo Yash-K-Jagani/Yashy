@@ -175,14 +175,17 @@ compiler grows more phases to measure.
 - [x] **Step 1: Write the failing test.** Synthetic measurement files: a 30%
   regression fails, a 15% regression passes, a noisy pair with the same median
   passes.
-- [ ] **Step 2: Normalize.** Measure a same-run reference (clang on the same
+- [x] **Step 2: Normalize.** Measure a same-run reference (clang on the same
   program) and report the ratio; interleave A/B measurements so machine drift
   hits both. Gate compile rows at 20% on the ratio, not the raw millisecond.
-  *Current:* `benchmarks/ci.*` measure and print the ratios (`fib_wrap_ratio`,
-  `fib_compile_ratio`) and gate `fib_wrap_ratio` at 1.20. The `compare` gate
-  still uses percent thresholds, and compile rows are deliberately set to 100%
-  because shared-runner compile noise is 20-50%. The ratio is measured but not
-  wired into the compile-row gate; that wiring is the remaining work.
+  *Current:* `benchmarks/ci.*` measure Yashy's fib compile and clang's fib.c
+  compile as one interleaved pair (`Measure-Median-Pair` in `ci.ps1`,
+  `measure_fib_compile_pair` in `ci.sh`), alternating which compiler goes first
+  in each sample, and emit `fib_compile_ratio`. `yashy-bench` classifies any
+  `*_ratio` row as `Kind::Ratio` and gates it at `DEFAULT_RATIO_PCT = 20.0`
+  (`ratio=20` in `benchmarks/thresholds.bench`), with the raw `*_compile_ms`
+  rows left at `compile=100` because shared-runner compile noise is 20-50%.
+  `fib_wrap_ratio` keeps its absolute 1.20 bound in the scripts.
 - [x] **Step 3: Commit.**
 
 ### Task 7: Parser error recovery
