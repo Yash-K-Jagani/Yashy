@@ -389,9 +389,7 @@ pub fn render_verb(name: &str) -> Option<String> {
 
 /// Render the man page from the command table.
 pub fn render_man() -> String {
-    let mut out = String::from(
-        ".TH YASHC 1 \"2026\" \"Yashy\" \"Yashy Manual\"\n"
-    );
+    let mut out = String::from(".TH YASHC 1 \"2026\" \"Yashy\" \"Yashy Manual\"\n");
     out.push_str(".SH NAME\n");
     out.push_str("yashyc \\- the Yashy compiler\n");
     out.push_str(".SH SYNOPSIS\n");
@@ -424,7 +422,14 @@ pub fn render_completions(shell: &str) -> Result<String, String> {
         }
         // Global output flags are accepted by every verb, so every completion
         // script offers them even though no single verb declares them.
-        for flag in ["--color", "--no-color"] {
+        for flag in [
+            "--color",
+            "--no-color",
+            "--pager",
+            "--no-pager",
+            "--hyperlink",
+            "--no-hyperlink",
+        ] {
             if !flags.contains(&flag) {
                 flags.push(flag);
             }

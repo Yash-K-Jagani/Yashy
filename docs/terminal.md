@@ -79,6 +79,43 @@ yashyc completions fish       > scripts/completions/yashyc.fish
 yashyc completions powershell > scripts/completions/yashyc.ps1
 ```
 
+## Paging
+
+`yashyc explain` pages through `PAGER` when stdout is a terminal.
+
+| Setting | Effect |
+|---|---|
+| `--pager` | page even if the policy would not |
+| `--no-pager` | never page; the strongest form of the flag |
+| `PAGER` | the program to run; unset means `more` on Windows and `less -R` elsewhere |
+| `--json` | never pages |
+
+A pipe never starts a pager, so `yashyc explain E0100 | head -20` prints the
+page and stops, and a CI log holds the page rather than a child process's idea
+of it. A pager the reader quits early is a normal end of reading, not an error.
+
+## Hyperlinks
+
+A diagnostic opens with `path:line:col`. On a terminal that understands OSC 8
+it is also a link to the file at that position, so a click opens the editor
+that registered the handler.
+
+| Setting | Effect |
+|---|---|
+| `--hyperlink=always` | emit the link even into a pipe |
+| `--hyperlink=never`, `--no-hyperlink` | never emit the link |
+| `--hyperlink=auto` (default) | link when the terminal advertises OSC 8 |
+
+The terminal is asked through positive signals: `WT_SESSION` (Windows
+Terminal), `TERM_PROGRAM` (iTerm, WezTerm, VS Code, Hyper, Ghostty, Rio),
+`KITTY_WINDOW_ID`, `VTE_VERSION` ≥ 5000, or a `TERM` naming kitty, alacritty,
+wezterm or ghostty. Anything else gets plain text, because a stray escape is
+worse than a link that does not exist.
+
+The visible text never changes, so the log of a linked run is the same
+`path:line:col` a plain pipe prints. `yashyc inspect --human` follows the same
+rule for its source position.
+
 ## Manual page
 
 `yashyc man` prints the roff page, rendered from the same table:

@@ -159,6 +159,10 @@ usage:
                the assumptions the proof rests on; never changes the exit code
   --color <auto|always|never>  when to colour output; auto is the default and
                degrades under NO_COLOR, CLICOLOR=0, TERM=dumb and a pipe
+  --pager / --no-pager  page long human output through $PAGER on a terminal;
+               a pipe never starts a pager, and `--json` never pages
+  --hyperlink <auto|always|never>  make a diagnostic's `path:line:col` an OSC 8
+               link; auto asks the terminal, and a pipe receives plain text
   --json       print a stable machine-readable report (check, verify, test, explain, doctor)";
 
 /// The stack the front end runs on; the parser owns the requirement because
@@ -1452,19 +1456,15 @@ fn inspect_cmd(args: &[String]) -> ExitCode {
                 let effects: Vec<Json> = symbol
                     .effects
                     .map(|(reads, writes, net)| {
-                        vec![
-                            ("reads", reads),
-                            ("writes", writes),
-                            ("net", net),
-                        ]
-                        .into_iter()
-                        .map(|(name, value)| {
-                            let mut effect = Json::object();
-                            effect.set("kind", Json::string(name));
-                            effect.set("present", Json::bool(value));
-                            effect
-                        })
-                        .collect()
+                        vec![("reads", reads), ("writes", writes), ("net", net)]
+                            .into_iter()
+                            .map(|(name, value)| {
+                                let mut effect = Json::object();
+                                effect.set("kind", Json::string(name));
+                                effect.set("present", Json::bool(value));
+                                effect
+                            })
+                            .collect()
                     })
                     .unwrap_or_default();
                 object.set("effects", Json::array(effects));
@@ -1478,10 +1478,41 @@ fn inspect_cmd(args: &[String]) -> ExitCode {
         println!("{}", report.render());
     } else {
         for symbol in selected {
-            println!("{}: {}", symbol.file, symbol.signature);
+            let (line, column) = position_of(&symbol.file, symbol.span.start);
+            let text = format!("{}:{}:{}: {}", symbol.file, line, column, symbol.signature);
+            println!(
+                "{}",
+                yashy_driver::term::link(
+                    &yashy_driver::term::file_url(&symbol.file, line, column),
+                    &text
+                )
+            );
         }
     }
     exit_code(EXIT_OK)
+}
+
+/// The 1-based line and column of a byte offset in a file.
+///
+/// `inspect` prints a position so an editor can jump to it and a terminal can
+/// link it. A file that cannot be read falls back to `1:1` rather than
+/// refusing the whole report: the signature is still a fact.
+fn position_of(path: &str, offset: u32) -> (u32, u32) {
+    let Ok(source) = std::fs::read_to_string(path) else {
+        return (1, 1);
+    };
+    let offset = (offset as usize).min(source.len());
+    let mut line = 1u32;
+    let mut column = 1u32;
+    for byte in source.as_bytes().iter().take(offset) {
+        if *byte == b'\n' {
+            line += 1;
+            column = 1;
+        } else {
+            column += 1;
+        }
+    }
+    (line, column)
 }
 
 /// `yashyc cache verify <file.ya>`: recompute the v2 key for a source and say
@@ -2142,7 +2173,7 @@ fn explain(args: &[String]) -> ExitCode {
     if json {
         print_explain_json(entry);
     } else {
-        print!("{}", entry.page);
+        yashy_driver::term::page(entry.page);
     }
     exit_code(EXIT_OK)
 }
@@ -3001,7 +3032,7 @@ fn print_inventory(sources: &SourceMap, assumptions: &[Assumption]) {
 
 /// `yashyc lint <file.ya> [--json] [--list] [--group <g>]`.
 fn lint_cmd(args: &[String]) -> ExitCode {
-    use yashy_driver::lint::{self, GROUPS, LINTS, LintGroup};
+    use yashy_driver::lint::{self, LintGroup, GROUPS, LINTS};
     let mut json = false;
     let mut list = false;
     let mut docs = false;
@@ -3064,7 +3095,12 @@ fn lint_cmd(args: &[String]) -> ExitCode {
             println!("{}", report.render());
         } else {
             for lint in LINTS {
-                println!("{}  {:<12} {}", lint.code, lint.group.as_str(), lint.message);
+                println!(
+                    "{}  {:<12} {}",
+                    lint.code,
+                    lint.group.as_str(),
+                    lint.message
+                );
             }
         }
         return exit_code(EXIT_OK);
@@ -3077,9 +3113,11 @@ fn lint_cmd(args: &[String]) -> ExitCode {
         Err(code) => return code,
     };
     let diagnostics = lint::check_filtered(&source, FileId::from_index(0), group);
-    let denied = diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.code.is_some_and(|code| deny.iter().any(|deny| deny == code)));
+    let denied = diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .code
+            .is_some_and(|code| deny.iter().any(|deny| deny == code))
+    });
     if json {
         let items: Vec<Json> = diagnostics
             .iter()
@@ -3093,7 +3131,10 @@ fn lint_cmd(args: &[String]) -> ExitCode {
         let mut map = SourceMap::new();
         map.add_file(file.clone(), source);
         for diagnostic in &diagnostics {
-            eprint!("{}", yashy_driver::term::render_diagnostic(&map, diagnostic));
+            eprint!(
+                "{}",
+                yashy_driver::term::render_diagnostic(&map, diagnostic)
+            );
         }
         if diagnostics.is_empty() {
             println!("no lints in {file}");
@@ -3520,7 +3561,10 @@ fn verify(args: &[String]) -> ExitCode {
             } else {
                 if !report.is_empty() {
                     for diagnostic in &report.diagnostics {
-                        eprint!("{}", yashy_driver::term::render_diagnostic(&sources, diagnostic));
+                        eprint!(
+                            "{}",
+                            yashy_driver::term::render_diagnostic(&sources, diagnostic)
+                        );
                     }
                 }
                 if let Some(assumptions) = &assumptions {
@@ -3696,7 +3740,10 @@ fn normalise_newlines(text: &str) -> String {
 /// a fresh map here would put every caret in the entry file.
 fn render(sources: &SourceMap, diagnostics: &[Diagnostic]) -> ExitCode {
     for diagnostic in diagnostics {
-        eprint!("{}", yashy_driver::term::render_diagnostic(&sources, diagnostic));
+        eprint!(
+            "{}",
+            yashy_driver::term::render_diagnostic(&sources, diagnostic)
+        );
     }
     exit_code(EXIT_COMPILE_ERROR)
 }
@@ -3758,7 +3805,10 @@ fn expand(args: &[String]) -> ExitCode {
         Ok(tokens) => tokens,
         Err(diagnostics) => {
             for diagnostic in diagnostics {
-                eprint!("{}", yashy_driver::term::render_diagnostic(&sources, &diagnostic));
+                eprint!(
+                    "{}",
+                    yashy_driver::term::render_diagnostic(&sources, &diagnostic)
+                );
             }
             return exit_code(EXIT_COMPILE_ERROR);
         }
@@ -3767,7 +3817,10 @@ fn expand(args: &[String]) -> ExitCode {
         Ok(program) => program,
         Err(diagnostics) => {
             for diagnostic in diagnostics {
-                eprint!("{}", yashy_driver::term::render_diagnostic(&sources, &diagnostic));
+                eprint!(
+                    "{}",
+                    yashy_driver::term::render_diagnostic(&sources, &diagnostic)
+                );
             }
             return exit_code(EXIT_COMPILE_ERROR);
         }
@@ -3776,7 +3829,10 @@ fn expand(args: &[String]) -> ExitCode {
     let expanded = match expanded {
         Ok(tokens) => tokens,
         Err(diagnostic) => {
-            eprint!("{}", yashy_driver::term::render_diagnostic(&sources, &diagnostic));
+            eprint!(
+                "{}",
+                yashy_driver::term::render_diagnostic(&sources, &diagnostic)
+            );
             return exit_code(EXIT_COMPILE_ERROR);
         }
     };
@@ -3794,7 +3850,10 @@ fn expand(args: &[String]) -> ExitCode {
         }
         Err(diagnostics) => {
             for diagnostic in diagnostics {
-                eprint!("{}", yashy_driver::term::render_diagnostic(&sources, &diagnostic));
+                eprint!(
+                    "{}",
+                    yashy_driver::term::render_diagnostic(&sources, &diagnostic)
+                );
             }
             exit_code(EXIT_COMPILE_ERROR)
         }

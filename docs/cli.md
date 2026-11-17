@@ -526,6 +526,19 @@ COLUMNS=40 yashyc check main.ya
 
 `--json` writes no escape and no spinner, whatever the terminal says.
 
+Long human output (`yashyc explain`, for example) pages through `$PAGER` only
+when stdout is a terminal. `--no-pager` turns it off, `--pager` forces it, and a
+missing or unset `PAGER` falls back to `more` on Windows and `less -R`
+elsewhere. A pipe never starts a pager, so `yashyc explain E0100 | head` sees
+the page and nothing else. `--json` never pages.
+
+A diagnostic's first line is `path:line:col`. On a terminal known to support
+OSC 8, that line is a clickable link to the file; `--hyperlink=always` forces a
+link, `--hyperlink=never` forbids one, and `--hyperlink=auto` is the default,
+which asks the terminal. The visible text is unchanged either way, so a log
+records the same position a person clicks. `yashyc inspect --human` uses the
+same rule for its source position, and JSON never carries an escape.
+
 Shell completion, the install lines and the manual page are covered in
 [terminal.md](terminal.md).
 

@@ -297,18 +297,44 @@ fn run_tests(root: &Path) {
     );
 }
 
+/// Print one event.
+///
+/// A terminal gets a cleared screen before the new report, so a long watch
+/// session reads as a live view; a pipe gets no escape and one line per
+/// diagnostic, so a log file or a CI job sees exactly what happened, in order.
 fn print_event(event: &WatchEvent) {
+    let clear = crate::term::clear_screen();
     match event {
-        WatchEvent::Changed(path) => println!("changed {}", path.display()),
+        WatchEvent::Changed(path) => println!("{clear}changed {}", path.display()),
         WatchEvent::Diagnostics { file, diagnostics } => {
-            println!("{}: {} diagnostic(s)", file.display(), diagnostics.len());
-            for diagnostic in diagnostics {
-                if let Some(message) = diagnostic.get("message").and_then(|v| v.as_str()) {
-                    println!("  {message}");
+            if clear.is_empty() {
+                for diagnostic in diagnostics {
+                    let message = diagnostic
+                        .get("message")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("diagnostic");
+                    let code = diagnostic
+                        .get("code")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("error");
+                    println!("{}: {}: {message}", file.display(), code);
+                }
+            } else {
+                println!(
+                    "{clear}{}: {} diagnostic(s)",
+                    file.display(),
+                    diagnostics.len()
+                );
+                for diagnostic in diagnostics {
+                    if let Some(message) =
+                        diagnostic.get("message").and_then(|value| value.as_str())
+                    {
+                        println!("  {message}");
+                    }
                 }
             }
         }
-        WatchEvent::Success { file } => println!("{}: ok", file.display()),
+        WatchEvent::Success { file } => println!("{clear}{}: ok", file.display()),
         WatchEvent::Error(message) => eprintln!("watch: {message}"),
     }
 }

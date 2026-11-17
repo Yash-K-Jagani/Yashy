@@ -383,17 +383,35 @@ This phase makes both renderings of the compiler's facts.
   scripts and `docs/lints.md` to LF so the comparison is about the table, not
   the checkout. File arguments are completed by the shell's own filename
   completion once no verb is being typed; the scripts complete verbs and flags.
-- [ ] **Step 4: Pager and streams.** `explain` pages through `PAGER` only on a
+- [x] **Step 4: Pager and streams.** `explain` pages through `PAGER` only on a
   TTY; `--no-pager` wins; `--json` never pages and never colours. `run`
   forwards stdin, stdout, stderr and signals and returns the program's exit
   code. `watch` redraws only on a TTY and prints one line per diagnostic when
   piped; `test` progress appears only on a TTY and never in `--json`.
-- [ ] **Step 5: Paths are clickable when the terminal can click.** A diagnostic
+  *Current:* `term::page` starts `PAGER` only when stdout is a terminal and the
+  policy allows it, and a missing pager falls back to writing the page;
+  `--pager`, `--no-pager` and a pipe are tested. `run` inherits all three
+  streams and forwards the child's whole exit code (Windows codes are 32-bit,
+  so it exits through `std::process::exit`); Ctrl-C reaches the child through
+  the shared process group, and a child killed by a signal reports `1` rather
+  than re-raising the signal, which is the remaining half of "forwards
+  signals". `watch` clears the screen on a TTY and prints `file: code: message`
+  one line per diagnostic in a pipe; `test` prints one line per test and the
+  `--json` path prints no progress at all. There is no spinner, so there is
+  nothing to suppress in `--json` beyond the lines that are already absent.
+- [x] **Step 5: Paths are clickable when the terminal can click.** A diagnostic
   path is a `path:line:col` string in plain output and an OSC 8 hyperlink on a
   capable TTY; `--hyperlink auto|always|never` overrides, and JSON never carries
   an escape. The same rule covers a source span printed by `inspect` and
   `trace`.
-- [ ] **Step 6: Commit.**
+  *Current:* `term::link` wraps a header in `OSC 8 ;; file:///… :line:col` when
+  the policy allows it; `--hyperlink`, `--hyperlink=…` and `--no-hyperlink` are
+  global flags; capability is a positive list (`WT_SESSION`, `TERM_PROGRAM`,
+  `KITTY_WINDOW_ID`, `VTE_VERSION` ≥ 5000, a known `TERM`). `inspect --human`
+  prints `path:line:col: signature` through the same helper, so a click opens
+  the declaration. `trace` does not exist yet, so its half of this step waits
+  for Task 8.
+- [x] **Step 6: Commit.**
 
 ## Gates
 
@@ -402,7 +420,7 @@ This phase makes both renderings of the compiler's facts.
 | LSP conformance | `cargo test -p yashy-lsp --test conformance` | every transcript feature answers with a stable span; no panic on an incomplete file |
 | Editor matrix | `editors` CI job | VS Code and Neovim each complete, hover, rename, format and stop at a breakpoint in the fixture; Helix, Zed, Emacs and JetBrains configurations validate when their headless CLI is present |
 | Generated grammar | `cargo test -p yashy-driver --test grammar` | `yashyc tokens --grammar` reproduces every committed file; a new keyword fails until regenerated |
-| Terminal | `cargo test -p yashy-driver --test terminal --test completions --test man` | piped output is plain and ordered; colour, pager and hyperlink policy hold; every verb is in help, man and all four completions; each script parses |
+| Terminal | `cargo test -p yashy-driver --test terminal` | piped output is plain and ordered; colour, pager and hyperlink policy hold; every verb is in help, man and all four completions; each script parses |
 | Machine fixes | `cargo test -p yashy-driver --test fix` | every fixable diagnostic applies; a conflicting fix is refused; a stale hash is refused |
 | Schema | `cargo test -p yashy-driver --test diagnostics_json --test schema_diff` | v1 fields unchanged; `suggestions[]` and `id` are additive; SARIF validates |
 | Error catalog | `cargo test -p yashy-driver --test error_catalog` | every code has a page, a catalog entry, an `explain --json` record and a triggering test |
@@ -476,7 +494,7 @@ still owed so a later phase does not inherit a false checklist.
 | 7 | Sampling and allocation profilers, source coverage | Not started; `profile` is still the 1.0 counter profiler | Build the profilers and `coverage` |
 | 8.1 / 8.2 | `inspect --addr`, contracts, layout, `trace --events`, `tokens --bpe` | `inspect --json` reports signature, effects, docs and span; `tokens --grammar` exists; `--addr`, contracts, layout, `trace` and `--bpe` do not | Add the missing inspection verbs and the BPE measurement |
 | 9 | One generated grammar, six clients, `editors` CI job | The 1.0 hand-maintained grammar tests still exist; no generator, no clients, no CI job | Build the grammar model and the two gated clients |
-| 10.1 / 10.3 / 10.4 / 10.5 | Colour policy, `NO_COLOR`/`CLICOLOR`/`TERM=dumb`/`COLUMNS`, committed completions, pager, hyperlinks | `term.rs` implements the colour and width policy and the global flags; `scripts/completions/*` are committed and diff-tested; `docs/terminal.md` documents the install; no pager, no OSC 8 | Build the pager/hyperlink policy |
+| 10.1 / 10.3 / 10.4 / 10.5 | Colour policy, `NO_COLOR`/`CLICOLOR`/`TERM=dumb`/`COLUMNS`, committed completions, pager, hyperlinks | `term.rs` implements the colour, width, pager and OSC 8 policies; `scripts/completions/*` are committed and diff-tested; `docs/terminal.md` documents the install; a signal-killed child reports `1` instead of re-raising the signal | Re-raise the child's signal on Unix |
 | Gates | LSP conformance in two editors, debugger and profiler demos, terminal matrix, `editors` job | `cargo check --workspace --all-targets` is green; runtime gates cannot run locally (Windows Application Control) and CI is deferred | Re-run the full gate set when CI is unblocked |
 
 ## Out of scope

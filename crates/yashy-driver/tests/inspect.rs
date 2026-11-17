@@ -63,3 +63,22 @@ fn an_unknown_symbol_is_a_diagnostic() {
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&output.stderr).contains("no symbol"));
 }
+
+#[test]
+fn inspect_human_prints_a_path_line_and_column() {
+    let dir = work_dir("inspect-human");
+    project(&dir);
+    let output = run(&dir, &["inspect", "--human", "main.ya", "add"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // `add` is declared on the second line of the fixture, one column in.
+    assert!(
+        stdout.contains("main.ya:2:1:"),
+        "the human form must be clickable `path:line:col`: {stdout}"
+    );
+    assert!(stdout.contains("fn add"), "{stdout}");
+}

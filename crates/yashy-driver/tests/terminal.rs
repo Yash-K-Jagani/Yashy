@@ -166,6 +166,117 @@ fn an_unknown_colour_policy_is_a_usage_error() {
     assert!(stderr.contains("unknown colour policy"), "{stderr}");
 }
 
+#[test]
+fn an_unknown_hyperlink_policy_is_a_usage_error() {
+    let (code, _, stderr) = run(&["--hyperlink=sometimes", "check", "main.ya"]);
+    assert_eq!(code, 2, "{stderr}");
+    assert!(stderr.contains("unknown hyperlink policy"), "{stderr}");
+}
+
+#[test]
+fn a_pipe_is_never_paged() {
+    // A pager that would leave a marker if it ran. The output is a pipe, so
+    // the page must reach stdout and the marker must never appear.
+    let dir = common::work_dir("terminal-pager");
+    common::write(&dir, "main.ya", "fn main() {}\n");
+    let marker = dir.join("paged.txt");
+    let script = dir.join("pager.cmd");
+    common::write(
+        &dir,
+        "pager.cmd",
+        &format!("@echo paged> \"{}\"\r\n", marker.display()),
+    );
+    let output = Command::new(yashyc())
+        .args(["explain", "E0100"])
+        .env("PAGER", script.display().to_string())
+        .current_dir(&dir)
+        .output()
+        .expect("the CLI must run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("## Cause"),
+        "the page must reach a pipe: {stdout}"
+    );
+    assert!(
+        !marker.exists(),
+        "a pipe must not start a pager: {} exists",
+        marker.display()
+    );
+}
+
+#[test]
+fn the_pager_flags_are_accepted() {
+    for flag in ["--no-pager", "--pager"] {
+        let (code, stdout, stderr) = run(&[flag, "explain", "E0100"]);
+        assert_eq!(code, 0, "{flag}: {stderr}");
+        assert!(stdout.contains("## Cause"), "{flag}: {stdout}");
+    }
+}
+
+#[test]
+fn hyperlink_always_wraps_the_source_position() {
+    let dir = common::work_dir("terminal-hyperlink");
+    common::write(&dir, "main.ya", "fn main() { missing(); }\n");
+    let (code, _, always) = pipe_plain(
+        Command::new(yashyc())
+            .args(["check", "--hyperlink=always", "--color=never", "main.ya"])
+            .current_dir(&dir),
+    );
+    assert_eq!(code, 1, "{always}");
+    assert!(
+        always.contains("\u{1b}]8;;file:///"),
+        "--hyperlink=always must emit an OSC 8 link: {always:?}"
+    );
+    assert!(
+        always.contains("\u{1b}]8;;\u{1b}\\"),
+        "the link must be closed: {always:?}"
+    );
+
+    let (_, _, never) = pipe_plain(
+        Command::new(yashyc())
+            .args(["check", "--hyperlink=never", "main.ya"])
+            .current_dir(&dir),
+    );
+    assert!(
+        !never.contains('\u{1b}'),
+        "--hyperlink=never must be plain: {never:?}"
+    );
+
+    // A pipe defaults to plain text even when the terminal would allow a link.
+    let (_, _, default) = pipe_plain(
+        Command::new(yashyc())
+            .args(["check", "main.ya"])
+            .current_dir(&dir),
+    );
+    assert!(
+        !default.contains('\u{1b}'),
+        "a pipe must be plain: {default:?}"
+    );
+}
+
+#[test]
+fn json_never_carries_a_link_or_a_colour() {
+    let dir = common::work_dir("terminal-hyperlink-json");
+    common::write(&dir, "main.ya", "fn main() { missing(); }\n");
+    let (code, stdout, stderr) = pipe_plain(
+        Command::new(yashyc())
+            .args([
+                "check",
+                "--json",
+                "--color=always",
+                "--hyperlink=always",
+                "main.ya",
+            ])
+            .current_dir(&dir),
+    );
+    assert_eq!(code, 1, "{stderr}");
+    assert!(
+        !stdout.contains('\u{1b}'),
+        "the JSON envelope must carry no escape: {stdout:?}"
+    );
+}
+
 /// The four shells the compiler promises to complete.
 const SHELLS: &[(&str, &str)] = &[
     ("bash", "yashyc.bash"),
