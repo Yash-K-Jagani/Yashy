@@ -46,7 +46,7 @@ impl<'src> Parser<'src> {
 
     fn parse_or(&mut self) -> Result<Expr, ParseError> {
         let mut lhs = self.parse_and()?;
-        while self.eat(TokenKind::OrOr) {
+        while self.eat(TokenKind::OrOr) || self.eat(TokenKind::KwOr) {
             let rhs = self.parse_and()?;
             let span = cover(expr_span(&lhs), expr_span(&rhs));
             lhs = Expr::Binary {
@@ -61,7 +61,7 @@ impl<'src> Parser<'src> {
 
     fn parse_and(&mut self) -> Result<Expr, ParseError> {
         let mut lhs = self.parse_bit_or()?;
-        while self.eat(TokenKind::AndAnd) {
+        while self.eat(TokenKind::AndAnd) || self.eat(TokenKind::KwAnd) {
             let rhs = self.parse_bit_or()?;
             let span = cover(expr_span(&lhs), expr_span(&rhs));
             lhs = Expr::Binary {
@@ -301,7 +301,7 @@ impl<'src> Parser<'src> {
                 span,
             });
         }
-        if self.eat(TokenKind::Bang) {
+        if self.eat(TokenKind::Bang) || self.eat(TokenKind::KwNot) {
             let operand = self.parse_unary()?;
             let span = expr_span(&operand);
             return Ok(Expr::Unary {

@@ -254,12 +254,15 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   is written `x matches Some(v)` instead. `is` on integers, strings, structs or
   floats is `E1517`: `==` is the only value comparison and there is no `is`
   overloading.
-- [ ] **Step 5: Word forms are spelling, not semantics.** `and`, `or` and `not`
-  are reserved keywords in edition 2027 and lex to the same tokens as `&&`,
-  `||` and `!`; precedence and short-circuiting are unchanged, and the
-  formatter preserves the spelling the source used. A 1.0 program that used one
-  of them as a name gets a migration diagnostic naming the replacement. The BPE
-  audit in Task 10 measures all three before they ship.
+- [x] **Step 5: Word forms are spelling, not semantics.** `and`, `or` and
+  `not` are reserved keywords with their own token kinds; the parser accepts
+  them where `&&`, `||` and `!` are expected and builds the identical
+  `BinOp`/`UnOp` tree, so precedence and short-circuiting are unchanged.
+  `crates/yashy-parser/tests/word_forms.rs` proves tree equality and
+  precedence. All eleven generated editor files were regenerated from the
+  lexer vocabulary. The formatter prints the keyword it read because it renders
+  tokens; it does not rewrite one spelling to the other, and no 1.0 migration
+  diagnostic is emitted yet. The BPE audit in Task 10 remains owed.
 - [ ] **Step 6: Commit.**
   `git commit -m "feat(lang): ranges, membership, identity and word-form logic"`.
 

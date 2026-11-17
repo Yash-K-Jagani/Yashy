@@ -704,6 +704,16 @@ pub enum TokenKind {
     /// would make the clause unreadable.
     Cfg,
 
+    /// `and`, `or`, `not` -- the word forms of `&&`, `||`, `!`.
+    ///
+    /// Separate token kinds rather than aliases for the symbols: a formatter
+    /// that prints from tokens must be able to preserve the spelling the
+    /// source used, and a migration diagnostic must be able to name the word
+    /// a 1.0 program used as an identifier.
+    KwAnd,
+    KwOr,
+    KwNot,
+
     // Punctuation. `ColonEq`, `DotDot`, `Question`, `Bang`, `AndAnd` and `OrOr`
     // are additions to the punctuation the interface first named: `:=` is the
     // `if`-condition binding, `..` the range operator, `?` the postfix
@@ -877,7 +887,7 @@ impl TokenKind {
         TokenKind::ShrEq,
     ];
 
-    pub const KEYWORDS: [&'static str; 39] = [
+    pub const KEYWORDS: [&'static str; 42] = [
         "fn",
         "struct",
         "enum",
@@ -917,6 +927,9 @@ impl TokenKind {
         "invariant",
         "repr",
         "cfg",
+        "and",
+        "or",
+        "not",
     ];
 
     pub fn keyword(text: &str) -> Option<TokenKind> {
@@ -960,6 +973,9 @@ impl TokenKind {
             "invariant" => TokenKind::Invariant,
             "repr" => TokenKind::Repr,
             "cfg" => TokenKind::Cfg,
+            "and" => TokenKind::KwAnd,
+            "or" => TokenKind::KwOr,
+            "not" => TokenKind::KwNot,
             _ => return None,
         })
     }
@@ -1006,6 +1022,9 @@ impl TokenKind {
                 | TokenKind::Ensures
                 | TokenKind::Invariant
                 | TokenKind::Repr
+                | TokenKind::KwAnd
+                | TokenKind::KwOr
+                | TokenKind::KwNot
         )
     }
 
@@ -1065,6 +1084,9 @@ impl TokenKind {
             TokenKind::Invariant => Naming::Fixed("invariant"),
             TokenKind::Repr => Naming::Fixed("repr"),
             TokenKind::Cfg => Naming::Fixed("cfg"),
+            TokenKind::KwAnd => Naming::Fixed("and"),
+            TokenKind::KwOr => Naming::Fixed("or"),
+            TokenKind::KwNot => Naming::Fixed("not"),
             TokenKind::LParen => Naming::Fixed("("),
             TokenKind::RParen => Naming::Fixed(")"),
             TokenKind::LBrace => Naming::Fixed("{"),
@@ -1170,7 +1192,7 @@ mod tests {
     /// The keyword table, written out here as well as in the integration tests
     /// so that a keyword added to one list and not the other is a failing test
     /// rather than a difference nobody notices.
-    const KEYWORDS: [(&str, TokenKind); 38] = [
+    const KEYWORDS: [(&str, TokenKind); 41] = [
         ("fn", TokenKind::Fn),
         ("struct", TokenKind::Struct),
         ("enum", TokenKind::Enum),
@@ -1209,6 +1231,9 @@ mod tests {
         ("ensures", TokenKind::Ensures),
         ("invariant", TokenKind::Invariant),
         ("repr", TokenKind::Repr),
+        ("and", TokenKind::KwAnd),
+        ("or", TokenKind::KwOr),
+        ("not", TokenKind::KwNot),
     ];
 
     #[test]
