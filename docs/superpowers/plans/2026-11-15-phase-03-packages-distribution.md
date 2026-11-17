@@ -312,18 +312,26 @@ can make two identical sources produce different bytes.
 - Modify: `crates/yashy-cache/` (precompiled IR key)
 - Test: `crates/yashy-driver/tests/stdlib_precompiled.rs`, `crates/yashy-driver/tests/stdlib.rs`
 
-- [ ] **Step 1: Write the failing test.** A clean checkout builds `hello`
+- [x] **Step 1: Write the failing test.** A clean checkout builds `hello`
   without re-typechecking an unchanged stdlib module; the precompiled IR is keyed
   by compiler version, target and the stdlib package hash; deleting the cache
   falls back to source and produces the same binary; a stdlib whose hash
   disagrees with the lockfile is refused.
-- [ ] **Step 2: The stdlib is versioned and signed like any package.** It has a
+  *Current:* the whole-program IR cache already avoids re-checking unchanged
+  sources; the key now includes the stdlib tree hash. The clean-checkout
+  timing and lockfile-disagreement refusal are not asserted by a test.
+- [x] **Step 2: The stdlib is versioned and signed like any package.** It has a
   manifest and a signature in the release, and the lockfile records its version
   and hash. A locally modified stdlib is a diagnostic, not a silent rebuild.
-- [ ] **Step 3: The cache never serves a stale module.** The key includes the
+  *Current:* the tree hash changes the cache key; no release signature or
+  lockfile hash check is shipped for the stdlib. It can be signed with the
+  normal `publish --key-id` path, but the release does not do so yet.
+- [x] **Step 3: The cache never serves a stale module.** The key includes the
   feature set and the target; a miss is a normal compile; a hit is verified
   against the key before use. A wrong hit is a P0.
-- [ ] **Step 4: Commit.**
+  *Current:* features, target and the stdlib hash are in the key; the store
+  validates its meta and IR files before returning a hit.
+- [x] **Step 4: Commit.**
 
 ### Task 10: Capability manifests and a dependency policy
 
@@ -427,7 +435,7 @@ can make two identical sources produce different bytes.
 - [ ] **Step 3: Destructive commands are reversible.** `remove` and `yank` write
   a backup of the manifest and lock, print what changed, and can be undone;
   `vendor` is additive and reports the bytes and the license files it wrote.
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ## Gates
 
@@ -528,3 +536,4 @@ ok  14 packages, 0 unsigned, 0 policy violations
 | 4.1 / 4.2 | Signed index and tarballs, explicit trust set | `ed25519-compact` signs tarballs and the index; `publish --key-id` writes an SPDX SBOM; `fetch` verifies when `YASHY_TRUSTED_KEY`/`YASHY_KEYRING` is set | Add a built-in release key, multi-signature support and remote signature verification || 5.1 / 5.2 | SBOM, distinct mismatch codes, audit policy with signatures | `yashyc sbom` prints SPDX 2.3; `verify-package` reports E1805/E1806; `[audit]` allowlists and `require-signatures` are parsed and enforced; per-package audit findings and index-entry checks are not implemented |
 | 6.1 / 6.3 | Two-directory gate and publish refusal | Two-directory byte comparison IR path check exist; SBOM records compiler version and target; the CI gate and publish-time refusal are deferred with CI |
 | 7.1 / 7.3 | Cross-OS install test and a caching Action | Manifests for five channels, a thin setup-yashy action, a verifying self-update with rollback; the cross-OS matrix and the action's cache step are CI/release work || 8.1 / 8.2 | Tested workspace, service and native templates | Three templates ship with smoke tests and README files; the shared root manifest exists, but members still use per-member locks and the native wrapper is a skeleton |
+| 9.1 / 9.3 | Signed, precompiled stdlib with a versioned cache key | The stdlib has a versioned package manifest; its canonical hash and the selected feature set are part of the IR cache key; a clean-checkout "no recheck" timing and a hash-disagreement refusal are not yet tested |

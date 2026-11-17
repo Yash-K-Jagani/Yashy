@@ -680,7 +680,7 @@ pub fn ir_cache_key(
         "{}/{}/{}/{}",
         env!("CARGO_PKG_VERSION"),
         IR_CACHE_FORMAT,
-        modules::stdlib_version(),
+        modules::stdlib_fingerprint(),
         compiler_stamp()
     );
     // The target is part of the key as well as of the flags: the IR header and

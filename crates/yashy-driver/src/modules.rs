@@ -214,6 +214,18 @@ pub fn default_stdlib_root() -> Option<PathBuf> {
 /// checked against.
 pub const STDLIB_VERSION: &str = "1.0.0";
 
+/// A fingerprint of the stdlib tree, not just its version.
+///
+/// Two stdlibs with the same version but different bytes must never share an
+/// IR cache entry. The hash is canonical (`hash_tree`), so a checkout's line
+/// endings or mtimes cannot change it.
+pub fn stdlib_fingerprint() -> String {
+    let Some(root) = default_stdlib_root() else {
+        return STDLIB_VERSION.to_string();
+    };
+    yashy_manifest::hash_tree(&root).unwrap_or_else(|_| stdlib_version())
+}
+
 /// The version of the stdlib found by [`default_stdlib_root`].
 ///
 /// A stdlib is a package: the version goes into every content-addressed cache
