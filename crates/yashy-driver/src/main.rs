@@ -33,8 +33,8 @@ use yashy_common::{
     codes, Diagnostic, FileId, Json, Severity, SourceMap, Span, EXIT_COMPILE_ERROR, EXIT_INTERNAL,
     EXIT_OK, EXIT_USAGE,
 };
-use yashy_driver::test_harness::{self, TestStatus};
 use yashy_driver::pipeline::{check_and_verify, compile_to_binary};
+use yashy_driver::test_harness::{self, TestStatus};
 use yashy_driver::{
     check_and_verify_timed, compile_hir_timed, detect, diagnostic_json,
     load_and_check_exports_timed, load_and_check_timed, opt_report, resolve_opt, span_json, timed,
@@ -227,6 +227,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "init" => init(rest),
         "new" => new_cmd(rest),
         "repl" => repl_cmd(rest),
+        "debug" => debug_cmd(rest),
         "task" => task_cmd(rest),
         "doctor" => doctor(rest),
         "expand" => expand(rest),
@@ -980,6 +981,136 @@ fn run(args: &[String]) -> ExitCode {
 /// Declarations are kept as source text and rechecked with every line. An
 /// expression becomes a one-function program that prints its value; its type
 /// is read from the HIR the checker produced. There is no second interpreter.
+/// `yashyc debug <file.ya> [--break <fn>]... [-- <args>...]`
+///
+/// Builds a program, writes a debugger script and starts the native backend.
+/// Breakpoints are on symbol names: the backend does not emit a line table yet,
+/// so `docs/debugging.md` says so instead of promising source lines.
+fn debug_cmd(args: &[String]) -> ExitCode {
+    use yashy_driver::debug;
+
+    let mut breakpoints: Vec<String> = Vec::new();
+    let mut binary: Option<PathBuf> = None;
+    let mut operands: Vec<String> = Vec::new();
+    let mut program_args: Vec<String> = Vec::new();
+    let mut after_separator = false;
+    let mut iter = args.iter();
+    while let Some(argument) = iter.next() {
+        if after_separator {
+            program_args.push(argument.clone());
+            continue;
+        }
+        match argument.as_str() {
+            "--" => after_separator = true,
+            "--break" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`--break` needs a function name");
+                };
+                breakpoints.push(value.clone());
+            }
+            "--binary" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`--binary` needs a path");
+                };
+                binary = Some(PathBuf::from(value));
+            }
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `debug`"));
+            }
+            other => operands.push(other.to_string()),
+        }
+    }
+    if binary.is_some() && !operands.is_empty() {
+        return usage_error("`debug --binary` takes no source file");
+    }
+    if binary.is_none() && operands.len() != 1 {
+        return usage_error("`debug` needs a source file, or `--binary <path>`");
+    }
+    let backend = match debug::detect_backend() {
+        Ok(backend) => backend,
+        Err(message) => {
+            eprintln!("error: {message}");
+            return exit_code(EXIT_USAGE);
+        }
+    };
+
+    let scratch = temp_run_dir();
+    if binary.is_none() {
+        if let Err(error) = std::fs::create_dir_all(&scratch) {
+            eprintln!("error: cannot create the debug scratch directory: {error}");
+            return exit_code(EXIT_INTERNAL);
+        }
+    }
+    let target = match &binary {
+        Some(path) => path.clone(),
+        None => scratch.join(format!("debug{}", std::env::consts::EXE_SUFFIX)),
+    };
+    if binary.is_none() {
+        let source = match read_source_with(&PathBuf::from(&operands[0]), EXIT_USAGE) {
+            Ok(source) => source,
+            Err(code) => {
+                let _ = std::fs::remove_dir_all(&scratch);
+                return code;
+            }
+        };
+        let toolchain = match detect() {
+            Ok(toolchain) => toolchain,
+            Err(message) => {
+                eprintln!("error: {message}");
+                let _ = std::fs::remove_dir_all(&scratch);
+                return exit_code(EXIT_USAGE);
+            }
+        };
+        let built = compile_to_binary(
+            &source,
+            &operands[0],
+            &target,
+            &toolchain,
+            BuildOptions {
+                release: false,
+                ir_cache: false,
+                ..BuildOptions::default()
+            },
+        );
+        if let Err(diagnostics) = built {
+            let mut sources = SourceMap::new();
+            sources.add_file(operands[0].clone(), source);
+            for diagnostic in &diagnostics {
+                eprint!(
+                    "{}",
+                    yashy_driver::term::render_diagnostic(&sources, diagnostic)
+                );
+            }
+            let _ = std::fs::remove_dir_all(&scratch);
+            return exit_code(EXIT_COMPILE_ERROR);
+        }
+    }
+
+    let text = debug::script(&backend, &target, &breakpoints, &program_args);
+    let script = scratch.join(format!("debug.{}", backend.name()));
+    if let Err(error) = std::fs::write(&script, text) {
+        eprintln!("error: cannot write the debugger script: {error}");
+        let _ = std::fs::remove_dir_all(&scratch);
+        return exit_code(EXIT_INTERNAL);
+    }
+    eprintln!(
+        "debugger: {} ({})",
+        backend.name(),
+        backend.executable().display()
+    );
+    eprintln!("script: {}", script.display());
+    let result = debug::launch(&backend, &script);
+    let code = match result {
+        Ok(status) => exit_code(exit_status_code(status)),
+        Err(error) => {
+            eprintln!("error: cannot start {}: {error}", backend.name());
+            exit_code(EXIT_INTERNAL)
+        }
+    };
+    let _ = std::fs::remove_dir_all(&scratch);
+    code
+}
+
 fn repl_cmd(args: &[String]) -> ExitCode {
     use std::io::{BufRead as _, Write as _};
 

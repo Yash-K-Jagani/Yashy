@@ -130,6 +130,13 @@ pub const COMMANDS: &[CommandSpec] = &[
         takes_path: false,
     },
     CommandSpec {
+        name: "debug",
+        summary: "start a native debugger with a generated script",
+        usage: "yashyc debug <file.ya> [--break <fn>]... [-- <args>...]",
+        flags: &["--break", "--binary"],
+        takes_path: true,
+    },
+    CommandSpec {
         name: "repl",
         summary: "check and run expressions with retained declarations",
         usage: "yashyc repl",

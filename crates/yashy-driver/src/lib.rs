@@ -13,6 +13,7 @@ pub mod cli_spec;
 pub mod context;
 pub mod daemon;
 pub mod daemon_protocol;
+pub mod debug;
 pub mod doc;
 pub mod doc_server;
 pub mod fetch;

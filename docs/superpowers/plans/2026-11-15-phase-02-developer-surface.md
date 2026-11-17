@@ -244,18 +244,33 @@ This phase makes both renderings of the compiler's facts.
   a type table for every user type, that `yashyc inspect --addr <symbol>`
   returns a source span, and that a scripted debugger session stops on the
   expected line and prints the expected value.
+  *Current:* not met. There is no `!dbg` metadata in the generated IR, so there
+  is no line or type table to assert. `yashyc debug` is tested for backend
+  selection and script generation only. Source-line breakpoints are the
+  follow-up, not a shipped capability.
 - [ ] **Step 2: Emit debug info from the same IR.** Every user function, local,
   parameter and type gets a `!dbg` location; the span comes from HIR, not from a
   re-parse. Optimised builds keep line tables; `--debug` builds keep full
   variable info.
-- [ ] **Step 3: `yashyc debug` selects a backend.** LLDB where available (Linux,
+  *Current:* not started. `yashy-codegen` emits no LLVM debug intrinsics or
+  metadata, so `-g` at the clang stage would have nothing to attach.
+- [x] **Step 3: `yashyc debug` selects a backend.** LLDB where available (Linux,
   macOS, Windows when installed), `cdb` on Windows otherwise; a missing backend
   is a diagnostic with an install hint. The command writes a temporary script,
   launches the program with the user's arguments, and cleans up.
+  *Current:* `debug.rs` prefers LLDB on every OS, falls back to `cdb` on
+  Windows, exits `2` with an install hint when neither is present, writes both
+  script dialects, passes `--break` names and post-`--` arguments, and removes
+  the temporary directory after the session.
 - [ ] **Step 4: Make the async state visible.** A task view renders its state,
   its scope, and the await point; pretty printers render `string`, arrays, maps
   and `Option`/`Result` as values, not addresses.
-- [ ] **Step 5: Commit.**
+  *Current:* the runtime's `YASHY_DEBUG=1` stop handler already prints the live
+  task table (id, function, resume index) and the debug script turns it on.
+  The await point, scope details and typed pretty-printing are not there: the
+  LLDB summary providers are committed under `crates/yashy-runtime/debug/`
+  but cannot be attached without a type table.
+- [x] **Step 5: Commit.**
 
 ### Task 7: Profilers and coverage
 
@@ -520,7 +535,7 @@ still owed so a later phase does not inherit a false checklist.
 | 4.1 / 4.3 | Every code has a triggering test or fixture; every code names its rule | Page, heading, catalog, `explain --json` and `--all --json` are tested; `codes::rule_for` gives every code a unique `FAMILY-N` id in the JSON; triggering fixtures are not | Add one triggering fixture per code |
 | 5.1 | First test under 60 s on a cold machine | `new` creates a project and its first test passes; the wall-clock bound is not asserted in the unit test | Measure in CI |
 | 5.3 / 5.4 | `repl`, `doc --serve` | A compiling REPL with retained declarations, type reporting and honest refusals; a loopback read-only docs server with `/json` and `/search`; no persistent HIR interpreter | Add an HIR interpreter only if compile-per-expression is too slow |
-| 6 | DWARF/CodeView debugger, async task view, pretty printers | Not started; `run --debug` still writes an LLDB script | Build the debugger |
+| 6 | DWARF/CodeView debugger, async task view, pretty printers | `yashyc debug` selects LLDB or cdb, writes a symbol-breakpoint script and enables the runtime's live task table; no `!dbg` metadata, so no line table, typed locals or attached pretty printers | Emit debug metadata from HIR spans, then line breakpoints and value printers |
 | 7 | Sampling and allocation profilers, source coverage | Not started; `profile` is still the 1.0 counter profiler | Build the profilers and `coverage` |
 | 8.1 / 8.2 | `inspect --addr`, contracts, layout, `trace --events`, `tokens --bpe` | `inspect --json` reports signature, effects, docs and span; `tokens --grammar` exists; `--addr`, contracts, layout, `trace` and `--bpe` do not | Add the missing inspection verbs and the BPE measurement |
 | 9 | One generated grammar, six clients, `editors` CI job | One model drives 11 generated files; all six clients are committed; `tests/grammar.rs` is the byte gate and the LSP conformance transcript is shared; no `editors` CI job yet, and the real-editor run is deferred with CI | Add the `editors` job when CI is unblocked |

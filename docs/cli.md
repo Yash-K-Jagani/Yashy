@@ -901,6 +901,14 @@ where observable, and pins the process id field, so `log_info`/`log_error`
 and `metrics_add`/`metrics_set` produce byte-identical stderr across runs.
 `YASHY_DETERMINISTIC=1` does the same for a test run.
 
+## `yashyc debug <file.ya> [--break <fn>]... [-- <args>...]`
+
+Builds a program, writes a debugger command file in a temporary directory and
+starts LLDB (or `cdb` on Windows when LLDB is absent). The child gets
+`YASHY_DEBUG=1`, so a fault prints the live task table. `--binary <path>` skips
+the build. See [debugging.md](debugging.md) for what is and is not available:
+the backend does not emit a line table yet, so breakpoints are on symbol names.
+
 ## `yashyc repl`
 
 An interactive session over the real checker and compiler. A declaration
