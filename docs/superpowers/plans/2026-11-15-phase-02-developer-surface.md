@@ -370,14 +370,19 @@ This phase makes both renderings of the compiler's facts.
   completions and `index --json` render from that table; a flag added in one
   place cannot be missing from another. The table now names every verb in
   `dispatch` (the previous 18-verb gap is closed).
-- [ ] **Step 3: Shell integration is generated.** `yashyc completions bash`
+- [x] **Step 3: Shell integration is generated.** `yashyc completions bash`
   (and zsh, fish, PowerShell) prints a script that completes verbs, flags and
   file arguments; the generated files under `scripts/completions/` are
   diff-checked and syntax-checked in CI. `docs/terminal.md` shows the one-line
   install for each shell.
-  *Current:* `yashyc completions <shell>` renders a script from the command
-  table, but `scripts/completions/` and `docs/terminal.md` do not exist, so
-  there is no committed generated file for CI to diff or syntax-check.
+  *Current:* the four scripts are committed under `scripts/completions/` and
+  `terminal.rs` compares each one with `render_completions` byte for byte, so
+  `cargo test` is the diff check; the same test runs `bash -n` when bash is on
+  the host, and the PowerShell file parses under
+  `System.Management.Automation.Language.Parser`. `.gitattributes` pins the
+  scripts and `docs/lints.md` to LF so the comparison is about the table, not
+  the checkout. File arguments are completed by the shell's own filename
+  completion once no verb is being typed; the scripts complete verbs and flags.
 - [ ] **Step 4: Pager and streams.** `explain` pages through `PAGER` only on a
   TTY; `--no-pager` wins; `--json` never pages and never colours. `run`
   forwards stdin, stdout, stderr and signals and returns the program's exit
@@ -471,7 +476,7 @@ still owed so a later phase does not inherit a false checklist.
 | 7 | Sampling and allocation profilers, source coverage | Not started; `profile` is still the 1.0 counter profiler | Build the profilers and `coverage` |
 | 8.1 / 8.2 | `inspect --addr`, contracts, layout, `trace --events`, `tokens --bpe` | `inspect --json` reports signature, effects, docs and span; `tokens --grammar` exists; `--addr`, contracts, layout, `trace` and `--bpe` do not | Add the missing inspection verbs and the BPE measurement |
 | 9 | One generated grammar, six clients, `editors` CI job | The 1.0 hand-maintained grammar tests still exist; no generator, no clients, no CI job | Build the grammar model and the two gated clients |
-| 10.1 / 10.3 / 10.4 / 10.5 | Colour policy, `NO_COLOR`/`CLICOLOR`/`TERM=dumb`/`COLUMNS`, committed completions, pager, hyperlinks | `term.rs` implements the colour and width policy and the global flags; help, completions and the man page render from one command table; no committed completion files, no pager, no OSC 8 | Commit the generated scripts and build the pager/hyperlink policy |
+| 10.1 / 10.3 / 10.4 / 10.5 | Colour policy, `NO_COLOR`/`CLICOLOR`/`TERM=dumb`/`COLUMNS`, committed completions, pager, hyperlinks | `term.rs` implements the colour and width policy and the global flags; `scripts/completions/*` are committed and diff-tested; `docs/terminal.md` documents the install; no pager, no OSC 8 | Build the pager/hyperlink policy |
 | Gates | LSP conformance in two editors, debugger and profiler demos, terminal matrix, `editors` job | `cargo check --workspace --all-targets` is green; runtime gates cannot run locally (Windows Application Control) and CI is deferred | Re-run the full gate set when CI is unblocked |
 
 ## Out of scope

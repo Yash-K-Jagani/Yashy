@@ -165,3 +165,62 @@ fn an_unknown_colour_policy_is_a_usage_error() {
     assert_eq!(code, 2, "{stderr}");
     assert!(stderr.contains("unknown colour policy"), "{stderr}");
 }
+
+/// The four shells the compiler promises to complete.
+const SHELLS: &[(&str, &str)] = &[
+    ("bash", "yashyc.bash"),
+    ("zsh", "yashyc.zsh"),
+    ("fish", "yashyc.fish"),
+    ("powershell", "yashyc.ps1"),
+];
+
+fn scripts_dir() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/completions")
+}
+
+#[test]
+fn the_committed_completion_scripts_are_the_rendered_ones() {
+    for (shell, file) in SHELLS {
+        let rendered = yashy_driver::cli_spec::render_completions(shell)
+            .unwrap_or_else(|error| panic!("`{shell}` must render: {error}"));
+        let committed = std::fs::read_to_string(scripts_dir().join(file)).unwrap_or_else(|error| {
+            panic!("scripts/completions/{file} must exist: {error}");
+        });
+        assert_eq!(
+            committed, rendered,
+            "scripts/completions/{file} is stale; run `yashyc completions {shell} > scripts/completions/{file}`"
+        );
+        for command in COMMANDS {
+            assert!(
+                committed.contains(command.name),
+                "scripts/completions/{file} must complete `{}`",
+                command.name
+            );
+        }
+    }
+}
+
+#[test]
+fn the_committed_completion_scripts_parse() {
+    // `bash -n` parses without executing, which is the check CI needs. The
+    // zsh script deliberately uses no bash-only syntax, so one parser covers
+    // both; a host without bash skips the check rather than failing.
+    let bash = Command::new("bash").arg("--version").output();
+    let Ok(version) = bash else {
+        return;
+    };
+    assert!(version.status.success(), "`bash --version` must succeed");
+    for (shell, file) in SHELLS.iter().filter(|(shell, _)| *shell != "powershell") {
+        let path = format!("scripts/completions/{file}");
+        let output = Command::new("bash")
+            .args(["-n", path.as_str()])
+            .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+            .output()
+            .expect("bash must run");
+        assert!(
+            output.status.success(),
+            "scripts/completions/{file} ({shell}) must parse:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}

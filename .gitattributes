@@ -44,3 +44,9 @@ docs/stdlib.md text eol=lf
 # and `context`. The payload is assembled with `\n` in Rust, so the golden has
 # to be LF no matter what the checkout would otherwise do.
 **/tests/schema_golden/* text eol=lf
+
+# The completion scripts and the lint page are compared with the renderer's
+# output byte for byte, so a CRLF checkout would make the comparison fail for a
+# reason that has nothing to do with the table under test.
+scripts/completions/* text eol=lf
+docs/lints.md text eol=lf

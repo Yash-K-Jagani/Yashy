@@ -526,6 +526,9 @@ COLUMNS=40 yashyc check main.ya
 
 `--json` writes no escape and no spinner, whatever the terminal says.
 
+Shell completion, the install lines and the manual page are covered in
+[terminal.md](terminal.md).
+
 ## Timings
 
 `--timings` makes the compiler report how long each pipeline phase took. It is
