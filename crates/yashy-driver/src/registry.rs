@@ -109,7 +109,7 @@ pub fn registry_path(spec: &str) -> Result<PathBuf, RegistryError> {
     )))
 }
 
-fn read_index(root: &Path) -> Result<Vec<RegistryEntry>, RegistryError> {
+pub fn read_index(root: &Path) -> Result<Vec<RegistryEntry>, RegistryError> {
     let path = root.join("index.json");
     let Ok(text) = std::fs::read_to_string(&path) else {
         return Ok(Vec::new());
@@ -297,7 +297,7 @@ pub fn lookup(
         .find(|entry| entry.name == name && entry.version == version))
 }
 
-fn tarball_path(root: &Path, entry: &RegistryEntry) -> PathBuf {
+pub fn tarball_path(root: &Path, entry: &RegistryEntry) -> PathBuf {
     root.join("packages")
         .join(format!("{}.tar", entry.hash.trim_start_matches("sha256:")))
 }

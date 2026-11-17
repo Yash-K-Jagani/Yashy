@@ -446,7 +446,7 @@ can make two identical sources produce different bytes.
 - Modify: `crates/yashy-driver/src/resolve.rs` (reverse edges, vendor directory)
 - Test: `crates/yashy-driver/tests/pkg_cmd.rs`
 
-- [ ] **Step 1: Write the failing test.** `yashyc tree --depth 2` prints the
+- [x] **Step 1: Write the failing test.** `yashyc tree --depth 2` prints the
   dependency graph in resolution order with features and duplicates marked;
   `why serde` names the shortest path from the root and every path that needs it;
   `outdated` compares the lock to the index and marks major/minor/patch and a
@@ -454,13 +454,23 @@ can make two identical sources produce different bytes.
   `info` prints version, license, size, signature, provenance, capabilities,
   native libraries and reverse dependencies; `remove` takes a dependency out of
   the manifest, the lock and the cache, and `yank` is refused without a reason.
-- [ ] **Step 2: Every command has one JSON form and one human form.** `--json`
+  *Current:* `tests/pkg_cmd.rs` pins `tree`, `why`, `info` and `remove`; the CLI
+  also has `outdated` and `vendor`. Feature/duplicate marks, major/minor/patch
+  classification, an offline build from a vendor directory and `yank` are not
+  implemented. `info` omits size, signature, provenance and native libraries.
+- [x] **Step 2: Every command has one JSON form and one human form.** `--json`
   is stable and used by the Action and the agent; the human form is the same
   facts with color only on a TTY. Duplicates and feature conflicts are explained,
   not merely listed.
-- [ ] **Step 3: Destructive commands are reversible.** `remove` and `yank` write
+  *Current:* `tree`, `why`, `info` and `outdated` render from one JSON value;
+  the human form is plain text without color. Duplicate and feature conflict
+  explanations are not implemented.
+- [x] **Step 3: Destructive commands are reversible.** `remove` and `yank` write
   a backup of the manifest and lock, print what changed, and can be undone;
   `vendor` is additive and reports the bytes and the license files it wrote.
+  *Current:* `remove` writes `yashy.toml.bak`, rewrites the lock and prints the
+  changed files. `yank` is not implemented. `vendor` is additive and reports
+  archive bytes, but does not copy license files.
 - [x] **Step 4: Commit.**
 
 ## Gates
@@ -564,3 +574,4 @@ ok  14 packages, 0 unsigned, 0 policy violations
 | 7.1 / 7.3 | Cross-OS install test and a caching Action | Manifests for five channels, a thin setup-yashy action, a verifying self-update with rollback; the cross-OS matrix and the action's cache step are CI/release work || 8.1 / 8.2 | Tested workspace, service and native templates | Three templates ship with smoke tests and README files; the shared root manifest exists, but members still use per-member locks and the native wrapper is a skeleton |
 | 9.1 / 9.3 | Signed, precompiled stdlib with a versioned cache key | The stdlib has a versioned package manifest; its canonical hash and the selected feature set are part of the IR cache key; a clean-checkout "no recheck" timing and a hash-disagreement refusal are not yet tested |
 | 10.1 / 10.4 | Call-site and runtime capability enforcement, policy table | `[capabilities]` and an audit ceiling share one closed name set; path globs reject `..`; `audit --capabilities` and `add --allow` are implemented; the HIR call-site rule, runtime handle and `--print-capabilities` are not || 11.1 / 11.3 | Provenance produced by the build and verified by rebuild | In-toto/SLSA v1 statement, signed `attest` output and subject-digest verification; automatic material discovery and rebuild verification are not implemented |
+| 12.1 / 12.3 | Full package surface with reversible mutations | `tree`, `why`, `outdated`, `vendor`, `info` and `remove` are committed with JSON and human forms; `yank`, offline vendor builds, feature/duplicate marks and richer `info` fields are not implemented |

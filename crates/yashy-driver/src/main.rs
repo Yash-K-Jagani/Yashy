@@ -253,6 +253,12 @@ fn dispatch(args: &[String]) -> ExitCode {
         "verify-package" => verify_package_cmd(rest),
         "self-update" => self_update_cmd(rest),
         "attest" => attest_cmd(rest),
+        "tree" => tree_cmd(rest),
+        "why" => why_cmd(rest),
+        "info" => info_cmd(rest),
+        "outdated" => outdated_cmd(rest),
+        "vendor" => vendor_cmd(rest),
+        "remove" => remove_cmd(rest),
         "verify-attestation" => verify_attestation_cmd(rest),
         "publish" => publish_cmd(rest),
         "fmt" => fmt(rest),
@@ -5505,6 +5511,284 @@ fn publish_cmd(args: &[String]) -> ExitCode {
 /// refused. The previous binary is kept as `<exe>.old` for rollback.
 
 /// `yashyc attest <tarball> --key-id <id> [--material <file>]...`
+
+/// `yashyc tree [--depth <n>] [--json] [dir]`
+/// `yashyc outdated [--registry <dir>] [--json] [dir]`
+fn outdated_cmd(args: &[String]) -> ExitCode {
+    let mut json = false;
+    let mut registry: Option<PathBuf> = None;
+    let mut dir: Option<PathBuf> = None;
+    let mut iter = args.iter();
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
+            "--json" => json = true,
+            "--registry" => match iter.next() {
+                Some(value) => registry = Some(PathBuf::from(value)),
+                None => return usage_error("`--registry` needs a directory"),
+            },
+            other if other.starts_with('-') => return usage_error(&format!("unknown option `{other}` for `outdated`")),
+            other => dir = Some(PathBuf::from(other)),
+        }
+    }
+    let project = dir.unwrap_or_else(|| PathBuf::from("."));
+    let root = match registry {
+        Some(path) => path,
+        None => match yashy_driver::registry::registry_path("") {
+            Ok(path) => path,
+            Err(error) => {
+                eprintln!("error: {error}");
+                return exit_code(EXIT_USAGE);
+            }
+        },
+    };
+    let lock = match Lockfile::load(&project.join("yashy.lock")) {
+        Ok(lock) => lock,
+        Err(error) => {
+            eprintln!("error: cannot read yashy.lock: {error}");
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    let report = match yashy_driver::pkg_cmd::outdated(&lock, &root) {
+        Ok(report) => report,
+        Err(message) => {
+            eprintln!("error: {message}");
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    if json {
+        println!("{}", report.render());
+    } else if let Json::Object(fields) = &report {
+        if let Some((_, Json::Array(rows))) = fields.iter().find(|(name, _)| name == "packages") {
+            for row in rows {
+                if let Json::Object(values) = row {
+                    let get = |key: &str| match values.iter().find(|(name, _)| name == key) {
+                        Some((_, Json::String(text))) => text.clone(),
+                        _ => String::new(),
+                    };
+                    println!("{} {} -> {}{}", get("name"), get("locked"), get("newest"), if get("yanked") == "true" { " (yanked)" } else { "" });
+                }
+            }
+        }
+    }
+    exit_code(EXIT_OK)
+}
+
+/// `yashyc vendor <dir> --registry <dir>`
+fn vendor_cmd(args: &[String]) -> ExitCode {
+    let mut registry: Option<PathBuf> = None;
+    let mut out: Option<PathBuf> = None;
+    let mut iter = args.iter();
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
+            "--registry" => match iter.next() {
+                Some(value) => registry = Some(PathBuf::from(value)),
+                None => return usage_error("`--registry` needs a directory"),
+            },
+            other if other.starts_with('-') => return usage_error(&format!("unknown option `{other}` for `vendor`")),
+            other => out = Some(PathBuf::from(other)),
+        }
+    }
+    let (Some(registry), Some(out)) = (registry, out) else {
+        return usage_error("`vendor` needs a destination and `--registry <dir>`");
+    };
+    match yashy_driver::pkg_cmd::vendor(&registry, &out) {
+        Ok((count, bytes)) => {
+            println!("vendored {count} archives ({bytes} bytes) to {}", out.display());
+            exit_code(EXIT_OK)
+        }
+        Err(message) => {
+            eprintln!("error: {message}");
+            exit_code(EXIT_USAGE)
+        }
+    }
+}
+
+fn tree_cmd(args: &[String]) -> ExitCode {
+    let mut depth = usize::MAX;
+    let mut json = false;
+    let mut dir: Option<PathBuf> = None;
+    let mut iter = args.iter();
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
+            "--depth" => match iter.next().and_then(|value| value.parse::<usize>().ok()) {
+                Some(value) => depth = value,
+                None => return usage_error("`--depth` needs a whole number"),
+            },
+            "--json" => json = true,
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `tree`"))
+            }
+            other => dir = Some(PathBuf::from(other)),
+        }
+    }
+    let project = dir.unwrap_or_else(|| PathBuf::from("."));
+    let lock = match Lockfile::load(&project.join("yashy.lock")) {
+        Ok(lock) => lock,
+        Err(error) => {
+            eprintln!("error: cannot read yashy.lock: {error}");
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    let report = yashy_driver::pkg_cmd::tree(&lock, depth);
+    if json {
+        println!("{}", report.render());
+    } else {
+        for line in yashy_driver::pkg_cmd::tree_lines(&lock, depth) {
+            println!("{line}");
+        }
+    }
+    exit_code(EXIT_OK)
+}
+
+/// `yashyc why <package> [--json] [dir]`
+fn why_cmd(args: &[String]) -> ExitCode {
+    let mut json = false;
+    let mut name: Option<String> = None;
+    let mut dir: Option<PathBuf> = None;
+    for argument in args {
+        match argument.as_str() {
+            "--json" => json = true,
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `why`"))
+            }
+            other if name.is_none() => name = Some(other.to_string()),
+            other => dir = Some(PathBuf::from(other)),
+        }
+    }
+    let Some(name) = name else {
+        return usage_error("`why` needs a package name");
+    };
+    let project = dir.unwrap_or_else(|| PathBuf::from("."));
+    let lock = match Lockfile::load(&project.join("yashy.lock")) {
+        Ok(lock) => lock,
+        Err(error) => {
+            eprintln!("error: cannot read yashy.lock: {error}");
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    let paths = yashy_driver::pkg_cmd::why(&lock, &name);
+    if json {
+        let mut report = Json::object();
+        report.set("schema_version", Json::number(1));
+        report.set("package", Json::string(&name));
+        report.set(
+            "paths",
+            Json::array(
+                paths
+                    .iter()
+                    .map(|path| Json::array(path.iter().map(|name| Json::string(name)).collect()))
+                    .collect(),
+            ),
+        );
+        println!("{}", report.render());
+    } else if paths.is_empty() {
+        println!("no path to {name}");
+    } else {
+        for path in paths {
+            println!("{}", path.join(" -> "));
+        }
+    }
+    exit_code(EXIT_OK)
+}
+
+/// `yashyc info <package> [--json] [dir]`
+fn info_cmd(args: &[String]) -> ExitCode {
+    let mut json = false;
+    let mut name: Option<String> = None;
+    let mut dir: Option<PathBuf> = None;
+    for argument in args {
+        match argument.as_str() {
+            "--json" => json = true,
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `info`"))
+            }
+            other if name.is_none() => name = Some(other.to_string()),
+            other => dir = Some(PathBuf::from(other)),
+        }
+    }
+    let Some(name) = name else {
+        return usage_error("`info` needs a package name");
+    };
+    let project = dir.unwrap_or_else(|| PathBuf::from("."));
+    let lock = match Lockfile::load(&project.join("yashy.lock")) {
+        Ok(lock) => lock,
+        Err(error) => {
+            eprintln!("error: cannot read yashy.lock: {error}");
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    let report = match yashy_driver::pkg_cmd::info(&lock, &name, &project) {
+        Ok(report) => report,
+        Err(message) => {
+            eprintln!("error: {message}");
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    if json {
+        println!("{}", report.render());
+    } else if let (
+        Some(Json::String(name)),
+        Some(Json::String(version)),
+        Some(Json::String(source)),
+        Some(Json::String(hash)),
+        Some(Json::String(license)),
+    ) = (
+        report_value(&report, "name"),
+        report_value(&report, "version"),
+        report_value(&report, "source"),
+        report_value(&report, "hash"),
+        report_value(&report, "license"),
+    ) {
+        println!("{name} {version}");
+        println!("source: {source}");
+        println!("hash:   {hash}");
+        println!("license: {license}");
+    }
+    exit_code(EXIT_OK)
+}
+
+fn report_value<'a>(report: &'a Json, key: &str) -> Option<&'a Json> {
+    match report {
+        Json::Object(fields) => fields
+            .iter()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| value),
+        _ => None,
+    }
+}
+
+/// `yashyc remove <package> [dir]` — reversible through `yashy.toml.bak`.
+fn remove_cmd(args: &[String]) -> ExitCode {
+    let mut name: Option<String> = None;
+    let mut dir: Option<PathBuf> = None;
+    for argument in args {
+        match argument.as_str() {
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `remove`"))
+            }
+            other if name.is_none() => name = Some(other.to_string()),
+            other => dir = Some(PathBuf::from(other)),
+        }
+    }
+    let Some(name) = name else {
+        return usage_error("`remove` needs a package name");
+    };
+    let project = dir.unwrap_or_else(|| PathBuf::from("."));
+    match yashy_driver::pkg_cmd::remove(&project, &name) {
+        Ok(files) => {
+            println!("removed {name}; changed:");
+            for file in files {
+                println!("  {}", file.display());
+            }
+            exit_code(EXIT_OK)
+        }
+        Err(message) => {
+            eprintln!("error: {message}");
+            exit_code(EXIT_USAGE)
+        }
+    }
+}
+
 fn attest_cmd(args: &[String]) -> ExitCode {
     let mut artifact: Option<PathBuf> = None;
     let mut key_id: Option<String> = None;
@@ -5544,7 +5828,11 @@ fn attest_cmd(args: &[String]) -> ExitCode {
     let seed: Vec<u8> = match seed_hex
         .as_bytes()
         .chunks(2)
-        .map(|pair| std::str::from_utf8(pair).ok().and_then(|text| u8::from_str_radix(text, 16).ok()))
+        .map(|pair| {
+            std::str::from_utf8(pair)
+                .ok()
+                .and_then(|text| u8::from_str_radix(text, 16).ok())
+        })
         .collect()
     {
         Some(bytes) => bytes,
@@ -5561,7 +5849,10 @@ fn attest_cmd(args: &[String]) -> ExitCode {
     for path in materials {
         match fs::read(&path) {
             Ok(bytes) => {
-                digests.insert(path.to_string_lossy().into_owned(), yashy_manifest::sha256_hex(&bytes));
+                digests.insert(
+                    path.to_string_lossy().into_owned(),
+                    yashy_manifest::sha256_hex(&bytes),
+                );
             }
             Err(error) => {
                 eprintln!("error: cannot read material {}: {error}", path.display());
@@ -5617,13 +5908,18 @@ fn verify_attestation_cmd(args: &[String]) -> ExitCode {
                 None => return usage_error("`--signature` needs a path"),
             },
             other if other.starts_with('-') => {
-                return usage_error(&format!("unknown option `{other}` for `verify-attestation`"));
+                return usage_error(&format!(
+                    "unknown option `{other}` for `verify-attestation`"
+                ));
             }
             other => artifact = Some(PathBuf::from(other)),
         }
     }
-    let (Some(artifact), Some(attestation), Some(signature)) = (artifact, attestation, signature) else {
-        return usage_error("`verify-attestation` needs an artifact, `--attestation` and `--signature`");
+    let (Some(artifact), Some(attestation), Some(signature)) = (artifact, attestation, signature)
+    else {
+        return usage_error(
+            "`verify-attestation` needs an artifact, `--attestation` and `--signature`",
+        );
     };
     let bytes = match fs::read(&artifact) {
         Ok(bytes) => bytes,
@@ -5649,7 +5945,9 @@ fn verify_attestation_cmd(args: &[String]) -> ExitCode {
     let keys = match yashy_driver::registry::load_keyring() {
         Ok(keys) if !keys.is_empty() => keys,
         Ok(_) => {
-            eprintln!("error: verification needs a trusted key; set YASHY_TRUSTED_KEY or YASHY_KEYRING");
+            eprintln!(
+                "error: verification needs a trusted key; set YASHY_TRUSTED_KEY or YASHY_KEYRING"
+            );
             return exit_code(EXIT_USAGE);
         }
         Err(error) => {
