@@ -4577,13 +4577,18 @@ impl<'src> Checker<'src> {
         }
         // The budget, checked on insert so the diagnostic fires at the call
         // site that exceeded it.
+        let substitution = subst
+            .iter()
+            .map(|ty| ty.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
         let count = self.fn_instantiations.get(name).copied().unwrap_or(0) + 1;
         if count > MAX_INSTANTIATIONS_PER_FN {
             let first = self.fn_instantiation_site.get(name).copied();
             let mut error = TypeError::new(
                 span,
                 format!(
-                    "`{name}` was instantiated {count} times: the budget is \
+                    "`{name}` was instantiated {count} times with [{substitution}]: the budget is \
                      {MAX_INSTANTIATIONS_PER_FN} instantiations per function"
                 ),
             )
@@ -4605,7 +4610,8 @@ impl<'src> Checker<'src> {
                 codes::INSTANTIATION_BUDGET,
                 format!(
                     "the program was instantiated {} times: the budget is \
-                     {MAX_INSTANTIATIONS_TOTAL} instantiations in total",
+                     {MAX_INSTANTIATIONS_TOTAL} instantiations in total; this call \
+                     grew `{name}` with [{substitution}]",
                     self.instantiated.len() + 1,
                 ),
             );
