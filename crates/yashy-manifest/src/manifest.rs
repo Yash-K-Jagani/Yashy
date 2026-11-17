@@ -18,6 +18,17 @@ pub struct AuditPolicy {
     pub allowed_licenses: Vec<String>,
     pub allowed_packages: Vec<String>,
     pub require_signatures: bool,
+    /// Capabilities a package may declare; empty means no ceiling.
+    pub allow_capabilities: Vec<String>,
+    /// Capabilities no package may declare.
+    pub deny_capabilities: Vec<String>,
+    /// Maximum transitive dependency count; 0 means unlimited.
+    pub max_transitive: usize,
+    /// License names and registry URLs that are refused.
+    pub deny_licenses: Vec<String>,
+    pub deny_registries: Vec<String>,
+    /// Whether a signed attestation is required.
+    pub require_provenance: bool,
 }
 
 /// A parsed `yashy.toml`.
@@ -328,16 +339,46 @@ fn parse_audit(root: &toml::Table, document: &Document) -> Result<Option<AuditPo
                 policy.allowed_packages = string_array(items, "audit.allowed-packages", document)?;
             }
             ("require-signatures", Value::Bool(value)) => policy.require_signatures = *value,
+            ("require-provenance", Value::Bool(value)) => policy.require_provenance = *value,
+            ("allow-capabilities", Value::Array(items)) => {
+                policy.allow_capabilities = string_array(items, "audit.allow-capabilities", document)?;
+            }
+            ("deny-capabilities", Value::Array(items)) => {
+                policy.deny_capabilities = string_array(items, "audit.deny-capabilities", document)?;
+            }
+            ("deny-licenses", Value::Array(items)) => {
+                policy.deny_licenses = string_array(items, "audit.deny-licenses", document)?;
+            }
+            ("deny-registries", Value::Array(items)) => {
+                policy.deny_registries = string_array(items, "audit.deny-registries", document)?;
+            }
+            ("max-transitive", Value::Integer(value)) if *value >= 0 => {
+                policy.max_transitive = *value as usize;
+            }
             (key, _) => {
                 let location = document.location(&format!("audit.{key}"));
                 return Err(ParseError {
                     line: location.line,
                     column: location.column,
                     message: format!(
-                        "`{key}` is not an audit field; expected `allowed-licenses`, `allowed-packages` or `require-signatures`"
+                        "`{key}` is not an audit field; expected `allowed-licenses`, `allowed-packages`, `allow-capabilities`, `deny-capabilities`, `deny-licenses`, `deny-registries`, `max-transitive`, `require-signatures` or `require-provenance`"
                     ),
                 });
             }
+        }
+    }
+    for name in policy
+        .allow_capabilities
+        .iter()
+        .chain(policy.deny_capabilities.iter())
+    {
+        if !crate::capability::NAMES.contains(&name.as_str()) {
+            let location = document.location("audit");
+            return Err(ParseError {
+                line: location.line,
+                column: location.column,
+                message: format!("unknown capability `{name}` in the audit policy"),
+            });
         }
     }
     Ok(Some(policy))

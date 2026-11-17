@@ -157,12 +157,100 @@ pub fn info(lock: &Lockfile, name: &str, root: &Path) -> Result<Json, String> {
                 .unwrap_or_default(),
         ),
     );
+    let registry_root = package
+        .source
+        .strip_prefix("registry+")
+        .map(PathBuf::from);
+    let tarball = registry_root.as_ref().map(|registry| {
+        crate::registry::tarball_path(
+            registry,
+            &crate::registry::RegistryEntry {
+                name: package.name.clone(),
+                version: package.version.clone(),
+                hash: package.hash.clone(),
+                description: String::new(),
+                yanked: false,
+                yanked_reason: None,
+            },
+        )
+    });
+    let size = tarball
+        .as_ref()
+        .and_then(|path| std::fs::metadata(path).ok())
+        .map(|meta| meta.len())
+        .or_else(|| {
+            manifest_path
+                .as_ref()
+                .and_then(|path| path.parent())
+                .map(|root| source_size(root))
+        })
+        .unwrap_or(0);
+    let signature = tarball
+        .as_ref()
+        .is_some_and(|path| path.with_extension("sig").is_file());
+    let provenance = tarball
+        .as_ref()
+        .is_some_and(|path| path.with_extension("attestation.json").is_file());
+    let native_libraries = manifest_path
+        .as_ref()
+        .and_then(|path| path.parent())
+        .map(|root| extern_libraries(root))
+        .unwrap_or_default();
+
+    object.set("size", Json::number(size as i64));
+    object.set("signature", Json::bool(signature));
+    object.set("provenance", Json::bool(provenance));
+    object.set(
+        "native_libraries",
+        Json::array(native_libraries.iter().map(|name| Json::string(name)).collect()),
+    );
     object.set(
         "reverse_dependencies",
         Json::array(reverse.iter().map(|name| Json::string(name)).collect()),
     );
     object.set("schema_version", Json::number(1));
     Ok(object)
+}
+
+fn source_size(root: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return 0;
+    };
+    entries.flatten().fold(0u64, |total, entry| {
+        match std::fs::metadata(entry.path()) {
+            Ok(meta) if meta.is_file() => total.saturating_add(meta.len()),
+            Ok(meta) if meta.is_dir() => total.saturating_add(source_size(&entry.path())),
+            _ => total,
+        }
+    })
+}
+
+fn extern_libraries(root: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            out.extend(extern_libraries(&path));
+        } else if path.extension().is_some_and(|ext| ext == "ya") {
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                for line in text.lines() {
+                    let trimmed = line.trim();
+                    if let Some(rest) = trimmed.strip_prefix("extern \"") {
+                        if let Some((library, _)) = rest.split_once('"') {
+                            if !out.iter().any(|name| name == library) {
+                                out.push(library.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out.sort();
+    out
 }
 
 fn package_root(project: &Path, source: &str) -> Option<PathBuf> {

@@ -5958,6 +5958,12 @@ fn attest_cmd(args: &[String]) -> ExitCode {
             return exit_code(EXIT_USAGE);
         }
     };
+    for candidate in ["yashy.toml", "yashy.lock", "main.ya"] {
+        let path = PathBuf::from(candidate);
+        if path.is_file() && !materials.contains(&path) {
+            materials.push(path);
+        }
+    }
     let mut digests = std::collections::BTreeMap::new();
     for path in materials {
         match fs::read(&path) {
@@ -6009,9 +6015,11 @@ fn verify_attestation_cmd(args: &[String]) -> ExitCode {
     let mut artifact: Option<PathBuf> = None;
     let mut attestation: Option<PathBuf> = None;
     let mut signature: Option<PathBuf> = None;
+    let mut rebuild = false;
     let mut iter = args.iter();
     while let Some(argument) = iter.next() {
         match argument.as_str() {
+            "--rebuild" => rebuild = true,
             "--attestation" => match iter.next() {
                 Some(value) => attestation = Some(PathBuf::from(value)),
                 None => return usage_error("`--attestation` needs a path"),
@@ -6110,6 +6118,61 @@ fn verify_attestation_cmd(args: &[String]) -> ExitCode {
                 return exit_code(EXIT_COMPILE_ERROR);
             }
         }
+    }
+    if rebuild {
+        let entry = parsed_statement
+            .predicate
+            .materials
+            .keys()
+            .find(|path| path.ends_with(".ya"))
+            .cloned()
+            .ok_or_else(|| {
+                eprintln!("error: the statement names no `.ya` entry to rebuild");
+                exit_code(EXIT_USAGE)
+            });
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(code) => return code,
+        };
+        let work = temp_run_dir();
+        if let Err(error) = fs::create_dir_all(&work) {
+            eprintln!("error: cannot create the rebuild directory: {error}");
+            return exit_code(EXIT_INTERNAL);
+        }
+        for material in parsed_statement.predicate.materials.keys() {
+            let source = PathBuf::from(material);
+            let target = work.join(&source);
+            if let Some(parent) = target.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            if let Err(error) = fs::copy(&source, &target) {
+                let _ = fs::remove_dir_all(&work);
+                eprintln!("error: cannot copy material `{material}`: {error}");
+                return exit_code(EXIT_USAGE);
+            }
+        }
+        let out = work.join(format!("rebuilt{}", std::env::consts::EXE_SUFFIX));
+        let args = vec![
+            entry.clone(),
+            "-o".to_string(),
+            out.to_string_lossy().into_owned(),
+            "--reproducible".to_string(),
+        ];
+        let code = crate::build(CommandKind::Build, &args);
+        let rebuilt = fs::read(&out).ok().map(|bytes| yashy_manifest::sha256_hex(&bytes));
+        let _ = fs::remove_dir_all(&work);
+        if code != exit_code(EXIT_OK) {
+            eprintln!("error: the rebuild failed");
+            return exit_code(EXIT_COMPILE_ERROR);
+        }
+        if rebuilt.as_deref() != Some(digest.as_str()) {
+            eprintln!(
+                "error: the rebuilt digest {:?} does not match the subject {digest}",
+                rebuilt.as_deref().unwrap_or("none")
+            );
+            return exit_code(EXIT_COMPILE_ERROR);
+        }
+        println!("rebuild matched the subject digest {digest}");
     }
     println!(
         "attestation verified for {} ({digest}, {} material(s))",

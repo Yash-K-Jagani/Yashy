@@ -31,7 +31,7 @@ yashyc audit --capabilities      print the resolved union before anything runs
 yashyc add <name> --allow net    record an explicit grant when adding a dependency
 ```
 
-The same names are used by the checker's call-site rule, the Phase 13 sandbox,
+A `[audit]` policy can narrow them further: `allow-capabilities`, `deny-capabilities`, `max-transitive`, `deny-licenses`, `deny-registries` and `require-provenance` all produce E1807 findings from `yashyc audit`.\n\nThe same names are used by the checker's call-site rule, the Phase 13 sandbox,
 and the Phase 10 trace redactor. Enforcement is still split: this phase adds
 the declaration model, policy ceiling and audit view; the runtime handle that
 repeats the check at the call site lands with those phases.

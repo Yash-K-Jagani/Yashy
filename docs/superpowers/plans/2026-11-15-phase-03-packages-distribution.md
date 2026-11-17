@@ -474,8 +474,9 @@ folded into the IR cache key rather than resolver inputs.
   *Current:* `tests/pkg_cmd.rs` pins `tree`, `why`, `info` and `remove`; the CLI
   also has `outdated`, `vendor` and `yank` (with a mandatory reason and an
   index backup). A vendor directory is now a complete local registry that
-  supports `fetch --offline`. Feature/duplicate marks, major/minor/patch
-  classification and richer `info` fields are not implemented.
+  supports `fetch --offline`. `info` now reports size, signature, provenance and
+  native libraries. Feature/duplicate marks and major/minor/patch classification
+  are not implemented.
 - [x] **Step 2: Every command has one JSON form and one human form.** `--json`
   is stable and used by the Action and the agent; the human form is the same
   facts with color only on a TTY. Duplicates and feature conflicts are explained,
@@ -593,5 +594,6 @@ ok  14 packages, 0 unsigned, 0 policy violations
 | 6.1 / 6.3 | Two-directory gate and publish refusal | Two-directory byte comparison IR path check exist; SBOM records compiler version and target; the CI gate and publish-time refusal are deferred with CI |
 | 7.1 / 7.3 | Cross-OS install test and a caching Action | Manifests for five channels, a thin setup-yashy action, a verifying self-update with rollback; the cross-OS matrix and the action's cache step are CI/release work || 8.1 / 8.2 | Tested workspace, service and native templates | Three templates ship with smoke tests and README files; the shared root manifest exists, but members still use per-member locks and the native wrapper is a skeleton |
 | 9.1 / 9.3 | Signed, precompiled stdlib with a versioned cache key | The stdlib has a versioned package manifest; its canonical hash and the selected feature set are part of the IR cache key; a clean-checkout "no recheck" timing and a hash-disagreement refusal are not yet tested |
-| 10.1 / 10.4 | Call-site and runtime capability enforcement, policy table | `[capabilities]` and an audit ceiling share one closed name set; path globs reject `..`; the HIR call-site check (E1808), `audit --capabilities`, `add --allow` and `--print-capabilities` are implemented; the runtime handle and full `[policy]` table are not || 11.1 / 11.3 | Provenance produced by the build and verified by rebuild | In-toto/SLSA v1 statement, signed `attest` output, subject and material digest verification; automatic material discovery and rebuild verification are not implemented |
-| 12.1 / 12.3 | Full package surface with reversible mutations | `tree`, `why`, `outdated`, `vendor`, `info`, `remove` and `yank` are committed; a vendor tree supports offline fetch; feature/duplicate marks and richer `info` fields are not implemented |
+| 10.1 / 10.4 | Call-site and runtime capability enforcement, policy table | `[capabilities]`, the HIR call-site check (E1808), `audit --capabilities`, `add --allow`, `--print-capabilities`, and the full `[audit]` policy fields are implemented; the runtime handle is not |
+| 11.1 / 11.3 | Provenance produced by the build and verified by rebuild | In-toto/SLSA v1 statement, signed `attest` output with automatic materials, subject/material digest checks and `--rebuild` verification; a registry-referenced attestation is not implemented |
+| 12.1 / 12.3 | Full package surface with reversible mutations | `tree`, `why`, `outdated`, `vendor`, `info`, `remove` and `yank` are committed; a vendor tree supports offline fetch and `info` reports size, signature, provenance and native libraries; feature/duplicate marks are not implemented |

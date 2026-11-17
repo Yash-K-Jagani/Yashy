@@ -67,6 +67,29 @@ fn finding(code: &str, package: &str, detail: impl Into<String>) -> AuditFinding
     }
 }
 
+/// The shortest dependency path from the root to `name`, for audit findings.
+fn dependency_path(root: &str, graph: &crate::resolve::ResolvedGraph, name: &str) -> String {
+    use std::collections::VecDeque;
+    let mut queue = VecDeque::from([vec![root.to_string()]]);
+    while let Some(path) = queue.pop_front() {
+        let current = path.last().cloned().unwrap_or_default();
+        if current == name {
+            return path.join(" -> ");
+        }
+        if let Some(package) = graph.packages.iter().find(|p| p.name == current) {
+            for child in &package.dependencies {
+                let child = child.split_whitespace().next().unwrap_or(child);
+                if !path.iter().any(|entry| entry == child) {
+                    let mut next = path.clone();
+                    next.push(child.to_string());
+                    queue.push_back(next);
+                }
+            }
+        }
+    }
+    name.to_string()
+}
+
 fn source_bytes(root: &Path) -> u64 {
     let mut total = 0u64;
     source_bytes_into(root, &mut total);
@@ -245,6 +268,73 @@ pub fn audit_project(directory: &Path, store: &Store) -> Result<AuditReport, Aud
                     ),
                 ));
             }
+        }
+    }
+
+    if let Some(policy) = &audit_policy {
+        for package in &graph.packages {
+            let path = dependency_path(&manifest.package.name, &graph, &package.name);
+            let child = package.root.join("yashy.toml");
+            let child_manifest = Manifest::load(&child).ok();
+            if let Some(child_manifest) = &child_manifest {
+                if let Some(capabilities) = &child_manifest.capabilities {
+                    for (name, _) in capabilities.entries() {
+                        if policy.deny_capabilities.iter().any(|denied| denied == name)
+                            || (!policy.allow_capabilities.is_empty()
+                                && !policy.allow_capabilities.iter().any(|allowed| allowed == name))
+                        {
+                            findings.push(finding(
+                                codes::POLICY_DENIED,
+                                &path,
+                                format!("capability `{name}` is outside the policy"),
+                            ));
+                        }
+                    }
+                }
+                if let Some(license) = &child_manifest.package.license {
+                    if policy.deny_licenses.iter().any(|denied| denied == license) {
+                        findings.push(finding(
+                            codes::POLICY_DENIED,
+                            &path,
+                            format!("license `{license}` is denied by the policy"),
+                        ));
+                    }
+                }
+            }
+            if let Some(registry) = package.source.strip_prefix("registry+") {
+                if policy
+                    .deny_registries
+                    .iter()
+                    .any(|denied| registry.contains(denied))
+                {
+                    findings.push(finding(
+                        codes::POLICY_DENIED,
+                        &path,
+                        format!("registry `{registry}` is denied by the policy"),
+                    ));
+                }
+            }
+            if policy.require_provenance
+                && !package.root.join("main.ya.attestation.json").is_file()
+                && !directory.join("yashy.attestation.json").is_file()
+            {
+                findings.push(finding(
+                    codes::SBOM_MISMATCH,
+                    &path,
+                    "the policy requires provenance, but no attestation was found",
+                ));
+            }
+        }
+        if policy.max_transitive > 0 && graph.packages.len() > policy.max_transitive {
+            findings.push(finding(
+                codes::POLICY_DENIED,
+                &manifest.package.name,
+                format!(
+                    "{} dependencies exceed the policy cap of {}",
+                    graph.packages.len(),
+                    policy.max_transitive
+                ),
+            ));
         }
     }
 

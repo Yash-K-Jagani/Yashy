@@ -60,3 +60,25 @@ fn build_refuses_a_call_without_its_capability() {
     let all = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     assert!(all.contains("E1808"), "the capability must be named: {all}");
 }
+#[test]
+fn audit_policy_parses_all_fields() {
+    let manifest = yashy_manifest::Manifest::parse(
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n\
+         [audit]\nallow-capabilities = [\"fs.read\"]\ndeny-capabilities = [\"net\"]\n\
+         max-transitive = 8\ndeny-licenses = [\"GPL-3.0\"]\n\
+         deny-registries = [\"untrusted.example\"]\nrequire-provenance = true\n",
+    )
+    .expect("full audit policy parses");
+    let policy = manifest.audit.unwrap();
+    assert_eq!(policy.allow_capabilities, vec!["fs.read"]);
+    assert_eq!(policy.deny_capabilities, vec!["net"]);
+    assert_eq!(policy.max_transitive, 8);
+    assert!(policy.require_provenance);
+}
+
+#[test]
+fn an_unknown_capability_in_the_policy_is_a_diagnostic() {
+    let manifest = "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n\
+                    [audit]\ndeny-capabilities = [\"telepathy\"]\n";
+    assert!(yashy_manifest::Manifest::parse(manifest).is_err());
+}

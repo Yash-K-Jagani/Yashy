@@ -415,7 +415,7 @@ pub const COMMANDS: &[CommandSpec] = &[
         name: "verify-attestation",
         summary: "verify a signed provenance statement",
         usage: "yashyc verify-attestation <artifact> --attestation <file> --signature <file>",
-        flags: &["--attestation", "--signature"],
+        flags: &["--attestation", "--signature", "--rebuild"],
         takes_path: true,
     },
     CommandSpec {

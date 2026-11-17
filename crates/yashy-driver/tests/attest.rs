@@ -3,6 +3,7 @@
 mod common;
 
 use std::collections::BTreeMap;
+use std::process::Command;
 
 const SEED: [u8; 32] = [
     1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
@@ -59,4 +60,21 @@ fn a_statement_round_trips_through_json() {
     assert_eq!(parsed.subject, statement.subject);
     assert_eq!(parsed.predicate.materials, statement.predicate.materials);
     assert_eq!(parsed.predicate.target, "x86_64-pc-windows-msvc");
+}
+#[test]
+fn a_statement_can_find_its_materials() {
+    let dir = common::work_dir("attest-materials");
+    common::write(&dir, "yashy.toml", "[package]\nname = \"app\"\nversion = \"0.1.0\"\n");
+    common::write(&dir, "main.ya", "fn main() {}\n");
+    std::fs::write(dir.join("demo.tar"), b"artifact").unwrap();
+    let output = Command::new(common::yashyc())
+        .args(["attest", "demo.tar", "--key-id", "release"])
+        .current_dir(&dir)
+        .env("YASHY_SIGNING_SEED", "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20")
+        .output()
+        .expect("yashyc must run");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let text = std::fs::read_to_string(dir.join("demo.tar.attestation.json")).unwrap();
+    assert!(text.contains("yashy.toml"), "{text}");
+    assert!(text.contains("main.ya"), "{text}");
 }
