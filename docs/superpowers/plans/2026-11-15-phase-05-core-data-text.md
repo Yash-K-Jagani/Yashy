@@ -13,7 +13,7 @@ URL/MIME/UUID/semver, base64/hex, vetted crypto, compression, a time-zone
 database, a CSPRNG, and structured log/trace/metrics. No fallible function
 answers with a sentinel.
 
-**Time:** ~8 weeks.
+**Time:** ~10 weeks.
 **Depends on:** Phase 4 gate.
 **Spec:** [`../specs/2026-11-15-yashy-2.0-design.md`](../specs/2026-11-15-yashy-2.0-design.md) §6.2, §6.6, §6.8.
 
@@ -33,7 +33,8 @@ is a capability rather than an ambient read.
 
 | Module | 1.0 value |
 |---|---|
-| `collections` | functions over `[]T`, `map[K]V`, no generic `Vec`/`Set`/`Deque` |
+| `collections` | functions over `[]T`, `map[K]V`, no generic `Vec`/`Set`/`Deque`; no `enumerate`, `zip` or other adapters |
+| Conversions | `as` for numeric casts, `to_int`/`to_char`/`to_string`, `parse_i64`/`parse_f64`, `str_from_*`; no `parse_bool`, radix parsing, or a uniform checked matrix |
 | `alloc` | `alloc`, `arena_*`; no allocator interface |
 | `string`/`text` | byte/char operations; no normalisation, case folding or segmentation |
 | `JSON` | `escape`, `quote`; no parser, no value type |
@@ -57,8 +58,11 @@ is a capability rather than an ambient read.
 
 **Interfaces:**
 - `Vec[T] { fn push(self: *mut Vec[T], T); fn pop(self: *mut Vec[T]) -> Option[T]; fn get(self, int) -> Option[T]; fn len(self) -> int; fn iter(self) -> VecIter[T] }`
-- `Map[K, V] { fn insert(self: *mut Map[K,V], K, V) -> Option[V]; fn get(self, K) -> Option[V]; fn remove(self: *mut Map[K,V], K) -> Option[V]; fn iter(self) -> MapIter[K,V] }`
-- `Set[T]`, `Deque[T]`, `PriorityQueue[T]` with the same ownership discipline.
+- `Map[K, V] { fn insert(self: *mut Map[K,V], K, V) -> Option[V]; fn get(self, K) -> Option[V]; fn get_or(self, K, V) -> V; fn update(self: *mut Map[K,V], K, fn(V) -> V); fn remove(self: *mut Map[K,V], K) -> Option[V]; fn contains_key(self, K) -> bool; fn len(self) -> int; fn keys(self) -> []K; fn values(self) -> []V; fn entries(self) -> [](K, V); fn iter(self) -> MapIter[K,V] }`
+- `Set[T] { fn insert(self: *mut Set[T], T) -> bool; fn contains(self, T) -> bool; fn remove(self: *mut Set[T], T) -> bool; fn len(self) -> int; fn is_empty(self) -> bool; fn clear(self: *mut Set[T]); fn union(self, Set[T]) -> Set[T]; fn intersection(self, Set[T]) -> Set[T]; fn difference(self, Set[T]) -> Set[T]; fn subset(self, Set[T]) -> bool; fn to_array(self) -> []T; fn iter(self) -> SetIter[T] }`
+- `Deque[T]`, `PriorityQueue[T]` with the same ownership discipline.
+- `for k, v in map` and `for item in set` use the Phase 4 tuple pattern and the
+  insertion order in Step 2.
 
 - [ ] **Step 1: Write the failing test.** Grow a `Vec` past its first capacity, insert and remove map keys, iterate a `Map` and assert insertion order, drain a `Deque` from both ends, and pop a `PriorityQueue` with equal keys. Assert no leak and no double free.
 - [ ] **Step 2: Order is part of the type.** `Map` and `Set` iterate in insertion order; removing and re-inserting moves a key to the end. `PriorityQueue` breaks ties by insertion sequence. There is no unordered iteration and no randomised seed. The order is documented on the type and tested.
@@ -165,12 +169,62 @@ is a capability rather than an ambient read.
 - [ ] **Step 3: Observability has one sink interface.** Log, trace and metrics write through an injectable sink; the default writes to stderr; a test sink captures structured records. No global mutable logger, no hidden buffering that changes order.
 - [ ] **Step 4: Commit.**
 
+### Task 8: Iteration adapters and the conversion matrix
+
+**Files:**
+- Create: `crates/yashy-stdlib/yashy/iter/{enumerate,zip,adapters}.ya`
+- Create: `crates/yashy-stdlib/yashy/convert.ya`
+- Modify: `crates/yashy-stdlib/yashy/iter.ya` (re-export the facade)
+- Modify: `crates/yashy-sema/src/check_expr.rs` (method names), `crates/yashy-codegen/src/higher_order.rs`
+- Test: `crates/yashy-driver/tests/programs/stdlib/iter/`, `.../convert/`
+
+**Interfaces:**
+- `xs.enumerate() -> Enumerate[T]` yields `(int, T)`; `xs.zip(ys) -> Zip[A, B]` yields `(A, B)` and stops at the shorter sequence
+- `xs.chunks(int) -> Chunks[T]`, `xs.windows(int) -> Windows[T]`, `xs.take(int) -> Take[T]`, `xs.skip(int) -> Skip[T]`, `xs.rev() -> Rev[T]`, `xs.chain(ys) -> Chain[T]`
+- `parse_i64(text) -> Option[int]`, `parse_f64(text) -> Option[float]`, `parse_bool(text) -> Option[bool]`, `parse_int(text, int radix) -> Option[int]`
+- `int.to_float() -> float`, `float.to_int() -> int`, `float.round() -> int`, `float.floor() -> int`, `float.ceil() -> int`, `float.trunc() -> int`; `to_string` on every scalar
+- `T.try_from(string) -> Result[T, ConvertError>` for the types that need a reason, not just a miss
+
+- [ ] **Step 1: Write the failing test.** `for i, x in xs.enumerate()`
+  reports `0, 1, 2` and the elements in order; `xs.zip(ys)` stops at the
+  shorter sequence and never reads past it; `xs.chunks(3)` and
+  `xs.windows(2)` cover every element exactly once; `take`/`skip`/`rev`/`chain`
+  preserve order; a set of 10,000 integers inserts and looks up in expected
+  constant time and iterates in insertion order; `map.get_or`, `map.update`,
+  `map.entries` and `for k, v in map` agree; `parse_bool("true")` is
+  `Some(true)`, `parse_bool("TRUE")` is `None`, and `parse_int("ff", 16)` is
+  `Some(255)`.
+- [ ] **Step 2: An adapter adds no HIR.** `enumerate`, `zip`, `chunks`,
+  `windows`, `take`, `skip`, `rev` and `chain` are ordinary generic structs
+  implementing the compiler-known `Iterator[T]` protocol; `for` over one lowers
+  to the existing loop. A tuple binding in the head is the Phase 4 tuple
+  pattern, and a sequence shorter than the adapter needs ends cleanly.
+- [ ] **Step 3: `zip` is total and ordered.** It stops at the shorter input, is
+  eager only when the caller asks for an array, and never allocates on the
+  per-item path. `enumerate` starts at 0 and never yields a negative index; a
+  reversed range yields nothing rather than counting down.
+- [ ] **Step 4: One conversion matrix, no sentinels.** Every fallible
+  conversion returns `Option` or `Result`; every lossy numeric conversion is
+  spelled with `round`, `floor`, `ceil` or `trunc`, and `as` stays the
+  truncating cast the tutorial documents. A conversion that cannot fail
+  (`int.to_float()`, `int.to_string()`) is a plain method. `parse_int` checks
+  the radix (`2..=36`), leading sign and overflow, and never wraps. `try_from`
+  returns a `ConvertError` that names the input and the expected form.
+- [ ] **Step 5: Formatting consumes the same conversions.** The `format`
+  engine in Task 3 formats each scalar through this matrix, so a value printed
+  by `print`, `format` and `Debug` has one spelling. A `format` specifier on a
+  type with no conversion is a compile-time diagnostic for a literal format
+  string.
+- [ ] **Step 6: Commit.**
+  `git commit -m "feat(stdlib): iteration adapters and a total conversion matrix"`.
+
 ## Gates
 
 | Gate | Command | Passes when |
 |---|---|---|
 | Stdlib coverage | `cargo test -p yashy-driver --test stdlib_coverage` | every public function has a doc comment and a program |
-| Collections | `cargo test -p yashy-driver --test programs` | grow/remove/iterate/leak tests pass; insertion order is asserted |
+| Collections | `cargo test -p yashy-driver --test programs` | grow/remove/iterate/leak tests pass; insertion order is asserted; `Set`/`Map` methods have programs |
+| Iteration and conversions | `cargo test -p yashy-driver --test programs` | `enumerate`/`zip`/`chunks`/`windows`/`take`/`skip`/`rev`/`chain` preserve order; every fallible conversion returns `Option`/`Result`; no sentinel |
 | Encodings | `cargo test -p yashy-driver --test programs` | round-trip and malformed-input tests pass for all five formats |
 | Crypto KATs | `cargo test -p yashy-driver --test programs` | every primitive matches its published vectors; AEAD tamper fails |
 | Determinism | `cargo test -p yashy-driver --test e2e` | two runs of the stdlib corpus produce identical bytes; fixed clock/seed under `--deterministic` |
@@ -188,6 +242,12 @@ $ yashyc run examples/json/main.ya
 $ yashyc run examples/collections/main.ya
 map order: alpha, beta, gamma   // insertion order, stable across runs
 vec len=3 cap=4
+set 3 in {1, 3, 5} = true
+
+$ yashyc run examples/iter/main.ya
+0 alpha  1 beta  2 gamma        // enumerate
+(1, "a") (2, "b")              // zip stops at the shorter
+parse_int("ff", 16) = 255       // a total conversion
 
 $ yashyc run examples/crypto/main.ya
 sha256 ok  hmac ok  aes-gcm ok  ed25519 ok
@@ -200,6 +260,10 @@ sha256 ok  hmac ok  aes-gcm ok  ed25519 ok
 - Locale-specific collation beyond case folding and normalisation.
 - An async filesystem API; I/O stays blocking until Phase 10's task layer wraps it.
 - Compression formats beyond gzip/zlib/zstd.
+- Lazy iterators that allocate or suspend; an adapter is a struct over a
+  sequence, and an eager array is the only materialised form.
+- Locale-aware number parsing or printing; the matrix is ASCII and
+  locale-independent.
 
 ## Risks
 

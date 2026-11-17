@@ -18,7 +18,7 @@ fixed buffers and validated constants cost nothing at run time. The aliasing
 rules in `docs/architecture.md` §5.3 become normative, and an alias corpus keeps
 them honest.
 
-**Time:** ~12 weeks.
+**Time:** ~14 weeks.
 **Depends on:** Phase 3 gate.
 **Spec:** [`../specs/2026-11-15-yashy-2.0-design.md`](../specs/2026-11-15-yashy-2.0-design.md) §6.1, §6.6, §6.8, §14.
 
@@ -54,6 +54,8 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 | Compile-time evaluation | `const` values and layout facts; no `const fn`, no compile-time tables, loops or validation |
 | `cfg` keys | platform/debug, closed set; no features |
 | `defer` | block form only |
+| Operators | arithmetic, comparison, bitwise, compound assignment and `&&`/`\|\|`/`!`; no `in`, `is`, or word forms |
+| Ranges | `..`/`..=` as a `for` head and a pattern; no range value |
 
 ## Deliverables
 
@@ -197,6 +199,61 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   a zero-length array is legal and has size 0.
 - [ ] **Step 5: Commit.**
 
+### Task 8: Ranges, membership, identity, and word-form logic
+
+**Files:**
+- Modify: `crates/yashy-lexer/src/token.rs` (`in`, `is`, `and`, `or`, `not`)
+- Modify: `crates/yashy-parser/src/exprs.rs` (range, membership, identity, word forms)
+- Modify: `crates/yashy-sema/src/check_expr.rs`, `crates/yashy-hir/src/hir.rs` (desugar)
+- Modify: `crates/yashy-sema/tests/desugar.rs`, `crates/yashy-verify/src/lib.rs` (range bounds)
+- Modify: `crates/yashy-common/src/codes.rs` (`E1516` membership, `E1517` identity, `E1518` float range)
+- Modify: `crates/yashy-fmt/src/lib.rs`, `docs/tutorial/03-control-flow.md` and `05-patterns.md`
+- Test: `crates/yashy-sema/tests/expressions.rs`, `crates/yashy-parser/tests/expressions.rs`,
+  `crates/yashy-driver/tests/programs/expressions/`
+
+**Interfaces:**
+- `Range[T] { fn start(self) -> T; fn end(self) -> T; fn len(self) -> int; fn is_empty(self) -> bool; fn contains(self, T) -> bool; fn step_by(self, int) -> RangeIter[T] }`
+- `x in y` desugars to `y.contains(x)` for a sequence, `y.contains_key(x)` for a map
+- `p is q`, `p is not q` compare addresses; `x is Some`, `x is Ok`, `x is Err`, `x is Color.Red` test a variant
+- `and`, `or`, `not` lex to `&&`, `||`, `!`; precedence does not change
+
+- [ ] **Step 1: Write the failing test.** `const r = 0..10;`, `r.contains(3)`,
+  `for n in (0..10).step_by(2)`, `'a'..='z'`, `"ell" in "hello"`,
+  `3 in xs`, `"k" in m`, `3 in Set[int] { 1, 3 }`, `p is q`,
+  `p is not q`, `opt is Some`, `Color.Red is red`, and
+  `a and b or not c`. Assert each parses, checks and produces the same HIR or
+  IR as its documented desugaring; assert `1.0..2.0` is `E1518`.
+- [ ] **Step 2: `Range[T]` is a value, not new control flow.** `..` and `..=`
+  construct the built-in `Range[T]` (and `InclusiveRange[T]`), over `int` and
+  `char` only; `float` is refused with `E1518` because a half-open float range
+  has no total `len`. A `for` over a range lowers to the existing counter loop,
+  so the HIR has no range node. `start`, `end`, `len`, `is_empty`, `contains`
+  and `step_by` are ordinary methods; `step_by` with a non-positive step is a
+  diagnostic, not a hang.
+- [ ] **Step 3: Membership is compiler-known, never operator overloading.**
+  `needle in container` is defined for `[T]`, `[T; N]`, `[]T`, `string`
+  (substring, byte-exact), `map[K]V` (key), `Set[T]` and `Range[T]`. It lowers
+  to the method the type already documents (`contains`, `contains_key`), so a
+  user type gets no new operator and `E1515` stays true. A container without a
+  membership fact is `E1516` naming the method to call instead. Membership is a
+  comparison-precedence operator and does not chain.
+- [ ] **Step 4: `is` is identity and variant test, never value equality.** For
+  raw pointers and owning pointers, `p is q` compares addresses and
+  `p is not q` is its negation; for `Option[*T]` a null pointer `is None`.
+  For `Option`, `Result` and an enum, `x is Variant` is a variant test that
+  desugars to the `matches` form from Task 3 and binds nothing; `x is Some(v)`
+  is written `x matches Some(v)` instead. `is` on integers, strings, structs or
+  floats is `E1517`: `==` is the only value comparison and there is no `is`
+  overloading.
+- [ ] **Step 5: Word forms are spelling, not semantics.** `and`, `or` and `not`
+  are reserved keywords in edition 2027 and lex to the same tokens as `&&`,
+  `||` and `!`; precedence and short-circuiting are unchanged, and the
+  formatter preserves the spelling the source used. A 1.0 program that used one
+  of them as a name gets a migration diagnostic naming the replacement. The BPE
+  audit in Task 10 measures all three before they ship.
+- [ ] **Step 6: Commit.**
+  `git commit -m "feat(lang): ranges, membership, identity and word-form logic"`.
+
 ### Task 9: `const fn` and compile-time evaluation
 
 **Files:**
@@ -262,6 +319,7 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 |---|---|---|
 | Traits | `cargo test -p yashy-sema --test traits` | generic traits, associated types, defaults and supertraits monomorphise; no vtable in the IR; the cap holds |
 | Patterns | `cargo test -p yashy-sema --test pats --test desugar` | `let else`, slice/rest, `@`, `matches`, if-let chains and `else if` have desugar proofs |
+| Expressions | `cargo test -p yashy-sema --test expressions --test desugar` | `Range[T]`, `in`, `is`/`is not`, `and`/`or`/`not` parse, check and desugar; `float` ranges, membership on a user type and `is` on a value are diagnosed |
 | Derives | `cargo test -p yashy-sema --test derive` | deterministic bytes; `index --json` shows each impl; a missing field bound names the field |
 | Unsafe and aliasing | `cargo test -p yashy-driver --test alias_corpus` | every rule has a positive and a negative case; no attribute lacks a justification |
 | Null niche | `cargo test -p yashy-verify --test unsafe` | `Option[*const T]` round-trips null; a null `Some` is refused |
@@ -285,6 +343,13 @@ Stack[string].get(0) = "a"  // associated type inferred
 $ yashyc run examples/patterns/main.ya
 head=1 rest=3 last=5     // [head, ..rest, last]
 inside                     // x @ 0..10
+
+$ yashyc run examples/expressions/main.ya
+3 in 0..10 = true          // membership, desugared to Range.contains
+"ell" in "hello" = true    // substring membership
+0, 2, 4, 6, 8              // for n in (0..10).step_by(2)
+same = false               // p is q is address identity
+pos = true                 // x is Some is a variant test
 ```
 
 ```console
@@ -310,6 +375,9 @@ $ yashyc build examples/const_eval/main.ya --emit-ir | grep -c 'call.*build_tabl
 ## Out of scope
 
 - `dyn`, vtables, trait objects, async traits (`E1703`), trait fields (`E1514`).
+- Operator overloading (`E1515`) and chained comparisons. `in` and `is` are
+  compiler-known forms over built-in types only; a user type cannot define
+  either.
 - Specialisation, negative impls and coherence beyond local-type/local-trait.
 - Named read-only views; views stay unnamed.
 - Generators/`yield`.
@@ -336,4 +404,6 @@ $ yashyc build examples/const_eval/main.ya --emit-ir | grep -c 'call.*build_tabl
 | `unsafe` erodes the safety claim | Every site is inventoried and counted; the count is a release note number, not a footnote |
 | Const generics explode code size or const evaluation loops | A step/depth cap, the existing 64/4096 instantiation cap, and a diagnostic naming the substitution |
 | `const fn` becomes a second execution model | It evaluates typed HIR with the same overflow and layout rules; a compile-time/run-time differential test; no I/O, allocation, `unsafe`, `extern` or capability access |
+| A word-form keyword breaks a 1.0 name | Edition-gated (`2027`); a migration diagnostic names the replacement; the BPE audit runs before the spelling ships |
+| `in` or `is` becomes a second dispatch path | Both are compiler-known over built-in types and lower to existing methods or `matches`; no user type can define either |
 | Const evaluation hangs the compiler | Fuel, depth and size caps; every failure is a diagnostic at the expression; the `never_panics` suite covers the evaluator |
