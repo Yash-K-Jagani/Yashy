@@ -3459,6 +3459,13 @@ impl<'src> Checker<'src> {
                 methods,
                 span,
             } => {
+                if name == "Iterator" && self.module_name(self.file) != "iter" {
+                    self.error_code(
+                        *span,
+                        codes::GENERIC_TRAIT,
+                        "`Iterator` is the compiler-known `for` protocol: a user trait cannot take that name",
+                    );
+                }
                 if !type_params.is_empty() && self.module_name(self.file) != "iter" {
                     self.error_code(
                         *span,

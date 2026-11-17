@@ -496,3 +496,15 @@ fn a_qualified_trait_call_names_the_impl_symbol() {
         "the Show impl is the target: {caller}"
     );
 }
+
+#[test]
+fn a_user_trait_cannot_be_named_iterator() {
+    let diags = assert_code(
+        "trait Iterator { fn next(self: *mut Self) -> int; }",
+        codes::GENERIC_TRAIT,
+    );
+    assert!(
+        diags.iter().any(|d| d.message.contains("compiler-known")),
+        "the diagnostic must name the rule: {diags:?}"
+    );
+}

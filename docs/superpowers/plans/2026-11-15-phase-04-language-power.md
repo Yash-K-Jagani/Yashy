@@ -79,7 +79,11 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 - [ ] **Step 2: Keep dispatch static.** A trait method call resolves to one `HirFn` per `(impl, substitution)`; the call graph names it. There is no trait object, no vtable, no runtime lookup. A trait used only through generics is monomorphised; a trait method called on a concrete type is a direct call.
 - [ ] **Step 3: Bound the expansion.** The existing cap (64 instantiations per function, 4096 per program, `E1505`) covers trait methods and associated-type projections. Exceeding it is a diagnostic naming the function and the substitution that grew, never a compile that runs out of memory.
 - [ ] **Step 4: Coherence.** An impl must be for a local type or a local trait; overlapping impls are refused with both spans; an associated type without a binding and without a default is refused; a supertrait obligation is checked at the impl and at every use.
-- [ ] **Step 5: `Iterator[T]` stays special.** It remains the compiler-known `for` protocol. A user trait named `Iterator` is a diagnostic; an adapter trait (`DoubleEnded`, `ExactSize`) is an ordinary generic trait with supertrait `Iterator[T]`.
+- [x] **Step 5: `Iterator[T]` stays special.** It remains the compiler-known
+  `for` protocol; `crates/yashy-sema/src/check_expr.rs` refuses a user trait
+  that declares the name `Iterator` outside `iter.ya` with `E1511` and a message
+  naming the rule, and `crates/yashy-sema/tests/traits.rs` pins the diagnostic.
+  Adapter traits (`DoubleEnded`, `ExactSize`) are not added by this slice.
 - [ ] **Step 6: Commit.** `git commit -m "feat(sema): static generic traits with associated types and defaults"`.
 
 ### Task 2: Type aliases, visibility and re-exports
