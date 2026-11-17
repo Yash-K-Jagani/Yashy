@@ -340,27 +340,56 @@ impl<'src> Parser<'src> {
     /// token after `if` decides between this form and an ordinary `if`
     /// without lookahead. The pattern is the same node a `switch` arm uses.
     fn parse_if_let(&mut self, kw: Span) -> Result<Stmt, ParseError> {
-        let _ = self.expect(TokenKind::Let)?;
-        let pattern = self.parse_pattern()?;
-        self.expect(TokenKind::Eq)?;
-        let value = self.without_block_arg(|p| p.parse_expr())?;
+        // Collect the chain before parsing the body: `if let A = a && let B = b
+        // { body } else { alt }` is nested if-lets, with `alt` on every level.
+        // That keeps short-circuit order and the bindings' scopes identical to
+        // the source and adds no new HIR node.
+        let mut tests: Vec<(Pattern, Expr)> = Vec::new();
+        loop {
+            let _ = self.expect(TokenKind::Let)?;
+            let pattern = self.parse_pattern()?;
+            self.expect(TokenKind::Eq)?;
+            let value = self.without_block_arg(|p| p.parse_expr())?;
+            tests.push((pattern, value));
+            if self.eat(TokenKind::AndAnd) || self.eat(TokenKind::KwAnd) {
+                if !self.check(TokenKind::Let) {
+                    return Err(self.error(
+                        self.peek_span(),
+                        "after `&&` an if-let chain needs another `let`".to_string(),
+                    ));
+                }
+                continue;
+            }
+            break;
+        }
         let then_block = self.parse_block()?;
         let else_block = if self.eat(TokenKind::Else) {
             Some(self.parse_else_block()?)
         } else {
             None
         };
-        let end_span = match &else_block {
-            Some(b) => b.span,
-            None => then_block.span,
-        };
-        Ok(Stmt::IfLet {
-            pattern,
-            value,
-            then_block,
-            else_block,
-            span: cover(kw, end_span),
-        })
+        let end_span = else_block
+            .as_ref()
+            .map(|b| b.span)
+            .unwrap_or(then_block.span);
+        let mut result: Option<Stmt> = None;
+        for (pattern, value) in tests.into_iter().rev() {
+            let then_block = match result {
+                Some(inner) => Block {
+                    span: cover(kw, end_span),
+                    stmts: vec![inner],
+                },
+                None => then_block.clone(),
+            };
+            result = Some(Stmt::IfLet {
+                pattern,
+                value,
+                then_block,
+                else_block: else_block.clone(),
+                span: cover(kw, end_span),
+            });
+        }
+        Ok(result.expect("at least one test"))
     }
 
     /// The body of a loop, with any `invariant` clauses its header wrote.

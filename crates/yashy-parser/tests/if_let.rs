@@ -232,3 +232,36 @@ fn else_if_let_keeps_the_pattern_and_the_nested_value() {
         other => panic!("expected an outer `if let`, got {other:?}"),
     }
 }
+
+#[test]
+fn if_let_chain_nests_the_tests_in_source_order() {
+    let stmt = "if let Some(x) = a && let Some(y) = b { use(x); use(y); } else { other(); }";
+    let (_, statement) = first_main_stmt(stmt);
+    match statement {
+        Stmt::IfLet {
+            else_block: Some(outer_else),
+            then_block,
+            ..
+        } => {
+            assert_eq!(
+                outer_else.stmts.len(),
+                1,
+                "the else applies to the whole chain"
+            );
+            assert_eq!(then_block.stmts.len(), 1);
+            match &then_block.stmts[0] {
+                Stmt::IfLet {
+                    else_block: Some(inner_else),
+                    ..
+                } => assert_eq!(inner_else.stmts.len(), 1, "each test gets the else"),
+                other => panic!("expected a nested if let, got {other:?}"),
+            }
+        }
+        other => panic!("expected an outer if let, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_chain_needs_a_let_after_each_and() {
+    assert!(!parse_err("fn main() { if let Some(x) = a && b { } }").is_empty());
+}

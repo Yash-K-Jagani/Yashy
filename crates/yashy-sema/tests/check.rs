@@ -2893,3 +2893,14 @@ fn matches_is_a_boolean_variant_test() {
         "{text}"
     );
 }
+
+#[test]
+fn if_let_chains_check_with_nested_bindings() {
+    let result = check_source(
+        "enum Shape { Circle(float), Square(float) } \
+         fn f(Shape a, Shape b) -> bool { \
+             if let Circle(x) = a && let Square(y) = b { return x == y; } else { return false; } \
+         }",
+    );
+    assert!(result.0.is_ok(), "{:?}", result.0.err());
+}

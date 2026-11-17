@@ -61,7 +61,19 @@ impl<'src> Parser<'src> {
 
     fn parse_and(&mut self) -> Result<Expr, ParseError> {
         let mut lhs = self.parse_bit_or()?;
-        while self.eat(TokenKind::AndAnd) || self.eat(TokenKind::KwAnd) {
+        loop {
+            // `&& let` belongs to an if-let chain, not to this expression: the
+            // value before it must stop here so the clause can be parsed by
+            // `parse_if_let` as another test.
+            if self.check(TokenKind::AndAnd) && self.peek_second() == TokenKind::Let {
+                break;
+            }
+            if self.check(TokenKind::KwAnd) && self.peek_second() == TokenKind::Let {
+                break;
+            }
+            if !self.eat(TokenKind::AndAnd) && !self.eat(TokenKind::KwAnd) {
+                break;
+            }
             let rhs = self.parse_bit_or()?;
             let span = cover(expr_span(&lhs), expr_span(&rhs));
             lhs = Expr::Binary {
