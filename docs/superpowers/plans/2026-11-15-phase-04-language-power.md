@@ -326,6 +326,11 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   the IR, the run-time program and a hand-written table produce the same values,
   and the compiler does not emit the function body when it is only called at
   compile time.
+  *Current:* the named gate target now exists as
+  `crates/yashy-sema/tests/const_fn.rs`, with the folding, non-emission,
+  call-site diagnostic, nested-call and termination tests. A `const fn` that
+  only folds arithmetic is proved; building a lookup table still needs
+  `ConstValue::Array` and fixed-array evaluation, which are not implemented.
 - [ ] **Step 2: Const evaluation is ordinary code, not a macro.** A `const fn`
   is parsed and checked like any function, then evaluated by the same typed
   interpreter that evaluates `size_of`, array lengths and const generic
