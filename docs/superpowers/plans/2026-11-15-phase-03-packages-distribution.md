@@ -480,9 +480,9 @@ can make two identical sources produce different bytes.
 | Round trip | `cargo test -p yashy-driver --test registry --test resolve` | publish → add → build; `--locked` refuses a drifted lock; yanked pins refused |
 | Tamper | `cargo test -p yashy-driver --test signature --test registry` | one flipped byte, one bad index signature and one missing key each fail with a named code |
 | SBOM | `cargo test -p yashy-driver --test sbom --test audit` | every package, hash, license, supplier and toolchain hash present; policy violations refused |
-| Capabilities | `cargo test -p yashy-driver --test capabilities --test policy` | an undeclared capability is refused at the call; a declared one is enforced; the policy is the ceiling |
-| Provenance | `cargo test -p yashy-driver --test attest --test slsa` | statement names every material; a rebuild matches the subject; a mismatch names the field |
-| Package surface | `cargo test -p yashy-driver --test pkg_cmd` | tree, why, outdated, vendor, info, remove and yank behave; every command has a JSON form |
+| Capabilities | `cargo test -p yashy-driver --test capabilities` (a separate `policy` test does not exist) | default-deny and path globs are pinned; the call-site refusal and runtime enforcement are not implemented |
+| Provenance | `cargo test -p yashy-driver --test attest` (a separate `slsa` test does not exist) | the statement names its subject and a signed negative case fails; material discovery and rebuild verification are not implemented |
+| Package surface | `cargo test -p yashy-driver --test pkg_cmd` | tree, why, info and remove are pinned; outdated, vendor and yank are not covered by that test |
 | Reproducible | `cargo test -p yashy-driver --test reproducible` | two directories, two runs, identical SHA-256 on both OSes |
 | Stdlib package | `cargo test -p yashy-driver --test stdlib_precompiled` | unchanged stdlib is not re-typechecked; cache key verified; hash mismatch refused |
 | Workspaces | `cargo test -p yashy-driver --test workspace --test features` | `--workspace`, `-p`, optional deps and feature unification behave; features are in the cache key |
