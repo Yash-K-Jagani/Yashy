@@ -86,6 +86,7 @@ the declaration or import involved when that is not obvious.
 | [E1513](errors/E1513.md) | there is no Drop |
 | [E1514](errors/E1514.md) | a trait has no fields |
 | [E1515](errors/E1515.md) | operators cannot be overloaded |
+| [E1517](errors/E1517.md) | invalid `is` comparison |
 | [E1600](errors/E1600.md) | macro invocation matches no arm |
 | [E1601](errors/E1601.md) | macro expansion limit exceeded |
 | [E1602](errors/E1602.md) | macro metavariable kind mismatch |

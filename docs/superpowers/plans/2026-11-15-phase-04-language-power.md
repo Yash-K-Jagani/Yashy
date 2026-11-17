@@ -269,6 +269,12 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   is written `x matches Some(v)` instead. `is` on integers, strings, structs or
   floats is `E1517`: `==` is the only value comparison and there is no `is`
   overloading.
+  *Current:* `is`/`is not` are reserved keywords; the parser records one `Expr::Is`
+  node and the checker resolves it from the subject type: pointer subjects become
+  address `==`/`!=`, enum/Option/Result subjects become the two-arm `matches`
+  switch, and value types get E1517 with a catalog page and rule ID (ID-1).
+  Parser and sema tests pin all three cases; the keywords are in all eleven
+  generated editor grammars.
 - [x] **Step 5: Word forms are spelling, not semantics.** `and`, `or` and
   `not` are reserved keywords with their own token kinds; the parser accepts
   them where `&&`, `||` and `!` are expected and builds the identical

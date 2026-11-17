@@ -73,3 +73,13 @@ fn word_forms_keep_symbolic_precedence() {
     let symbols = body("fn main() { a || b && c; }");
     assert_eq!(expr_of(&words), expr_of(&symbols));
 }
+
+#[test]
+fn is_and_is_not_are_their_own_nodes() {
+    let yes = expr_of(&body("fn main() { x is Some; }"));
+    let no = expr_of(&body("fn main() { x is not Some; }"));
+    match (yes, no) {
+        (Expr::Is { negate: false, .. }, Expr::Is { negate: true, .. }) => {}
+        (a, b) => panic!("expected is nodes, got {a:?} and {b:?}"),
+    }
+}

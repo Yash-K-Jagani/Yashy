@@ -237,6 +237,21 @@ impl<'src> Parser<'src> {
                 span,
             };
         }
+        // `x is P` is an identity test for pointers and a variant test for
+        // other subjects; `is not` is its negation. The checker picks the rule
+        // from the subject's type, so the parser only records the spelling.
+        if self.eat(TokenKind::KwIs) {
+            let negate = self.eat(TokenKind::KwNot);
+            let pattern = self.parse_pattern()?;
+            let pattern_span = crate::exprs::pattern_span(&pattern);
+            let span = cover(expr_span(&value), pattern_span);
+            value = Expr::Is {
+                lhs: Box::new(value),
+                pattern,
+                negate,
+                span,
+            };
+        }
         Ok(value)
     }
 
@@ -1466,6 +1481,7 @@ pub fn expr_span(expr: &Expr) -> Span {
         Expr::Ident(_, s) => *s,
         Expr::Binary { span, .. } => *span,
         Expr::CompareChain { span, .. } => *span,
+        Expr::Is { span, .. } => *span,
         Expr::Unary { span, .. } => *span,
         Expr::Move(_, span) => *span,
         Expr::Call { span, .. } => *span,

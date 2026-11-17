@@ -185,6 +185,8 @@ pub const TRAIT_STATE: &str = "E1514";
 /// An operator is applied to a type with a same-named method: operators
 /// cannot be overloaded.
 pub const OPERATOR_OVERLOAD: &str = "E1515";
+/// `is` is pointer identity or a variant test, never value equality.
+pub const INVALID_IDENTITY: &str = "E1517";
 /// A macro invocation matches no declared arm.
 pub const MACRO_NO_MATCH: &str = "E1600";
 /// Macro expansion exceeds the depth or size cap.
@@ -665,6 +667,12 @@ pub const CODES: &[Code] = &[
         page: include_str!("../../../docs/errors/E1515.md"),
     },
     Code {
+        id: INVALID_IDENTITY,
+        title: "invalid `is` comparison",
+        summary: "`is` compares pointer addresses or tests an enum variant; use `==` for value equality.",
+        page: include_str!("../../../docs/errors/E1517.md"),
+    },
+    Code {
         id: MACRO_NO_MATCH,
         title: "macro invocation matches no arm",
         summary: "A macro invocation names the macro but matches none of its arms.",
@@ -844,6 +852,7 @@ pub fn rule_for(id: &str) -> &'static str {
         DROP_TRAIT => "TRAIT-14",
         TRAIT_STATE => "TRAIT-15",
         OPERATOR_OVERLOAD => "TRAIT-16",
+        INVALID_IDENTITY => "ID-1",
         MACRO_NO_MATCH => "MACRO-1",
         MACRO_DEPTH => "MACRO-2",
         MACRO_FRAGMENT => "MACRO-3",

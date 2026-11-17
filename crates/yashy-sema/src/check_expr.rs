@@ -11142,6 +11142,78 @@ impl<'src> Checker<'src> {
                 );
                 None
             }
+            Expr::Is {
+                lhs,
+                pattern,
+                negate,
+                span,
+            } => {
+                let checked_lhs = self.check_expr(lhs)?;
+                let subject_ty = expr_ty(&checked_lhs);
+                if matches!(subject_ty.kind, TypeKind::Ptr(_) | TypeKind::CPtr(_)) {
+                    let Pattern::Binding { name, .. } = &pattern else {
+                        self.error_code(*span, codes::INVALID_IDENTITY, "`is` on a pointer compares two addresses: the right side must be a pointer name");
+                        return None;
+                    };
+                    let rhs = self.check_expr(&Expr::Ident(vec![name.clone()], *span))?;
+                    if !matches!(expr_ty(&rhs).kind, TypeKind::Ptr(_) | TypeKind::CPtr(_)) {
+                        self.error_code(
+                            *span,
+                            codes::INVALID_IDENTITY,
+                            "`is` compares two pointers by address",
+                        );
+                        return None;
+                    }
+                    return Some(HirExpr::Binary {
+                        op: if *negate { BinOp::Ne } else { BinOp::Eq },
+                        lhs: Box::new(checked_lhs),
+                        rhs: Box::new(rhs),
+                        span: *span,
+                        ty: prim(TypeKind::Bool),
+                        fault: None,
+                    });
+                }
+                if !matches!(
+                    subject_ty.kind,
+                    TypeKind::Enum(_) | TypeKind::Option(_) | TypeKind::Result(_, _)
+                ) {
+                    self.error_code(
+                        *span,
+                        codes::INVALID_IDENTITY,
+                        "`is` tests an enum variant or a pointer address; use `==` for values",
+                    );
+                    return None;
+                }
+                let switch = Expr::SwitchExpr {
+                    subject: Box::new((**lhs).clone()),
+                    arms: vec![
+                        SwitchArm {
+                            pattern: if *negate {
+                                Pattern::Wildcard(*span)
+                            } else {
+                                pattern.clone()
+                            },
+                            guard: None,
+                            body: Expr::Literal(Literal::Bool(!negate), *span),
+                            is_default: *negate,
+                            span: *span,
+                        },
+                        SwitchArm {
+                            pattern: if *negate {
+                                pattern.clone()
+                            } else {
+                                Pattern::Wildcard(*span)
+                            },
+                            guard: None,
+                            body: Expr::Literal(Literal::Bool(*negate), *span),
+                            is_default: !negate,
+                            span: *span,
+                        },
+                    ],
+                    span: *span,
+                };
+                self.check_expr(&switch)
+            }
             Expr::Call {
                 callee,
                 args,

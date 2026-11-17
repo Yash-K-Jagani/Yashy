@@ -1245,6 +1245,15 @@ pub enum Expr {
         args: Vec<CallArg>,
         span: Span,
     },
+    /// `x is P` / `x is not P`: address identity for pointers, a variant test
+    /// otherwise. The checker decides from the subject's type; the parser keeps
+    /// both spellings in one node so neither is guessed from the token stream.
+    Is {
+        lhs: Box<Expr>,
+        pattern: Pattern,
+        negate: bool,
+        span: Span,
+    },
     /// `switch x { .. }` in value position, which yields the arm's expression.
     SwitchExpr {
         subject: Box<Expr>,

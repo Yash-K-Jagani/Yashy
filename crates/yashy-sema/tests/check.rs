@@ -2904,3 +2904,24 @@ fn if_let_chains_check_with_nested_bindings() {
     );
     assert!(result.0.is_ok(), "{:?}", result.0.err());
 }
+
+#[test]
+fn is_tests_variants_and_pointer_identity() {
+    let variant =
+        check_source("enum Shape { Circle, Square } fn f(Shape s) -> bool { return s is Circle; }");
+    assert!(variant.0.is_ok(), "{:?}", variant.0.err());
+    let negated = check_source(
+        "enum Shape { Circle, Square } fn f(Shape s) -> bool { return s is not Circle; }",
+    );
+    assert!(negated.0.is_ok(), "{:?}", negated.0.err());
+    let identity = check_source("fn f(*mut int p, *mut int q) -> bool { return p is q; }");
+    assert!(identity.0.is_ok(), "{:?}", identity.0.err());
+    let invalid = check_source("fn f(int a, int b) -> bool { return a is b; }");
+    let diags = invalid.0.expect_err("`is` on integers must be refused");
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.code == Some(yashy_common::codes::INVALID_IDENTITY)),
+        "E1517 expected: {diags:?}"
+    );
+}

@@ -715,6 +715,8 @@ pub enum TokenKind {
     KwNot,
     /// `matches` -- the variant-test expression: `x matches Some(_)`.
     Matches,
+    /// `is` -- identity and variant test.
+    KwIs,
 
     // Punctuation. `ColonEq`, `DotDot`, `Question`, `Bang`, `AndAnd` and `OrOr`
     // are additions to the punctuation the interface first named: `:=` is the
@@ -889,7 +891,7 @@ impl TokenKind {
         TokenKind::ShrEq,
     ];
 
-    pub const KEYWORDS: [&'static str; 43] = [
+    pub const KEYWORDS: [&'static str; 44] = [
         "fn",
         "struct",
         "enum",
@@ -933,6 +935,7 @@ impl TokenKind {
         "or",
         "not",
         "matches",
+        "is",
     ];
 
     pub fn keyword(text: &str) -> Option<TokenKind> {
@@ -980,6 +983,7 @@ impl TokenKind {
             "or" => TokenKind::KwOr,
             "not" => TokenKind::KwNot,
             "matches" => TokenKind::Matches,
+            "is" => TokenKind::KwIs,
             _ => return None,
         })
     }
@@ -1030,6 +1034,7 @@ impl TokenKind {
                 | TokenKind::KwOr
                 | TokenKind::KwNot
                 | TokenKind::Matches
+                | TokenKind::KwIs
         )
     }
 
@@ -1093,6 +1098,7 @@ impl TokenKind {
             TokenKind::KwOr => Naming::Fixed("or"),
             TokenKind::KwNot => Naming::Fixed("not"),
             TokenKind::Matches => Naming::Fixed("matches"),
+            TokenKind::KwIs => Naming::Fixed("is"),
             TokenKind::LParen => Naming::Fixed("("),
             TokenKind::RParen => Naming::Fixed(")"),
             TokenKind::LBrace => Naming::Fixed("{"),
@@ -1198,7 +1204,7 @@ mod tests {
     /// The keyword table, written out here as well as in the integration tests
     /// so that a keyword added to one list and not the other is a failing test
     /// rather than a difference nobody notices.
-    const KEYWORDS: [(&str, TokenKind); 42] = [
+    const KEYWORDS: [(&str, TokenKind); 43] = [
         ("fn", TokenKind::Fn),
         ("struct", TokenKind::Struct),
         ("enum", TokenKind::Enum),
@@ -1241,6 +1247,7 @@ mod tests {
         ("or", TokenKind::KwOr),
         ("not", TokenKind::KwNot),
         ("matches", TokenKind::Matches),
+        ("is", TokenKind::KwIs),
     ];
 
     #[test]
