@@ -63,6 +63,7 @@ use crate::parser::{cover, Parser};
 fn item_kind(item: &Item) -> &'static str {
     match item {
         Item::Import { .. } => "an `import`",
+        Item::TypeAlias { .. } => "a type alias",
         Item::Fn { .. } => "a function",
         Item::ConstFn { .. } => "a `const fn`",
         Item::Impl { .. } => "an `impl` block",
@@ -156,6 +157,7 @@ impl<'src> Parser<'src> {
         let kind = self.peek();
         match kind {
             TokenKind::Import => self.parse_import(),
+            TokenKind::Type => self.parse_type_alias(),
             TokenKind::Struct => self.parse_struct(),
             TokenKind::Enum => self.parse_enum(),
             TokenKind::Fn => self.parse_fn(),
@@ -310,6 +312,22 @@ impl<'src> Parser<'src> {
     /// The path is read from the tokens rather than from the source text between
     /// them, so a path segment is exactly an identifier: `import 1;` and
     /// `import std..io;` are diagnostics, not paths with holes in them.
+    /// `type Name = Target;` -- a transparent type alias. The target is a
+    /// type expression, never a value, and the alias is expanded during name
+    /// resolution; no HIR item is emitted for it.
+    fn parse_type_alias(&mut self) -> Result<Item, ParseError> {
+        let keyword = self.expect(TokenKind::Type)?;
+        let (name, _) = self.identifier()?;
+        self.expect(TokenKind::Eq)?;
+        let target = self.parse_type_expr()?;
+        let semi = self.expect(TokenKind::Semi)?;
+        Ok(Item::TypeAlias {
+            name,
+            target,
+            span: cover(keyword.span, semi.span),
+        })
+    }
+
     fn parse_import(&mut self) -> Result<Item, ParseError> {
         let keyword = self.expect(TokenKind::Import)?;
         let mut path = vec![self.import_segment()?];

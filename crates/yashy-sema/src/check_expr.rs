@@ -756,6 +756,9 @@ const BUILTIN_TYPE_NAMES: &[&str] = &[
 /// errors found so far.
 pub struct Checker<'src> {
     scope: Scope,
+    /// Transparent type aliases, expanded during type resolution so they never
+    /// reach HIR. A cycle is a diagnostic, not a stack overflow.
+    type_aliases: HashMap<String, yashy_hir::ty::TypeKind>,
     structs: HashMap<String, StructSig>,
     enums: HashMap<String, EnumSig>,
     fns: HashMap<String, FnSig>,
@@ -1240,6 +1243,7 @@ impl<'src> Checker<'src> {
             instantiated: HashSet::new(),
             fn_instantiations: HashMap::new(),
             fn_instantiation_site: HashMap::new(),
+            type_aliases: HashMap::new(),
             active_generics: Vec::new(),
             borrowed_bindings: Vec::new(),
             methods: HashMap::new(),
@@ -3453,6 +3457,21 @@ impl<'src> Checker<'src> {
                 }
             }
             Item::Import { .. } => {}
+            Item::TypeAlias { name, target, span } => {
+                if self.structs.contains_key(name)
+                    || self.enums.contains_key(name)
+                    || self.type_aliases.contains_key(name)
+                {
+                    self.error(*span, format!("`{name}` is already a type"));
+                    return;
+                }
+                match self.resolve_type(target) {
+                    Ok(resolved) => {
+                        self.type_aliases.insert(name.clone(), resolved.kind);
+                    }
+                    Err(error) => self.report(error),
+                }
+            }
             Item::Trait {
                 name,
                 type_params,
@@ -3823,6 +3842,14 @@ impl<'src> Checker<'src> {
                 if let Some(concrete) = self.type_subst.get(name) {
                     return Ok(Type {
                         kind: concrete.kind.clone(),
+                        span: *span,
+                    });
+                }
+                // A type alias is transparent: what the checker and the
+                // backend see is the target type, never the spelling.
+                if let Some(aliased) = self.type_aliases.get(name) {
+                    return Ok(Type {
+                        kind: aliased.clone(),
                         span: *span,
                     });
                 }
@@ -4869,6 +4896,9 @@ impl<'src> Checker<'src> {
                 span: *span,
                 file: self.file,
             })]),
+            // An alias is expanded during type resolution; it has no runtime
+            // existence and therefore no HIR item.
+            Item::TypeAlias { .. } => None,
             Item::Trait { .. } => {
                 // A trait is a compile-time requirement set: it has no layout,
                 // no value and no symbol, so nothing is emitted for it. Its

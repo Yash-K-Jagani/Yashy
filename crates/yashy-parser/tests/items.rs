@@ -50,6 +50,7 @@ fn item_span(item: &Item) -> Span {
         Item::Documented { item, .. } => item_span(item),
         Item::Cfg { item, .. } => item_span(item),
         Item::Import { span, .. }
+        | Item::TypeAlias { span, .. }
         | Item::Struct { span, .. }
         | Item::Enum { span, .. }
         | Item::Fn { span, .. }
@@ -2014,4 +2015,13 @@ fn an_unknown_representation_is_refused_rather_than_ignored() {
         diagnostics.iter().any(|d| d.code == Some("E0106")),
         "an unknown name is the same code as a misplaced clause: {diagnostics:?}"
     );
+}
+
+#[test]
+fn a_type_alias_parses_as_an_item() {
+    let program = parse_src("type Pair = (int, int);").expect("an alias must parse");
+    assert!(matches!(
+        program.items.first(),
+        Some(Item::TypeAlias { .. })
+    ));
 }

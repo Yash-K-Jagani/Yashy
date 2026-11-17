@@ -88,6 +88,15 @@ pub enum Item {
         alias: Option<String>,
         span: Span,
     },
+    /// `type Name = Target;` -- a transparent name for an existing type.
+    ///
+    /// The alias never reaches HIR: resolution expands it to the target type,
+    /// so a checker or code generator never has to know that a spelling existed.
+    TypeAlias {
+        name: String,
+        target: TypeExpr,
+        span: Span,
+    },
     /// `pub fn f() { ... }` -- an item another module may use.
     ///
     /// The modifier wraps the item it applies to rather than being a field on

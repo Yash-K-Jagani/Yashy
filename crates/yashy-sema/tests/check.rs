@@ -2947,3 +2947,25 @@ fn membership_on_an_unsupported_container_is_e1516() {
         "E1516 expected: {diags:?}"
     );
 }
+
+#[test]
+fn a_type_alias_is_transparent() {
+    let source = "type Score = int; fn f() -> Score { return 7; }";
+    let (result, _, _) = check_source(source);
+    let hir = result.expect("an alias must expand to its target");
+    let f = hir
+        .items
+        .iter()
+        .find_map(|item| match item {
+            HirItem::Fn(function) if function.name == "f" => Some(function),
+            _ => None,
+        })
+        .expect("the function");
+    assert_eq!(f.ret.kind, yashy_hir::ty::TypeKind::I64);
+    assert!(
+        !hir.items
+            .iter()
+            .any(|item| matches!(item, HirItem::Struct(s) if s.name == "Score")),
+        "an alias must not become a type in HIR"
+    );
+}
