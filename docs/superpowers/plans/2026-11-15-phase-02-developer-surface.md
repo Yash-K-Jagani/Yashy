@@ -295,8 +295,10 @@ IR stays byte-identical. Verified with clang and `llvm-readobj`.
   statement from HIR spans; annotated golden IR compiled with clang produced a
   real `.debug_line` section (verified with `llvm-readobj`). `inspect --addr`
   maps an address to a declaration span, and a debugger can stop on a source
-  line. There is still no type table, so a typed value assertion is not
-  possible.
+  line. Debug builds now also emit a `DICompositeType` table for every declared
+  struct and enum, with member offsets and sizes from the checker's layout walk
+  and `types:` on the compile unit. A typed value assertion is still not
+  scripted, so the step stays unchecked.
 - [ ] **Step 2: Emit debug info from the same IR.** Every user function, local,
   parameter and type gets a `!dbg` location; the span comes from HIR, not from a
   re-parse. Optimised builds keep line tables; `--debug` builds keep full
@@ -304,7 +306,9 @@ IR stays byte-identical. Verified with clang and `llvm-readobj`.
   *Current:* partial. The backend emits `; yashy-loc:` markers for every checked
   statement only in a debug build; `debug_info.rs` turns them into `!dbg`
   attachments plus `DISubprogram`/`DIFile`/`DILocation` metadata. Normal IR is
-  byte-identical. Locations for locals, parameters and types are still open.
+  byte-identical. The same pass now writes a type table from HIR declarations;
+  locations for locals and parameters are still open, so the step stays
+  unchecked.
 - [x] **Step 3: `yashyc debug` selects a backend.** LLDB where available (Linux,
   macOS, Windows when installed), `cdb` on Windows otherwise; a missing backend
   is a diagnostic with an install hint. The command writes a temporary script,
@@ -316,11 +320,14 @@ IR stays byte-identical. Verified with clang and `llvm-readobj`.
 - [ ] **Step 4: Make the async state visible.** A task view renders its state,
   its scope, and the await point; pretty printers render `string`, arrays, maps
   and `Option`/`Result` as values, not addresses.
-  *Current:* the runtime's `YASHY_DEBUG=1` stop handler already prints the live
-  task table (id, function, resume index) and the debug script turns it on.
-  The await point, scope details and typed pretty-printing are not there: the
-  LLDB summary providers are committed under `crates/yashy-runtime/debug/`
-  but cannot be attached without a type table.
+  *Current:* the runtime's `YASHY_DEBUG=1` stop handler prints the live task
+  table with id, function, resume index (now also named `await=`), state and
+  whether a scope owns the frame. Debug builds now emit a type table from HIR
+  layouts, and the LLDB summary providers under `crates/yashy-runtime/debug/`
+  cover `string`, arrays/slices, maps, `Option` and `Result`. They must still
+  be loaded explicitly in the LLDB session; `yashyc debug` has not been taught
+  to import them, and there is no scripted assertion that a typed value prints
+  a particular string.
 - [x] **Step 5: Commit.**
 
 ### Task 7: Profilers and coverage

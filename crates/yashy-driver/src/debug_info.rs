@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 
 use yashy_common::{FileId, SourceMap, Span};
 use yashy_hir::hir::{HirItem, HirProgram};
+use yashy_hir::ty::TypeKind;
 
 /// The source facts one `DISubprogram` needs.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -48,6 +49,90 @@ pub fn functions(hir: &HirProgram, sources: &SourceMap) -> Vec<FunctionLocation>
     }
     out
 }
+
+/// One user type and the facts LLVM needs to describe it.
+#[derive(Clone, Debug)]
+struct TypeEntry {
+    name: String,
+    line: u32,
+    tag: &'static str,
+    layout: yashy_hir::layout::Layout,
+    /// Struct fields: name, field type and byte offset.
+    fields: Vec<(String, TypeKind, usize)>,
+    /// Enum variant names, in declaration order.
+    variants: Vec<String>,
+}
+
+/// Collect declared types and their layout from the same tables the checker
+/// and `inspect --layout` use. A type the checker cannot lay out is skipped:
+/// emitting a wrong size would be worse than leaving it out of the table.
+fn types(hir: &HirProgram, sources: &SourceMap) -> Vec<TypeEntry> {
+    let decls = crate::layout::HirDecls::from_program(hir);
+    let entry = FileId::from_index(0);
+    let mut out = Vec::new();
+    for item in &hir.items {
+        let (name, tag, fields, variants) = match item {
+            HirItem::Struct(structure) => (
+                structure.name.clone(),
+                "DW_TAG_structure_type",
+                structure
+                    .fields
+                    .iter()
+                    .map(|field| (field.name.clone(), field.ty.kind.clone()))
+                    .collect::<Vec<_>>(),
+                Vec::new(),
+            ),
+            HirItem::Enum(enumeration) => (
+                enumeration.name.clone(),
+                "DW_TAG_enumeration_type",
+                Vec::new(),
+                enumeration
+                    .variants
+                    .iter()
+                    .map(|variant| variant.name.clone())
+                    .collect::<Vec<_>>(),
+            ),
+            _ => continue,
+        };
+        let Some(layout) = crate::layout::find(&name, &decls) else {
+            continue;
+        };
+        let offsets = layout.offsets.clone();
+        let fields = fields
+            .into_iter()
+            .enumerate()
+            .map(|(index, (field, kind))| (field, kind, offsets.get(index).copied().unwrap_or(0)))
+            .collect();
+        out.push(TypeEntry {
+            name,
+            line: sources.locate(entry, item_span(item)).line,
+            tag,
+            layout,
+            fields,
+            variants,
+        });
+    }
+    out
+}
+
+fn item_span(item: &HirItem) -> Span {
+    match item {
+        HirItem::Struct(structure) => structure.span,
+        HirItem::Enum(enumeration) => enumeration.span,
+        HirItem::Fn(function) => function.span,
+        HirItem::Import(import) => import.span,
+        HirItem::Extern(block) => block.span,
+    }
+}
+
+/// The five basic types the member walk maps field kinds onto.
+const BASIC_TYPES: [(&str, &str, &str); 5] = [
+    ("int", "64", "DW_ATE_signed"),
+    ("float", "64", "DW_ATE_float"),
+    ("bool", "8", "DW_ATE_boolean"),
+    ("char", "8", "DW_ATE_unsigned_char"),
+    ("ptr", "64", "DW_ATE_address"),
+];
 
 /// Escape a path or name for an LLVM metadata string.
 fn llvm_string(text: &str) -> String {
@@ -120,6 +205,23 @@ pub fn annotate(ir: &str, hir: &HirProgram, sources: &SourceMap) -> String {
     let point_id =
         |point: &Point| location_base + points.iter().position(|entry| entry == point).unwrap();
 
+    // The type table continues after the locations, so adding it does not
+    // renumber any metadata an existing debug build already emitted.
+    let decls = crate::layout::HirDecls::from_program(hir);
+    let type_entries = types(hir, sources);
+    let basic_base = location_base + points.len();
+    let element_base = basic_base + BASIC_TYPES.len();
+    let element_count: usize = type_entries
+        .iter()
+        .map(|entry| entry.fields.len() + entry.variants.len())
+        .sum();
+    let composite_base = element_base + element_count;
+    let composites: BTreeMap<String, usize> = type_entries
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| (entry.name.clone(), composite_base + index))
+        .collect();
+
     // Pass two: drop markers and attach !dbg to the next instruction.
     let mut out: Vec<String> = Vec::new();
     let mut pending: Option<Point> = None;
@@ -154,10 +256,14 @@ pub fn annotate(ir: &str, hir: &HirProgram, sources: &SourceMap) -> String {
     out.push(String::new());
     out.push("!llvm.dbg.cu = !{!0}".to_string());
     out.push("!llvm.module.flags = !{!1}".to_string());
-    out.push(
-        "!0 = distinct !DICompileUnit(language: DW_LANG_C, file: !4, producer: \"yashyc\", isOptimized: false, runtimeVersion: 0, emissionKind: FullDebug)"
-            .to_string(),
-    );
+    let retained = composites
+        .values()
+        .map(|id| format!("!{id}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    out.push(format!(
+        "!0 = distinct !DICompileUnit(language: DW_LANG_C, file: !4, producer: \"yashyc\", isOptimized: false, runtimeVersion: 0, emissionKind: FullDebug, types: !{{{retained}}})"
+    ));
     out.push("!1 = !{i32 2, !\"Debug Info Version\", i32 3}".to_string());
     out.push("!2 = !DISubroutineType(types: !3)".to_string());
     out.push("!3 = !{}".to_string());
@@ -190,6 +296,84 @@ pub fn annotate(ir: &str, hir: &HirProgram, sources: &SourceMap) -> String {
             point.line,
             point.column,
             subprogram_base
+        ));
+    }
+    for (index, (name, size, encoding)) in BASIC_TYPES.iter().enumerate() {
+        out.push(format!(
+            "!{} = !DIBasicType(name: {}, size: {}, encoding: {})",
+            basic_base + index,
+            llvm_string(name),
+            size,
+            encoding
+        ));
+    }
+
+    // One member or enumerator per declared field/variant. Field offsets and
+    // sizes come from the checker's layout walk, in bits as LLVM requires.
+    let mut element = element_base;
+    let mut composite_elements: Vec<Vec<usize>> = Vec::new();
+    for entry in &type_entries {
+        let mut ids = Vec::new();
+        for (field, kind, offset) in &entry.fields {
+            let base = match kind {
+                TypeKind::I64 | TypeKind::CInt(64) => basic_base,
+                TypeKind::F64 | TypeKind::CFloat(64) => basic_base + 1,
+                TypeKind::Bool => basic_base + 2,
+                TypeKind::Char | TypeKind::CUInt(8) => basic_base + 3,
+                TypeKind::Struct(name) | TypeKind::Enum(name) => {
+                    *composites.get(name).unwrap_or(&(basic_base + 4))
+                }
+                _ => basic_base + 4,
+            };
+            let size = yashy_hir::layout::layout(kind, &decls)
+                .map(|layout| layout.size * 8)
+                .unwrap_or(64);
+            out.push(format!(
+                "!{} = !DIDerivedType(tag: DW_TAG_member, name: {}, scope: !{}, file: !{}, baseType: !{}, size: {}, offset: {})",
+                element,
+                llvm_string(field),
+                composites[&entry.name],
+                4,
+                base,
+                size,
+                offset * 8
+            ));
+            ids.push(element);
+            element += 1;
+        }
+        for (index, variant) in entry.variants.iter().enumerate() {
+            out.push(format!(
+                "!{} = !DIEnumerator(name: {}, value: {})",
+                element,
+                llvm_string(variant),
+                index
+            ));
+            ids.push(element);
+            element += 1;
+        }
+        composite_elements.push(ids);
+    }
+    for (index, entry) in type_entries.iter().enumerate() {
+        let elements = composite_elements[index]
+            .iter()
+            .map(|id| format!("!{id}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let extra = if entry.tag == "DW_TAG_enumeration_type" {
+            format!(", baseType: !{}", basic_base)
+        } else {
+            String::new()
+        };
+        out.push(format!(
+            "!{} = distinct !DICompositeType(tag: {}, name: {}, scope: !4, file: !4, line: {}, size: {}, align: {}, elements: !{{{}}}{})",
+            composite_base + index,
+            entry.tag,
+            llvm_string(&entry.name),
+            entry.line,
+            entry.layout.size * 8,
+            entry.layout.align * 8,
+            elements,
+            extra
         ));
     }
     out.push(String::new());
@@ -241,6 +425,46 @@ mod tests {
             "{annotated}"
         );
         assert!(annotated.contains("!llvm.dbg.cu = !{!0}"), "{annotated}");
+    }
+
+    #[test]
+    fn declared_types_get_a_table_in_the_compile_unit() {
+        use yashy_hir::hir::{HirFieldDef, HirProgram, HirStruct};
+        use yashy_hir::ty::{Type, TypeKind};
+
+        let mut sources = SourceMap::new();
+        sources.add_file(
+            "main.ya".to_string(),
+            "struct Point { x: int }\n".to_string(),
+        );
+        let span = Span::new(0, 22);
+        let hir = HirProgram {
+            items: vec![HirItem::Struct(HirStruct {
+                name: "Point".to_string(),
+                fields: vec![HirFieldDef {
+                    name: "x".to_string(),
+                    ty: Type {
+                        kind: TypeKind::I64,
+                        span,
+                    },
+                    span,
+                }],
+                repr: None,
+                span,
+            })],
+            instantiations: 0,
+            uses_threads: false,
+            uses_async: false,
+        };
+        let annotated = annotate(
+            "define i32 @main() {\nentry:\n  ret i32 0\n}\n",
+            &hir,
+            &sources,
+        );
+        assert!(annotated.contains("DW_TAG_structure_type"), "{annotated}");
+        assert!(annotated.contains("name: \"Point\""), "{annotated}");
+        assert!(annotated.contains("DW_TAG_member"), "{annotated}");
+        assert!(annotated.contains("types: !{!"), "{annotated}");
     }
 
     #[test]

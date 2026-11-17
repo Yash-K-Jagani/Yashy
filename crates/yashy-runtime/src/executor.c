@@ -749,6 +749,7 @@ typedef struct yax_task_snapshot {
     const char *name;
     int resume;
     int state;
+    int scope_depth;
 } yax_task_snapshot;
 
 void yashy_tasks_dump(void) {
@@ -785,6 +786,26 @@ void yashy_tasks_dump(void) {
             snap[count].name = name;
             snap[count].resume = *(const int *)ex->registry[i].frame;
             snap[count].state = ex->registry[i].state;
+            /* Which scope owns this frame, and how deep that scope is. A task
+             * outside a scope is still legal (a bare spawn), so `none` is a
+             * real answer rather than an error. Walking the parent chain while
+             * holding the executor lock keeps the dump stable. */
+            snap[count].scope_depth = -1;
+            {
+                int depth = 0;
+                for (yashy_scope *scope = ex->active_scope; scope != NULL;
+                     scope = scope->parent, depth++) {
+                    for (long long child = 0; child < scope->count; child++) {
+                        if (scope->children[child].frame == ex->registry[i].frame) {
+                            snap[count].scope_depth = depth;
+                            break;
+                        }
+                    }
+                    if (snap[count].scope_depth >= 0) {
+                        break;
+                    }
+                }
+            }
             count++;
         }
     }
@@ -805,9 +826,10 @@ void yashy_tasks_dump(void) {
     }
     fprintf(stderr, "tasks: %lld\n", count);
     for (long long i = 0; i < count; i++) {
-        fprintf(stderr, "task %lld %s resume=%d state=%s\n", snap[i].id,
+        fprintf(stderr, "task %lld %s resume=%d state=%s await=%d scope=%s\n", snap[i].id,
                 snap[i].name != NULL ? snap[i].name : "<unknown>", snap[i].resume,
-                snap[i].state == 1 ? "running" : "pending");
+                snap[i].state == 1 ? "running" : "pending", snap[i].resume,
+                snap[i].scope_depth >= 0 ? "owned" : "none");
     }
     fflush(stderr);
     free(snap);

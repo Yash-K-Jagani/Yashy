@@ -4,11 +4,11 @@ Load from an LLDB session with:
 
     command script import crates/yashy-runtime/debug/pretty_printers.py
 
-A provider is only used when the binary carries type information for the value,
-which the current backend does not emit yet. The file is committed so the
-format is fixed before debug metadata lands; `yashyc debug` will load it
-automatically once line and type tables exist. The functions are pure: given a
-value and its type name they return a string, never a memory address alone.
+A provider is only used when the binary carries type information for the value.
+Debug builds now emit a type table from HIR layouts, so a debug build can use
+these; load them from an LLDB session with the command above, or point your
+editor's LLDB integration at this file. The functions are pure: given a value
+and its type name they return a string, never a memory address alone.
 """
 
 
@@ -40,11 +40,39 @@ def result_summary(value, unused):
     return "err(%s)" % value.GetChildMemberWithName("err").GetValue()
 
 
+def array_summary(value, unused):
+    """Render a sequence header as `[v1, v2, ...]`, bounded to a dozen items."""
+    data = value.GetChildMemberWithName("data")
+    length = value.GetChildMemberWithName("len")
+    if not data.IsValid() or not length.IsValid():
+        return ""
+    try:
+        count = int(length.GetValueAsSigned())
+        if count < 0:
+            return ""
+        items = [data.GetChildAtIndex(i).GetValue() for i in range(min(count, 12))]
+        more = ", ..." if count > 12 else ""
+        return "[%s%s]" % (", ".join(items), more)
+    except Exception:
+        return ""
+
+
+def map_summary(value, unused):
+    """Render a map header by its entry count without exposing the table."""
+    length = value.GetChildMemberWithName("count")
+    if not length.IsValid():
+        return ""
+    return "map(%s entries)" % length.GetValue()
+
+
 def __lldb_init_module(debugger, unused):
     for type_name, summary in (
         ("yashy_str", string_summary),
         ("Option", option_summary),
         ("Result", result_summary),
+        ("Array", array_summary),
+        ("Slice", array_summary),
+        ("Map", map_summary),
     ):
         debugger.HandleCommand(
             "type summary add %s -F pretty_printers.%s" % (type_name, summary.__name__)
