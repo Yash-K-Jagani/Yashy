@@ -142,13 +142,23 @@ pub fn resolve_with_options(
     index: &crate::registry::RegistrySource,
     options: &ResolveOptions,
 ) -> Result<ResolvedGraph, ResolveError> {
-    let _ = index;
-    let _ = options;
-    // The store's default registry is the source this build uses; an explicit
-    // index is accepted for callers that build one in a test.
+    if options.locked && lock.is_none() {
+        return Err(ResolveError::lock(
+            "`--locked` needs a yashy.lock; run `yashyc update` first",
+        ));
+    }
     let store =
         crate::fetch::Store::open().map_err(|error| ResolveError::offline(error.to_string()))?;
-    resolve(manifest, lock, Path::new("."), options.offline, &store)
+    // `features` and `target` are build inputs rather than resolver inputs: the
+    // driver folds both into the IR cache key. The registry is now honoured.
+    resolve_with_index(
+        manifest,
+        lock,
+        Path::new("."),
+        options.offline,
+        &store,
+        Some(index.clone()),
+    )
 }
 
 /// Resolve `manifest` at `base` into a graph.
@@ -163,10 +173,23 @@ pub fn resolve(
     offline: bool,
     store: &Store,
 ) -> Result<ResolvedGraph, ResolveError> {
+    resolve_with_index(manifest, lock, base, offline, store, None)
+}
+
+/// Resolve against an explicit registry source instead of the store's default.
+pub fn resolve_with_index(
+    manifest: &Manifest,
+    lock: Option<&Lockfile>,
+    base: &Path,
+    offline: bool,
+    store: &Store,
+    registry: Option<crate::registry::RegistrySource>,
+) -> Result<ResolvedGraph, ResolveError> {
     let mut resolver = Resolver {
         lock,
         offline,
         store,
+        registry,
         packages: BTreeMap::new(),
         visiting: Vec::new(),
         visits: 0,
@@ -185,6 +208,8 @@ struct Resolver<'a> {
     lock: Option<&'a Lockfile>,
     offline: bool,
     store: &'a Store,
+    /// An explicit registry source; `None` uses the store's default.
+    registry: Option<crate::registry::RegistrySource>,
     packages: BTreeMap<String, ResolvedPackage>,
     /// Package names currently on the DFS stack, outermost first.
     visiting: Vec<String>,
@@ -308,7 +333,10 @@ impl Resolver<'_> {
                 ))
             }
             Dependency::Registry { version } => {
-                let registry = crate::fetch::default_registry_source(self.store.root());
+                let registry = self
+                    .registry
+                    .clone()
+                    .unwrap_or_else(|| crate::fetch::default_registry_source(self.store.root()));
                 let requirement = yashy_manifest::VersionReq::parse(version).ok_or_else(|| {
                     ResolveError::manifest(format!(
                         "`{name}` declares `{version}`, which is not a version requirement"

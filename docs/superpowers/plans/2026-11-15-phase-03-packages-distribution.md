@@ -9,7 +9,7 @@ rebuild — and make the toolchain itself installable in one command.
 features, a signed static registry, package signatures, capability manifests and
 a dependency policy, an SBOM with build provenance, `yashyc verify-package`,
 reproducible package builds, a package surface with `tree`, `why`, `outdated`,
-`vendor`, `info`, `remove` and `yank`, a signed stdlib with a precompiled IR
+`vendor`, `info` and `remove` (`yank` is still owed), a stdlib with a hashed IR
 cache, installers for the three claimed platforms, a GitHub Action, and
 templates for a workspace and a service.
 
@@ -58,13 +58,20 @@ can make two identical sources produce different bytes.
 - Modify: `crates/yashy-manifest/src/manifest.rs` (accept a range)
 - Modify: `crates/yashy-driver/src/resolve.rs`, `crates/yashy-driver/src/fetch.rs`
 - Modify: `crates/yashy-manifest/src/lock.rs` (v2, migrate v1 on read)
-- Test: `crates/yashy-manifest/tests/version.rs`, `crates/yashy-driver/tests/resolve.rs`
+- Test: `crates/yashy-driver/tests/resolve.rs`
+
+*Actual:* the SemVer tests are unit tests inside `src/version.rs` and
+`src/req.rs`; there is no separate `yashy-manifest/tests/version.rs`.
 
 **Interfaces:**
 - `Version { major: u64, minor: u64, patch: u64, pre: Vec<Identifier>, build: Vec<Identifier> }`
 - `VersionReq::{Caret, Tilde, Exact, Gte, Lt, Wildcard, All}`
-- `resolve(manifest: &Manifest, index: &Index, opts: &ResolveOptions) -> Result<ResolveGraph, ResolveError>`
-- `ResolveOptions { locked: bool, offline: bool, features: BTreeSet<String>, target: Triple }`
+- `resolve_with_options(manifest: &Manifest, lock: Option<&Lockfile>, index: &RegistrySource, opts: &ResolveOptions) -> Result<ResolvedGraph, ResolveError>`
+- `ResolveOptions { locked: bool, offline: bool, features: BTreeSet<String>, target: String }`
+
+There is no `Index` type; the index is a `RegistrySource`. Both `locked` and
+the explicit registry are now honoured; `features` and `target` are build inputs
+folded into the IR cache key rather than resolver inputs.
 
 - [x] **Step 1: Write the failing test.** SemVer 2.0 precedence cases
   (`1.0.0-alpha < 1.0.0-alpha.1 < 1.0.0`), `^1.2` selects `1.9.0` not `2.0.0`,
@@ -83,8 +90,8 @@ can make two identical sources produce different bytes.
   a lock pin is validated against its range before use. `add <name>@<range>`
   writes the range and calls `update` to pin it. `ResolveOptions` exists but
   its `features`/`target` fields are recorded only; `resolve_with_options`
-  still uses the store's default registry rather than the passed index. The
-  CI `--locked` rule is a gate, not a compiler-enforced flag yet.
+  The explicit index and `--locked` are now honoured by `resolve_with_options`.
+  The CI `--locked` rule is a gate, not a compiler-enforced flag yet.
 - [x] **Step 3: One diagnostic family.** A missing version, a conflict, a
   cycle, a yanked pin and a lock mismatch each get a code, a suggestion where
   one exists, and a `--json` form. No solver backtracking loop is unbounded:
@@ -99,7 +106,7 @@ can make two identical sources produce different bytes.
 
 **Files:**
 - Modify: `crates/yashy-manifest/src/manifest.rs` (`[workspace]`, `members`, `default-members`)
-- Modify: `crates/yashy-driver/src/modules.rs` (resolve a member as one graph)
+- Modify: `crates/yashy-driver/src/workspace.rs` (discover and select members)
 - Modify: `crates/yashy-driver/src/main.rs` (`--workspace`, `-p <member>`)
 - Test: `crates/yashy-driver/tests/workspace.rs`
 
@@ -125,7 +132,7 @@ can make two identical sources produce different bytes.
 
 **Files:**
 - Modify: `crates/yashy-manifest/src/manifest.rs` (`[features]`, `default`, optional deps)
-- Modify: `crates/yashy-driver/src/resolve.rs` (unification, `--no-default-features`)
+- Implement: feature selection and unification in `crates/yashy-driver/src/features.rs`
 - Modify: `crates/yashy-driver/src/cfg.rs` (feature keys; `cfg(feature = "x")` is Phase 4 syntax)
 - Test: `crates/yashy-driver/tests/features.rs`
 
@@ -151,7 +158,7 @@ can make two identical sources produce different bytes.
 **Files:**
 - Modify: `crates/yashy-driver/src/registry.rs`, `crates/yashy-driver/src/fetch.rs`, `crates/yashy-driver/src/audit.rs`
 - Create: `crates/yashy-manifest/src/signature.rs`, `crates/yashy-manifest/src/sbom.rs`
-- Create: `registry/` fixture with `index.json`, `packages/`, `keys/`
+- Test fixtures create the registry tree per test; no committed `registry/` fixture exists.
 - Test: `crates/yashy-driver/tests/registry.rs`, `crates/yashy-driver/tests/registry_http.rs`, `crates/yashy-driver/tests/signature.rs`
 
 **Interfaces:**
@@ -196,7 +203,7 @@ can make two identical sources produce different bytes.
 **Files:**
 - Modify: `crates/yashy-manifest/src/sbom.rs`, `crates/yashy-driver/src/audit.rs`
 - Modify: `crates/yashy-driver/src/main.rs` (`sbom`, `verify-package`)
-- Create: `docs/sbom.md`, `docs/registry.md`
+- Documented in `docs/cli.md`; `docs/sbom.md` and `docs/registry.md` were not created.
 - Test: `crates/yashy-driver/tests/audit.rs`, `crates/yashy-driver/tests/sbom.rs`
 
 - [x] **Step 1: Write the failing test.** `yashyc sbom --format spdx-json`
@@ -281,7 +288,7 @@ can make two identical sources produce different bytes.
 ### Task 8: Workspace and service templates
 
 **Files:**
-- Add: `templates/workspace/`, `templates/service/`, `templates/lib/`, `templates/native/`
+- The four original templates and the three new ones are data in `crates/yashy-driver/src/scaffold.rs`; no `templates/` directory was created.
 - Modify: `crates/yashy-driver/src/scaffold.rs` (Phase 2 owns `new`)
 - Test: `crates/yashy-driver/tests/new.rs` (extend)
 
@@ -336,16 +343,18 @@ can make two identical sources produce different bytes.
 ### Task 10: Capability manifests and a dependency policy
 
 **Files:**
-- Modify: `crates/yashy-manifest/src/manifest.rs` (`[capabilities]`, `[policy]`)
+- Modify: `crates/yashy-manifest/src/manifest.rs` (`[capabilities]`; policy lives in `[audit]`)
 - Create: `crates/yashy-manifest/src/capability.rs`, `crates/yashy-driver/src/policy.rs`
 - Modify: `crates/yashy-driver/src/main.rs` (`add --allow`, `audit --capabilities`)
 - Create: `docs/capabilities.md`
-- Test: `crates/yashy-driver/tests/capabilities.rs`, `crates/yashy-driver/tests/policy.rs`
+- Test: `crates/yashy-driver/tests/capabilities.rs` (policy cases live in `crates/yashy-driver/src/policy.rs` unit tests)
 
 **Interfaces:**
-- `CapabilitySet { fs: FsRights, net: NetRights, env: EnvRights, clock, proc, rng, ffi }`
-- `FsRights { read: Vec<PathGlob>, write: Vec<PathGlob> }`; `FfiRights { libs: Vec<PathGlob>, dlopen: bool }`
-- `policy: { allow_capabilities, deny_capabilities, max_transitive, allow_licenses, deny_authors, require_signature, require_provenance }`
+- `CapabilitySet` is a private `BTreeMap<String, Vec<String>>` with a closed
+  `NAMES` table (`fs.read`, `fs.write`, `net`, `env`, `clock`, `proc`, `rng`, `ffi`);
+  there are no `FsRights`/`FfiRights` types.
+- The policy is the manifest's `[audit]` table plus `policy::resolve`'s allowlist;
+  the full `policy` struct in the sketch was not built.
 
 - [x] **Step 1: Write the failing test.** A package that declares no
   capabilities cannot open a file, resolve a name or read the clock; the compiler
@@ -358,7 +367,7 @@ can make two identical sources produce different bytes.
   the transitive union before anything runs.
   *Current:* `capability.rs` and `tests/capabilities.rs` pin default-deny,
   the `..`-safe path glob and the policy ceiling; `audit --capabilities` prints
-  the resolved union. The build-time call-site refusal is not implemented yet.
+  the root package's resolved capabilities, not a transitive union. The build-time call-site refusal is not implemented yet.
 - [x] **Step 2: The manifest is the grant, the policy is the ceiling.** A
   dependency's capabilities are the intersection of what it declares and what
   the workspace policy allows; a missing declaration is no capability, never
@@ -386,23 +395,26 @@ can make two identical sources produce different bytes.
   grant. `--print-capabilities` prints the resolved set, and a build with no
   declaration is a program that can compute but not touch the world.
   *Current:* the declaration model and audit view are in place; the HIR
-  call-site check, runtime handle and `--print-capabilities` are Phase 10/13
+  call-site check, runtime handle and `--print-capabilities` are later-phase
   work and are not claimed here.
 - [x] **Step 5: Commit.**
 
 ### Task 11: Build provenance and attestations
 
 **Files:**
-- Create: `crates/yashy-manifest/src/provenance.rs`, `crates/yashy-driver/src/attest.rs`
+- Create: `crates/yashy-manifest/src/provenance.rs` (the verbs live in `main.rs`; no `attest.rs`)
 - Modify: `crates/yashy-driver/src/main.rs` (`attest`, `verify-attestation`)
 - Modify: `crates/yashy-manifest/src/sbom.rs` (subject digests)
 - Create: `docs/provenance.md`
-- Test: `crates/yashy-driver/tests/attest.rs`, `crates/yashy-driver/tests/slsa.rs`
+- Test: `crates/yashy-driver/tests/attest.rs` (no separate `slsa.rs`)
 
 **Interfaces:**
-- `Statement { subject: Vec<Digest>, predicate_type: "https://slsa.dev/provenance/v1", predicate: Provenance }`
-- `Provenance { build_type, builder, invocation, materials: Vec<Digest>, metadata }`
-- `attest(package) -> Envelope`; `verify_attestation(envelope, policy) -> Result<(), AttestError>`
+- `Statement { subject: Vec<(String, String)>, predicate: Provenance }` renders
+  `predicateType` as the standard URI.
+- `Provenance { build_type, builder, target, materials: BTreeMap<String, String> }`;
+  there is no `invocation` or `metadata` field.
+- `for_artifact(...)` builds a statement; the verbs `attest`/`verify-attestation`
+  are in `main.rs`, with no `Envelope`/`AttestError` types.
 
 - [x] **Step 1: Write the failing test.** A reproducible build produces an
   in-toto/SLSA v1 statement naming the source commit, the lockfile hash, the
@@ -443,7 +455,7 @@ can make two identical sources produce different bytes.
 **Files:**
 - Modify: `crates/yashy-driver/src/main.rs` (`tree`, `why`, `outdated`, `vendor`, `info`, `yank`, `remove`)
 - Create: `crates/yashy-driver/src/pkg_cmd.rs`
-- Modify: `crates/yashy-driver/src/resolve.rs` (reverse edges, vendor directory)
+- The graph walk, reverse edges and vendor copy live in `crates/yashy-driver/src/pkg_cmd.rs`; `resolve.rs` was not changed by this task.
 - Test: `crates/yashy-driver/tests/pkg_cmd.rs`
 
 - [x] **Step 1: Write the failing test.** `yashyc tree --depth 2` prints the
@@ -477,9 +489,9 @@ can make two identical sources produce different bytes.
 
 | Gate | Command | Passes when |
 |---|---|---|
-| Round trip | `cargo test -p yashy-driver --test registry --test resolve` | publish → add → build; `--locked` refuses a drifted lock; yanked pins refused |
+| Round trip | `cargo test -p yashy-driver --test registry --test resolve` | publish → add → build is covered by the registry tests; yanked pins are refused; there is no build-time `--locked` flag, only the lock check |
 | Tamper | `cargo test -p yashy-driver --test signature --test registry` | one flipped byte, one bad index signature and one missing key each fail with a named code |
-| SBOM | `cargo test -p yashy-driver --test sbom --test audit` | every package, hash, license, supplier and toolchain hash present; policy violations refused |
+| SBOM | `cargo test -p yashy-driver --test sbom --test audit` | the SPDX document and package/compiler entries are present with compiler version and target annotations; a toolchain hash is not recorded; policy violations are refused |
 | Capabilities | `cargo test -p yashy-driver --test capabilities` (a separate `policy` test does not exist) | default-deny and path globs are pinned; the call-site refusal and runtime enforcement are not implemented |
 | Provenance | `cargo test -p yashy-driver --test attest` (a separate `slsa` test does not exist) | the statement names its subject and a signed negative case fails; material discovery and rebuild verification are not implemented |
 | Package surface | `cargo test -p yashy-driver --test pkg_cmd` | tree, why, info and remove are pinned; outdated, vendor and yank are not covered by that test |

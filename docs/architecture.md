@@ -327,8 +327,9 @@ model. 1.0 ships `build`, `run`, `check`, `verify`, `test`, `fmt`, `explain`,
 `debug`, `bench`, `fuzz`, `migrate`, `conformance`, `sbom`, `inspect`, `trace`,
 `tokens`, `tree`, `why`, `info`, `outdated`, `vendor`, `remove`,
 `verify-package`, `self-update`, `attest` and `verify-attestation` (Phases 2,
-3, 9, 13, 14). Each new verb has a human and a `--json` form; a schema diff in
-CI forbids removing a field.
+3, 9, 13, 14). Most query verbs have a human and a `--json` form; several
+mutating verbs (`publish`, `attest`, `self-update`, `remove`, `vendor`) print a
+human summary only. A schema diff in CI forbids removing a field.
 
 The installed CLI also exposes `cache` (inspect the content-addressed store),
 `help` (the one command table) and `completions` (bash, zsh, fish and
