@@ -163,7 +163,13 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 - `size_of[T]() -> int`, `align_of[T]() -> int`, `offset_of(T, field) -> int` (const-evaluable)
 
 - [ ] **Step 1: Write the failing test.** `alloc(4)[0]` is `0`; `alloc_uninit(4)` in safe code is refused; a custom allocator records every call; `size_of[Point]()`, `align_of[Point]()` and `offset_of(Point, y)` equal the values the layout table reports; a `repr(packed)` struct has alignment 1 and a `repr(align(16))` struct has alignment 16.
-- [ ] **Step 2: Zero by default.** `alloc` writes zeros; `alloc_uninit` is the explicit unsafe spelling and is inventoried. The runtime never hands out uninitialised memory through a safe builtin. This is the memory half of the determinism contract.
+- [ ] **Step 2: Zero by default.** Safe `alloc` zeroes every byte it hands
+  out, so uninitialised memory cannot make a program's output differ between
+  runs; `crates/yashy-runtime/tests/memory.rs` writes a stale pattern, frees and
+  reallocates, and asserts the new block is all zeroes. The explicit
+  `alloc_uninit` builtin is still owed: it needs the `unsafe` blocks of Task 5,
+  so the unsafe spelling is deliberately absent rather than silently safe. The
+  verifier inventory counts only the sites that exist today.
 - [ ] **Step 3: Every allocation is visible.** The allocator interface is static-dispatch only; collections take an allocator or use the global one; `--alloc-report` (Phase 11A) reads the same hooks. No runtime path allocates behind the language's back.
 - [ ] **Step 4: `repr` stays a keyword form.** `repr(C)`, `repr(packed)`, `repr(align(N))`, `repr(transparent)` and an integer enum repr are clauses, not attributes; `repr(C)` is never reordered; a packed field that would be misaligned is a diagnostic at the field, not a silent unaligned load.
 - [ ] **Step 5: Layout is a compiler fact with a surface.** `size_of`, `align_of` and `offset_of` are const-evaluable and agree with the IR; a mismatch is a compiler bug caught by the layout test. `inspect --layout` (Phase 11A) renders the same table.

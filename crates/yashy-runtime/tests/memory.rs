@@ -39,7 +39,11 @@ fn a_megabyte_allocation_lets_both_ends_be_written() {
         *bytes = 0xAB;
         *bytes.add(1024 * 1024 - 1) = 0xCD;
         assert_eq!(*bytes, 0xAB, "the first byte must survive");
-        assert_eq!(*bytes.add(1024 * 1024 - 1), 0xCD, "the last byte must survive");
+        assert_eq!(
+            *bytes.add(1024 * 1024 - 1),
+            0xCD,
+            "the last byte must survive"
+        );
 
         yashy_runtime::yashy_free(pointer);
     }
@@ -50,7 +54,10 @@ fn every_allocation_respects_its_alignment() {
     unsafe {
         for &align in &[1, 2, 4, 8, 16, 32, 64, 256] {
             let pointer = yashy_runtime::yashy_alloc(24, align);
-            assert!(!pointer.is_null(), "an allocation for align {align} must succeed");
+            assert!(
+                !pointer.is_null(),
+                "an allocation for align {align} must succeed"
+            );
             assert!(
                 is_aligned(pointer, align as usize),
                 "yashy_alloc(24, {align}) returned {:#x}, which is not {align}-aligned",
@@ -83,7 +90,10 @@ fn a_zero_sized_allocation_is_still_a_unique_usable_block() {
         let first = yashy_runtime::yashy_alloc(0, 8);
         let second = yashy_runtime::yashy_alloc(0, 8);
         assert!(!first.is_null() && !second.is_null());
-        assert_ne!(first, second, "two live allocations must not share an address");
+        assert_ne!(
+            first, second,
+            "two live allocations must not share an address"
+        );
         yashy_runtime::yashy_free(first);
         yashy_runtime::yashy_free(second);
     }
@@ -156,7 +166,10 @@ fn an_arena_allocates_more_than_a_default_block() {
         // sized to the request rather than to the default.
         let huge: usize = 512 * 1024;
         let pointer = yashy_runtime::yashy_arena_alloc(arena, huge as i64, 16);
-        assert!(!pointer.is_null(), "an over-sized arena allocation must succeed");
+        assert!(
+            !pointer.is_null(),
+            "an over-sized arena allocation must succeed"
+        );
         assert!(is_aligned(pointer, 16));
         assert!(touch_pattern(pointer, huge, 0x5A));
         yashy_runtime::yashy_arena_free_all(arena);
@@ -177,5 +190,29 @@ fn freeing_an_arena_tolerates_null_and_leaves_it_reusable() {
         let pointer = yashy_runtime::yashy_arena_alloc(arena, 128, 8);
         assert!(!pointer.is_null(), "a freed arena must still allocate");
         yashy_runtime::yashy_arena_free_all(arena);
+    }
+}
+
+#[test]
+fn a_safe_allocation_reads_as_zeroes() {
+    // Phase 4's determinism contract: a safe `alloc` never exposes bytes left
+    // by an earlier block. The test asks for many small blocks so a stale
+    // pattern from a previous allocation is likely if zeroing is missing.
+    unsafe {
+        for seed in [0xABu8, 0xCD, 0xEF] {
+            let dirty = yashy_runtime::yashy_alloc(64, 8);
+            assert!(!dirty.is_null());
+            std::ptr::write_bytes(dirty as *mut u8, seed, 64);
+            yashy_runtime::yashy_free(dirty);
+
+            let clean = yashy_runtime::yashy_alloc(64, 8);
+            assert!(!clean.is_null());
+            let bytes = std::slice::from_raw_parts(clean as *const u8, 64);
+            assert!(
+                bytes.iter().all(|byte| *byte == 0),
+                "alloc must zero its bytes, got {bytes:?}"
+            );
+            yashy_runtime::yashy_free(clean);
+        }
     }
 }

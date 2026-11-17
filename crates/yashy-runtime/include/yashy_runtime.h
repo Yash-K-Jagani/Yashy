@@ -78,9 +78,11 @@ long long yashy_live_allocations_now(void);
  *
  * `yashy_alloc(size, align)` returns `size` bytes aligned to `align` (rounded
  * up to a power of two no smaller than a pointer), or NULL if the allocation
- * fails. The memory is uninitialised. `yashy_free` releases a block and
- * tolerates NULL. Every block from `yashy_alloc` must reach `yashy_free`
- * exactly once; the compiler's linearity checker is what enforces it.
+ * fails. The memory is zeroed: a safe `alloc` never hands out uninitialised
+ * bytes, so the same program reads the same values on every run. `yashy_free`
+ * releases a block and tolerates NULL. Every block from `yashy_alloc` must
+ * reach `yashy_free` exactly once; the compiler's linearity checker is what
+ * enforces it.
  *
  * `yashy_realloc(ptr, used, size, align)` resizes a block from `yashy_alloc`
  * to `size` bytes, keeping the first `used` bytes. It returns the block's new
@@ -136,6 +138,11 @@ static YASHY_ALWAYS_INLINE void *yashy_alloc_aligned(long long size,
     base = (uintptr_t)raw + sizeof(void *);
     aligned = (base + (alignment - 1)) & ~(uintptr_t)(alignment - 1);
     ((void **)aligned)[-1] = raw;
+    /* Safe `alloc` is zeroed from Phase 4 on: uninitialised bytes would make
+     * the same program print different numbers on different machines, which
+     * breaks the determinism contract. The explicit unsafe spelling is a
+     * separate builtin and is not admitted until `unsafe` blocks land. */
+    memset((void *)aligned, 0, wanted);
     yashy_alloc_note(1);
 #if defined(__clang__) || defined(__GNUC__)
     yashy_trace_record(YASHY_TRACE_ALLOC, size,

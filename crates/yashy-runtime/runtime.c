@@ -397,8 +397,9 @@ static void yashy_leak_arm(void) {
  * a program that mixed them would corrupt the heap instead of leaking. One
  * allocator, one free path, wrong in neither direction.
  *
- * The memory is deliberately not zeroed: Yashy has no zero-fill guarantee, and
- * a program that wants zeroes can say so. */
+ * The memory is zeroed: a safe `alloc` never exposes uninitialised bytes.
+ * An explicit unsafe spelling for uninitialised memory is a later slice;
+ * until `unsafe` blocks exist, no builtin offers it. */
 
 /* Rounds a requested alignment to something usable: a power of two no smaller
  * than a pointer. A zero, a negative, or a non-power-of-two is treated as
