@@ -2925,3 +2925,13 @@ fn is_tests_variants_and_pointer_identity() {
         "E1517 expected: {diags:?}"
     );
 }
+
+#[test]
+fn layout_queries_accept_the_underscore_spellings() {
+    let source = "struct Point { x: int, y: int } \
+                  fn f() -> int { \
+                      return size_of(Point) + align_of(Point) + offset_of(Point, y); \
+                  }";
+    let (result, _, _) = check_source(source);
+    assert!(result.is_ok(), "{:?}", result.err());
+}

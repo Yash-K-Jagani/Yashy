@@ -11379,8 +11379,19 @@ impl<'src> Checker<'src> {
                 // backend never sees a function that does not exist. Their
                 // argument is a type *name*, which is why they are read here
                 // before the arguments are checked as expressions.
-                if callee.len() == 1 && matches!(name.as_str(), "sizeof" | "alignof" | "offsetof") {
-                    return self.check_layout_query(&name, &arg_vals, *span);
+                if callee.len() == 1
+                    && matches!(
+                        name.as_str(),
+                        "sizeof" | "alignof" | "offsetof" | "size_of" | "align_of" | "offset_of"
+                    )
+                {
+                    let canonical = match name.as_str() {
+                        "size_of" => "sizeof",
+                        "align_of" => "alignof",
+                        "offset_of" => "offsetof",
+                        other => other,
+                    };
+                    return self.check_layout_query(canonical, &arg_vals, *span);
                 }
                 // A generic function is found by name like an ordinary one, but
                 // its signature has type variables: the substitution comes from
