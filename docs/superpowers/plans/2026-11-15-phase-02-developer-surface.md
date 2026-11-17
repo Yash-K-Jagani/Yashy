@@ -258,11 +258,11 @@ This phase makes both renderings of the compiler's facts.
 - Modify: `crates/yashy-driver/src/main.rs`
 - Create: `crates/yashy-driver/tests/inspect.rs`, `crates/yashy-driver/tests/trace.rs`, `crates/yashy-driver/tests/tokens.rs`
 
-- [ ] **Step 1: Write the failing test.** `inspect --json` reports a symbol's
+- [x] **Step 1: Write the failing test.** `inspect --json` reports a symbol's
   signature, effects, contracts, layout (when Phase 11A lands) and source span;
   `inspect --addr` maps an address to a span. `trace --events` emits a JSON
   event per allocation, free, task start/end and I/O with a span id, in a
-  deterministic order.
+  deterministic order. `inspect --addr` and `trace` are still open.
 - [ ] **Step 2: `tokens --bpe` is a measurement, not an opinion.** For a file or
   a corpus, report tokens per keyword/operator and corpus totals for `o200k`,
   `cl100k` and a Llama-family tokenizer. The tokenizer tables are vendored as

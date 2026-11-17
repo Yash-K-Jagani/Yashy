@@ -65,6 +65,7 @@ usage:
   yashyc check <file.ya> [--json] [--timings] [--jobs <n>] [--deny warnings] [--allow warnings] [--print-cfg] [--target <triple>]
   yashyc verify <file.ya> [--json] [--timings] [--jobs <n>] [--inventory]
   yashyc test [path] [--filter <substring>] [--list] [--json] [--timings] [--jobs <n>]
+  yashyc inspect [--json] <file.ya> [symbol]
   yashyc cache verify <file.ya>
   yashyc serve [path]
   yashyc watch [path] [--json] [--run] [--test] [--interval <ms>]
@@ -202,6 +203,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "verify" => verify(rest),
         "test" => test(rest),
         "cache" => cache_cmd(rest),
+        "inspect" => inspect_cmd(rest),
         "serve" => serve(rest),
         "watch" => watch_cmd(rest),
         "explain" => explain(rest),
@@ -1374,6 +1376,101 @@ fn blocked_by_policy(error: &std::io::Error) -> bool {
         || error.raw_os_error() == Some(4551)
         || error.to_string().contains("blocked")
         || error.to_string().contains("Application Control")
+}
+
+/// `yashyc inspect [--json] <file.ya> [symbol]`: one symbol's facts, from the
+/// same index `yashyc index` renders.
+fn inspect_cmd(args: &[String]) -> ExitCode {
+    let mut json = true;
+    let mut operands: Vec<String> = Vec::new();
+    for argument in args {
+        match argument.as_str() {
+            "--json" => json = true,
+            "--human" => json = false,
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `inspect`"));
+            }
+            other => operands.push(other.to_string()),
+        }
+    }
+    let Some(file) = operands.first() else {
+        return usage_error("`inspect` needs a source file");
+    };
+    let path = PathBuf::from(file);
+    let root = path.parent().unwrap_or(Path::new("."));
+    let model = match yashy_driver::index::build_index(root) {
+        Ok(model) => model,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    let wanted = operands.get(1).map(String::as_str);
+    let selected: Vec<&yashy_driver::index::Symbol> = match wanted {
+        Some(name) => {
+            let found: Vec<_> = model
+                .symbols
+                .iter()
+                .filter(|symbol| symbol.name == name)
+                .collect();
+            if found.is_empty() {
+                eprintln!("error: no symbol named `{name}`");
+                return exit_code(EXIT_USAGE);
+            }
+            found
+        }
+        None => model.symbols.iter().collect(),
+    };
+    if json {
+        let symbols: Vec<Json> = selected
+            .iter()
+            .map(|symbol| {
+                let mut object = Json::object();
+                object.set("name", Json::string(&symbol.name));
+                object.set("kind", Json::string(&symbol.kind));
+                object.set("file", Json::string(&symbol.file));
+                object.set("signature", Json::string(&symbol.signature));
+                object.set("visibility", Json::string(&symbol.visibility));
+                let mut span = Json::object();
+                span.set("start", Json::number(i64::from(symbol.span.start)));
+                span.set("end", Json::number(i64::from(symbol.span.end)));
+                object.set("span", span);
+                if let Some(docs) = &symbol.docs {
+                    object.set("docs", Json::string(docs));
+                }
+                let effects: Vec<Json> = symbol
+                    .effects
+                    .map(|(reads, writes, net)| {
+                        vec![
+                            ("reads", reads),
+                            ("writes", writes),
+                            ("net", net),
+                        ]
+                        .into_iter()
+                        .map(|(name, value)| {
+                            let mut effect = Json::object();
+                            effect.set("kind", Json::string(name));
+                            effect.set("present", Json::bool(value));
+                            effect
+                        })
+                        .collect()
+                    })
+                    .unwrap_or_default();
+                object.set("effects", Json::array(effects));
+                object
+            })
+            .collect();
+        let mut report = Json::object();
+        report.set("schema_version", Json::number(1));
+        report.set("tool", Json::string("inspect"));
+        report.set("symbols", Json::array(symbols));
+        println!("{}", report.render());
+    } else {
+        for symbol in selected {
+            println!("{}: {}", symbol.file, symbol.signature);
+        }
+    }
+    exit_code(EXIT_OK)
 }
 
 /// `yashyc cache verify <file.ya>`: recompute the v2 key for a source and say
