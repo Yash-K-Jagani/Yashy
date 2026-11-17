@@ -195,8 +195,8 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "profile",
         summary: "report where a build spent its time",
-        usage: "yashyc profile [--json]",
-        flags: &["--json", "--sample"],
+        usage: "yashyc profile [--report <json>|--alloc-report <file.ya>]",
+        flags: &["--json", "--sample", "--report", "--alloc-report"],
         takes_path: false,
     },
     CommandSpec {

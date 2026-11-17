@@ -218,6 +218,8 @@ as [E0100](docs/errors/E0100.md) with a cause, a minimal example, and the fix.
 - [CLI reference](docs/cli.md)
 - [Terminal](docs/terminal.md)
 - [Debugging](docs/debugging.md)
+- [Profiling](docs/profiling.md)
+- [Coverage](docs/coverage.md)
 - [Optimization](docs/optimization.md)
 - [Error catalog](docs/errors.md)
 - [Examples](examples)

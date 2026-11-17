@@ -287,17 +287,32 @@ This phase makes both renderings of the compiler's facts.
   samples to the hot function, the allocation profiler names the leaking site
   with a source span, and `yashyc coverage` reports the executed lines as
   lcov and JSON.
+  *Current:* not met. `profile` reports wall-clock time and can render a
+  recorded counter table; `--alloc-report` reports the runtime's live-allocation
+  total. There is no sampler attribution and no source-site data, so the
+  80%-samples and leaking-span assertions cannot be written yet.
 - [ ] **Step 2: Sampling is platform-native.** Linux `perf_event_open` (or
   `perf record` when permitted), Windows ETW/`DbgHelp` stack walking, macOS
   `sample`; when none is available, say so and fall back to the counter
   profiler. Symbols come from the debug info Phase 2 already emits.
+  *Current:* not integrated. The backend emits no LLVM debug metadata, so the
+  plan's premise that Phase 2 already emits symbols is false. `profile --sample`
+  is reserved in the command table but uses the counter path; a native sampler
+  would have no symbols to attribute samples to.
 - [ ] **Step 3: Allocation profiling has no hidden hooks.** The allocator
   interface records size, site and a bounded stack; `--alloc-report` is the
   same data in table form. Leaks are reported at exit with the allocation span.
+  *Current:* partial. `yashyc profile --alloc-report <file.ya>` builds, runs with
+  `YASHY_LEAK_REPORT=1`, parses the runtime's total and emits a schema-v1
+  envelope that states the site is unavailable. The allocator does not record
+  size, site or a bounded stack, so no leaking span is reported.
 - [ ] **Step 4: Coverage is source-based.** Compile with clang's
   `-fprofile-instr-generate -fcoverage-mapping`, run the test suite, merge
   profiles, and render per-file/per-line counts. `--fail-under` gates CI.
-- [ ] **Step 5: Commit.**
+  *Current:* not implemented. Coverage mapping needs `!dbg` line locations from
+  HIR spans, which the backend does not emit; `yashyc coverage` is an explicit
+  usage error pointing at docs/coverage.md rather than a false success.
+- [x] **Step 5: Commit.**
 
 ### Task 8: `inspect`, `trace`, `tokens`
 
@@ -544,7 +559,7 @@ still owed so a later phase does not inherit a false checklist.
 | 5.1 | First test under 60 s on a cold machine | `new` creates a project and its first test passes; the wall-clock bound is not asserted in the unit test | Measure in CI |
 | 5.3 / 5.4 | `repl`, `doc --serve` | A compiling REPL with retained declarations, type reporting and honest refusals; a loopback read-only docs server with `/json` and `/search`; no persistent HIR interpreter | Add an HIR interpreter only if compile-per-expression is too slow |
 | 6 | DWARF/CodeView debugger, async task view, pretty printers | `yashyc debug` selects LLDB or cdb, writes a symbol-breakpoint script and enables the runtime's live task table; no `!dbg` metadata, so no line table, typed locals or attached pretty printers | Emit debug metadata from HIR spans, then line breakpoints and value printers |
-| 7 | Sampling and allocation profilers, source coverage | Not started; `profile` is still the 1.0 counter profiler | Build the profilers and `coverage` |
+| 7 | Sampling and allocation profilers, source coverage | `profile` reports wall-clock time and renders recorded counter tables; `--alloc-report` reports the runtime's live-allocation total with an explicit note that sites are unavailable; `yashyc coverage` is an explicit not-implemented error | Emit debug metadata, then add native sampling, allocator site ids and coverage mapping |
 | 8.1 / 8.2 | `inspect --addr`, contracts, layout, `trace --events`, `tokens --bpe` | `inspect --json` reports contracts and spans; `tokens --bpe` measures Yashy's own tokenizer; `trace --json` emits the static rule matrix | Add `--addr` via a linker map, vendor the three BPE vocabularies, and implement runtime events |
 | 9 | One generated grammar, six clients, `editors` CI job | One model drives 11 generated files; all six clients are committed; `tests/grammar.rs` is the byte gate and the LSP conformance transcript is shared; no `editors` CI job yet, and the real-editor run is deferred with CI | Add the `editors` job when CI is unblocked |
 | 10.1 / 10.3 / 10.4 / 10.5 | Colour policy, `NO_COLOR`/`CLICOLOR`/`TERM=dumb`/`COLUMNS`, committed completions, pager, hyperlinks | `term.rs` implements the colour, width, pager and OSC 8 policies; `scripts/completions/*` are committed and diff-tested; `docs/terminal.md` documents the install; a signal-killed child reports `1` instead of re-raising the signal | Re-raise the child's signal on Unix |

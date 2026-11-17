@@ -148,6 +148,8 @@ open optimisation, recorded in
 | [CLI reference](docs/cli.md) | every command, option, exit code and JSON schema |
 | [Terminal](docs/terminal.md) | colour, width, shell completion and the manual page |
 | [Debugging](docs/debugging.md) | native debugger backends, scripted sessions and honest limits |
+| [Profiling](docs/profiling.md) | what the profiler measures today |
+| [Coverage](docs/coverage.md) | why source coverage is not available yet |
 | [Standard library](docs/stdlib.md) | every public function, generated from the compiler's own doc tables |
 | [Packages](docs/packages.md) | `yashy.toml`, the lockfile, the store, `yashyc audit`, and publishing |
 | [Error catalog](docs/errors.md) | stable codes, each with a cause, an example and a fix |

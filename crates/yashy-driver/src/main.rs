@@ -215,6 +215,9 @@ fn dispatch(args: &[String]) -> ExitCode {
         "tasks" => tasks(rest),
         "check" => check(rest),
         "lint" => lint_cmd(rest),
+        "coverage" => usage_error(
+            "`yashyc coverage` is not implemented yet: source coverage needs LLVM debug metadata; see docs/coverage.md",
+        ),
         "fix" => fix_cmd(rest),
         "verify" => verify(rest),
         "test" => test(rest),
@@ -4704,7 +4707,87 @@ fn lsp_cmd(args: &[String]) -> ExitCode {
     }
 }
 
+/// Build one program with the leak counter armed, run it, and render the
+/// runtime's live-allocation total. No source site is available because the
+/// allocator does not carry one yet; the JSON says so.
+fn alloc_report(input: PathBuf) -> ExitCode {
+    let dir = temp_run_dir();
+    if let Err(error) = fs::create_dir_all(&dir) {
+        eprintln!("error: cannot create {}: {error}", dir.display());
+        return exit_code(EXIT_COMPILE_ERROR);
+    }
+    let output = dir.join(format!("alloc{}", std::env::consts::EXE_SUFFIX));
+    let build_arguments = vec![
+        input.to_string_lossy().into_owned(),
+        "-o".to_string(),
+        output.to_string_lossy().into_owned(),
+    ];
+    let code = build(CommandKind::Run, &build_arguments);
+    if code != exit_code(EXIT_OK) {
+        let _ = fs::remove_dir_all(&dir);
+        return code;
+    }
+    let mut captured = String::new();
+    for attempt in 0..LAUNCH_ATTEMPTS {
+        let candidate = match launch_candidate(&output, attempt) {
+            Ok(path) => path,
+            Err(error) => {
+                eprintln!("error: cannot prepare the program: {error}");
+                let _ = fs::remove_dir_all(&dir);
+                return exit_code(EXIT_INTERNAL);
+            }
+        };
+        let child = Command::new(&candidate)
+            .env("YASHY_LEAK_REPORT", "1")
+            .output();
+        match child {
+            Ok(result) => {
+                captured = String::from_utf8_lossy(&result.stderr).into_owned();
+                break;
+            }
+            Err(error) if blocked_by_policy(&error) => continue,
+            Err(error) => {
+                eprintln!("error: cannot run the program: {error}");
+                let _ = fs::remove_dir_all(&dir);
+                return exit_code(EXIT_INTERNAL);
+            }
+        }
+    }
+    let _ = fs::remove_dir_all(&dir);
+    let live = captured
+        .lines()
+        .rev()
+        .find_map(|line| {
+            let rest = line.strip_prefix("yashy: leak report: ")?;
+            let count = rest.strip_suffix(" live allocations")?.trim();
+            count.parse::<i64>().ok()
+        })
+        .unwrap_or(0);
+    let mut report = Json::object();
+    report.set("schema_version", Json::number(1));
+    report.set("tool", Json::string("profile --alloc-report"));
+    report.set("program", Json::string(input.to_string_lossy()));
+    report.set("live_allocations", Json::number(live));
+    report.set(
+        "note",
+        Json::string(
+            "the runtime reports a total only; allocation sites need site ids in the allocator and are not available yet",
+        ),
+    );
+    println!("{}", report.render());
+    exit_code(EXIT_OK)
+}
+
 fn profile_cmd(args: &[String]) -> ExitCode {
+    // `--alloc-report <file>` runs a program with the runtime's leak report
+    // armed and renders the total as a schema-v1 table. Site attribution is
+    // not available yet; the report says so rather than inventing a site.
+    if let Some(position) = args.iter().position(|arg| arg == "--alloc-report") {
+        let Some(path) = args.get(position + 1) else {
+            return usage_error("`--alloc-report` needs a file");
+        };
+        return alloc_report(PathBuf::from(path));
+    }
     // `--report <json>` renders a recorded table; without it, a fresh
     // measurement runs over the built program.
     if let Some(position) = args.iter().position(|arg| arg == "--report") {
