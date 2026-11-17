@@ -9,7 +9,30 @@
 
 `if` is a statement; its condition is a `bool`. `while cond { ... }` checks at
 the top, `while true { ... }` is the infinite loop (there is no separate `loop`
-keyword), and `break` and `continue` leave and restart it.
+keyword), and `break` and `continue` leave and restart it. A chain of tests
+is written `else if`: the compiler reads it as an `else` block holding nested
+`if` statements, so no separate language construct is involved.
+
+```yashy
+fn grade(int score) -> string {
+    if score >= 90 {
+        return "A";
+    } else if score >= 80 {
+        return "B";
+    } else {
+        return "C";
+    }
+}
+
+fn main() {
+    print(grade(85));
+    // => B
+}
+```
+
+`and`, `or` and `not` are the word forms of `&&`, `||` and `!`. They produce
+the same expression tree and keep the same precedence and short-circuiting;
+choose whichever reads better in the line.
 
 ```yashy
 fn main() {

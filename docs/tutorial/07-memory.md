@@ -47,15 +47,16 @@ Three rules make this safe without a garbage collector:
   error: `yashyc verify`, and therefore `build` and `run`, reports `E1000` and
   refuses to link until the value is released on every path.
 
-`defer` takes a block: `defer { owned.free(); }`. The spec's shorter
-`defer expression;` spelling is not accepted by this parser; writing
-`defer owned.free();` reports ``error: expected `{`, found an identifier``.
+`defer` takes a block: `defer { owned.free(); }`. The shorter
+`defer owned.free();` and a comma list `defer a.free(), b.free();` are sugar
+for the same block, with one expression statement per release in source order.
+The verifier sees the same release in every spelling.
 
 ## The operations
 
 | Operation | Type or form | Ownership effect |
 |---|---|---|
-| `alloc(n)` | `*mut int` | Creates one owner; memory is uninitialised. |
+| `alloc(n)` | `*mut int` | Creates one owner; the bytes are zeroed. |
 | `p.free()` | `void` | Releases the block; the binding is moved. |
 | `move x` | same type as `x` | Transfers the value; `x` is dead afterwards. |
 | `let y = move x;` | pointer | Gives the pointer a second name; the source is dead. |
