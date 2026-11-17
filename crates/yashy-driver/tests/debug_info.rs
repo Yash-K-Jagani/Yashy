@@ -2,7 +2,7 @@
 
 use yashy_common::{SourceMap, Span};
 use yashy_driver::addr::{nearest, parse_nm, Symbol};
-use yashy_driver::debug_info::{annotate, FunctionLocation};
+use yashy_driver::debug_info::{annotate_basic, FunctionLocation};
 
 #[test]
 fn function_locations_come_from_hir_and_source() {
@@ -21,7 +21,7 @@ fn function_locations_come_from_hir_and_source() {
         file: sources.path(file).to_string(),
         line: sources.locate(file, Span::new(13, 24)).line,
     }];
-    let annotated = annotate("define i32 @main() {\nentry:\n  ret i32 0\n}\n", &symbols);
+    let annotated = annotate_basic("define i32 @main() {\nentry:\n  ret i32 0\n}\n", &symbols);
     assert!(
         annotated.contains("define i32 @main() !dbg !5 {"),
         "{annotated}"
@@ -65,5 +65,5 @@ fn an_address_resolves_to_the_nearest_symbol() {
 #[test]
 fn debug_metadata_is_absent_without_a_debug_build() {
     let ir = "define i32 @main() {\nentry:\n  ret i32 0\n}\n";
-    assert_eq!(annotate(ir, &[]), ir);
+    assert_eq!(annotate_basic(ir, &[]), ir);
 }

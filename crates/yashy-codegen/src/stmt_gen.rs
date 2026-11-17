@@ -188,6 +188,8 @@ pub fn gen_block(ctx: &mut FnCtx<'_>, block: &HirBlock) -> Flow {
         ctx.arena_owners.insert(ArenaId(block.span.start), owner);
     }
     for stmt in &block.stmts {
+        ctx.module
+            .note_span(ctx.file, yashy_hir::hir::stmt_span(stmt));
         let flow = gen_stmt(ctx, stmt);
         if flow != Flow::Fallthrough {
             // The terminating statement (return/break/continue) already ran

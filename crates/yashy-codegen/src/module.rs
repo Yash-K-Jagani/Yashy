@@ -155,6 +155,9 @@ pub struct Module {
     /// Whether non-escaping allocations may be promoted; see
     /// [`Module::set_escape`].
     escape: bool,
+    /// Whether statement spans are embedded as comment markers for the driver's
+    /// debug-metadata pass. Off by default so normal IR is byte-identical.
+    debug_locations: bool,
     /// The index the next `%tN` temporary will use.
     next_value: u32,
     /// Functions the lowering synthesized, in creation order. They cannot be
@@ -245,6 +248,7 @@ impl Module {
             facts: yashy_common::ProofFacts::empty(),
             fp_contract: false,
             escape: false,
+            debug_locations: false,
             next_value: 0,
             synthesized: Vec::new(),
             next_thread_entry: 0,
@@ -526,6 +530,27 @@ impl Module {
             Some(buffer) => buffer.push(line.into()),
             None => self.lines.push(line.into()),
         }
+    }
+
+    /// Turn statement-span markers on. Called only by the debug-emitting entry
+    /// point; a normal build leaves the flag off and emits no comments.
+    pub fn set_debug_locations(&mut self, enabled: bool) {
+        self.debug_locations = enabled;
+    }
+
+    /// Embed a source span as a comment marker. The driver's metadata pass
+    /// reads these and attaches `!dbg` to the next instruction line, so the
+    /// emitter never has to write LLVM metadata syntax itself.
+    pub fn note_span(&mut self, file: yashy_common::FileId, span: yashy_common::Span) {
+        if !self.debug_locations || span == yashy_common::Span::SYNTHETIC {
+            return;
+        }
+        self.lines.push(format!(
+            "; yashy-loc:{}:{}:{}",
+            file.index(),
+            span.start,
+            span.end
+        ));
     }
 
     /// Start diverting the module's lines into a fresh buffer.

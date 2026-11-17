@@ -36,7 +36,8 @@ use std::process::Command;
 use std::time::Instant;
 
 use yashy_codegen::{
-    check_main_exists, emit_program, host_target_triple, promotion_counts, CodegenOptions,
+    check_main_exists, emit_program, emit_program_with_debug, host_target_triple, promotion_counts,
+    CodegenOptions,
 };
 use yashy_common::{Diagnostic, FileId, Severity, SourceMap, Span};
 use yashy_expand::expand_tokens;
@@ -1499,23 +1500,22 @@ pub fn compile_hir_timed(
         }
         None => {
             let mut text = timed(timings, "emit", || {
-                emit_program(
-                    hir,
-                    entry_name,
-                    CodegenOptions {
-                        fp_contract: options.fast_math,
-                        escape: options.escape,
-                        facts: options.facts,
-                        intern: options.intern,
-                        async_: options.async_,
-                        target: options.target,
-                    },
-                    facts,
-                )
+                let codegen_options = CodegenOptions {
+                    fp_contract: options.fast_math,
+                    escape: options.escape,
+                    facts: options.facts,
+                    intern: options.intern,
+                    async_: options.async_,
+                    target: options.target,
+                };
+                if options.debug_info {
+                    emit_program_with_debug(hir, entry_name, codegen_options, facts)
+                } else {
+                    emit_program(hir, entry_name, codegen_options, facts)
+                }
             });
             if options.debug_info {
-                let locations = crate::debug_info::functions(hir, sources);
-                text = crate::debug_info::annotate(&text, &locations);
+                text = crate::debug_info::annotate(&text, hir, sources);
             }
             if let (Some(store), Some(key)) = (&cache, &key) {
                 // A cache that cannot be written is a lost optimization, not

@@ -149,7 +149,21 @@ pub fn emit_program(
     options: CodegenOptions,
     facts: &yashy_common::ProofFacts,
 ) -> String {
-    emit(hir, entry, options, facts, false, None).0
+    emit(hir, entry, options, facts, false, None, false).0
+}
+
+/// Emit a whole program with statement-span markers for the debug pass.
+///
+/// The markers are comment lines in the IR; a normal build emits none of them,
+/// so golden IR stays byte-identical. The driver converts them to `!dbg`
+/// attachments and LLVM metadata after emission.
+pub fn emit_program_with_debug(
+    hir: &HirProgram,
+    entry: &str,
+    options: CodegenOptions,
+    facts: &yashy_common::ProofFacts,
+) -> String {
+    emit(hir, entry, options, facts, false, None, true).0
 }
 
 /// Emit a whole program whose `fn main` uses `entry_symbol` instead of `@main`.
@@ -165,7 +179,7 @@ pub fn emit_program_with_entry(
     facts: &yashy_common::ProofFacts,
     entry_symbol: &str,
 ) -> String {
-    emit(hir, entry, options, facts, false, Some(entry_symbol)).0
+    emit(hir, entry, options, facts, false, Some(entry_symbol), false).0
 }
 
 /// Emit a whole program and the reasons behind every decision that survived.
@@ -179,7 +193,7 @@ pub fn emit_program_with_notes(
     options: CodegenOptions,
     facts: &yashy_common::ProofFacts,
 ) -> (String, module::OptReport) {
-    emit(hir, entry, options, facts, true, None)
+    emit(hir, entry, options, facts, true, None, false)
 }
 
 fn emit(
@@ -189,8 +203,10 @@ fn emit(
     facts: &yashy_common::ProofFacts,
     record: bool,
     entry_symbol: Option<&str>,
+    debug_locations: bool,
 ) -> (String, module::OptReport) {
     let mut module = Module::new();
+    module.set_debug_locations(debug_locations);
     module.set_source_filename(entry);
     module.set_target(options.target);
     module.set_fp_contract(options.fp_contract);

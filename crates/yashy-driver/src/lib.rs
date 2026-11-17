@@ -22,6 +22,7 @@ pub mod fetch;
 pub mod fix;
 pub mod grammar;
 pub mod index;
+pub mod layout;
 pub mod lint;
 pub mod mcp;
 pub mod modules;

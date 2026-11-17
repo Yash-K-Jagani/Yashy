@@ -868,6 +868,11 @@ declaration. The result is a schema-v1 envelope with `address`, `symbol`,
 `file`, `line`, `column` and the byte `span`. A debug build provides the line
 table that makes the address meaningful.
 
+`yashyc inspect --layout <file.ya> <Type>` reports a declared type's byte size,
+alignment and field offsets from the same layout walk the checker uses for
+`sizeof`/`offsetof`. Primitives and declared structs/enums are supported;
+generic instantiations need the parser's type syntax and are not guessed.
+
 ## `yashyc trace [--json] [--fail-orphans] [root]`
 
 Prints the generated rule-to-code-to-test matrix: every rule from

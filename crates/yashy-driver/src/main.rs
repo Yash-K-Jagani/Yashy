@@ -1759,6 +1759,7 @@ fn blocked_by_policy(error: &std::io::Error) -> bool {
 /// same index `yashyc index` renders.
 fn inspect_cmd(args: &[String]) -> ExitCode {
     let mut json = true;
+    let mut layout = false;
     let mut address: Option<u64> = None;
     let mut binary: Option<PathBuf> = None;
     let mut operands: Vec<String> = Vec::new();
@@ -1767,6 +1768,7 @@ fn inspect_cmd(args: &[String]) -> ExitCode {
         match argument.as_str() {
             "--json" => json = true,
             "--human" => json = false,
+            "--layout" => layout = true,
             "--addr" => {
                 let Some(value) = iter.next() else {
                     return usage_error("`--addr` needs a hexadecimal address");
@@ -1793,6 +1795,49 @@ fn inspect_cmd(args: &[String]) -> ExitCode {
         return usage_error("`inspect` needs a source file");
     };
     let path = PathBuf::from(file);
+    if layout {
+        let Some(type_name) = operands.get(1) else {
+            return usage_error("`inspect --layout` needs a type name");
+        };
+        let source = match read_source_with(&path, EXIT_USAGE) {
+            Ok(source) => source,
+            Err(code) => return code,
+        };
+        let mut sources = SourceMap::new();
+        let checked = check_and_verify(&mut sources, &path, source, false, &OPTIONS, 0);
+        let Ok((hir, _)) = checked else {
+            eprintln!("error: the source must check before a layout can be reported");
+            return exit_code(EXIT_COMPILE_ERROR);
+        };
+        let decls = yashy_driver::layout::HirDecls::from_program(&hir);
+        let Some(found) = yashy_driver::layout::find(type_name, &decls) else {
+            eprintln!("error: no layout for `{type_name}`");
+            return exit_code(EXIT_USAGE);
+        };
+        let names = decls.field_names(type_name);
+        let mut report = Json::object();
+        report.set("schema_version", Json::number(1));
+        report.set("tool", Json::string("inspect --layout"));
+        report.set("type", Json::string(type_name));
+        report.set("size", Json::number(found.size as i64));
+        report.set("align", Json::number(found.align as i64));
+        let offsets: Vec<Json> = found
+            .offsets
+            .iter()
+            .enumerate()
+            .map(|(index, offset)| {
+                let mut entry = Json::object();
+                entry.set("offset", Json::number(*offset as i64));
+                if let Some(name) = names.get(index) {
+                    entry.set("field", Json::string(name));
+                }
+                entry
+            })
+            .collect();
+        report.set("fields", Json::array(offsets));
+        println!("{}", report.render());
+        return exit_code(EXIT_OK);
+    }
     let root = path.parent().unwrap_or(Path::new("."));
     let model = match yashy_driver::index::build_index(root) {
         Ok(model) => model,

@@ -933,3 +933,31 @@ impl HirExpr {
         }
     }
 }
+
+/// The source span of a checked statement.
+///
+/// Every statement carries its own span; this is the single place that reads
+/// it, so a verifier warning and a debug location cannot disagree about which
+/// bytes a statement covers.
+pub fn stmt_span(stmt: &HirStmt) -> Span {
+    match stmt {
+        HirStmt::Expr(_, span, _) => *span,
+        HirStmt::Const { span, .. }
+        | HirStmt::Var { span, .. }
+        | HirStmt::Destructure { span, .. }
+        | HirStmt::Assign { span, .. }
+        | HirStmt::IndexAssign { span, .. }
+        | HirStmt::FieldAssign { span, .. }
+        | HirStmt::FieldPtrAssign { span, .. }
+        | HirStmt::If { span, .. }
+        | HirStmt::IfLet { span, .. }
+        | HirStmt::ForRange { span, .. }
+        | HirStmt::ForIn { span, .. }
+        | HirStmt::ForC { span, .. }
+        | HirStmt::Switch { span, .. }
+        | HirStmt::Defer { span, .. }
+        | HirStmt::Scope { span, .. } => *span,
+        HirStmt::Return(_, span) | HirStmt::Break(span) | HirStmt::Continue(span) => *span,
+        HirStmt::LoopInvariant(_) => Span::SYNTHETIC,
+    }
+}

@@ -669,6 +669,7 @@ fn gen_poll(module: &mut crate::module::Module, f: &HirFn, layout: &FrameLayout)
     module.begin_fn_report(&f.name, f.file, f.span);
     {
         let mut ctx = FnCtx::new(module, layout.result_ty.clone());
+        ctx.file = f.file;
         ctx.async_poll = Some(crate::expr_gen::AsyncPoll {
             frame_slot: "%task.frame".to_string(),
             frame_type: layout.frame_type.clone(),
@@ -825,6 +826,7 @@ pub fn gen_async_fn(module: &mut crate::module::Module, f: &HirFn) {
     module.begin_fn_report(&f.name, f.file, f.span);
     {
         let mut ctx = FnCtx::new(module, f.ret.kind.clone());
+        ctx.file = f.file;
         ctx.begin_entry();
         gen_factory(&mut ctx, f, &layout);
         ctx.push("}".to_string());

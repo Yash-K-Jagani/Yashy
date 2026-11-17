@@ -52,7 +52,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use yashy_common::Span;
+use yashy_common::{FileId, Span};
 use yashy_parser::ast::Literal;
 use yashy_sema::{
     expr_ty, hir::expr_span, BinOp, CaptureSource, FaultSite, HirCapture, HirExpr, HirFn, Type,
@@ -120,6 +120,8 @@ pub struct AsyncPoll {
 pub struct FnCtx<'a> {
     /// The module every instruction is appended to.
     pub module: &'a mut Module,
+    /// The source file this function was written in, for debug locations.
+    pub file: FileId,
     /// The enclosing function's return type, so a `return` can coerce.
     pub ret_type: TypeKind,
     /// The index the next `%slotN` alloca will use.
@@ -253,6 +255,7 @@ impl<'a> FnCtx<'a> {
         let atomic_strings = module.atomic_strings();
         Self {
             module,
+            file: FileId::from_index(0),
             ret_type,
             next_slot: 0,
             next_label: 0,

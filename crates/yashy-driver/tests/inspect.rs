@@ -82,3 +82,24 @@ fn inspect_human_prints_a_path_line_and_column() {
     );
     assert!(stdout.contains("fn add"), "{stdout}");
 }
+
+#[test]
+fn inspect_layout_reports_size_alignment_and_fields() {
+    let dir = work_dir("inspect-layout");
+    write(
+        &dir,
+        "main.ya",
+        "struct Point { x: int, y: int }\nfn main() { let p = Point { x: 1, y: 2 }; }\n",
+    );
+    let output = run(&dir, &["inspect", "--layout", "main.ya", "Point"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"size\": 16"), "{stdout}");
+    assert!(stdout.contains("\"align\": 8"), "{stdout}");
+    assert!(stdout.contains("\"field\": \"x\""), "{stdout}");
+    assert!(stdout.contains("\"field\": \"y\""), "{stdout}");
+}

@@ -238,6 +238,7 @@ fn gen_body(module: &mut Module, f: &HirFn, entry_point: bool, env: Option<&str>
     module.begin_fn_report(&f.name, f.file, f.span);
     {
         let mut ctx = FnCtx::new(module, f.ret.kind.clone());
+        ctx.file = f.file;
         if ctx.module.escape_enabled() {
             // Classification is per function and reads only the HIR and the
             // verifier's facts; a lambda is its own function and gets its own
