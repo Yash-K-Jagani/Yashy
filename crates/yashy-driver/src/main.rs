@@ -36,9 +36,10 @@ use yashy_common::{
 use yashy_driver::pipeline::{check_and_verify, compile_to_binary};
 use yashy_driver::test_harness::{self, TestStatus};
 use yashy_driver::{
-    check_and_verify_timed, compile_hir_timed, detect, diagnostic_json,
-    load_and_check_exports_timed, load_and_check_timed, opt_report, resolve_opt, span_json, timed,
-    BuildOptions, CommandKind, CpuTarget, OptLevel, TimingRow,
+    check_and_verify_timed, check_and_verify_timed_with_features, compile_hir_timed, detect,
+    diagnostic_json, load_and_check_exports_timed, load_and_check_exports_timed_with_features,
+    opt_report, resolve_opt, span_json, timed, BuildOptions, CommandKind, CpuTarget, OptLevel,
+    TimingRow,
 };
 use yashy_manifest::{Lockfile, Manifest};
 use yashy_verify::{first_contract, Assumption, ContractMode, VerifyOptions, VerifyReport};
@@ -325,6 +326,37 @@ struct BuildOutcome {
     code: ExitCode,
     /// Empty unless `--timings` was passed.
     timings: Vec<TimingRow>,
+}
+
+/// The feature set a source file's project selected, or a usage error.
+///
+/// `--features` and `--no-default-features` name a selection the manifest must
+/// define. A project with no `[features]` table and no request selects the
+/// empty set, which is what every build before features existed meant; asking
+/// for a feature a project does not declare is a mistake, not a no-op.
+fn select_features(
+    input: Option<&Path>,
+    requested: &[String],
+    no_default_features: bool,
+) -> Result<std::collections::BTreeSet<String>, ExitCode> {
+    let manifest_path = input
+        .and_then(Path::parent)
+        .unwrap_or_else(|| Path::new("."))
+        .join("yashy.toml");
+    match Manifest::load(&manifest_path) {
+        Ok(manifest) => {
+            match yashy_driver::features::select(&manifest, requested, no_default_features) {
+                Ok(features) => Ok(features.enabled),
+                Err(message) => Err(usage_error(&message)),
+            }
+        }
+        Err(_) if requested.is_empty() && !no_default_features => {
+            Ok(std::collections::BTreeSet::new())
+        }
+        Err(_) => Err(usage_error(
+            "`--features` needs a yashy.toml with a `[features]` table",
+        )),
+    }
 }
 
 /// `yashyc build <file.ya> [-o <out>] [-O0|-1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--emit-ir] [--timings] [--no-verify]`.
@@ -652,20 +684,30 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     // module's own text. The entry point is file id zero.
     let mut sources = SourceMap::new();
 
+    // Features are decided before anything is parsed, because a `cfg` filter
+    // reads them: `--features tls` must decide whether `cfg(feature:tls)` items
+    // exist in the tree the checker sees, not merely be recorded afterwards.
+    let selected_features =
+        match select_features(Some(&input), &requested_features, no_default_features) {
+            Ok(features) => features,
+            Err(code) => return stopped(code),
+        };
+
     let (hir, report) = if no_verify {
         // The checker still runs: `--no-verify` skips the proof, not the type
         // system. A program that does not type-check has no binary worth
         // stamping.
-        let hir = match load_and_check_timed(
+        let hir = match load_and_check_exports_timed_with_features(
             &mut sources,
             &input,
             source,
             release,
             target,
             jobs,
+            &selected_features,
             measured,
         ) {
-            Ok(hir) => hir,
+            Ok((hir, _exports)) => hir,
             Err(diagnostics) => {
                 return BuildOutcome {
                     code: render(&sources, &diagnostics),
@@ -688,7 +730,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         }
         (hir, VerifyReport::default())
     } else {
-        match check_and_verify_timed(
+        match check_and_verify_timed_with_features(
             &mut sources,
             &input,
             source,
@@ -696,6 +738,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
             target,
             &OPTIONS,
             jobs,
+            &selected_features,
             measured,
         ) {
             Ok(checked) => checked,
@@ -860,30 +903,6 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         }
     }
 
-    let selected_features = {
-        let manifest_path = input
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .join("yashy.toml");
-        match Manifest::load(&manifest_path) {
-            Ok(manifest) => {
-                match yashy_driver::features::select(
-                    &manifest,
-                    &requested_features,
-                    no_default_features,
-                ) {
-                    Ok(features) => features.enabled,
-                    Err(message) => return stopped(usage_error(&message)),
-                }
-            }
-            Err(_) if requested_features.is_empty() => std::collections::BTreeSet::new(),
-            Err(_) => {
-                return stopped(usage_error(
-                    "`--features` needs a yashy.toml with a `[features]` table",
-                ))
-            }
-        }
-    };
     let output = output.unwrap_or_else(|| default_output(&input));
     let opt = resolve_opt(command, release, opt);
     let options = BuildOptions {
@@ -3967,6 +3986,8 @@ fn check(args: &[String]) -> ExitCode {
     let mut deny_warnings = env::var("YASHY_DENY_WARNINGS").ok().as_deref() == Some("1");
     let mut allow_warnings = false;
     let mut jobs: usize = 0;
+    let mut requested_features: Vec<String> = Vec::new();
+    let mut no_default_features = false;
     let mut input: Option<PathBuf> = None;
     let mut i = 0;
     while i < args.len() {
@@ -4030,6 +4051,19 @@ fn check(args: &[String]) -> ExitCode {
             "-W none" => allow_warnings = true,
             "--deny warnings" => deny_warnings = true,
             "--allow warnings" => allow_warnings = true,
+            "--features" => {
+                if i + 1 < args.len() {
+                    requested_features.extend(args[i + 1].split(',').map(str::to_string));
+                    i += 1;
+                } else {
+                    return usage_error("`--features` needs a comma-separated list");
+                }
+            }
+            "--no-default-features" => no_default_features = true,
+            other if other.starts_with("--features=") => {
+                requested_features
+                    .extend(other["--features=".len()..].split(',').map(str::to_string));
+            }
             other if other.starts_with("--jobs=") => {
                 match other["--jobs=".len()..].parse::<usize>() {
                     Ok(parsed) => jobs = parsed,
@@ -4049,11 +4083,21 @@ fn check(args: &[String]) -> ExitCode {
         i += 1;
     }
     let target = target.unwrap_or_else(host_target_triple);
+    // Features are read from the project the file belongs to, or the working
+    // directory when only `--print-cfg` is asked for. They are decided here,
+    // before `--print-cfg` prints and before the loader filters `cfg`, so the
+    // keys a script reads are the keys the check used.
+    let selected_features =
+        match select_features(input.as_deref(), &requested_features, no_default_features) {
+            Ok(features) => features,
+            Err(code) => return code,
+        };
     // `--print-cfg` answers "what is true for this target?" and stops: it is
     // the flag a build script reads and the one a confused user runs after
     // `cfg(window)` did not compile, so it needs no source file.
     if print_cfg {
-        let set = yashy_driver::cfg::CfgSet::for_target(target, false);
+        let set =
+            yashy_driver::cfg::CfgSet::for_target(target, false).with_features(&selected_features);
         if json {
             let mut report = Json::object();
             report.set("schema_version", Json::number(1));
@@ -4094,8 +4138,16 @@ fn check(args: &[String]) -> ExitCode {
     } else {
         &mut scratch
     };
-    let outcome =
-        load_and_check_exports_timed(&mut sources, &input, source, false, target, jobs, measured);
+    let outcome = load_and_check_exports_timed_with_features(
+        &mut sources,
+        &input,
+        source,
+        false,
+        target,
+        jobs,
+        &selected_features,
+        measured,
+    );
     let reported = timings_flag.then_some(timings.as_slice());
     match outcome {
         Ok((hir, exports)) => {
@@ -4190,6 +4242,8 @@ fn verify(args: &[String]) -> ExitCode {
     let mut deny_warnings = env::var("YASHY_DENY_WARNINGS").ok().as_deref() == Some("1");
     let mut allow_warnings = false;
     let mut jobs: usize = 0;
+    let mut requested_features: Vec<String> = Vec::new();
+    let mut no_default_features = false;
     let mut input: Option<PathBuf> = None;
     let mut i = 0;
     while i < args.len() {
@@ -4235,6 +4289,19 @@ fn verify(args: &[String]) -> ExitCode {
             "-W none" => allow_warnings = true,
             "--deny warnings" => deny_warnings = true,
             "--allow warnings" => allow_warnings = true,
+            "--features" => {
+                if i + 1 < args.len() {
+                    requested_features.extend(args[i + 1].split(',').map(str::to_string));
+                    i += 1;
+                } else {
+                    return usage_error("`--features` needs a comma-separated list");
+                }
+            }
+            "--no-default-features" => no_default_features = true,
+            other if other.starts_with("--features=") => {
+                requested_features
+                    .extend(other["--features=".len()..].split(',').map(str::to_string));
+            }
             other if other.starts_with("--jobs=") => {
                 match other["--jobs=".len()..].parse::<usize>() {
                     Ok(parsed) => jobs = parsed,
@@ -4265,12 +4332,17 @@ fn verify(args: &[String]) -> ExitCode {
     let mut sources = SourceMap::new();
     let mut timings = Vec::new();
     let mut scratch = Vec::new();
+    let selected_features =
+        match select_features(Some(&input), &requested_features, no_default_features) {
+            Ok(features) => features,
+            Err(code) => return code,
+        };
     let measured: &mut Vec<TimingRow> = if timings_flag {
         &mut timings
     } else {
         &mut scratch
     };
-    let outcome = check_and_verify_timed(
+    let outcome = check_and_verify_timed_with_features(
         &mut sources,
         &input,
         source,
@@ -4278,6 +4350,7 @@ fn verify(args: &[String]) -> ExitCode {
         host_target_triple(),
         &OPTIONS,
         jobs,
+        &selected_features,
         measured,
     );
     let reported = timings_flag.then_some(timings.as_slice());
@@ -6398,6 +6471,37 @@ fn verify_package_cmd(args: &[String]) -> ExitCode {
         ));
     }
 
+    // The registry index is the claim a tarball is checked against. With no
+    // registry named there is nothing to compare, so the check is opt-in; when
+    // one is named, the tarball's tree hash must be an entry the index
+    // published. That is the difference between "this tarball is internally
+    // consistent" and "this is the package the registry says it is".
+    if let Some(root) = &registry {
+        match yashy_driver::registry::read_index(root) {
+            Ok(entries) => match tarball_tree_hash(&bytes) {
+                Ok(tree_hash) => {
+                    if !entries.iter().any(|entry| entry.hash == tree_hash) {
+                        findings.push((
+                            yashy_common::codes::REGISTRY_INDEX_MISMATCH.to_string(),
+                            format!(
+                                "no registry entry in {} has hash {tree_hash}",
+                                root.display()
+                            ),
+                        ));
+                    }
+                }
+                Err(error) => findings.push((
+                    yashy_common::codes::REGISTRY_INDEX_MISMATCH.to_string(),
+                    error,
+                )),
+            },
+            Err(error) => findings.push((
+                yashy_common::codes::REGISTRY_INDEX_MISMATCH.to_string(),
+                error.to_string(),
+            )),
+        }
+    }
+
     let sbom_dir = registry
         .map(|dir| dir.join("sbom"))
         .unwrap_or_else(|| tarball.parent().unwrap_or(Path::new(".")).to_path_buf());
@@ -6437,6 +6541,31 @@ fn verify_package_cmd(args: &[String]) -> ExitCode {
     } else {
         exit_code(EXIT_COMPILE_ERROR)
     }
+}
+
+/// The tree hash of a tarball's contents, which is what a registry entry names.
+///
+/// A registry entry records `hash_tree` of the package directory, not the
+/// SHA-256 of the `.tar` bytes: the tree hash ignores file order and tar
+/// padding, so it is the same for a package however its archive was written.
+/// Recomputing it means unpacking, which is why it only runs when a registry
+/// was named.
+fn tarball_tree_hash(bytes: &[u8]) -> Result<String, String> {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or(0);
+    let dir = std::env::temp_dir().join(format!(
+        "yashy-verify-package-{}-{stamp}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir)
+        .map_err(|error| format!("cannot create {}: {error}", dir.display()))?;
+    let result = yashy_driver::registry::extract_tarball(&dir, bytes)
+        .map_err(|error| error.to_string())
+        .and_then(|()| yashy_manifest::hash_tree(&dir).map_err(|error| error.to_string()));
+    let _ = std::fs::remove_dir_all(&dir);
+    result
 }
 
 fn audit_cmd(args: &[String]) -> ExitCode {

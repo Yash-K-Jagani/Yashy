@@ -311,3 +311,82 @@ fn the_formatter_round_trips_the_three_positions() {
     let second = run(&["fmt", file.to_str().unwrap()]);
     assert_eq!(stdout_of(&second), once, "the format must be idempotent");
 }
+
+#[test]
+fn a_selected_feature_decides_the_guarded_branch() {
+    // The two items guard the same name with opposite conditions, so exactly
+    // one survives for each feature set. If `--features` only reached the
+    // cache key and not the `cfg` filter, both items would be present and the
+    // name would be declared twice -- which is the failure this pins.
+    let dir = work_dir("cfg-feature-branch");
+    fs::write(
+        dir.join("yashy.toml"),
+        "[package]\nname = \"cfg-feature\"\nversion = \"0.1.0\"\n\n\
+         [features]\ndefault = []\ntls = []\n",
+    )
+    .expect("the manifest must be writable");
+    let file = dir.join("main.ya");
+    fs::write(
+        &file,
+        "cfg(feature:tls) fn name() -> string {\n    return \"tls\";\n}\n\n\
+         cfg(not(feature:tls)) fn name() -> string {\n    return \"plain\";\n}\n\n\
+         fn main() {\n    print(name());\n}\n",
+    )
+    .expect("the test source must be writable");
+
+    let without = run(&["check", file.to_str().unwrap()]);
+    assert!(
+        without.status.success(),
+        "the plain branch must be the one that compiles:\n{}",
+        stderr_of(&without)
+    );
+
+    let with = run(&["check", file.to_str().unwrap(), "--features", "tls"]);
+    assert!(
+        with.status.success(),
+        "the feature branch must be the one that compiles:\n{}",
+        stderr_of(&with)
+    );
+
+    let unused = run(&["check", file.to_str().unwrap(), "--features", "quic"]);
+    assert_eq!(
+        unused.status.code(),
+        Some(2),
+        "a feature the manifest does not declare is a usage error"
+    );
+    assert!(
+        stderr_of(&unused).contains("unknown feature `quic`"),
+        "the error must name the feature:\n{}",
+        stderr_of(&unused)
+    );
+}
+
+#[test]
+fn print_cfg_names_the_selected_features() {
+    let dir = work_dir("cfg-print-features");
+    fs::write(
+        dir.join("yashy.toml"),
+        "[package]\nname = \"cfg-print\"\nversion = \"0.1.0\"\n\n\
+         [features]\ndefault = []\ntls = []\n",
+    )
+    .expect("the manifest must be writable");
+    let output = Command::new(yashyc())
+        .args(["check", "--print-cfg", "--features", "tls"])
+        .current_dir(&dir)
+        .output()
+        .expect("yashyc must run");
+    assert!(
+        output.status.success(),
+        "`--print-cfg` must succeed:\n{}",
+        stderr_of(&output)
+    );
+    let keys = stdout_of(&output);
+    assert!(
+        keys.lines().any(|line| line.trim() == "feature:tls"),
+        "the selected feature must be a key: {keys:?}"
+    );
+    assert!(
+        !keys.contains("feature:quic"),
+        "an unselected feature must not be a key: {keys:?}"
+    );
+}

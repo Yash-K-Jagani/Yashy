@@ -59,7 +59,7 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "check",
         summary: "check a program and print diagnostics",
-        usage: "yashyc check <file.ya> [--json] [--timings] [--jobs <n>]",
+        usage: "yashyc check <file.ya> [--json] [--timings] [--jobs <n>] [--features <list>]",
         flags: &[
             "--json",
             "--timings",
@@ -68,14 +68,24 @@ pub const COMMANDS: &[CommandSpec] = &[
             "--target",
             "--deny",
             "--allow",
+            "--features",
+            "--no-default-features",
+            "--print-cfg",
         ],
         takes_path: true,
     },
     CommandSpec {
         name: "verify",
         summary: "check and verify a program's proofs",
-        usage: "yashyc verify <file.ya> [--json] [--inventory]",
-        flags: &["--json", "--timings", "--jobs", "--inventory"],
+        usage: "yashyc verify <file.ya> [--json] [--inventory] [--features <list>]",
+        flags: &[
+            "--json",
+            "--timings",
+            "--jobs",
+            "--inventory",
+            "--features",
+            "--no-default-features",
+        ],
         takes_path: true,
     },
     CommandSpec {

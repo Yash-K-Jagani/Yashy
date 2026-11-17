@@ -132,6 +132,9 @@ pub const SBOM_MISMATCH: &str = "E1806";
 pub const POLICY_DENIED: &str = "E1807";
 /// A call needs a capability the package did not grant.
 pub const CAPABILITY_DENIED: &str = "E1808";
+/// The registry index does not name the package being verified, or names a
+/// different hash for it.
+pub const REGISTRY_INDEX_MISMATCH: &str = "E1809";
 /// A resource is used after it has been released.
 pub const USE_AFTER_CLOSE: &str = "E1401";
 /// A bare linear value is shared across a thread boundary.
@@ -548,6 +551,12 @@ pub const CODES: &[Code] = &[
         page: include_str!("../../../docs/errors/E1807.md"),
     },
     Code {
+        id: REGISTRY_INDEX_MISMATCH,
+        title: "registry index mismatch",
+        summary: "The registry index does not name the package being verified, or names a different hash for it.",
+        page: include_str!("../../../docs/errors/E1809.md"),
+    },
+    Code {
         id: SANDBOX_DENIED,
         title: "sandbox capability denied",
         summary: "A sandboxed program touched a path, the network or a child process outside its capability set.",
@@ -852,6 +861,7 @@ pub fn rule_for(id: &str) -> &'static str {
         SBOM_MISMATCH => "PKG-7",
         POLICY_DENIED => "PKG-8",
         CAPABILITY_DENIED => "PKG-9",
+        REGISTRY_INDEX_MISMATCH => "PKG-10",
         SANDBOX_DENIED => "SANDBOX-1",
         SANDBOX_LIMIT => "SANDBOX-2",
         UNUSED_BINDING => "LINT-1",

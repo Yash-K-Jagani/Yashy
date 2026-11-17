@@ -100,6 +100,7 @@ the declaration or import involved when that is not obvious.
 | [E1806](errors/E1806.md) | package SBOM mismatch |
 | [E1807](errors/E1807.md) | package policy denial |
 | [E1808](errors/E1808.md) | capability not granted |
+| [E1809](errors/E1809.md) | registry index mismatch |
 | [E1900](errors/E1900.md) | sandbox capability denied |
 | [E1901](errors/E1901.md) | sandbox limit breached |
 | [E1701](errors/E1701.md) | task handle escapes its scope |

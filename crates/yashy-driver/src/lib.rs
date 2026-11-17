@@ -154,10 +154,10 @@ pub use modules::{
     default_stdlib_root, load, load_sources, module_roots, resolve_import, Module, ModuleSource,
 };
 pub use pipeline::{
-    check_and_verify, check_and_verify_timed, compile_hir, compile_hir_timed, compile_to_binary,
-    ir_cache_key, ir_cache_store, load_and_check, load_and_check_exports_timed,
-    load_and_check_timed, resolve_opt, timed, BuildOptions, CommandKind, CpuTarget, OptLevel,
-    TimingRow,
+    check_and_verify, check_and_verify_timed, check_and_verify_timed_with_features, compile_hir,
+    compile_hir_timed, compile_to_binary, ir_cache_key, ir_cache_store, load_and_check,
+    load_and_check_exports_timed, load_and_check_exports_timed_with_features, load_and_check_timed,
+    resolve_opt, timed, BuildOptions, CommandKind, CpuTarget, OptLevel, TimingRow,
 };
 pub use resolve::{resolve, ResolveError, ResolvedGraph, ResolvedPackage};
 pub use toolchain::{detect, detect_with, Toolchain};

@@ -218,6 +218,8 @@ real line/column regions.
 | Option | Meaning |
 |---|---|
 | `--print-cfg` | Print the `cfg` keys that are true for this target, one per line, sorted, and stop. Needs no source file. See [`cfg`](#cfg-and---target). |
+| `--features <list>` | Enable the named `[features]` entries for the `cfg` filter and for `--print-cfg`. The names come from the `yashy.toml` beside the file (or in the working directory for `--print-cfg`). |
+| `--no-default-features` | Start the feature selection without `default`. |
 | `--debug-info` | Emit LLVM debug metadata from HIR spans (function entry lines) so a debugger and `inspect --addr` can map back to source. Off by default; `run --debug` enables it. |
 | `--target <triple>` | Check for this target rather than the host. See [`cfg` and `--target`](#cfg-and---target). |
 
@@ -249,10 +251,16 @@ The keys are `windows`, `linux`, `macos`, `unix`, `arch_x86_64`,
 a condition that quietly evaluates to false, and `cfg` anywhere it cannot apply
 is [`E2203`](errors/E2203.md).
 
+A selected package feature is a key too, spelled `feature:<name>`: with
+`--features tls`, `cfg(feature:tls)` is true and `cfg(feature:quic)` is false.
+The selection comes from `[features]` in the `yashy.toml` beside the file, the
+same set that the lockfile and the IR cache key record.
+
 ```text
 yashyc check --print-cfg
 arch_aarch64
 debug
+feature:tls
 linux
 unix
 ```
@@ -327,7 +335,7 @@ entry per invocation, with `macro`, `arm_span`, `invocation_span` and
 so a program written with a shorthand is checked and compiled as the ordinary
 syntax it expands to. `--emit-ir` shows IR from expanded code, as it must.
 
-## `yashyc verify <file.ya> [--json] [--timings] [--jobs <n>] [--inventory]`
+## `yashyc verify <file.ya> [--json] [--timings] [--jobs <n>] [--inventory] [--features <list>]`
 
 Runs the front half of the pipeline and then the verifier: the pass that proves
 a well-typed program is also *sound*. That means every linear value -- every
@@ -1190,7 +1198,9 @@ yashyc verify-package <tarball> [--registry <dir>]
 `sbom` prints a deterministic SPDX 2.3 document for the package and the
 compiler binary. `verify-package` checks the tarball's detached signature
 ([E1805](errors/E1805.md)) and that an SBOM names its SHA-256
-([E1806](errors/E1806.md)); it exits 1 on any finding.
+([E1806](errors/E1806.md)); it exits 1 on any finding. With `--registry <dir>`
+it also unpacks the tarball, recomputes its tree hash and requires the registry
+index to name that hash ([E1809](errors/E1809.md)).
 
 A registry is a directory: `index.json` plus `packages/<hash>.tar`, written
 through staging files and renamed into place. `publish` takes the name,

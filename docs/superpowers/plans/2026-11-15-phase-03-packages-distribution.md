@@ -9,7 +9,7 @@ rebuild — and make the toolchain itself installable in one command.
 features, a signed static registry, package signatures, capability manifests and
 a dependency policy, an SBOM with build provenance, `yashyc verify-package`,
 reproducible package builds, a package surface with `tree`, `why`, `outdated`,
-`vendor`, `info` and `remove` (`yank` is still owed), a stdlib with a hashed IR
+`vendor`, `info`, `yank` and `remove`, a stdlib with a hashed IR
 cache, installers for the three claimed platforms, a GitHub Action, and
 templates for a workspace and a service.
 
@@ -150,7 +150,9 @@ folded into the IR cache key rather than resolver inputs.
   a diagnostic, never a false condition.
   *Current:* features are a sorted `BTreeSet`, exposed as `feature:<name>` cfg
   keys. Phase 4's `cfg(feature = "x")` syntax is not here yet; the flat key is
-  the current spelling. `--print-cfg` does not yet accept `--features`.
+  the current spelling. `build`, `check`, `verify` and `--print-cfg` all accept
+  `--features`/`--no-default-features`; the selection is applied to the `cfg`
+  filter before the tree is resolved, not just recorded for the cache key.
 - [x] **Step 3: Commit.**
 
 ### Task 4: Signed registry v1
@@ -211,10 +213,12 @@ folded into the IR cache key rather than resolver inputs.
   graph, plus the compiler and runtime hashes. `yashyc verify-package
   demo-1.0.0.tar.gz` checks the signature, the checksum, the index entry and the
   SBOM; each mismatch is a distinct code.
-  *Current:* `tests/sbom.rs` checks the SPDX output and the two distinct codes
-  from a tarball with neither signature nor SBOM. The document names the
+  *Current:* `tests/sbom.rs` checks the SPDX output, the two distinct codes from
+  a tarball with neither signature nor SBOM, and the index-entry check: with
+  `--registry <dir>` the tarball is unpacked, its tree hash is recomputed, and
+  the registry index must name that hash (E1809). The document names the
   package and `yashyc` binary; the runtime C shim is not a separate SBOM
-  package. Index-entry checking in `verify-package` is still owed.
+  package. A registry-less index lookup is still not offered.
 - [x] **Step 2: Audit has teeth.** `yashyc audit` refuses an unsigned package, a
   package whose SBOM is missing or disagrees with the tarball, a license outside
   the policy, and a dependency outside the allowlist. `--json` is the machine
@@ -446,8 +450,10 @@ folded into the IR cache key rather than resolver inputs.
   compares. A provenance that only asserts what the builder says is a claim; the
   gate is the rebuild.
   *Current:* the verifier checks the signature, the subject digest and every
-  named material digest. It does not rebuild the artifact from those materials;
-  that stronger gate is still owed.
+  named material digest. With `--rebuild`, it rebuilds from the named `.ya`
+  materials with `--reproducible` and compares the binary's digest to the
+  subject, and finds materials relative to the statement's directory. It does
+  not fetch materials from a registry or a VCS revision.
 - [x] **Step 4: The format is standard and minimal.** Use in-toto attestation
   and SLSA provenance v1 JSON; do not invent a schema. A future registry can
   consume the same envelope, and the release pipeline publishes it unchanged.
@@ -498,15 +504,15 @@ folded into the IR cache key rather than resolver inputs.
 
 | Gate | Command | Passes when |
 |---|---|---|
-| Round trip | `cargo test -p yashy-driver --test registry --test resolve` | publish → add → build is covered by the registry tests; yanked pins are refused; there is no build-time `--locked` flag, only the lock check |
+| Round trip | `cargo test -p yashy-driver --test registry --test resolve` | publish → add → build is covered by the registry tests; yanked pins are refused; `ResolveOptions` honours the explicit index and `--locked`, though there is no build-time `--locked` flag, only the lock check |
 | Tamper | `cargo test -p yashy-driver --test signature --test registry` | one flipped byte, one bad index signature and one missing key each fail with a named code |
-| SBOM | `cargo test -p yashy-driver --test sbom --test audit` | the SPDX document and package/compiler entries are present with compiler version and target annotations; a toolchain hash is not recorded; policy violations are refused |
-| Capabilities | `cargo test -p yashy-driver --test capabilities` (a separate `policy` test does not exist) | default-deny and path globs are pinned; the call-site refusal and runtime enforcement are not implemented |
-| Provenance | `cargo test -p yashy-driver --test attest` (a separate `slsa` test does not exist) | the statement names its subject and a signed negative case fails; material discovery and rebuild verification are not implemented |
-| Package surface | `cargo test -p yashy-driver --test pkg_cmd` | tree, why, info and remove are pinned; outdated, vendor and yank are not covered by that test |
+| SBOM | `cargo test -p yashy-driver --test sbom --test audit` | the SPDX document and package/compiler entries are present with compiler version and target annotations; `verify-package` names E1805/E1806/E1809 for signature, SBOM and index mismatches; a toolchain hash is not recorded; policy violations are refused |
+| Capabilities | `cargo test -p yashy-driver --test capabilities` (a separate `policy` test does not exist) | default-deny, path globs and the call-site refusal are pinned; the runtime grant enforcement is not implemented |
+| Provenance | `cargo test -p yashy-driver --test attest` (a separate `slsa` test does not exist) | the statement names its subject, material discovery is automatic, a signed negative case fails, and `--rebuild` compares a reproducible rebuild's digest; no registry reference |
+| Package surface | `cargo test -p yashy-driver --test pkg_cmd` | tree marks duplicates and features, why/info/remove/outdated/vendor are pinned; `yank` is covered by `registry.rs` unit tests rather than this CLI test |
 | Reproducible | `cargo test -p yashy-driver --test reproducible` | two directories, two runs, identical SHA-256 on both OSes |
 | Stdlib package | `cargo test -p yashy-driver --test stdlib_precompiled` | unchanged stdlib is not re-typechecked; cache key verified; hash mismatch refused |
-| Workspaces | `cargo test -p yashy-driver --test workspace --test features` | `--workspace`, `-p`, optional deps and feature unification behave; features are in the cache key |
+| Workspaces | `cargo test -p yashy-driver --test workspace --test features` | `--workspace`, `-p`, optional deps and feature unification behave; features are in the cache key, the lockfile and applied to the `cfg` filter by `build`/`check`/`verify` |
 | Install matrix | `scripts/install/test-install.*` | Windows, Linux and macOS install, verify, run `doctor`, uninstall; re-run in Phase 11C on a machine with no C toolchain |
 | Action | `.github/actions/setup-yashy` in CI | cold install < 60 s; cache hit < 10 s; pinned version verified |
 | No regression | `cargo test --workspace` | green on Windows and Linux |
@@ -587,13 +593,15 @@ ok  14 packages, 0 unsigned, 0 policy violations
 
 | Task | Claimed | Shipped | Follow-up |
 |---|---|---|---|
-| 1.1-1.3 | Semver ranges, one resolution, per-case diagnostic codes | `Version`/`VersionReq` with SemVer 2.0 precedence, range selection, v2 lock with v1 migration, yanked refusal, bounded DFS; existing E180x codes reused, `ResolveOptions` fields not yet applied to an explicit index | Add per-case codes and feed features/target into the index selection |
+| 1.1-1.3 | Semver ranges, one resolution, per-case diagnostic codes | `Version`/`VersionReq` with SemVer 2.0 precedence, range selection, v2 lock with v1 migration, yanked refusal, bounded DFS; existing E180x codes reused; `ResolveOptions` honours the explicit index and `--locked` | Add per-case resolver codes and feed features/target into the index selection |
 | 2.1 / 2.2 | Shared lockfile and target directory for members | Workspace discovery, `-p`/`--workspace` selection, unique names and outside-path refusal; members still read their own lock and do not share an explicit target directory | Add a workspace-level lock/store and an explicit allow flag for outside paths |
-| 3.1 / 3.2 | `cfg(feature = "x")` and `--print-cfg` with features | Sorted feature sets, unification, cache-key and lockfile recording, optional dependencies, `feature:<name>` flat cfg keys, `--features`/`--no-default-features` | Add the Phase 4 `cfg(feature = ...)` syntax and feature-aware `--print-cfg` |
-| 4.1 / 4.2 | Signed index and tarballs, explicit trust set | `ed25519-compact` signs tarballs and the index; `publish --key-id` writes an SPDX SBOM; `fetch` verifies when `YASHY_TRUSTED_KEY`/`YASHY_KEYRING` is set | Add a built-in release key, multi-signature support and remote signature verification || 5.1 / 5.2 | SBOM, distinct mismatch codes, audit policy with signatures | `yashyc sbom` prints SPDX 2.3; `verify-package` reports E1805/E1806; `[audit]` allowlists and `require-signatures` are parsed and enforced; per-package audit findings and index-entry checks are not implemented |
-| 6.1 / 6.3 | Two-directory gate and publish refusal | Two-directory byte comparison IR path check exist; SBOM records compiler version and target; the CI gate and publish-time refusal are deferred with CI |
-| 7.1 / 7.3 | Cross-OS install test and a caching Action | Manifests for five channels, a thin setup-yashy action, a verifying self-update with rollback; the cross-OS matrix and the action's cache step are CI/release work || 8.1 / 8.2 | Tested workspace, service and native templates | Three templates ship with smoke tests and README files; the shared root manifest exists, but members still use per-member locks and the native wrapper is a skeleton |
-| 9.1 / 9.3 | Signed, precompiled stdlib with a versioned cache key | The stdlib has a versioned package manifest; its canonical hash and the selected feature set are part of the IR cache key; a clean-checkout "no recheck" timing and a hash-disagreement refusal are not yet tested |
-| 10.1 / 10.4 | Call-site and runtime capability enforcement, policy table | `[capabilities]`, the HIR call-site check (E1808), `audit --capabilities`, `add --allow`, `--print-capabilities`, and the full `[audit]` policy fields are implemented; the runtime handle is not |
-| 11.1 / 11.3 | Provenance produced by the build and verified by rebuild | In-toto/SLSA v1 statement, signed `attest` output with automatic materials, subject/material digest checks and `--rebuild` verification; a registry-referenced attestation is not implemented |
-| 12.1 / 12.3 | Full package surface with reversible mutations | `tree` marks duplicates and features; `vendor` supports offline fetch; `info` reports size, signature, provenance and native libraries; `outdated` classifies major/minor/patch changes |
+| 3.1 / 3.2 | `cfg(feature = "x")` and `--print-cfg` with features | Sorted feature sets, unification, cache-key and lockfile recording, optional dependencies, `feature:<name>` flat cfg keys, `--features`/`--no-default-features` on `build`, `check`, `verify` and `--print-cfg`, applied to the `cfg` filter before resolution | Add the Phase 4 `cfg(feature = ...)` syntax |
+| 4.1 / 4.2 | Signed index and tarballs, explicit trust set | `ed25519-compact` signs tarballs and the index; `publish --key-id` writes an SPDX SBOM; `fetch` verifies when `YASHY_TRUSTED_KEY`/`YASHY_KEYRING` is set; a remote registry signature is refused rather than trusted | Add a built-in release key, multi-signature support and remote signature verification |
+| 5.1 / 5.2 | SBOM, distinct mismatch codes, audit policy with signatures | `yashyc sbom` prints SPDX 2.3; `verify-package` reports E1805/E1806 and E1809 for the index entry when a registry is named; `[audit]` allowlists and `require-signatures` are parsed and enforced | Add per-package audit findings and a registry-less index lookup |
+| 6.1 / 6.3 | Two-directory gate and publish refusal | Two-directory byte comparison and an IR path check exist; the SBOM records compiler version and target; the CI gate and publish-time refusal are deferred with CI | Gate reproducibility in CI and refuse a non-reproducible publish |
+| 7.1 / 7.3 | Cross-OS install test and a caching Action | Manifests for five channels, a thin `setup-yashy` action, a verifying self-update with rollback; the cross-OS matrix and the action's cache step are CI/release work | Ship the three-OS install archive and enable the action's cache |
+| 8.1 / 8.2 | Tested workspace, service and native templates | Three templates ship with smoke tests and README files; the shared root manifest exists, but members still use per-member locks and the native wrapper is a skeleton | Share the workspace lock and fill in the native template |
+| 9.1 / 9.3 | Signed, precompiled stdlib with a versioned cache key | The stdlib has a versioned package manifest; its canonical hash and the selected feature set are part of the IR cache key | Add a clean-checkout "no recheck" timing and a hash-disagreement refusal test |
+| 10.1 / 10.4 | Call-site and runtime capability enforcement, policy table | `[capabilities]`, the HIR call-site check (E1808), `audit --capabilities`, `add --allow`, `--print-capabilities`, and the full `[audit]` policy fields are implemented; the runtime handle is not | Enforce the grant in the runtime handle |
+| 11.1 / 11.3 | Provenance produced by the build and verified by rebuild | In-toto/SLSA v1 statement, signed `attest` output with automatic materials, subject/material digest checks and `--rebuild` verification | Reference an attestation from the registry entry |
+| 12.1 / 12.3 | Full package surface with reversible mutations | `tree` marks duplicates and features; `vendor` supports offline fetch; `info` reports size, signature, provenance and native libraries; `outdated` classifies major/minor/patch changes; `yank` records a reason with a backup | No known gap; `yank` is covered by `registry.rs` unit tests rather than a CLI test |

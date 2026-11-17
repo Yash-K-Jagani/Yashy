@@ -1160,6 +1160,37 @@ pub fn load_and_check_exports_timed(
     jobs: usize,
     timings: &mut Vec<TimingRow>,
 ) -> Result<(HirProgram, modules::Exports), Vec<Diagnostic>> {
+    load_and_check_exports_timed_with_features(
+        sources,
+        entry_path,
+        entry_source,
+        release,
+        target,
+        jobs,
+        &std::collections::BTreeSet::new(),
+        timings,
+    )
+}
+
+/// [`load_and_check_exports_timed`] with the selected package features.
+///
+/// A feature is a `feature:<name>` `cfg` key, so `--features tls` decides
+/// whether an item guarded by `cfg(feature:tls)` exists at all. The selection
+/// comes from the manifest (`features::select`), and every path that read one —
+/// `build`, `run`, `check`, `verify` — passes it here. The plain entry point
+/// keeps the empty set, which is right for a caller with no manifest (the
+/// language server, `doc`, `index`).
+#[allow(clippy::too_many_arguments)]
+pub fn load_and_check_exports_timed_with_features(
+    sources: &mut SourceMap,
+    entry_path: &Path,
+    entry_source: String,
+    release: bool,
+    target: &'static str,
+    jobs: usize,
+    features: &std::collections::BTreeSet<String>,
+    timings: &mut Vec<TimingRow>,
+) -> Result<(HirProgram, modules::Exports), Vec<Diagnostic>> {
     let module_sources = timed(timings, "load", || {
         modules::load_sources(sources, entry_path, entry_source)
     })?;
@@ -1279,7 +1310,7 @@ pub fn load_and_check_exports_timed(
     // statement or field is removed from the AST, so the checker never sees the
     // names inside it. That is what makes `cfg(windows) { win32_call() }` legal
     // on Linux, and it is why this runs before `exports` and the database.
-    let cfg = crate::cfg::CfgSet::for_target(target, release);
+    let cfg = crate::cfg::CfgSet::for_target(target, release).with_features(features);
     let mut cfg_diagnostics = Vec::new();
     for module in modules.iter_mut() {
         cfg_diagnostics.extend(crate::cfg::filter(&mut module.program, &cfg, module.file));
@@ -1397,13 +1428,41 @@ pub fn check_and_verify_timed(
     jobs: usize,
     timings: &mut Vec<TimingRow>,
 ) -> Result<(HirProgram, VerifyReport), Vec<Diagnostic>> {
-    let (hir, exports) = load_and_check_exports_timed(
+    check_and_verify_timed_with_features(
+        sources,
+        entry_path,
+        entry_source,
+        release,
+        target,
+        options,
+        jobs,
+        &std::collections::BTreeSet::new(),
+        timings,
+    )
+}
+
+/// [`check_and_verify_timed`] with the selected package features, so the build
+/// that reaches the verifier is the one the `cfg` filter produced.
+#[allow(clippy::too_many_arguments)]
+pub fn check_and_verify_timed_with_features(
+    sources: &mut SourceMap,
+    entry_path: &Path,
+    entry_source: String,
+    release: bool,
+    target: &'static str,
+    options: &VerifyOptions,
+    jobs: usize,
+    features: &std::collections::BTreeSet<String>,
+    timings: &mut Vec<TimingRow>,
+) -> Result<(HirProgram, VerifyReport), Vec<Diagnostic>> {
+    let (hir, exports) = load_and_check_exports_timed_with_features(
         sources,
         entry_path,
         entry_source,
         release,
         target,
         jobs,
+        features,
         timings,
     )?;
     // Warnings run after the checker and before the verifier. They are
