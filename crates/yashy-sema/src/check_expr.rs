@@ -3809,11 +3809,17 @@ impl<'src> Checker<'src> {
                 Self::type_expr_mentions(key, name) || Self::type_expr_mentions(value, name)
             }
             TypeExpr::Fn { params, ret, .. } => {
-                params.iter().any(|param| Self::type_expr_mentions(param, name))
+                params
+                    .iter()
+                    .any(|param| Self::type_expr_mentions(param, name))
                     || Self::type_expr_mentions(ret, name)
             }
-            TypeExpr::Tuple(items, _) => items.iter().any(|item| Self::type_expr_mentions(item, name)),
-            TypeExpr::Generic { args, .. } => args.iter().any(|arg| Self::type_expr_mentions(arg, name)),
+            TypeExpr::Tuple(items, _) => items
+                .iter()
+                .any(|item| Self::type_expr_mentions(item, name)),
+            TypeExpr::Generic { args, .. } => {
+                args.iter().any(|arg| Self::type_expr_mentions(arg, name))
+            }
             TypeExpr::Unit(_) => false,
         }
     }
