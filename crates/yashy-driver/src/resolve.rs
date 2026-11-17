@@ -418,7 +418,7 @@ fn fetch_error(error: FetchError) -> ResolveError {
 
 /// Make `path` absolute and remove `.`/`..` lexically, without touching the
 /// filesystem (the directory may be handed to diagnostics before it exists).
-fn lexical_absolute(path: &Path) -> PathBuf {
+pub(crate) fn lexical_absolute(path: &Path) -> PathBuf {
     let absolute = if path.is_absolute() {
         path.to_path_buf()
     } else {

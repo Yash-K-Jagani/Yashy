@@ -17,6 +17,15 @@ pub struct Manifest {
     pub package: Package,
     pub dependencies: BTreeMap<String, Dependency>,
     pub dev_dependencies: BTreeMap<String, Dependency>,
+    /// The `[workspace]` table, when this manifest is a workspace root.
+    pub workspace: Option<Workspace>,
+}
+
+/// The `[workspace]` table. Members are paths relative to the root.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Workspace {
+    pub members: Vec<String>,
+    pub default_members: Vec<String>,
 }
 
 /// The `[package]` table.
@@ -91,7 +100,7 @@ fn manifest_from(document: &Document) -> Result<Manifest, ParseError> {
     for key in root.keys() {
         if !matches!(
             key.as_str(),
-            "package" | "dependencies" | "dev-dependencies"
+            "package" | "dependencies" | "dev-dependencies" | "workspace"
         ) {
             return Err(error_at(
                 key,
@@ -106,6 +115,7 @@ fn manifest_from(document: &Document) -> Result<Manifest, ParseError> {
     let package_table = match root.get("package") {
         Some(Value::Table(table)) => table,
         Some(_) => return Err(error("`package` must be a table".to_string())),
+        None if root.get("workspace").is_some() => return parse_workspace_only(document),
         None => return Err(error("a manifest needs a `[package]` table".to_string())),
     };
     for key in package_table.keys() {
@@ -155,9 +165,114 @@ fn manifest_from(document: &Document) -> Result<Manifest, ParseError> {
         },
         dependencies,
         dev_dependencies,
+        workspace: parse_workspace(root, document)?,
     })
 }
 
+/// A workspace-root manifest has no package of its own; the synthetic empty
+/// package keeps every existing caller total while `Workspace` carries the
+/// real facts.
+fn parse_workspace_only(document: &Document) -> Result<Manifest, ParseError> {
+    let root = &document.root;
+    let workspace = parse_workspace(root, document)?.ok_or_else(|| ParseError {
+        line: 1,
+        column: 1,
+        message: "a workspace-root manifest needs a `[workspace]` table".to_string(),
+    })?;
+    Ok(Manifest {
+        package: Package {
+            name: String::new(),
+            version: "0.0.0".to_string(),
+            edition: None,
+            description: None,
+            license: None,
+        },
+        dependencies: BTreeMap::new(),
+        dev_dependencies: BTreeMap::new(),
+        workspace: Some(workspace),
+    })
+}
+
+fn parse_workspace(
+    root: &toml::Table,
+    document: &Document,
+) -> Result<Option<Workspace>, ParseError> {
+    let Some(Value::Table(table)) = root.get("workspace") else {
+        return Ok(None);
+    };
+    let mut workspace = Workspace::default();
+    for key in table.keys() {
+        if key != "members" && key != "default-members" {
+            let location = document.location(&format!("workspace.{key}"));
+            return Err(ParseError {
+                line: location.line,
+                column: location.column,
+                message: format!(
+                    "`{key}` is not a workspace field; expected `members` or `default-members`"
+                ),
+            });
+        }
+    }
+    workspace.members = workspace_list(table, "members", document)?;
+    workspace.default_members = workspace_list(table, "default-members", document)?;
+    if workspace.members.is_empty() {
+        let location = document.location("workspace.members");
+        return Err(ParseError {
+            line: location.line,
+            column: location.column,
+            message: "a workspace needs at least one member".to_string(),
+        });
+    }
+    if workspace.default_members.is_empty() {
+        workspace.default_members = workspace.members.clone();
+    }
+    for member in workspace
+        .default_members
+        .iter()
+        .chain(workspace.members.iter())
+    {
+        if !workspace.members.contains(member) {
+            return Err(ParseError {
+                line: 1,
+                column: 1,
+                message: format!("default member `{member}` is not in `workspace.members`"),
+            });
+        }
+    }
+    Ok(Some(workspace))
+}
+
+fn workspace_list(
+    table: &toml::Table,
+    key: &str,
+    document: &Document,
+) -> Result<Vec<String>, ParseError> {
+    let Some(value) = table.get(key) else {
+        return Ok(Vec::new());
+    };
+    let Value::Array(items) = value else {
+        let location = document.location(&format!("workspace.{key}"));
+        return Err(ParseError {
+            line: location.line,
+            column: location.column,
+            message: format!("`workspace.{key}` must be an array of strings"),
+        });
+    };
+    items
+        .iter()
+        .map(|item| match item {
+            Value::String(text) => Ok(text.clone()),
+            _ => {
+                let location = document.location(&format!("workspace.{key}"));
+                Err(ParseError {
+                    line: location.line,
+                    column: location.column,
+                    message: format!("`workspace.{key}` must be an array of strings"),
+                })
+            }
+        })
+        .collect()
+}
 fn required_string(
     table: &toml::Table,
     key: &str,

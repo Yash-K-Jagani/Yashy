@@ -23,7 +23,7 @@ pub mod toml;
 pub mod version;
 
 pub use lock::{hash_tree, sha256_hex, LockError, LockedPackage, Lockfile};
-pub use manifest::{Dependency, Manifest, Package};
+pub use manifest::{Dependency, Manifest, Package, Workspace};
 pub use req::VersionReq;
 pub use toml::{ParseError, Value};
 pub use version::Version;

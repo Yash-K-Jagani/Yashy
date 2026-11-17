@@ -45,6 +45,7 @@ pub mod tokens;
 pub mod toolchain;
 pub mod trace;
 pub mod watch;
+pub mod workspace;
 
 use yashy_common::{Diagnostic, FileId, Json, SourceMap, Span};
 

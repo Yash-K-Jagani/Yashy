@@ -1050,6 +1050,22 @@ version, dependency lists sorted, LF endings, and a `sha256:` hash over a
 canonical source tree (sorted paths, CRLF normalised, no mtimes). `yashyc
 build` runs the same check when a lockfile is present.
 
+### Workspaces
+
+A root manifest may carry only `[workspace]`:
+
+```toml
+[workspace]
+members = ["app", "lib"]
+default-members = ["app"]
+```
+
+Members are directories with their own `[package]` manifests; their names must
+be unique. `yashyc test --workspace` runs every member's tests, `yashyc test -p
+app` runs one, and `yashyc build` with no file builds the default member. A
+member may depend on a sibling by path (`path = "../lib"`); a path dependency
+outside the workspace is refused unless explicitly allowed.
+
 ### Resolution: `update`, `fetch`, `add`, `--offline`
 
 A registry range resolves once to the highest non-yanked version that

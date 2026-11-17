@@ -530,6 +530,16 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         )));
     }
 
+    if input.is_none() {
+        // A workspace root builds its default member when no file is named.
+        if let Ok(Some(found)) = yashy_driver::workspace::load(Path::new(".")) {
+            if let Ok(members) = found.select(None, false, &[]) {
+                if let Some(member) = members.first() {
+                    input = Some(member.join("main.ya"));
+                }
+            }
+        }
+    }
     let Some(input) = input else {
         return stopped(usage_error("`build` needs a source file"));
     };
@@ -2214,6 +2224,8 @@ fn serve(args: &[String]) -> ExitCode {
 /// attributes and macros while still giving a project a real test command.
 fn test(args: &[String]) -> ExitCode {
     let mut root: Option<PathBuf> = None;
+    let mut workspace = false;
+    let mut package: Option<String> = None;
     let mut filter: Option<String> = None;
     let mut list = false;
     let mut json = false;
@@ -2226,6 +2238,13 @@ fn test(args: &[String]) -> ExitCode {
     while let Some(argument) = iter.next() {
         match argument.as_str() {
             "--list" => list = true,
+            "--workspace" => workspace = true,
+            "-p" | "--package" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`-p` needs a member name");
+                };
+                package = Some(value.clone());
+            }
             "--sandbox" => sandbox = true,
             "--json" => json = true,
             "--timings" => timings_flag = true,
@@ -2283,6 +2302,53 @@ fn test(args: &[String]) -> ExitCode {
 
     if json && list {
         return usage_error("`--list` and `--json` cannot be combined");
+    }
+    if workspace || package.is_some() {
+        let root_dir = root.clone().unwrap_or_else(|| PathBuf::from("."));
+        let found = match yashy_driver::workspace::load(&root_dir) {
+            Ok(found) => found,
+            Err(message) => {
+                eprintln!("error: {message}");
+                return exit_code(EXIT_USAGE);
+            }
+        };
+        let found = match found {
+            Some(found) => found,
+            None => {
+                eprintln!("error: {} is not a workspace root", root_dir.display());
+                return exit_code(EXIT_USAGE);
+            }
+        };
+        let members = match found.select(package.as_deref(), workspace, &[]) {
+            Ok(members) => members,
+            Err(message) => {
+                eprintln!("error: {message}");
+                return exit_code(EXIT_USAGE);
+            }
+        };
+        // Forward every other flag to each member as an ordinary single-root
+        // test run; removing the workspace flags keeps the recursion finite.
+        let mut rest: Vec<String> = Vec::new();
+        let mut index = 0;
+        while index < args.len() {
+            match args[index].as_str() {
+                "--workspace" => {}
+                "-p" | "--package" => index += 1,
+                other if other.starts_with('-') => rest.push(other.to_string()),
+                _ => {}
+            }
+            index += 1;
+        }
+        let mut code = exit_code(EXIT_OK);
+        for member in members {
+            let mut member_args = vec![member.to_string_lossy().into_owned()];
+            member_args.extend(rest.clone());
+            let result = test(&member_args);
+            if result != exit_code(EXIT_OK) {
+                code = result;
+            }
+        }
+        return code;
     }
 
     // `test --sandbox`: every test program runs with the default-deny set

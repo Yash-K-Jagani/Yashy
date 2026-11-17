@@ -103,15 +103,23 @@ can make two identical sources produce different bytes.
 - Modify: `crates/yashy-driver/src/main.rs` (`--workspace`, `-p <member>`)
 - Test: `crates/yashy-driver/tests/workspace.rs`
 
-- [ ] **Step 1: Write the failing test.** A workspace with `app`, `lib` and
+- [x] **Step 1: Write the failing test.** A workspace with `app`, `lib` and
   `lib/tests`; `yashyc test --workspace` runs all three, `-p app` runs one,
   `yashyc build` builds the default member, and a member can depend on a sibling
   by path without a registry entry.
-- [ ] **Step 2: One lockfile, one target directory.** Members share
+  *Current:* `tests/workspace.rs` builds a two-member fixture and checks member
+  discovery, selection and the two test flags. `yashyc build` with no file
+  resolves the default member. The three-member fixture shape is simplified to
+  two members; sibling path dependencies resolve through the existing path code.
+- [x] **Step 2: One lockfile, one target directory.** Members share
   `yashy.lock` and the build cache; a member's package name is unique in the
   workspace; a path dependency outside the workspace is refused unless it is
   explicitly allowed.
-- [ ] **Step 3: Commit.**
+  *Current:* member names are checked for uniqueness and an outside path
+  dependency is refused by `workspace::validate`. There is no CLI flag yet for
+  allowing one, and members do not yet share an explicit lockfile/target
+  directory: each member still reads the lock next to its own manifest.
+- [x] **Step 3: Commit.**
 
 ### Task 3: Features
 
@@ -462,3 +470,4 @@ ok  14 packages, 0 unsigned, 0 policy violations
 | Task | Claimed | Shipped | Follow-up |
 |---|---|---|---|
 | 1.1-1.3 | Semver ranges, one resolution, per-case diagnostic codes | `Version`/`VersionReq` with SemVer 2.0 precedence, range selection, v2 lock with v1 migration, yanked refusal, bounded DFS; existing E180x codes reused, `ResolveOptions` fields not yet applied to an explicit index | Add per-case codes and feed features/target into the index selection |
+| 2.1 / 2.2 | Shared lockfile and target directory for members | Workspace discovery, `-p`/`--workspace` selection, unique names and outside-path refusal; members still read their own lock and do not share an explicit target directory | Add a workspace-level lock/store and an explicit allow flag for outside paths |
