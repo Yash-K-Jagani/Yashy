@@ -355,6 +355,20 @@ pub const COMMANDS: &[CommandSpec] = &[
         takes_path: false,
     },
     CommandSpec {
+        name: "attest",
+        summary: "write a signed SLSA provenance statement",
+        usage: "yashyc attest <artifact> --key-id <id> [--material <file>]...",
+        flags: &["--key-id", "--material"],
+        takes_path: true,
+    },
+    CommandSpec {
+        name: "verify-attestation",
+        summary: "verify a signed provenance statement",
+        usage: "yashyc verify-attestation <artifact> --attestation <file> --signature <file>",
+        flags: &["--attestation", "--signature"],
+        takes_path: true,
+    },
+    CommandSpec {
         name: "publish",
         summary: "publish the project to a registry",
         usage: "yashyc publish [path] --registry <dir> [--key-id <id>]",

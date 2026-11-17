@@ -252,6 +252,8 @@ fn dispatch(args: &[String]) -> ExitCode {
         "sbom" => sbom_cmd(rest),
         "verify-package" => verify_package_cmd(rest),
         "self-update" => self_update_cmd(rest),
+        "attest" => attest_cmd(rest),
+        "verify-attestation" => verify_attestation_cmd(rest),
         "publish" => publish_cmd(rest),
         "fmt" => fmt(rest),
         "playground" => playground(rest),
@@ -5501,6 +5503,181 @@ fn publish_cmd(args: &[String]) -> ExitCode {
 /// The new binary is verified before the current one is touched. Verification
 /// uses the same explicit trust set as the registry; an unsigned archive is
 /// refused. The previous binary is kept as `<exe>.old` for rollback.
+
+/// `yashyc attest <tarball> --key-id <id> [--material <file>]...`
+fn attest_cmd(args: &[String]) -> ExitCode {
+    let mut artifact: Option<PathBuf> = None;
+    let mut key_id: Option<String> = None;
+    let mut materials: Vec<PathBuf> = Vec::new();
+    let mut iter = args.iter();
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
+            "--key-id" => match iter.next() {
+                Some(value) => key_id = Some(value.clone()),
+                None => return usage_error("`--key-id` needs a key name"),
+            },
+            "--material" => match iter.next() {
+                Some(value) => materials.push(PathBuf::from(value)),
+                None => return usage_error("`--material` needs a path"),
+            },
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `attest`"));
+            }
+            other => {
+                if artifact.is_some() {
+                    return usage_error("`attest` takes one artifact");
+                }
+                artifact = Some(PathBuf::from(other));
+            }
+        }
+    }
+    let Some(artifact) = artifact else {
+        return usage_error("`attest` needs an artifact path");
+    };
+    let Some(key_id) = key_id else {
+        return usage_error("`attest` needs `--key-id <id>`");
+    };
+    let seed_hex = match env::var("YASHY_SIGNING_SEED") {
+        Ok(text) => text,
+        Err(_) => return usage_error("`attest` needs `YASHY_SIGNING_SEED` (hex 32-byte seed)"),
+    };
+    let seed: Vec<u8> = match seed_hex
+        .as_bytes()
+        .chunks(2)
+        .map(|pair| std::str::from_utf8(pair).ok().and_then(|text| u8::from_str_radix(text, 16).ok()))
+        .collect()
+    {
+        Some(bytes) => bytes,
+        None => return usage_error("`YASHY_SIGNING_SEED` must be 64 hexadecimal digits"),
+    };
+    let bytes = match fs::read(&artifact) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            eprintln!("error: cannot read {}: {error}", artifact.display());
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    let mut digests = std::collections::BTreeMap::new();
+    for path in materials {
+        match fs::read(&path) {
+            Ok(bytes) => {
+                digests.insert(path.to_string_lossy().into_owned(), yashy_manifest::sha256_hex(&bytes));
+            }
+            Err(error) => {
+                eprintln!("error: cannot read material {}: {error}", path.display());
+                return exit_code(EXIT_USAGE);
+            }
+        }
+    }
+    let statement = yashy_manifest::for_artifact(
+        &artifact.to_string_lossy(),
+        &bytes,
+        host_target_triple(),
+        &format!("yashyc {}", env!("CARGO_PKG_VERSION")),
+        digests,
+    );
+    let attestation = PathBuf::from(format!("{}.attestation.json", artifact.display()));
+    let signature = match yashy_manifest::sign(&statement.bytes(), &key_id, &seed) {
+        Ok(signature) => signature,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    if let Err(error) = fs::write(&attestation, statement.bytes()) {
+        eprintln!("error: cannot write {}: {error}", attestation.display());
+        return exit_code(EXIT_INTERNAL);
+    }
+    let sig_path = PathBuf::from(format!("{}.attestation.sig", artifact.display()));
+    let mut sig_text = yashy_driver::registry::signature_json(&signature).render();
+    sig_text.push('\n');
+    if let Err(error) = fs::write(&sig_path, sig_text) {
+        eprintln!("error: cannot write {}: {error}", sig_path.display());
+        return exit_code(EXIT_INTERNAL);
+    }
+    println!("attestation: {}", attestation.display());
+    println!("signature:   {}", sig_path.display());
+    exit_code(EXIT_OK)
+}
+
+/// `yashyc verify-attestation <artifact> --attestation <file> --signature <file>`
+fn verify_attestation_cmd(args: &[String]) -> ExitCode {
+    let mut artifact: Option<PathBuf> = None;
+    let mut attestation: Option<PathBuf> = None;
+    let mut signature: Option<PathBuf> = None;
+    let mut iter = args.iter();
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
+            "--attestation" => match iter.next() {
+                Some(value) => attestation = Some(PathBuf::from(value)),
+                None => return usage_error("`--attestation` needs a path"),
+            },
+            "--signature" => match iter.next() {
+                Some(value) => signature = Some(PathBuf::from(value)),
+                None => return usage_error("`--signature` needs a path"),
+            },
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `verify-attestation`"));
+            }
+            other => artifact = Some(PathBuf::from(other)),
+        }
+    }
+    let (Some(artifact), Some(attestation), Some(signature)) = (artifact, attestation, signature) else {
+        return usage_error("`verify-attestation` needs an artifact, `--attestation` and `--signature`");
+    };
+    let bytes = match fs::read(&artifact) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            eprintln!("error: cannot read {}: {error}", artifact.display());
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    let statement = match fs::read(&attestation) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            eprintln!("error: cannot read {}: {error}", attestation.display());
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    let sig_text = match fs::read_to_string(&signature) {
+        Ok(text) => text,
+        Err(error) => {
+            eprintln!("error: cannot read {}: {error}", signature.display());
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    let keys = match yashy_driver::registry::load_keyring() {
+        Ok(keys) if !keys.is_empty() => keys,
+        Ok(_) => {
+            eprintln!("error: verification needs a trusted key; set YASHY_TRUSTED_KEY or YASHY_KEYRING");
+            return exit_code(EXIT_USAGE);
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    let parsed = match yashy_driver::registry::signature_from_text(&sig_text) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    if let Err(error) = yashy_driver::registry::verify_tarball(&statement, &parsed, &keys) {
+        eprintln!("error: attestation signature: {error}");
+        return exit_code(EXIT_COMPILE_ERROR);
+    }
+    let rendered = String::from_utf8_lossy(&statement);
+    let digest = yashy_manifest::sha256_hex(&bytes);
+    if !rendered.contains(&digest) {
+        eprintln!("error: the subject digest {digest} does not name this artifact");
+        return exit_code(EXIT_COMPILE_ERROR);
+    }
+    println!("attestation verified for {} ({digest})", artifact.display());
+    exit_code(EXIT_OK)
+}
+
 fn self_update_cmd(args: &[String]) -> ExitCode {
     let mut archive: Option<PathBuf> = None;
     let mut signature: Option<PathBuf> = None;

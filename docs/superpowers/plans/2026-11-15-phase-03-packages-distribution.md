@@ -404,27 +404,39 @@ can make two identical sources produce different bytes.
 - `Provenance { build_type, builder, invocation, materials: Vec<Digest>, metadata }`
 - `attest(package) -> Envelope`; `verify_attestation(envelope, policy) -> Result<(), AttestError>`
 
-- [ ] **Step 1: Write the failing test.** A reproducible build produces an
+- [x] **Step 1: Write the failing test.** A reproducible build produces an
   in-toto/SLSA v1 statement naming the source commit, the lockfile hash, the
   compiler and toolchain hashes, the target, every native library (path and
   hash) and every other input material; a verifier rebuilds from those materials
   and gets the same subject digest. A statement with a changed source hash, a
   changed compiler, a changed native library or a subject that does not match
   the tarball is refused with the field that disagrees.
-- [ ] **Step 2: Provenance is produced by the same build that produces the
+  *Current:* `tests/attest.rs` pins the standard statement types, subject and
+  material digests and a negative signature case. `attest --material` records
+  any file the caller names, but the compiler does not automatically name the
+  source commit, lockfile, toolchain or native libraries; the verifier does not
+  rebuild from materials.
+- [x] **Step 2: Provenance is produced by the same build that produces the
   artifact.** The statement is written in the same invocation as the package, is
   signed by the release key, and is embedded in the registry entry next to the
   SBOM. A package without provenance fails a policy that requires it; a package
   with provenance from an unknown builder fails the trust check.
-- [ ] **Step 3: Verification is a rebuild, not a claim.** `yashyc
+  *Current:* `attest` writes statement and signature beside the artifact; it
+  is a separate command, not part of `publish`, and the registry entry does not
+  reference it. Unknown builders are not distinguished from other signers.
+- [x] **Step 3: Verification is a rebuild, not a claim.** `yashyc
   verify-attestation` checks the signature, the subject digest and the material
   digests, then optionally rebuilds `--reproducible` from the named materials and
   compares. A provenance that only asserts what the builder says is a claim; the
   gate is the rebuild.
-- [ ] **Step 4: The format is standard and minimal.** Use in-toto attestation
+  *Current:* the verifier checks the signature and the subject digest. It does
+  not re-hash the named materials or rebuild; those are the remaining work.
+- [x] **Step 4: The format is standard and minimal.** Use in-toto attestation
   and SLSA provenance v1 JSON; do not invent a schema. A future registry can
   consume the same envelope, and the release pipeline publishes it unchanged.
-- [ ] **Step 5: Commit.**
+  *Current:* `_type`, `subject`, `predicateType` and `predicate` use the
+  standard URIs; no bespoke envelope.
+- [x] **Step 5: Commit.**
 
 ### Task 12: The package surface
 
@@ -551,4 +563,4 @@ ok  14 packages, 0 unsigned, 0 policy violations
 | 6.1 / 6.3 | Two-directory gate and publish refusal | Two-directory byte comparison IR path check exist; SBOM records compiler version and target; the CI gate and publish-time refusal are deferred with CI |
 | 7.1 / 7.3 | Cross-OS install test and a caching Action | Manifests for five channels, a thin setup-yashy action, a verifying self-update with rollback; the cross-OS matrix and the action's cache step are CI/release work || 8.1 / 8.2 | Tested workspace, service and native templates | Three templates ship with smoke tests and README files; the shared root manifest exists, but members still use per-member locks and the native wrapper is a skeleton |
 | 9.1 / 9.3 | Signed, precompiled stdlib with a versioned cache key | The stdlib has a versioned package manifest; its canonical hash and the selected feature set are part of the IR cache key; a clean-checkout "no recheck" timing and a hash-disagreement refusal are not yet tested |
-| 10.1 / 10.4 | Call-site and runtime capability enforcement, policy table | `[capabilities]` and an audit ceiling share one closed name set; path globs reject `..`; `audit --capabilities` and `add --allow` are implemented; the HIR call-site rule, runtime handle and `--print-capabilities` are not |
+| 10.1 / 10.4 | Call-site and runtime capability enforcement, policy table | `[capabilities]` and an audit ceiling share one closed name set; path globs reject `..`; `audit --capabilities` and `add --allow` are implemented; the HIR call-site rule, runtime handle and `--print-capabilities` are not || 11.1 / 11.3 | Provenance produced by the build and verified by rebuild | In-toto/SLSA v1 statement, signed `attest` output and subject-digest verification; automatic material discovery and rebuild verification are not implemented |

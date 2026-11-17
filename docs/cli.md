@@ -1087,6 +1087,14 @@ optional = true
 `feature:<name>` keys. An optional dependency is resolved only when its feature
 is enabled; an unknown feature is a diagnostic.
 
+### Provenance
+
+`yashyc attest <artifact> --key-id <id> [--material <file>]...` writes a signed
+in-toto/SLSA v1 statement beside the artifact; `yashyc verify-attestation`
+checks its signature and subject digest. See [provenance.md](provenance.md).
+A rebuild from the named materials is a stronger check than the statement and
+is not performed by the verifier yet.
+
 ### Capabilities
 
 A package declares permissions in `[capabilities]`; a missing declaration is no
