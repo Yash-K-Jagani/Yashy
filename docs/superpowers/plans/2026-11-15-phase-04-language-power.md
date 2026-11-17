@@ -95,13 +95,13 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 - Test: `crates/yashy-driver/tests/modules.rs`, `crates/yashy-sema/tests/visibility.rs`
 
 - [ ] **Step 1: Write the failing test.** `type Pair[T] = (T, T);`, `pub(crate) fn`, `pub(super) fn`, `pub(in crate::db) fn`, and `pub use db::Row;`. Assert an out-of-scope use is refused with the span of the declaration and the use; assert `index --json` shows the re-export once, with the original span.
-- [ ] **Step 2: Aliases are transparent.** An alias expands at resolution and never reaches HIR as a distinct type. A recursive alias is `E15xx`; an alias that shadows a type is refused.
-  *Current:* `type Name = Target;` parses as an `Item::TypeAlias`, the checker
-  resolves the target during the declaration pass and stores the resulting
-  `TypeKind`, and type resolution returns that kind under the alias's span. No
-  HIR item is emitted, and shadowing an existing type is refused. A recursive
-  generic aliases (`type Pair[T] = (T, T)`) are now substituted at each use; a
-  recursive alias is still reported as an unknown type rather than a dedicated E15xx.
+- [x] **Step 2: Aliases are transparent.** An alias expands at resolution and never reaches HIR as a distinct type. A recursive alias is `E15xx`; an alias that shadows a type is refused.
+  *Current:* `type Name = Target;` and `type Pair[T] = (T, T)` both parse;
+  plain aliases resolve their target once at declaration, generic aliases
+  substitute the written arguments at each use with the checker's existing
+  type-expression substitution helper, and neither emits an HIR item. Shadowing
+  an existing type is refused, and a target that mentions its own alias name is
+  E1519 with a catalog page and type rule (TYPE-11).
 - [ ] **Step 3: Visibility is one lattice.** `private < pub(crate) < pub(super) < pub(in path) < pub` is not a total order; the checker compares the declaring module and the use site, not a rank. `pub use` re-exports the item once; two paths to one item are one symbol in `index`.
 - [ ] **Step 4: Commit.**
 
