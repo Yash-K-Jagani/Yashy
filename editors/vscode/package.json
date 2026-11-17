@@ -1,7 +1,7 @@
 {
   "name": "yashy",
   "displayName": "Yashy",
-  "description": "Syntax highlighting for the Yashy language",
+  "description": "Yashy language support: LSP, DAP, tasks, snippets and doctor",
   "version": "0.1.0",
   "publisher": "yashy",
   "license": "MIT",
@@ -9,6 +9,16 @@
     "vscode": "^1.75.0"
   },
   "categories": ["Programming Languages"],
+  "activationEvents": ["onLanguage:yashy"],
+  "main": "./out/extension.js",
+  "scripts": {
+    "compile": "tsc -p ."
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.75.0",
+    "typescript": "^5.0.0",
+    "vscode-languageclient": "^9.0.0"
+  },
   "contributes": {
     "languages": [
       {
@@ -23,6 +33,72 @@
         "language": "yashy",
         "scopeName": "source.yashy",
         "path": "./syntaxes/yashy.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "yashy",
+        "path": "./snippets/yashy.json"
+      }
+    ],
+    "commands": [
+      { "command": "yashyc.check", "title": "Yashy: Check file" },
+      { "command": "yashyc.test", "title": "Yashy: Run tests" },
+      { "command": "yashyc.doctor", "title": "Yashy: Doctor" }
+    ],
+    "configuration": {
+      "title": "Yashy",
+      "properties": {
+        "yashyc.path": {
+          "type": "string",
+          "default": "yashyc",
+          "description": "The yashyc executable to use for the language server and tasks."
+        },
+        "yashyc.extraArgs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Extra arguments passed to the language server."
+        },
+        "yashyc.tasks": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Task names from yashy.toml to expose as VS Code tasks."
+        }
+      }
+    },
+    "taskDefinitions": [
+      {
+        "type": "yashy",
+        "required": ["task"],
+        "properties": {
+          "task": { "type": "string", "description": "The task from yashy.toml." }
+        }
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "yashy",
+        "label": "Yashy",
+        "languages": ["yashy"],
+        "configurationAttributes": {
+          "launch": {
+            "required": ["program"],
+            "properties": {
+              "program": { "type": "string", "description": "The .ya entry file." },
+              "args": { "type": "array", "items": { "type": "string" }, "default": [] }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "yashy",
+            "request": "launch",
+            "name": "Debug Yashy program",
+            "program": "${file}"
+          }
+        ]
       }
     ]
   }

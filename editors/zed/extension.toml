@@ -1,0 +1,5 @@
+[extension]
+name = "yashy"
+version = "0.1.0"
+description = "Yashy language support: grammar, LSP and diagnostics"
+repository = "https://github.com/Yash-K-Jagani/Yashy"

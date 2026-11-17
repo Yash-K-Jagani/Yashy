@@ -316,28 +316,45 @@ This phase makes both renderings of the compiler's facts.
 - `render_textmate(&GrammarModel) -> String`, `render_tree_sitter(&GrammarModel) -> String`, `render_vim`, `render_emacs`
 - `yashyc tokens --grammar <dir>` writes every generated file.
 
-- [ ] **Step 1: Write the failing test.** Run `yashyc tokens --grammar
+- [x] **Step 1: Write the failing test.** Run `yashyc tokens --grammar
   editors/grammars` and assert `git diff --exit-code` is clean; add a keyword to
   `TokenKind::KEYWORDS` and assert generation fails until the files are
   rewritten. Every keyword, operator and delimiter has exactly one highlight
   class, and TextMate, tree-sitter, Vim and Emacs list the same set.
-- [ ] **Step 2: One model, several renderings.** The lexer owns the token
+  *Current:* `tests/grammar.rs` compares every committed file's bytes with the
+  renderer and builds a model with one extra keyword to prove the files go
+  stale. The bash/CI `git diff --exit-code` wrapper is deferred with CI; the
+  byte comparison is the same gate inside `cargo test`. The command accepts
+  both `editors` and `editors/grammars` as its directory.
+- [x] **Step 2: One model, several renderings.** The lexer owns the token
   classes; the generator owns the file formats. Tree-sitter's rule skeleton is
   hand-written once, but its keyword and operator tables are generated from the
   same model. The existing keyword drift test stays as the backstop rather than
   the mechanism.
-- [ ] **Step 3: Wire the clients.** VS Code gets a thin
+  *Current:* `GrammarModel` is built from `TokenKind::KEYWORDS`,
+  `TokenKind::PUNCTUATION` and the type list; a lexer unit test lexes every
+  punctuation spelling back to its own kind, so a new operator fails before a
+  grammar is generated. The LSP drift test now targets the
+  `keyword.control.yashy` rule so the operator rule's `(?:…)` is not mistaken
+  for a keyword list.
+- [x] **Step 3: Wire the clients.** VS Code gets a thin
   `vscode-languageclient` extension, a DAP configuration that calls `yashyc
   debug`, a task provider for `yashyc task`, a `doctor` status item, snippets
   and a language configuration. Neovim gets `vim.lsp.start`, the generated
   tree-sitter grammar, `:make` mapped to `yashyc check` and a DAP config.
   Helix, Zed, Emacs and JetBrains get documented LSP/DAP configurations that
   point at `yashyc lsp --stdio`; none of them bundles a second compiler.
-- [ ] **Step 4: Two gated, four documented.** VS Code and Neovim are the gate;
+  *Current:* all six clients and their configs are committed. `yashyc debug`
+  is not implemented yet (Task 6), so the DAP launch entry is declared but
+  named as pending in the VS Code README rather than claimed as working.
+- [x] **Step 4: Two gated, four documented.** VS Code and Neovim are the gate;
   the other editor configurations are validated when the editor's headless CLI
   is available and are cuttable. Format-on-save, run, test and debug work from
   the same compiler verbs, never from an editor-only script.
-- [ ] **Step 5: Commit.**
+  *Current:* the shared LSP transcript is `yashy-lsp/tests/conformance.rs`, and
+  the client configs are asserted by `tests/grammar.rs`. Running the transcript
+  inside real VS Code and Neovim is a CI/headless job the owner deferred.
+- [x] **Step 5: Commit.**
 
 ### Task 10: The terminal surface
 
@@ -493,7 +510,7 @@ still owed so a later phase does not inherit a false checklist.
 | 6 | DWARF/CodeView debugger, async task view, pretty printers | Not started; `run --debug` still writes an LLDB script | Build the debugger |
 | 7 | Sampling and allocation profilers, source coverage | Not started; `profile` is still the 1.0 counter profiler | Build the profilers and `coverage` |
 | 8.1 / 8.2 | `inspect --addr`, contracts, layout, `trace --events`, `tokens --bpe` | `inspect --json` reports signature, effects, docs and span; `tokens --grammar` exists; `--addr`, contracts, layout, `trace` and `--bpe` do not | Add the missing inspection verbs and the BPE measurement |
-| 9 | One generated grammar, six clients, `editors` CI job | The 1.0 hand-maintained grammar tests still exist; no generator, no clients, no CI job | Build the grammar model and the two gated clients |
+| 9 | One generated grammar, six clients, `editors` CI job | One model drives 11 generated files; all six clients are committed; `tests/grammar.rs` is the byte gate and the LSP conformance transcript is shared; no `editors` CI job yet, and the real-editor run is deferred with CI | Add the `editors` job when CI is unblocked |
 | 10.1 / 10.3 / 10.4 / 10.5 | Colour policy, `NO_COLOR`/`CLICOLOR`/`TERM=dumb`/`COLUMNS`, committed completions, pager, hyperlinks | `term.rs` implements the colour, width, pager and OSC 8 policies; `scripts/completions/*` are committed and diff-tested; `docs/terminal.md` documents the install; a signal-killed child reports `1` instead of re-raising the signal | Re-raise the child's signal on Unix |
 | Gates | LSP conformance in two editors, debugger and profiler demos, terminal matrix, `editors` job | `cargo check --workspace --all-targets` is green; runtime gates cannot run locally (Windows Application Control) and CI is deferred | Re-run the full gate set when CI is unblocked |
 

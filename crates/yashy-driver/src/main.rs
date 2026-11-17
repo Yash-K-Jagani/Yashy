@@ -219,6 +219,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "test" => test(rest),
         "cache" => cache_cmd(rest),
         "inspect" => inspect_cmd(rest),
+        "tokens" => tokens(rest),
         "serve" => serve(rest),
         "watch" => watch_cmd(rest),
         "explain" => explain(rest),
@@ -1513,6 +1514,78 @@ fn position_of(path: &str, offset: u32) -> (u32, u32) {
         }
     }
     (line, column)
+}
+
+/// `yashyc tokens <file.ya> [--json]` or `yashyc tokens --grammar <dir>`.
+///
+/// The first form is the lexer's own view of a file. The second regenerates
+/// every committed editor grammar from the same token classes the lexer uses.
+fn tokens(args: &[String]) -> ExitCode {
+    let mut json = false;
+    let mut grammar: Option<PathBuf> = None;
+    let mut operands: Vec<String> = Vec::new();
+    let mut iter = args.iter();
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
+            "--json" => json = true,
+            "--grammar" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`--grammar` needs a directory");
+                };
+                grammar = Some(PathBuf::from(value));
+            }
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `tokens`"));
+            }
+            other => operands.push(other.to_string()),
+        }
+    }
+    if let Some(dir) = grammar {
+        if !operands.is_empty() {
+            return usage_error("`tokens --grammar` takes no source file");
+        }
+        let written = match yashy_driver::grammar::write_all(&dir) {
+            Ok(files) => files,
+            Err(error) => {
+                eprintln!("error: cannot write the editor grammars: {error}");
+                return exit_code(EXIT_USAGE);
+            }
+        };
+        if json {
+            let paths: Vec<Json> = written
+                .iter()
+                .map(|path| Json::string(path.to_string_lossy().replace('\\', "/")))
+                .collect();
+            let mut report = Json::object();
+            report.set("schema_version", Json::number(1));
+            report.set("tool", Json::string("tokens"));
+            report.set("written", Json::array(paths));
+            println!("{}", report.render());
+        } else {
+            println!("wrote {} editor files under {}", written.len(), dir.display());
+        }
+        return exit_code(EXIT_OK);
+    }
+    let Some(file) = operands.first() else {
+        return usage_error("`tokens` needs a source file, or `--grammar <dir>`");
+    };
+    if operands.len() > 1 {
+        return usage_error("`tokens` takes one source file");
+    }
+    let source = match read_source_with(&PathBuf::from(file), EXIT_USAGE) {
+        Ok(source) => source,
+        Err(code) => return code,
+    };
+    match yashy_driver::tokens::dump_json(&source, file) {
+        Ok(report) => {
+            println!("{}", report.render());
+            exit_code(EXIT_OK)
+        }
+        Err(message) => {
+            eprintln!("error: {message}");
+            exit_code(EXIT_COMPILE_ERROR)
+        }
+    }
 }
 
 /// `yashyc cache verify <file.ya>`: recompute the v2 key for a source and say

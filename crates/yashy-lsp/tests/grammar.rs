@@ -38,7 +38,7 @@ fn collect_keywords(value: &Value, out: &mut Vec<String>) {
     match value {
         Value::Obj(fields) => {
             if let Some(name) = value.get("name").and_then(Value::as_str) {
-                if name.starts_with("keyword.") {
+                if name == "keyword.control.yashy" {
                     if let Some(pattern) = value.get("match").and_then(Value::as_str) {
                         out.extend(alternatives(pattern));
                     }
@@ -113,7 +113,10 @@ fn the_vscode_extension_points_at_its_grammar_and_configuration() {
         .expect("the grammar has a scope");
     assert_eq!(scope, "source.yashy");
     assert!(
-        editors().join("vscode").join(path.trim_start_matches("./")).is_file(),
+        editors()
+            .join("vscode")
+            .join(path.trim_start_matches("./"))
+            .is_file(),
         "the grammar path `{path}` must exist"
     );
     let configuration = read(editors().join("vscode/language-configuration.json"));

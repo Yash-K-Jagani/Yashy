@@ -1,0 +1,91 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Yashy",
+  "scopeName": "source.yashy",
+  "fileTypes": [
+    "ya"
+  ],
+  "patterns": [
+    {
+      "include": "#docs"
+    },
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#characters"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#types"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#delimiters"
+    }
+  ],
+  "repository": {
+    "docs": {
+      "name": "comment.line.documentation.yashy",
+      "match": "///.*$"
+    },
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.yashy",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.yashy",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.yashy",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.yashy",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "characters": {
+      "name": "string.quoted.single.yashy",
+      "match": "'(\\\\.|[^'\\\\])'"
+    },
+    "numbers": {
+      "name": "constant.numeric.yashy",
+      "match": "\\b(?:\\d+\\.\\d+|\\d+)\\b"
+    },
+    "keywords": {
+      "name": "keyword.control.yashy",
+      "match": "\\b(?:invariant|continue|requires|default|ensures|extern|import|object|return|struct|switch|unsafe|async|await|break|const|defer|false|macro|trait|while|case|else|enum|impl|move|pure|repr|true|cfg|for|let|pub|var|as|fn|if|in|io)\\b"
+    },
+    "types": {
+      "name": "support.type.yashy",
+      "match": "\\b(?:Iterator|Channel|Option|Result|string|Mutex|float|usize|Self|Task|bool|char|void|f64|i32|i64|int|u8)\\b"
+    },
+    "operators": {
+      "name": "keyword.operator.yashy",
+      "match": "(?:<<=|>>=|!=|%=|&&|&=|\\*=|\\+=|-=|/=|<<|<=|==|>=|>>|\\^=|\\|=|\\|\\||!|%|&|\\*|\\+|-|/|<|=|>|\\^|\\||~)"
+    },
+    "delimiters": {
+      "name": "punctuation.yashy",
+      "match": "(?:\\.\\.\\.|->|\\.\\.|::|:=|=>|\\$|\\(|\\)|,|\\.|:|;|\\?|@|\\[|\\]|\\{|\\})"
+    }
+  }
+}

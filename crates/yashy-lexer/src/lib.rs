@@ -43,6 +43,7 @@
 //! assert_eq!(eof.span.end, 12);
 //! ```
 
+pub mod grammar;
 pub mod lexer;
 pub mod token;
 

@@ -69,24 +69,16 @@ pub fn literal_as_i64(src: &str, span: Span, file: FileId) -> Result<i64, Diagno
     // with their separators removed. `0x` with nothing after it is not a
     // literal the lexer emits, but this function is also reachable from a
     // caller that sliced a span by hand, so it refuses rather than guessing.
-    let (digits, radix) = if let Some(rest) = text
-        .strip_prefix("0x")
-        .or_else(|| text.strip_prefix("0X"))
-    {
-        (rest, 16)
-    } else if let Some(rest) = text
-        .strip_prefix("0b")
-        .or_else(|| text.strip_prefix("0B"))
-    {
-        (rest, 2)
-    } else if let Some(rest) = text
-        .strip_prefix("0o")
-        .or_else(|| text.strip_prefix("0O"))
-    {
-        (rest, 8)
-    } else {
-        (text, 10)
-    };
+    let (digits, radix) =
+        if let Some(rest) = text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
+            (rest, 16)
+        } else if let Some(rest) = text.strip_prefix("0b").or_else(|| text.strip_prefix("0B")) {
+            (rest, 2)
+        } else if let Some(rest) = text.strip_prefix("0o").or_else(|| text.strip_prefix("0O")) {
+            (rest, 8)
+        } else {
+            (text, 10)
+        };
     let cleaned = strip_separators(digits, radix);
     let Some(cleaned) = cleaned else {
         // The lexer never emits a span covering anything but a well-formed
@@ -130,7 +122,10 @@ pub fn char_literal_value(src: &str, span: Span, file: FileId) -> Result<u8, Dia
             ))
         }
     };
-    let body = match text.strip_prefix('\'').and_then(|rest| rest.strip_suffix('\'')) {
+    let body = match text
+        .strip_prefix('\'')
+        .and_then(|rest| rest.strip_suffix('\''))
+    {
         Some(body) => body,
         None => {
             return Err(error::invalid_char_literal(
@@ -386,7 +381,10 @@ pub fn split_interpolation(raw: &str) -> Result<Vec<StringPiece>, LitError> {
                     }
                 };
                 text.push(decode_escape(escaped).ok_or_else(|| {
-                    LitError::new(at, format!("unknown escape `\\{}`", printable_byte(escaped)))
+                    LitError::new(
+                        at,
+                        format!("unknown escape `\\{}`", printable_byte(escaped)),
+                    )
                 })?);
                 at = at.saturating_add(2);
             }
@@ -558,7 +556,10 @@ fn flush_text(pieces: &mut Vec<StringPiece>, text: &mut Vec<u8>) -> Result<(), L
     // ever inserted -- but a `Result` here costs nothing and rules out an
     // `unwrap` in a component whose whole job is not crashing.
     let value = String::from_utf8(std::mem::take(text)).map_err(|e| {
-        LitError::new(0, format!("the literal is not valid UTF-8: {}", e.utf8_error()))
+        LitError::new(
+            0,
+            format!("the literal is not valid UTF-8: {}", e.utf8_error()),
+        )
     })?;
     let bytes = value.as_bytes().to_vec();
     pieces.push(StringPiece::Text(StringLit { value, bytes }));
@@ -817,11 +818,105 @@ impl TokenKind {
     /// (`crates/yashy-lsp/tests/grammar.rs` depends on this crate): adding a
     /// keyword without a grammar entry fails that test, so keep the two in
     /// step.
+    /// Every punctuation kind, in the order the enum declares them.
+    ///
+    /// The editor grammar generator reads this table so that a new operator
+    /// cannot be lexed without also being highlighted. The unit test in
+    /// `lexer.rs` lexes each spelling back to its own kind, which keeps the
+    /// table honest if a spelling is changed.
+    pub const PUNCTUATION: &'static [TokenKind] = &[
+        TokenKind::LParen,
+        TokenKind::RParen,
+        TokenKind::LBrace,
+        TokenKind::RBrace,
+        TokenKind::LBracket,
+        TokenKind::RBracket,
+        TokenKind::Comma,
+        TokenKind::Semi,
+        TokenKind::Colon,
+        TokenKind::ColonColon,
+        TokenKind::ColonEq,
+        TokenKind::Dot,
+        TokenKind::DotDot,
+        TokenKind::DotDotDot,
+        TokenKind::Arrow,
+        TokenKind::FatArrow,
+        TokenKind::Dollar,
+        TokenKind::At,
+        TokenKind::Question,
+        TokenKind::Plus,
+        TokenKind::Minus,
+        TokenKind::Star,
+        TokenKind::Slash,
+        TokenKind::Percent,
+        TokenKind::Eq,
+        TokenKind::EqEq,
+        TokenKind::Bang,
+        TokenKind::BangEq,
+        TokenKind::Lt,
+        TokenKind::LtEq,
+        TokenKind::Gt,
+        TokenKind::GtEq,
+        TokenKind::PlusEq,
+        TokenKind::MinusEq,
+        TokenKind::StarEq,
+        TokenKind::SlashEq,
+        TokenKind::PercentEq,
+        TokenKind::AndAnd,
+        TokenKind::OrOr,
+        TokenKind::Pipe,
+        TokenKind::Amp,
+        TokenKind::Caret,
+        TokenKind::Tilde,
+        TokenKind::Shl,
+        TokenKind::Shr,
+        TokenKind::AmpEq,
+        TokenKind::PipeEq,
+        TokenKind::CaretEq,
+        TokenKind::ShlEq,
+        TokenKind::ShrEq,
+    ];
+
     pub const KEYWORDS: [&'static str; 39] = [
-        "fn", "struct", "enum", "const", "var", "let", "import", "extern", "unsafe", "pure", "io", "async",
-        "await", "defer", "return", "break", "continue", "if", "else", "for", "while", "in", "switch", "case",
-        "default", "as", "move", "true", "false", "impl", "object", "trait", "macro", "pub", "requires",
-        "ensures", "invariant", "repr", "cfg",
+        "fn",
+        "struct",
+        "enum",
+        "const",
+        "var",
+        "let",
+        "import",
+        "extern",
+        "unsafe",
+        "pure",
+        "io",
+        "async",
+        "await",
+        "defer",
+        "return",
+        "break",
+        "continue",
+        "if",
+        "else",
+        "for",
+        "while",
+        "in",
+        "switch",
+        "case",
+        "default",
+        "as",
+        "move",
+        "true",
+        "false",
+        "impl",
+        "object",
+        "trait",
+        "macro",
+        "pub",
+        "requires",
+        "ensures",
+        "invariant",
+        "repr",
+        "cfg",
     ];
 
     pub fn keyword(text: &str) -> Option<TokenKind> {
@@ -1119,15 +1214,30 @@ mod tests {
     #[test]
     fn the_keyword_table_is_in_both_directions() {
         for (text, kind) in KEYWORDS {
-            assert_eq!(TokenKind::keyword(text), Some(kind), "{text:?} must be a keyword");
-            assert_eq!(kind.spelling(), Some(text), "{kind:?} must be spelled {text:?}");
-            assert!(kind.is_keyword(), "{text:?} must report itself as a keyword");
+            assert_eq!(
+                TokenKind::keyword(text),
+                Some(kind),
+                "{text:?} must be a keyword"
+            );
+            assert_eq!(
+                kind.spelling(),
+                Some(text),
+                "{kind:?} must be spelled {text:?}"
+            );
+            assert!(
+                kind.is_keyword(),
+                "{text:?} must report itself as a keyword"
+            );
         }
 
         // Nothing else is a keyword. `fnx` is the interesting one: a prefix
         // match would accept it.
         for text in ["fnx", "Fn", "iffy", "trueish", "", " let", "fn "] {
-            assert_eq!(TokenKind::keyword(text), None, "{text:?} must not be a keyword");
+            assert_eq!(
+                TokenKind::keyword(text),
+                None,
+                "{text:?} must not be a keyword"
+            );
         }
     }
 
@@ -1229,13 +1339,22 @@ mod tests {
             assert!(!described.is_empty(), "{kind:?} has no description");
             match kind.spelling() {
                 Some(spelling) => {
-                    assert_eq!(described, format!("`{spelling}`"), "{kind:?} must be named by its spelling");
+                    assert_eq!(
+                        described,
+                        format!("`{spelling}`"),
+                        "{kind:?} must be named by its spelling"
+                    );
                     assert!(!spelling.is_empty(), "{kind:?} has an empty spelling");
                 }
                 None => assert!(
                     matches!(
                         described.as_str(),
-                        "an identifier" | "an integer literal" | "a float literal" | "a string literal" | "a character literal" | "end of file"
+                        "an identifier"
+                            | "an integer literal"
+                            | "a float literal"
+                            | "a string literal"
+                            | "a character literal"
+                            | "end of file"
                     ),
                     "{kind:?} has no spelling, so it must be named by what it is: {described}"
                 ),
@@ -1291,7 +1410,11 @@ mod tests {
                 Err(e) => e,
             };
             assert_eq!(err.offset, offset, "{raw:?}");
-            assert!(err.message.contains(expected_in_message), "{raw:?}: {}", err.message);
+            assert!(
+                err.message.contains(expected_in_message),
+                "{raw:?}: {}",
+                err.message
+            );
         }
     }
 

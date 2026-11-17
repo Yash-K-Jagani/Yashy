@@ -16,6 +16,7 @@ pub mod daemon_protocol;
 pub mod doc;
 pub mod fetch;
 pub mod fix;
+pub mod grammar;
 pub mod index;
 pub mod lint;
 pub mod mcp;
@@ -34,6 +35,7 @@ pub mod target;
 pub mod task;
 pub mod term;
 pub mod test_harness;
+pub mod tokens;
 pub mod toolchain;
 pub mod watch;
 

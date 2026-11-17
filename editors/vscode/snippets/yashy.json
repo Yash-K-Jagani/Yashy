@@ -1,0 +1,32 @@
+{
+  "Yashy function": {
+    "prefix": "fn",
+    "body": ["fn ${1:name}(${2:int x}) -> ${3:int} {", "\t$0", "}"],
+    "description": "Declare a function with a return type"
+  },
+  "Yashy struct": {
+    "prefix": "struct",
+    "body": ["struct ${1:Name} {", "\t${2:field}: ${3:int}", "}"],
+    "description": "Declare a struct with named fields"
+  },
+  "Yashy switch": {
+    "prefix": "switch",
+    "body": [
+      "switch ${1:value} {",
+      "\tcase ${2:pattern} -> ${3:result}",
+      "\tcase _ -> ${4:other}",
+      "}"
+    ],
+    "description": "An exhaustive switch"
+  },
+  "Yashy async function": {
+    "prefix": "async",
+    "body": ["async fn ${1:name}() -> ${2:Task[int]} {", "\t$0", "}"],
+    "description": "An async function returns a Task"
+  },
+  "Yashy test": {
+    "prefix": "test",
+    "body": ["fn main() {", "\tassert(${1:true});", "}"],
+    "description": "A test is an ordinary program with a main"
+  }
+}

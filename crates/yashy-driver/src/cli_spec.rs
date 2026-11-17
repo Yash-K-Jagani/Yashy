@@ -186,6 +186,13 @@ pub const COMMANDS: &[CommandSpec] = &[
         takes_path: false,
     },
     CommandSpec {
+        name: "tokens",
+        summary: "dump a file's tokens or regenerate the editor grammars",
+        usage: "yashyc tokens [--json] <file.ya> | tokens --grammar <dir>",
+        flags: &["--json", "--grammar"],
+        takes_path: true,
+    },
+    CommandSpec {
         name: "lint",
         summary: "report style and correctness advice",
         usage: "yashyc lint [--list|--docs] [--json] [--group <g>] [--deny <code>] <file.ya>",

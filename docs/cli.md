@@ -829,6 +829,26 @@ Windows, and a gate that fails on a clean checkout is a gate people disable.
 
 Prints the compiler version.
 
+## `yashyc tokens <file.ya> [--json]` / `yashyc tokens --grammar <dir>`
+
+The first form prints the lexer's view of one source file: each token's kind,
+written text and half-open byte span, in a schema-v1 envelope. It is the
+fastest way to see what the parser will see when a diagnostic or a grammar
+looks wrong.
+
+The second form regenerates all editor grammars from the lexer's own tables.
+Both `editors` and `editors/grammars` are accepted as the directory:
+
+```text
+yashyc tokens --grammar editors
+yashyc tokens --grammar editors/grammars
+```
+
+It writes the canonical TextMate, Vim, Emacs, Helix and tree-sitter files plus
+their client copies. `cargo test -p yashy-driver --test grammar` compares every
+file with the renderer, so a keyword added to the lexer cannot be highlighted
+in one editor and missing from another. See [editors/README.md](../editors/README.md).
+
 ## `yashyc index [path] [--json]`
 
 Walks a directory (or one file) and prints the symbol index: every top-level

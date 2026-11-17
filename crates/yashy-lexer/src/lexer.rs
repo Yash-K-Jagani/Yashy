@@ -63,7 +63,12 @@ impl<'src> Lexer<'src> {
 
     /// A lexer for `src`, attributing diagnostics to `file`.
     pub fn with_file(src: &'src str, file: FileId) -> Lexer<'src> {
-        Lexer { src, file, pos: 0, diags: DiagnosticBag::new() }
+        Lexer {
+            src,
+            file,
+            pos: 0,
+            diags: DiagnosticBag::new(),
+        }
     }
 
     /// The file this lexer reports diagnostics against.
@@ -94,11 +99,17 @@ impl<'src> Lexer<'src> {
             }
             let start = self.pos;
             match self.scan_token() {
-                Ok(Some(kind)) => tokens.push(Token { kind, span: self.span_of(start, self.pos) }),
+                Ok(Some(kind)) => tokens.push(Token {
+                    kind,
+                    span: self.span_of(start, self.pos),
+                }),
                 // Past the end of the source: the stream is finished.
                 Ok(None) => {
                     let end = self.src.len();
-                    tokens.push(Token { kind: TokenKind::Eof, span: self.span_of(end, end) });
+                    tokens.push(Token {
+                        kind: TokenKind::Eof,
+                        span: self.span_of(end, end),
+                    });
                     return Ok(tokens);
                 }
                 Err(_) => return Err(self.take_diags()),
@@ -324,7 +335,11 @@ impl<'src> Lexer<'src> {
             return self.report(error::invalid_numeric_literal(self.file, span));
         }
 
-        Ok(if is_float { TokenKind::F64 } else { TokenKind::I64 })
+        Ok(if is_float {
+            TokenKind::F64
+        } else {
+            TokenKind::I64
+        })
     }
 
     /// Scans digits of `radix`, allowing `_` only between two of them.
@@ -428,8 +443,7 @@ impl<'src> Lexer<'src> {
                         Ok(width) => at = at.saturating_add(width),
                         Err(failure) => {
                             let bad = at.saturating_add(failure.offset).min(self.src.len());
-                            let span =
-                                self.span_of(bad, bad.saturating_add(1).min(self.src.len()));
+                            let span = self.span_of(bad, bad.saturating_add(1).min(self.src.len()));
                             return self.report(error::invalid_interpolation(
                                 self.file,
                                 span,
@@ -560,7 +574,10 @@ impl<'src> Lexer<'src> {
                 // The span covers the whole character, not just its first byte:
                 // a caret one byte wide under a two-byte character points at
                 // half of it.
-                let found = self.src.get(self.pos..).and_then(|rest| rest.chars().next());
+                let found = self
+                    .src
+                    .get(self.pos..)
+                    .and_then(|rest| rest.chars().next());
                 let width = found.map_or(1, |ch| ch.len_utf8());
                 let span = self.span_of(self.pos, self.pos.saturating_add(width));
                 return self.report(error::unexpected_character(self.file, span, found));
@@ -659,7 +676,7 @@ fn operator(first: u8, second: Option<u8>, third: Option<u8>) -> Option<(usize, 
         // One-character operators. `&`, `^` and `~` are the bitwise forms;
         // `&` is matched with its `&&` sibling above, and `|` with `||`. The
         // longest match wins, so `&` is only reached when no `&&` or `&=` fits.
-        (b'=' , _) => (1, K::Eq),
+        (b'=', _) => (1, K::Eq),
         (b'!', _) => (1, K::Bang),
         (b'<', _) => (1, K::Lt),
         (b'>', _) => (1, K::Gt),
@@ -750,7 +767,10 @@ mod tests {
     fn lex(src: &str) -> Vec<Token> {
         match Lexer::new(src).tokenize() {
             Ok(tokens) => tokens,
-            Err(diags) => panic!("expected {src:?} to lex, got {:?}", diags.iter().map(|d| d.message.clone()).collect::<Vec<_>>()),
+            Err(diags) => panic!(
+                "expected {src:?} to lex, got {:?}",
+                diags.iter().map(|d| d.message.clone()).collect::<Vec<_>>()
+            ),
         }
     }
 
@@ -768,7 +788,9 @@ mod tests {
     fn char_value(src: &str) -> Result<u8, Diagnostic> {
         let mut sm = yashy_common::SourceMap::new();
         let file = sm.add_file("t.ya", src.to_string());
-        let tokens = Lexer::new(src).tokenize().expect("the lexer does not panic");
+        let tokens = Lexer::new(src)
+            .tokenize()
+            .expect("the lexer does not panic");
         crate::token::char_literal_value(src, tokens[0].span, file)
     }
 
@@ -803,8 +825,20 @@ mod tests {
 
     #[test]
     fn an_empty_source_is_one_eof_token() {
-        assert_eq!(lex(""), vec![Token { kind: TokenKind::Eof, span: Span::new(0, 0) }]);
-        assert_eq!(lex("   \n\t\r\n"), vec![Token { kind: TokenKind::Eof, span: Span::new(7, 7) }]);
+        assert_eq!(
+            lex(""),
+            vec![Token {
+                kind: TokenKind::Eof,
+                span: Span::new(0, 0)
+            }]
+        );
+        assert_eq!(
+            lex("   \n\t\r\n"),
+            vec![Token {
+                kind: TokenKind::Eof,
+                span: Span::new(7, 7)
+            }]
+        );
     }
 
     #[test]
@@ -814,8 +848,15 @@ mod tests {
                 continue; // Reported by `an_unknown_byte_is_a_diagnostic`.
             }
             let tokens = lex(src);
-            assert!(tokens.last().map(|t| t.kind.is_eof()).unwrap_or(false), "{src:?}");
-            assert_eq!(tokens.len(), 1 + tokens.iter().filter(|t| !t.kind.is_eof()).count(), "{src:?}");
+            assert!(
+                tokens.last().map(|t| t.kind.is_eof()).unwrap_or(false),
+                "{src:?}"
+            );
+            assert_eq!(
+                tokens.len(),
+                1 + tokens.iter().filter(|t| !t.kind.is_eof()).count(),
+                "{src:?}"
+            );
             let eof = tokens.last().expect("checked above");
             let end = u32::try_from(src.len()).unwrap_or(u32::MAX);
             assert_eq!(eof.span, Span::new(end, end), "{src:?}");
@@ -827,8 +868,14 @@ mod tests {
         let tokens = lex("fn f(i64 a) -> i64 { return a * 2; }");
         let mut previous_end = 0;
         for token in &tokens {
-            assert!(token.span.start <= token.span.end, "{token:?} is not ordered");
-            assert!(token.span.start as usize >= previous_end, "{token:?} overlaps the token before it");
+            assert!(
+                token.span.start <= token.span.end,
+                "{token:?} is not ordered"
+            );
+            assert!(
+                token.span.start as usize >= previous_end,
+                "{token:?} overlaps the token before it"
+            );
             previous_end = token.span.end as usize;
         }
     }
@@ -849,7 +896,11 @@ mod tests {
     fn an_unknown_byte_is_a_diagnostic() {
         for src in ["#", "`", "\\", "\u{1}"] {
             let d = first_error(src);
-            assert!(d.message.starts_with("unexpected character"), "{src:?}: {}", d.message);
+            assert!(
+                d.message.starts_with("unexpected character"),
+                "{src:?}: {}",
+                d.message
+            );
             assert_eq!(d.span.start, 0, "{src:?}");
         }
     }
@@ -861,7 +912,11 @@ mod tests {
         // failure than being told about the character.
         let d = first_error("caf\u{e9}");
         assert!(d.message.contains("unexpected character"), "{}", d.message);
-        assert_eq!(d.span, Span::new(3, 5), "the two bytes of `é` are one character");
+        assert_eq!(
+            d.span,
+            Span::new(3, 5),
+            "the two bytes of `é` are one character"
+        );
     }
 
     #[test]
@@ -874,7 +929,11 @@ mod tests {
             Err(diags) => diags,
         };
         assert_eq!(diags[0].file, file);
-        assert_eq!(first_error("#").file, FileId::from_index(0), "`new` defaults to file zero");
+        assert_eq!(
+            first_error("#").file,
+            FileId::from_index(0),
+            "`new` defaults to file zero"
+        );
     }
 
     #[test]
@@ -890,27 +949,67 @@ mod tests {
             crlf.iter().map(|t| t.kind).collect::<Vec<_>>(),
             lf.iter().map(|t| t.kind).collect::<Vec<_>>()
         );
-        assert_eq!(crlf[1].span, Span::new(3, 4), "the `2` is at byte 3 once the `\\r` is counted");
+        assert_eq!(
+            crlf[1].span,
+            Span::new(3, 4),
+            "the `2` is at byte 3 once the `\\r` is counted"
+        );
         assert_eq!(lf[1].span, Span::new(2, 3));
     }
 
     #[test]
     fn a_doc_comment_is_a_token_and_four_slashes_is_not() {
-        assert_eq!(lex("/// hi\nfn f() {}"), vec![
-            Token { kind: TokenKind::DocComment, span: Span::new(0, 6) },
-            Token { kind: TokenKind::Fn, span: Span::new(7, 9) },
-            Token { kind: TokenKind::Ident, span: Span::new(10, 11) },
-            Token { kind: TokenKind::LParen, span: Span::new(11, 12) },
-            Token { kind: TokenKind::RParen, span: Span::new(12, 13) },
-            Token { kind: TokenKind::LBrace, span: Span::new(14, 15) },
-            Token { kind: TokenKind::RBrace, span: Span::new(15, 16) },
-            Token { kind: TokenKind::Eof, span: Span::new(16, 16) },
-        ]);
+        assert_eq!(
+            lex("/// hi\nfn f() {}"),
+            vec![
+                Token {
+                    kind: TokenKind::DocComment,
+                    span: Span::new(0, 6)
+                },
+                Token {
+                    kind: TokenKind::Fn,
+                    span: Span::new(7, 9)
+                },
+                Token {
+                    kind: TokenKind::Ident,
+                    span: Span::new(10, 11)
+                },
+                Token {
+                    kind: TokenKind::LParen,
+                    span: Span::new(11, 12)
+                },
+                Token {
+                    kind: TokenKind::RParen,
+                    span: Span::new(12, 13)
+                },
+                Token {
+                    kind: TokenKind::LBrace,
+                    span: Span::new(14, 15)
+                },
+                Token {
+                    kind: TokenKind::RBrace,
+                    span: Span::new(15, 16)
+                },
+                Token {
+                    kind: TokenKind::Eof,
+                    span: Span::new(16, 16)
+                },
+            ]
+        );
         // `////` is an ordinary comment: trivia, no token.
-        assert_eq!(lex("//// hi\n1"), vec![
-            Token { kind: TokenKind::I64, span: Span::new(8, 9) },
-            Token { kind: TokenKind::Eof, span: Span::new(9, 9) },
-        ]);
+        assert_eq!(
+            lex("//// hi\n1"),
+            vec![
+                Token {
+                    kind: TokenKind::I64,
+                    span: Span::new(8, 9)
+                },
+                Token {
+                    kind: TokenKind::Eof,
+                    span: Span::new(9, 9)
+                },
+            ]
+        );
         // An ordinary `//` comment stays trivia too.
         assert_eq!(lex("// hi\n1").len(), 2);
     }
@@ -919,7 +1018,11 @@ mod tests {
     fn a_comment_inside_a_string_is_string_content() {
         let tokens = lex("\"/* not a comment */\"");
         assert_eq!(tokens[0].kind, TokenKind::Str);
-        assert_eq!(tokens[0].span, Span::new(0, 21), "the whole literal, quotes included");
+        assert_eq!(
+            tokens[0].span,
+            Span::new(0, 21),
+            "the whole literal, quotes included"
+        );
     }
 
     #[test]
@@ -933,16 +1036,37 @@ mod tests {
         // `"/*"`
         //  byte 0 is the opening quote, bytes 1..3 are `/*` -- string content,
         //  not the start of a comment -- and byte 3 is the closing quote.
-        assert_eq!(lex("\"/*\""), vec![
-            Token { kind: TokenKind::Str, span: Span::new(0, 4) },
-            Token { kind: TokenKind::Eof, span: Span::new(4, 4) },
-        ]);
+        assert_eq!(
+            lex("\"/*\""),
+            vec![
+                Token {
+                    kind: TokenKind::Str,
+                    span: Span::new(0, 4)
+                },
+                Token {
+                    kind: TokenKind::Eof,
+                    span: Span::new(4, 4)
+                },
+            ]
+        );
         // And the file after it is still lexed: the `1` is at byte 5.
-        assert_eq!(lex("\"/*\" 1"), vec![
-            Token { kind: TokenKind::Str, span: Span::new(0, 4) },
-            Token { kind: TokenKind::I64, span: Span::new(5, 6) },
-            Token { kind: TokenKind::Eof, span: Span::new(6, 6) },
-        ]);
+        assert_eq!(
+            lex("\"/*\" 1"),
+            vec![
+                Token {
+                    kind: TokenKind::Str,
+                    span: Span::new(0, 4)
+                },
+                Token {
+                    kind: TokenKind::I64,
+                    span: Span::new(5, 6)
+                },
+                Token {
+                    kind: TokenKind::Eof,
+                    span: Span::new(6, 6)
+                },
+            ]
+        );
     }
 
     #[test]
@@ -953,10 +1077,19 @@ mod tests {
         // counter were wrong in either direction this would either stop at the
         // first `*/` or report the comment as unterminated.
         let nested = format!("{}{}1", "/*".repeat(15), "*/".repeat(15));
-        assert_eq!(lex(&nested), vec![
-            Token { kind: TokenKind::I64, span: Span::new(60, 61) },
-            Token { kind: TokenKind::Eof, span: Span::new(61, 61) },
-        ]);
+        assert_eq!(
+            lex(&nested),
+            vec![
+                Token {
+                    kind: TokenKind::I64,
+                    span: Span::new(60, 61)
+                },
+                Token {
+                    kind: TokenKind::Eof,
+                    span: Span::new(61, 61)
+                },
+            ]
+        );
 
         // Two levels of comment are two levels of trivia: the `1` after
         // `/* /* */ */` is at byte 12, exactly as it would be after `/*`.
@@ -974,7 +1107,11 @@ mod tests {
         //  bytes 0..8 are `fn f() {}`, byte 9 is the newline, bytes 10..12 are
         //  the `/*` that never closes.
         let d = first_error("fn f() {}\n/*");
-        assert_eq!(d.span, Span::new(10, 12), "the `/*` at byte 10, through the end of the file");
+        assert_eq!(
+            d.span,
+            Span::new(10, 12),
+            "the `/*` at byte 10, through the end of the file"
+        );
         assert!(d.message.contains("block comment"), "{}", d.message);
     }
 
@@ -994,18 +1131,36 @@ mod tests {
         // lexer that let the literal run past the newline would report the
         // second as the first.
         let at_end_of_file = first_error("\"abc");
-        assert!(at_end_of_file.message.contains("the file ends"), "{}", at_end_of_file.message);
+        assert!(
+            at_end_of_file.message.contains("the file ends"),
+            "{}",
+            at_end_of_file.message
+        );
 
         // `"abc\n42`
         //  byte 0 is the quote, bytes 1..3 are `abc`, byte 4 is the newline
         //  that the literal must not cross.
         let at_end_of_line = first_error("\"abc\n42");
-        assert!(at_end_of_line.message.contains("the line ends"), "{}", at_end_of_line.message);
-        assert_eq!(at_end_of_line.span, Span::new(0, 4), "the quote through the end of the line");
+        assert!(
+            at_end_of_line.message.contains("the line ends"),
+            "{}",
+            at_end_of_line.message
+        );
+        assert_eq!(
+            at_end_of_line.span,
+            Span::new(0, 4),
+            "the quote through the end of the line"
+        );
 
         // A backslash swallows the next byte so `\"` cannot end the literal --
         // but not the newline after it.
-        assert!(first_error("\"abc\\\n").message.contains("after a backslash"), "{}", first_error("\"abc\\\n").message);
+        assert!(
+            first_error("\"abc\\\n")
+                .message
+                .contains("after a backslash"),
+            "{}",
+            first_error("\"abc\\\n").message
+        );
     }
 
     #[test]
@@ -1027,7 +1182,10 @@ mod tests {
     #[test]
     fn the_debug_rendering_does_not_dump_the_source() {
         let text = format!("{:?}", Lexer::new("secret"));
-        assert!(!text.contains("secret"), "a Debug for a lexer must not print the program: {text}");
+        assert!(
+            !text.contains("secret"),
+            "a Debug for a lexer must not print the program: {text}"
+        );
         assert!(text.contains("Lexer"), "{text}");
     }
 
@@ -1035,39 +1193,88 @@ mod tests {
     fn a_byte_order_mark_is_skipped_once_at_the_start_of_a_file() {
         // The mark is three bytes that are really there, so the token after it
         // keeps the offset it has in a file saved without one.
-        assert_eq!(lex("\u{feff}1"), vec![
-            Token { kind: TokenKind::I64, span: Span::new(3, 4) },
-            Token { kind: TokenKind::Eof, span: Span::new(4, 4) },
-        ]);
+        assert_eq!(
+            lex("\u{feff}1"),
+            vec![
+                Token {
+                    kind: TokenKind::I64,
+                    span: Span::new(3, 4)
+                },
+                Token {
+                    kind: TokenKind::Eof,
+                    span: Span::new(4, 4)
+                },
+            ]
+        );
 
         // A file that is nothing but a mark is an empty file, not an error.
-        assert_eq!(lex("\u{feff}"), vec![Token { kind: TokenKind::Eof, span: Span::new(3, 3) }]);
+        assert_eq!(
+            lex("\u{feff}"),
+            vec![Token {
+                kind: TokenKind::Eof,
+                span: Span::new(3, 3)
+            }]
+        );
 
         // Trivia immediately after the mark is trivia, not a stray token. A
         // skipper that read the byte at the old offset *before* advancing over
         // the mark would report the space as `unexpected character` here.
-        assert_eq!(lex("\u{feff} 1"), vec![
-            Token { kind: TokenKind::I64, span: Span::new(4, 5) },
-            Token { kind: TokenKind::Eof, span: Span::new(5, 5) },
-        ]);
-        assert_eq!(lex("\u{feff}/* c */1"), vec![
-            Token { kind: TokenKind::I64, span: Span::new(10, 11) },
-            Token { kind: TokenKind::Eof, span: Span::new(11, 11) },
-        ]);
+        assert_eq!(
+            lex("\u{feff} 1"),
+            vec![
+                Token {
+                    kind: TokenKind::I64,
+                    span: Span::new(4, 5)
+                },
+                Token {
+                    kind: TokenKind::Eof,
+                    span: Span::new(5, 5)
+                },
+            ]
+        );
+        assert_eq!(
+            lex("\u{feff}/* c */1"),
+            vec![
+                Token {
+                    kind: TokenKind::I64,
+                    span: Span::new(10, 11)
+                },
+                Token {
+                    kind: TokenKind::Eof,
+                    span: Span::new(11, 11)
+                },
+            ]
+        );
 
         // Once, not per trivia boundary: `skip_trivia` runs before every token,
         // so a skipper that re-armed would drag the scan back to byte 3 after
         // the first token and lex `1` twice.
-        assert_eq!(lex("\u{feff}1 2"), vec![
-            Token { kind: TokenKind::I64, span: Span::new(3, 4) },
-            Token { kind: TokenKind::I64, span: Span::new(5, 6) },
-            Token { kind: TokenKind::Eof, span: Span::new(6, 6) },
-        ]);
+        assert_eq!(
+            lex("\u{feff}1 2"),
+            vec![
+                Token {
+                    kind: TokenKind::I64,
+                    span: Span::new(3, 4)
+                },
+                Token {
+                    kind: TokenKind::I64,
+                    span: Span::new(5, 6)
+                },
+                Token {
+                    kind: TokenKind::Eof,
+                    span: Span::new(6, 6)
+                },
+            ]
+        );
 
         // Only a *leading* mark is skipped. One further in is a character
         // nobody typed on purpose, and swallowing it would hide a mistake.
         let d = first_error("\u{feff}1 \u{feff}2");
-        assert_eq!(d.span, Span::new(5, 8), "the second mark, not a re-lex of the first token");
+        assert_eq!(
+            d.span,
+            Span::new(5, 8),
+            "the second mark, not a re-lex of the first token"
+        );
     }
 
     #[test]
@@ -1075,16 +1282,43 @@ mod tests {
         // Each kind that has a spelling must be produced by its own spelling.
         // A kind missing from the table is a kind the parser can never see.
         for kind in [
-            TokenKind::LParen, TokenKind::RParen, TokenKind::LBrace, TokenKind::RBrace,
-            TokenKind::LBracket, TokenKind::RBracket, TokenKind::Comma, TokenKind::Semi,
-            TokenKind::Colon, TokenKind::ColonColon, TokenKind::ColonEq, TokenKind::Dot, TokenKind::DotDot,
+            TokenKind::LParen,
+            TokenKind::RParen,
+            TokenKind::LBrace,
+            TokenKind::RBrace,
+            TokenKind::LBracket,
+            TokenKind::RBracket,
+            TokenKind::Comma,
+            TokenKind::Semi,
+            TokenKind::Colon,
+            TokenKind::ColonColon,
+            TokenKind::ColonEq,
+            TokenKind::Dot,
+            TokenKind::DotDot,
             TokenKind::DotDotDot,
-            TokenKind::Arrow, TokenKind::At, TokenKind::Question, TokenKind::Plus,
-            TokenKind::Minus, TokenKind::Star, TokenKind::Slash, TokenKind::Percent,
-            TokenKind::Eq, TokenKind::EqEq, TokenKind::Bang, TokenKind::BangEq, TokenKind::Lt,
-            TokenKind::LtEq, TokenKind::Gt, TokenKind::GtEq, TokenKind::PlusEq,
-            TokenKind::MinusEq, TokenKind::StarEq, TokenKind::SlashEq, TokenKind::PercentEq,
-            TokenKind::AndAnd, TokenKind::OrOr,
+            TokenKind::Arrow,
+            TokenKind::At,
+            TokenKind::Question,
+            TokenKind::Plus,
+            TokenKind::Minus,
+            TokenKind::Star,
+            TokenKind::Slash,
+            TokenKind::Percent,
+            TokenKind::Eq,
+            TokenKind::EqEq,
+            TokenKind::Bang,
+            TokenKind::BangEq,
+            TokenKind::Lt,
+            TokenKind::LtEq,
+            TokenKind::Gt,
+            TokenKind::GtEq,
+            TokenKind::PlusEq,
+            TokenKind::MinusEq,
+            TokenKind::StarEq,
+            TokenKind::SlashEq,
+            TokenKind::PercentEq,
+            TokenKind::AndAnd,
+            TokenKind::OrOr,
         ] {
             let spelling = match kind.spelling() {
                 Some(spelling) => spelling,
@@ -1092,7 +1326,37 @@ mod tests {
             };
             let tokens = lex(spelling);
             assert_eq!(tokens[0].kind, kind, "{spelling:?} must lex as {kind:?}");
-            assert_eq!(tokens[0].span, Span::new(0, spelling.len() as u32), "{spelling:?}");
+            assert_eq!(
+                tokens[0].span,
+                Span::new(0, spelling.len() as u32),
+                "{spelling:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_public_punctuation_table_is_complete_and_unique() {
+        use std::collections::HashSet;
+        let mut seen = HashSet::new();
+        for kind in TokenKind::PUNCTUATION {
+            let spelling = kind
+                .spelling()
+                .unwrap_or_else(|| panic!("{kind:?} has no spelling"));
+            assert!(
+                seen.insert(spelling),
+                "two punctuation kinds spell `{spelling}`"
+            );
+            let tokens = lex(spelling);
+            assert_eq!(
+                tokens[0].kind, *kind,
+                "`{spelling}` lexes as {:?}, not {kind:?}",
+                tokens[0].kind
+            );
+        }
+        // The one group the generator splits out as delimiters must itself be
+        // complete: a bracket or brace missing here would lose its highlight.
+        for spelling in ["(", ")", "{", "}", "[", "]"] {
+            assert!(seen.contains(spelling), "missing delimiter `{spelling}`");
         }
     }
 }
