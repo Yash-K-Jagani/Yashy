@@ -651,21 +651,24 @@ pub fn ir_cache_key(
         })
         .collect();
     files.sort();
-    let flags = format!(
-        "{entry_name}|{:?}|{:?}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
-        options.opt,
-        options.cpu,
-        options.fast_math,
-        options.escape,
-        options.facts,
-        options.intern,
-        options.release,
-        options.lto,
-        options.pgo,
-        options.async_,
-        options.reproducible,
-        options.target,
-    );
+    let flags = [
+        entry_name.to_string(),
+        format!("{:?}", options.opt),
+        format!("{:?}", options.cpu),
+        options.fast_math.to_string(),
+        options.escape.to_string(),
+        options.facts.to_string(),
+        options.intern.to_string(),
+        options.release.to_string(),
+        options.lto.to_string(),
+        options.pgo.to_string(),
+        options.async_.to_string(),
+        options.reproducible.to_string(),
+        options.target.to_string(),
+        options.debug_info.to_string(),
+    ]
+    .join("|");
+
     let version = format!(
         "{}/{}/{}/{}",
         env!("CARGO_PKG_VERSION"),
@@ -837,6 +840,9 @@ pub(crate) fn cached_runtime_object(
 /// exact-semantics build.
 #[derive(Debug, Clone, Copy)]
 pub struct BuildOptions {
+    /// Emit LLVM debug metadata derived from HIR spans. Off by default so a
+    /// normal build's IR stays byte-identical to the 1.0 golden files.
+    pub debug_info: bool,
     /// The `clang` optimization level for the generated code. See [`OptLevel`].
     pub opt: OptLevel,
     /// The instruction set the generated code may use. See [`CpuTarget`].
@@ -909,6 +915,7 @@ pub struct BuildOptions {
 impl Default for BuildOptions {
     fn default() -> Self {
         Self {
+            debug_info: false,
             opt: OptLevel::default(),
             cpu: CpuTarget::default(),
             fast_math: false,
@@ -1491,7 +1498,7 @@ pub fn compile_hir_timed(
             (text, true)
         }
         None => {
-            let text = timed(timings, "emit", || {
+            let mut text = timed(timings, "emit", || {
                 emit_program(
                     hir,
                     entry_name,
@@ -1506,6 +1513,10 @@ pub fn compile_hir_timed(
                     facts,
                 )
             });
+            if options.debug_info {
+                let locations = crate::debug_info::functions(hir, sources);
+                text = crate::debug_info::annotate(&text, &locations);
+            }
             if let (Some(store), Some(key)) = (&cache, &key) {
                 // A cache that cannot be written is a lost optimization, not
                 // a build failure.

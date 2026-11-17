@@ -385,12 +385,16 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     // Build for bytes that depend only on the tree, not on the clock or the
     // build directory.
     let mut reproducible = false;
+    // Emit LLVM debug metadata from HIR spans. Off unless a debug build asks
+    // for a line table.
+    let mut debug_info = false;
 
     let mut args = args.iter();
     while let Some(argument) = args.next() {
         match argument.as_str() {
             "--emit-ir" => emit_ir = true,
             "--timings" => timings_flag = true,
+            "--debug-info" => debug_info = true,
             "--no-verify" => no_verify = true,
             "--jobs" => match args.next() {
                 Some(value) => match value.parse::<usize>() {
@@ -784,6 +788,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     let output = output.unwrap_or_else(|| default_output(&input));
     let opt = resolve_opt(command, release, opt);
     let options = BuildOptions {
+        debug_info,
         opt,
         cpu,
         fast_math,
@@ -1137,6 +1142,7 @@ fn debug_cmd(args: &[String]) -> ExitCode {
             &target,
             &toolchain,
             BuildOptions {
+                debug_info: true,
                 release: false,
                 ir_cache: false,
                 ..BuildOptions::default()
@@ -1449,6 +1455,11 @@ fn run_as(args: &[String], mode: RunMode) -> ExitCode {
     let Some(input) = input else {
         return usage_error("`run` needs a source file");
     };
+    if debug {
+        // Debug builds carry a line table so a native debugger can stop on a
+        // source line and `inspect --addr` can map an address back to one.
+        build_args.push("--debug-info".to_string());
+    }
 
     // A binary built for another platform cannot run on this machine: the
     // loader would refuse it with a message about the wrong architecture,
@@ -1748,11 +1759,30 @@ fn blocked_by_policy(error: &std::io::Error) -> bool {
 /// same index `yashyc index` renders.
 fn inspect_cmd(args: &[String]) -> ExitCode {
     let mut json = true;
+    let mut address: Option<u64> = None;
+    let mut binary: Option<PathBuf> = None;
     let mut operands: Vec<String> = Vec::new();
-    for argument in args {
+    let mut iter = args.iter();
+    while let Some(argument) = iter.next() {
         match argument.as_str() {
             "--json" => json = true,
             "--human" => json = false,
+            "--addr" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`--addr` needs a hexadecimal address");
+                };
+                let digits = value.strip_prefix("0x").unwrap_or(value);
+                match u64::from_str_radix(digits, 16) {
+                    Ok(parsed) => address = Some(parsed),
+                    Err(_) => return usage_error("`--addr` needs a hexadecimal address"),
+                }
+            }
+            "--binary" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`--binary` needs a binary path");
+                };
+                binary = Some(PathBuf::from(value));
+            }
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown option `{other}` for `inspect`"));
             }
@@ -1771,6 +1801,36 @@ fn inspect_cmd(args: &[String]) -> ExitCode {
             return exit_code(EXIT_USAGE);
         }
     };
+    if let Some(address) = address {
+        let Some(binary) = binary else {
+            return usage_error("`inspect --addr` needs `--binary <path>`");
+        };
+        let symbols = match yashy_driver::addr::symbols(&binary) {
+            Ok(symbols) => symbols,
+            Err(message) => {
+                eprintln!("error: {message}");
+                return exit_code(EXIT_USAGE);
+            }
+        };
+        let Some(symbol) = yashy_driver::addr::nearest(&symbols, address) else {
+            eprintln!("error: no symbol at or below 0x{address:x}");
+            return exit_code(EXIT_USAGE);
+        };
+        let source_symbol = model.symbols.iter().find(|entry| {
+            symbol.name == entry.name || symbol.name == yashy_codegen::ir::fn_symbol(&entry.name)
+        });
+        let Some(entry) = source_symbol else {
+            eprintln!("error: symbol `{}` is not a Yashy function", symbol.name);
+            return exit_code(EXIT_USAGE);
+        };
+        let (line, column) = position_of(&entry.file, entry.span.start);
+        println!(
+            "{}",
+            yashy_driver::addr::json(address, symbol, &entry.file, line, column, entry.span,)
+                .render()
+        );
+        return exit_code(EXIT_OK);
+    }
     let wanted = operands.get(1).map(String::as_str);
     let selected: Vec<&yashy_driver::index::Symbol> = match wanted {
         Some(name) => {
@@ -3851,7 +3911,10 @@ fn check(args: &[String]) -> ExitCode {
             let has_denied = deny_warnings && !warning_diags.is_empty();
             yashy_driver::fix::attach_typo_suggestions(&sources, &mut warning_diags);
             if sarif {
-                println!("{}", yashy_driver::sarif::to_sarif(&sources, &warning_diags).render());
+                println!(
+                    "{}",
+                    yashy_driver::sarif::to_sarif(&sources, &warning_diags).render()
+                );
             } else if json {
                 let mut all = warning_diags;
                 print_check_json("check", &sources, &all, reported, None);
@@ -3870,7 +3933,10 @@ fn check(args: &[String]) -> ExitCode {
         Err(mut diagnostics) => {
             yashy_driver::fix::attach_typo_suggestions(&sources, &mut diagnostics);
             if sarif {
-                println!("{}", yashy_driver::sarif::to_sarif(&sources, &diagnostics).render());
+                println!(
+                    "{}",
+                    yashy_driver::sarif::to_sarif(&sources, &diagnostics).render()
+                );
                 if diagnostics.iter().any(|diagnostic| diagnostic.is_error()) {
                     exit_code(EXIT_COMPILE_ERROR)
                 } else {

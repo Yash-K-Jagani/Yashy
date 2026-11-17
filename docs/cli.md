@@ -215,6 +215,7 @@ as SARIF 2.1.0 `fixes` objects with real line/column regions.
 | Option | Meaning |
 |---|---|
 | `--print-cfg` | Print the `cfg` keys that are true for this target, one per line, sorted, and stop. Needs no source file. See [`cfg`](#cfg-and---target). |
+| `--debug-info` | Emit LLVM debug metadata from HIR spans (function entry lines) so a debugger and `inspect --addr` can map back to source. Off by default; `run --debug` enables it. |
 | `--target <triple>` | Check for this target rather than the host. See [`cfg` and `--target`](#cfg-and---target). |
 
 ## `cfg` and `--target`
@@ -858,6 +859,14 @@ It writes the canonical TextMate, Vim, Emacs, Helix and tree-sitter files plus
 their client copies. `cargo test -p yashy-driver --test grammar` compares every
 file with the renderer, so a keyword added to the lexer cannot be highlighted
 in one editor and missing from another. See [editors/README.md](../editors/README.md).
+
+## `yashyc inspect --addr <hex> --binary <path> <file.ya>`
+
+Resolves a binary address to a source span: `llvm-nm` supplies the symbol at or
+below the address, and the compiler's own index maps that symbol back to its
+declaration. The result is a schema-v1 envelope with `address`, `symbol`,
+`file`, `line`, `column` and the byte `span`. A debug build provides the line
+table that makes the address meaningful.
 
 ## `yashyc trace [--json] [--fail-orphans] [root]`
 

@@ -258,16 +258,20 @@ This phase makes both renderings of the compiler's facts.
   a type table for every user type, that `yashyc inspect --addr <symbol>`
   returns a source span, and that a scripted debugger session stops on the
   expected line and prints the expected value.
-  *Current:* not met. There is no `!dbg` metadata in the generated IR, so there
-  is no line or type table to assert. `yashyc debug` is tested for backend
-  selection and script generation only. Source-line breakpoints are the
-  follow-up, not a shipped capability.
+  *Current:* partial. Debug builds now emit function-level `!dbg` metadata from
+  HIR spans; an annotated golden IR compiled with clang produced a real
+  `.debug_line` section (verified with `llvm-readobj`). `inspect --addr` maps a
+  binary address back to a source span, and the debugger script can break on
+  a source line at a function entry. There is still no per-instruction or type
+  table, so an in-function stop and a typed value assertion are not possible.
 - [ ] **Step 2: Emit debug info from the same IR.** Every user function, local,
   parameter and type gets a `!dbg` location; the span comes from HIR, not from a
   re-parse. Optimised builds keep line tables; `--debug` builds keep full
   variable info.
-  *Current:* not started. `yashy-codegen` emits no LLVM debug intrinsics or
-  metadata, so `-g` at the clang stage would have nothing to attach.
+  *Current:* partial. `debug_info.rs` attaches one `DISubprogram` and one
+  `DILocation` per named function from HIR spans, gated by `--debug-info`
+  (default off, so normal IR stays byte-stable). Every function, local,
+  parameter and type getting its own location is still open.
 - [x] **Step 3: `yashyc debug` selects a backend.** LLDB where available (Linux,
   macOS, Windows when installed), `cdb` on Windows otherwise; a missing backend
   is a diagnostic with an install hint. The command writes a temporary script,
@@ -339,9 +343,10 @@ This phase makes both renderings of the compiler's facts.
   event per allocation, free, task start/end and I/O with a span id, in a
   deterministic order.
   *Current:* `inspect --json` reports signature, effects, docs, contracts and
-  source span from the index; `inspect --human` prints a clickable position.
-  `--addr`, layout and the whole `trace --events` verb are still open, so the
-  step stays unchecked.
+  source span; `inspect --human` prints a clickable position; `inspect --addr
+  <hex> --binary <binary> <source.ya>` resolves an address through `llvm-nm`
+  and the index. Layout and the whole `trace --events` verb are still open, so
+  the step stays unchecked.
 - [ ] **Step 2: `tokens --bpe` is a measurement, not an opinion.** For a file or
   a corpus, report tokens per keyword/operator and corpus totals for `o200k`,
   `cl100k` and a Llama-family tokenizer. The tokenizer tables are vendored as
@@ -570,9 +575,9 @@ still owed so a later phase does not inherit a false checklist.
 | 4.1 / 4.3 | Every code has a triggering test or fixture; every code names its rule | Page, heading, catalog, `explain --json` and `--all --json` are tested; `codes::rule_for` gives every code a unique `FAMILY-N` id in the JSON; triggering fixtures are not | Add one triggering fixture per code |
 | 5.1 | First test under 60 s on a cold machine | `new` creates a project and its first test passes; the wall-clock bound is not asserted in the unit test | Measure in CI |
 | 5.3 / 5.4 | `repl`, `doc --serve` | A compiling REPL with retained declarations, type reporting and honest refusals; a loopback read-only docs server with `/json` and `/search`; no persistent HIR interpreter | Add an HIR interpreter only if compile-per-expression is too slow |
-| 6 | DWARF/CodeView debugger, async task view, pretty printers | `yashyc debug` selects LLDB or cdb, writes a symbol-breakpoint script and enables the runtime's live task table; no `!dbg` metadata, so no line table, typed locals or attached pretty printers | Emit debug metadata from HIR spans, then line breakpoints and value printers |
-| 7 | Sampling and allocation profilers, source coverage | `profile` reports wall-clock time and renders recorded counter tables; `--alloc-report` reports the runtime's live-allocation total with an explicit note that sites are unavailable; `yashyc coverage` is an explicit not-implemented error | Emit debug metadata, then add native sampling, allocator site ids and coverage mapping |
-| 8.1 / 8.2 | `inspect --addr`, contracts, layout, `trace --events`, `tokens --bpe` | `inspect --json` reports contracts and spans; `tokens --bpe` measures Yashy's own tokenizer; `trace --json` emits the static rule matrix | Add `--addr` via a linker map, vendor the three BPE vocabularies, and implement runtime events |
+| 6 | DWARF/CodeView debugger, async task view, pretty printers | `yashyc debug` selects LLDB or cdb; debug builds emit function-level `!dbg` from HIR spans (a real `.debug_line` section); `inspect --addr` maps addresses to spans; no typed locals or per-instruction locations | Emit per-instruction and type locations, then attach pretty printers |
+| 7 | Sampling and allocation profilers, source coverage | `profile` reports wall-clock time and renders recorded counter tables; `--alloc-report` reports the runtime's live-allocation total with no site; `yashyc coverage` is an explicit not-implemented error. Debug metadata is function-level, not per-instruction | Emit per-instruction locations, then add native sampling, allocator site ids and coverage mapping |
+| 8.1 / 8.2 | `inspect --addr`, contracts, layout, `trace --events`, `tokens --bpe` | `inspect --addr` maps an address via `llvm-nm` and the index; contracts and spans are in `inspect --json`; `tokens --bpe` measures Yashy's own tokenizer; `trace --json` emits the static rule matrix | Add type layout, vendor three BPE vocabularies, and implement runtime events |
 | 9 | One generated grammar, six clients, `editors` CI job | One model drives 11 generated files; all six clients are committed; `tests/grammar.rs` is the byte gate and the LSP conformance transcript is shared; no `editors` CI job yet, and the real-editor run is deferred with CI | Add the `editors` job when CI is unblocked |
 | 10.1 / 10.3 / 10.4 / 10.5 | Colour policy, `NO_COLOR`/`CLICOLOR`/`TERM=dumb`/`COLUMNS`, committed completions, pager, hyperlinks | `term.rs` implements the colour, width, pager and OSC 8 policies; `scripts/completions/*` are committed and diff-tested; `docs/terminal.md` documents the install; a signal-killed child reports `1` instead of re-raising the signal | Re-raise the child's signal on Unix |
 | Gates | LSP conformance in two editors, debugger and profiler demos, terminal matrix, `editors` job | `cargo check --workspace --all-targets` is green; runtime gates cannot run locally (Windows Application Control) and CI is deferred | Re-run the full gate set when CI is unblocked |

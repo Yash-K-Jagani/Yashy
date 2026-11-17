@@ -9,11 +9,13 @@
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 
-use yashy_common::{FileId, Json, SourceMap};
 use yashy_common::json_rpc::{self, Value};
+use yashy_common::{FileId, Json, SourceMap};
 
 /// The seven tools, in a stable order.
-pub const TOOLS: [&str; 7] = ["check", "build", "test", "verify", "explain", "context", "index"];
+pub const TOOLS: [&str; 7] = [
+    "check", "build", "test", "verify", "explain", "context", "index",
+];
 
 /// A tool error: JSON-RPC `code: -32000` with the diagnostic array in `data`.
 pub fn tool_error(id: Value, diagnostics: Vec<yashy_common::Diagnostic>) -> Value {
@@ -24,10 +26,7 @@ pub fn tool_error(id: Value, diagnostics: Vec<yashy_common::Diagnostic>) -> Valu
                 ("message", json_rpc::string(&diagnostic.message)),
                 (
                     "code",
-                    diagnostic
-                        .code
-                        .map(json_rpc::string)
-                        .unwrap_or(Value::Null),
+                    diagnostic.code.map(json_rpc::string).unwrap_or(Value::Null),
                 ),
             ])
         })
@@ -181,10 +180,7 @@ fn call_tool(root: &Path, id: Value, name: &str, params: Option<&Value>) -> Valu
                                 ("message", json_rpc::string(&diagnostic.message)),
                                 (
                                     "code",
-                                    diagnostic
-                                        .code
-                                        .map(json_rpc::string)
-                                        .unwrap_or(Value::Null),
+                                    diagnostic.code.map(json_rpc::string).unwrap_or(Value::Null),
                                 ),
                             ])
                         })
@@ -221,10 +217,7 @@ fn call_tool(root: &Path, id: Value, name: &str, params: Option<&Value>) -> Valu
             }
         }
         "index" => match crate::index::build_index(root) {
-            Ok(model) => ok(
-                id,
-                json_rpc::string(crate::index::to_json(&model).render()),
-            ),
+            Ok(model) => ok(id, json_rpc::string(crate::index::to_json(&model).render())),
             Err(message) => error(id, -32001, &message),
         },
         _ => error(id, -32602, "unreachable tool"),

@@ -70,7 +70,11 @@ pub fn detect_linker(clang: &std::path::Path) -> Linker {
         let _ = std::fs::remove_file(&tmp);
         let _ = std::fs::remove_file(&out);
         if status.map(|s| s.success()).unwrap_or(false) {
-            return if flag == "-fuse-ld=mold" { Linker::Mold } else { Linker::Lld };
+            return if flag == "-fuse-ld=mold" {
+                Linker::Mold
+            } else {
+                Linker::Lld
+            };
         }
     }
     Linker::System

@@ -11,12 +11,15 @@ current code generator emits no debug metadata at all, so a coverage-instrumente
 build would produce profile data that cannot be attributed to a Yashy source
 line.
 
-Until that lands:
+Until per-instruction locations land:
 
 - there is no `yashyc coverage` verb; asking for it is a usage error;
 - `yashyc test` reports which test programs passed, not which source lines ran;
-- `docs/debugging.md` tracks the same missing debug-information dependency for
-  source-line breakpoints and typed values.
+- debug builds now emit **function-level** `!dbg` locations (a real
+  `.debug_line` section), which is enough for a function-entry breakpoint and
+  `inspect --addr`, but not for per-line coverage mapping;
+- `docs/debugging.md` tracks the same missing per-instruction detail for typed
+  values.
 
 The work order is therefore: emit `!dbg` line locations from HIR spans, then
 wire coverage mapping and the source-aware debugger on top of the same fact.

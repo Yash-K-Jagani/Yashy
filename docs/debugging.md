@@ -23,22 +23,24 @@ stderr, so stdout stays available to the program being debugged.
   the live task table: task id, function and resume index.
 - Symbol breakpoints (`--break <fn>`) stop in named functions. With no
   `--break`, the entry point `main` is used.
+- A debug build (`yashyc run --debug` or `yashyc debug`) also emits LLVM
+  function-level debug metadata from HIR spans. The linked object has a real
+  `.debug_line` section, so a debugger can set a source-line breakpoint at a
+  function's entry line and `yashyc inspect --addr` can map an address back to
+  the function's source span.
 - Repeat `--break` to stop in several functions; arguments after `--` are
   passed to the debugged program.
-- `yashyc inspect --human <file.ya> <symbol>` prints a clickable
-  `path:line:col: signature` line for the same source.
+- `inspect --human` prints a clickable `path:line:col: signature` line for the same source. `inspect --addr 0x… --binary <path> <source.ya>` resolves an address through `llvm-nm` and the compiler's own index to that function's source span.
 
 ## What is not there yet
 
-The LLVM backend does not emit `!dbg` metadata, so the linked binary has no
-line table or type table for Yashy source. That means:
+The line table currently has function entries only, not a location on every
+instruction, so:
 
-- source-line breakpoints are not available; use symbol names;
+- source-line breakpoints work at a function's entry line, not yet inside a
+  function body;
 - local variables and user types do not appear as typed values;
-- the LLDB summary providers in
-  `crates/yashy-runtime/debug/pretty_printers.py` are committed but not loaded
-  automatically, because there is no type name to attach them to yet.
+- the LLDB summary providers are committed but cannot be attached without a
+  type table.
 
-Emitting line and type tables from the HIR spans is the next slice of work. The
-command is deliberately documented as it behaves, not as the plan hoped it
-would behave.
+Emitting per-instruction locations from HIR spans is the next slice of work.

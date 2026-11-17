@@ -137,9 +137,7 @@ pub fn search(root: &Path, query: Option<&str>) -> Result<Vec<RegistryEntry>, Re
             .then_with(|| left.version.cmp(&right.version))
     });
     if let Some(query) = query {
-        entries.retain(|entry| {
-            entry.name.contains(query) || entry.version.contains(query)
-        });
+        entries.retain(|entry| entry.name.contains(query) || entry.version.contains(query));
     }
     Ok(entries)
 }
@@ -166,15 +164,11 @@ pub fn fetch_tarball(
     match source {
         RegistrySource::Local(root) => {
             let path = root.join("packages").join(format!("{hash}.tar"));
-            std::fs::read(&path).map_err(|error| {
-                registry_error(format!("cannot read {}: {error}", path.display()))
-            })
+            std::fs::read(&path)
+                .map_err(|error| registry_error(format!("cannot read {}: {error}", path.display())))
         }
         RegistrySource::Remote(url) => {
-            let tarball_url = format!(
-                "{}/packages/{hash}.tar",
-                url.trim_end_matches('/')
-            );
+            let tarball_url = format!("{}/packages/{hash}.tar", url.trim_end_matches('/'));
             fetch_url(&tarball_url)
         }
     }
@@ -252,14 +246,19 @@ pub fn search_source(
     Ok(entries)
 }
 
-pub fn lookup(root: &Path, name: &str, version: &str) -> Result<Option<RegistryEntry>, RegistryError> {
+pub fn lookup(
+    root: &Path,
+    name: &str,
+    version: &str,
+) -> Result<Option<RegistryEntry>, RegistryError> {
     Ok(search(root, None)?
         .into_iter()
         .find(|entry| entry.name == name && entry.version == version))
 }
 
 fn tarball_path(root: &Path, entry: &RegistryEntry) -> PathBuf {
-    root.join("packages").join(format!("{}.tar", entry.hash.trim_start_matches("sha256:")))
+    root.join("packages")
+        .join(format!("{}.tar", entry.hash.trim_start_matches("sha256:")))
 }
 
 fn index_path(root: &Path) -> PathBuf {
@@ -273,9 +272,8 @@ pub fn publish(package_root: &Path, registry_root: &Path) -> Result<RegistryEntr
             error.line, error.column, error.message
         ))
     })?;
-    let content_hash = hash_tree(package_root).map_err(|error| {
-        registry_error(format!("cannot hash package tree: {error}"))
-    })?;
+    let content_hash = hash_tree(package_root)
+        .map_err(|error| registry_error(format!("cannot hash package tree: {error}")))?;
     let hash = content_hash;
     let tarball = write_tarball(package_root)?;
     let entry = RegistryEntry {
@@ -381,8 +379,9 @@ fn collect_into(
             });
             collect_into(root, &path, entries)?;
         } else {
-            let bytes = std::fs::read(&path)
-                .map_err(|error| registry_error(format!("cannot read {}: {error}", path.display())))?;
+            let bytes = std::fs::read(&path).map_err(|error| {
+                registry_error(format!("cannot read {}: {error}", path.display()))
+            })?;
             entries.push(TarEntry {
                 path: relative,
                 bytes,
@@ -411,7 +410,10 @@ fn tar_name(path: &str) -> (Vec<u8>, Vec<u8>) {
     }
     if let Some(index) = path.rfind('/') {
         if index <= 155 && path.len() - index - 1 <= 100 {
-            return (path[index + 1..].as_bytes().to_vec(), path[..index].as_bytes().to_vec());
+            return (
+                path[index + 1..].as_bytes().to_vec(),
+                path[..index].as_bytes().to_vec(),
+            );
         }
     }
     (path.as_bytes().to_vec(), Vec::new())
@@ -491,7 +493,9 @@ pub fn read_tarball(bytes: &[u8]) -> Result<Vec<TarEntry>, RegistryError> {
             format!("{prefix}/{name}")
         };
         if path.is_empty() || path.starts_with('/') || path.split('/').any(|part| part == "..") {
-            return Err(registry_error(format!("unsafe registry tarball path: {path}")));
+            return Err(registry_error(format!(
+                "unsafe registry tarball path: {path}"
+            )));
         }
         let size = octal_value(&header[124..136]) as usize;
         let data_start = offset + 512;
@@ -514,15 +518,18 @@ pub fn extract_tarball(root: &Path, bytes: &[u8]) -> Result<(), RegistryError> {
     for entry in entries {
         let path = root.join(entry.path.trim_end_matches('/'));
         if entry.directory {
-            std::fs::create_dir_all(&path)
-                .map_err(|error| registry_error(format!("cannot create {}: {error}", path.display())))?;
+            std::fs::create_dir_all(&path).map_err(|error| {
+                registry_error(format!("cannot create {}: {error}", path.display()))
+            })?;
         } else {
             if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|error| registry_error(format!("cannot create {}: {error}", parent.display())))?;
+                std::fs::create_dir_all(parent).map_err(|error| {
+                    registry_error(format!("cannot create {}: {error}", parent.display()))
+                })?;
             }
-            std::fs::write(&path, entry.bytes)
-                .map_err(|error| registry_error(format!("cannot write {}: {error}", path.display())))?;
+            std::fs::write(&path, entry.bytes).map_err(|error| {
+                registry_error(format!("cannot write {}: {error}", path.display()))
+            })?;
         }
     }
     Ok(())
@@ -543,7 +550,10 @@ impl<'a> Parser<'a> {
     }
 
     fn skip_whitespace(&mut self) {
-        while self.remaining().starts_with(|character: char| character.is_whitespace()) {
+        while self
+            .remaining()
+            .starts_with(|character: char| character.is_whitespace())
+        {
             self.index += 1;
         }
     }
@@ -553,7 +563,9 @@ impl<'a> Parser<'a> {
         if self.parse_char(wanted) {
             Ok(())
         } else {
-            Err(registry_error(format!("expected `{wanted}` in registry index")))
+            Err(registry_error(format!(
+                "expected `{wanted}` in registry index"
+            )))
         }
     }
 
@@ -586,11 +598,10 @@ impl<'a> Parser<'a> {
             match character {
                 '"' => break,
                 '\\' => {
-                    let escape = self
-                        .remaining()
-                        .chars()
-                        .next()
-                        .ok_or_else(|| registry_error("unterminated escape in registry index"))?;
+                    let escape =
+                        self.remaining().chars().next().ok_or_else(|| {
+                            registry_error("unterminated escape in registry index")
+                        })?;
                     self.index += escape.len_utf8();
                     match escape {
                         '"' => out.push('"'),
@@ -719,9 +730,10 @@ pub fn read_index_text(text: &str) -> Result<Vec<RegistryEntry>, RegistryError> 
                         "registry index entry is missing name, version, or hash",
                     ));
                 }
-                if entries.iter().any(|entry: &RegistryEntry| {
-                    entry.name == name && entry.version == version
-                }) {
+                if entries
+                    .iter()
+                    .any(|entry: &RegistryEntry| entry.name == name && entry.version == version)
+                {
                     return Err(registry_error(format!(
                         "duplicate registry entry for `{}@{}`",
                         name, version
@@ -769,12 +781,12 @@ mod tests {
         assert!(tarball.len() >= 1024);
         let entries = read_tarball(&tarball).unwrap();
         assert!(entries.iter().any(|entry| entry.path == "src/lib.ya"));
-        let out = root.with_file_name(format!("{}-out", root.file_name().unwrap().to_string_lossy()));
+        let out = root.with_file_name(format!(
+            "{}-out",
+            root.file_name().unwrap().to_string_lossy()
+        ));
         extract_tarball(&out, &tarball).unwrap();
-        assert_eq!(
-            hash_tree(&out).unwrap(),
-            hash_tree(&root).unwrap()
-        );
+        assert_eq!(hash_tree(&out).unwrap(), hash_tree(&root).unwrap());
         let _ = std::fs::remove_dir_all(&out);
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -783,6 +795,11 @@ mod tests {
     fn a_duplicate_registry_entry_is_an_error() {
         let text = "{\"packages\":[{\"name\":\"lib\",\"version\":\"1.0.0\",\"hash\":\"sha256:a\",\"description\":\"\"},{\"name\":\"lib\",\"version\":\"1.0.0\",\"hash\":\"sha256:b\",\"description\":\"\"}]}";
         let error = read_index_text(text).unwrap_err();
-        assert!(error.message.contains("duplicate registry entry for `lib@1.0.0`"), "{error}");
+        assert!(
+            error
+                .message
+                .contains("duplicate registry entry for `lib@1.0.0`"),
+            "{error}"
+        );
     }
 }

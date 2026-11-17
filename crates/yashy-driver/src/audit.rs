@@ -101,7 +101,10 @@ fn has_build_script(root: &Path) -> bool {
         if path.file_name().is_some_and(|name| name == "build.rs") {
             return true;
         }
-        if path.is_dir() && path.file_name().is_some_and(|name| name != ".git") && has_build_script(&path) {
+        if path.is_dir()
+            && path.file_name().is_some_and(|name| name != ".git")
+            && has_build_script(&path)
+        {
             return true;
         }
     }
@@ -179,19 +182,15 @@ pub fn audit_project(directory: &Path, store: &Store) -> Result<AuditReport, Aud
             )));
         }
     };
-    let mut packages: Vec<(String, PathBuf)> = vec![(
-        manifest.package.name.clone(),
-        directory.to_path_buf(),
-    )];
+    let mut packages: Vec<(String, PathBuf)> =
+        vec![(manifest.package.name.clone(), directory.to_path_buf())];
     for package in &graph.packages {
         packages.push((package.name.clone(), package.root.clone()));
     }
     packages.sort();
     for (name, root) in packages {
         report.packages += 1;
-        report.source_bytes = report
-            .source_bytes
-            .saturating_add(source_bytes(&root));
+        report.source_bytes = report.source_bytes.saturating_add(source_bytes(&root));
         match Manifest::load(&root.join("yashy.toml")) {
             Ok(package_manifest) => {
                 if package_manifest.package.license.is_none() {
@@ -213,7 +212,10 @@ pub fn audit_project(directory: &Path, store: &Store) -> Result<AuditReport, Aud
                 findings.push(finding(
                     codes::MANIFEST_SYNTAX,
                     &name,
-                    format!("yashy.toml:{}:{}: {}", error.line, error.column, error.message),
+                    format!(
+                        "yashy.toml:{}:{}: {}",
+                        error.line, error.column, error.message
+                    ),
                 ));
             }
         }
