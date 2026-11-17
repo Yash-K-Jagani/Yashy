@@ -35,6 +35,89 @@
 static const char *yashy_str_data(const yashy_str *s);
 long long yashy_now_ms(void);
 
+/* ---- Runtime event trace -------------------------------------------------
+ *
+ * `yashyc trace --events` builds a debug binary, runs it with
+ * `YASHY_TRACE_FILE` set and symbolises the recorded return addresses. The
+ * runtime itself does no symbolisation and no JSON: it appends one small record
+ * per event to a bounded in-memory table and writes it at exit. That keeps the
+ * hot path to an atomic increment and one store, and makes the event order
+ * deterministic (the table's order) rather than whichever thread got there
+ * first by wall-clock time.
+ *
+ * Nothing is recorded unless the environment names a trace file. Programs that
+ * never ask for a trace pay one cached `getenv` on the first traced operation.
+ */
+#define YASHY_TRACE_CAPACITY 16384
+
+typedef struct {
+    long long seq;
+    int kind;
+    long long size;
+    unsigned long long pc;
+} yashy_trace_event_record;
+
+static yashy_trace_event_record yashy_trace_events[YASHY_TRACE_CAPACITY];
+static long long yashy_trace_next = 0;
+static long long yashy_trace_dropped = 0;
+static int yashy_trace_enabled = -1;
+static int yashy_trace_registered = 0;
+static const char *yashy_trace_path = NULL;
+
+static void yashy_trace_flush(void);
+
+#if defined(__clang__) || defined(__GNUC__)
+#define YASHY_TRACE_CALLER(depth) ((unsigned long long)(size_t)__builtin_return_address(depth))
+#else
+#define YASHY_TRACE_CALLER(depth) ((unsigned long long)0)
+#endif
+
+static void yashy_trace_configure(void) {
+    if (yashy_trace_enabled >= 0) {
+        return;
+    }
+    yashy_trace_path = getenv("YASHY_TRACE_FILE");
+    yashy_trace_enabled = yashy_trace_path != NULL && yashy_trace_path[0] != '\0';
+    if (yashy_trace_enabled
+        && __sync_bool_compare_and_swap(&yashy_trace_registered, 0, 1)) {
+        atexit(yashy_trace_flush);
+    }
+}
+
+void yashy_trace_record(int kind, long long size, unsigned long long pc) {
+    yashy_trace_configure();
+    if (!yashy_trace_enabled) {
+        return;
+    }
+    long long slot = __sync_fetch_and_add(&yashy_trace_next, 1);
+    if (slot < YASHY_TRACE_CAPACITY) {
+        yashy_trace_events[slot].seq = slot + 1;
+        yashy_trace_events[slot].kind = kind;
+        yashy_trace_events[slot].size = size;
+        yashy_trace_events[slot].pc = pc;
+    } else {
+        __sync_fetch_and_add(&yashy_trace_dropped, 1);
+    }
+}
+
+static void yashy_trace_flush(void) {
+    if (!yashy_trace_enabled || yashy_trace_path == NULL) {
+        return;
+    }
+    FILE *out = fopen(yashy_trace_path, "w");
+    if (out == NULL) {
+        return;
+    }
+    long long count = yashy_trace_next < YASHY_TRACE_CAPACITY ? yashy_trace_next : YASHY_TRACE_CAPACITY;
+    for (long long i = 0; i < count; i++) {
+        fprintf(out, "%lld %d %lld %llx\n", yashy_trace_events[i].seq,
+                yashy_trace_events[i].kind, yashy_trace_events[i].size,
+                yashy_trace_events[i].pc);
+    }
+    fprintf(out, "# dropped %lld\n", yashy_trace_dropped);
+    fclose(out);
+}
+
 /* `yashy_str_release`, defined with the string type further down. The closure
  * environment releases the strings it captured, and it comes before the string
  * section. */
@@ -148,10 +231,20 @@ void yashy_metrics(const char *kind, const char *name, long long value) {
     fflush(stderr);
 }
 
+/* One I/O event per print call. The two frames skipped are this helper and
+ * the `yashy_print_*` wrapper, so the recorded address belongs to the generated
+ * call site and symbolises to the Yashy line that printed. */
+static void yashy_trace_io(void) {
+#if defined(__clang__) || defined(__GNUC__)
+    yashy_trace_record(YASHY_TRACE_IO, 0, YASHY_TRACE_CALLER(2));
+#endif
+}
+
 void yashy_print_str(const yashy_str *s) {
     if (s == NULL) {
         return;
     }
+    yashy_trace_io();
     yashy_stdout_binary();
     fwrite(yashy_str_data(s), 1, (size_t)yashy_str_len(s), stdout);
 }
@@ -160,6 +253,7 @@ void yashy_print_line_str(const yashy_str *s) {
     if (s == NULL) {
         return;
     }
+    yashy_trace_io();
     yashy_stdout_binary();
     fwrite(yashy_str_data(s), 1, (size_t)yashy_str_len(s), stdout);
     fputc('\n', stdout);
@@ -169,6 +263,7 @@ void yashy_print_line_stderr(const yashy_str *s) {
     if (s == NULL) {
         return;
     }
+    yashy_trace_io();
     fwrite(yashy_str_data(s), 1, (size_t)yashy_str_len(s), stderr);
     fputc('\n', stderr);
     fflush(stderr);
@@ -183,6 +278,7 @@ void yashy_print_line_stderr(const yashy_str *s) {
  * `LLONG_MIN` prints as itself instead of trapping or wrapping. */
 void yashy_print_i64(long long value) {
     char digits[20];
+    yashy_trace_io();
     unsigned long long magnitude =
         value < 0 ? 0ULL - (unsigned long long)value : (unsigned long long)value;
     size_t count = 0;
@@ -200,6 +296,7 @@ void yashy_print_i64(long long value) {
 }
 
 void yashy_print_f64(double value) {
+    yashy_trace_io();
     yashy_stdout_binary();
     printf("%.17g", value);
 }
@@ -326,6 +423,10 @@ void yashy_free(void *ptr) {
     if (ptr == NULL) {
         return;
     }
+#if defined(__clang__) || defined(__GNUC__)
+    yashy_trace_record(YASHY_TRACE_FREE, 0,
+                       YASHY_TRACE_CALLER(1));
+#endif
     free(((void **)ptr)[-1]);
     yashy_count_add(&yashy_live_allocations, -1);
 }

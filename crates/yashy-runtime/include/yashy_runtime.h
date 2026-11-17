@@ -36,6 +36,17 @@ extern "C" {
  * tag is declared here because the print and diagnostic functions take one. */
 typedef struct yashy_str yashy_str;
 
+/* Runtime event kinds used by `yashyc trace --events`. The runtime records
+ * these only when `YASHY_TRACE_FILE` names an output file; the driver turns the
+ * recorded return addresses into source spans. */
+#define YASHY_TRACE_ALLOC 1
+#define YASHY_TRACE_FREE 2
+#define YASHY_TRACE_TASK_START 3
+#define YASHY_TRACE_TASK_END 4
+#define YASHY_TRACE_IO 5
+
+void yashy_trace_record(int kind, long long size, unsigned long long pc);
+
 /* Writes the NUL-terminated string to stdout, byte for byte. Nothing else: no
  * newline, and no line-ending translation (see the note in runtime.c). */
 /* Called once at the entry point, before the program's first statement: puts
@@ -125,6 +136,10 @@ static YASHY_ALWAYS_INLINE void *yashy_alloc_aligned(long long size,
     aligned = (base + (alignment - 1)) & ~(uintptr_t)(alignment - 1);
     ((void **)aligned)[-1] = raw;
     yashy_alloc_note(1);
+#if defined(__clang__) || defined(__GNUC__)
+    yashy_trace_record(YASHY_TRACE_ALLOC, size,
+                       (unsigned long long)(size_t)__builtin_return_address(0));
+#endif
     return (void *)aligned;
 }
 

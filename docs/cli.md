@@ -889,8 +889,18 @@ generic instantiations need the parser's type syntax and are not guessed.
 Prints the generated rule-to-code-to-test matrix: every rule from
 `codes::rule_for`, the catalog codes it names, and the test files that mention
 those codes. `--fail-orphans` exits `1` when a rule has no test. `--json` is a
-schema-v1 envelope with an `orphan_rules` array. Runtime `--events` tracing is
-not implemented; asking for it is a usage error rather than a silent success.
+schema-v1 envelope with an `orphan_rules` array.
+
+`yashyc trace --events <file.ya> [--json] [-- <program args>]` builds the file
+with debug info into a scratch directory, runs it with the runtime's event
+trace enabled, and reports one event per allocation, free, task start/end and
+I/O call. Each event carries a sequence number, a kind, a byte size and a
+`span`: the return address is symbolised with `llvm-symbolizer` against the
+binary (`YASHY_LLVM_SYMBOLIZER` overrides the lookup), so the span names the
+Yashy source position that made the call. Without a symbolizer the raw address
+is printed instead. Events are ordered by the runtime's bounded table, not by
+wall-clock time, so repeated runs are byte-identical; a full table reports a
+`dropped` count.
 
 ## `yashyc index [path] [--json]`
 

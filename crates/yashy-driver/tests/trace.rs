@@ -1,38 +1,47 @@
-//! `yashyc trace`: the generated rule matrix, not a hand-written spreadsheet.
+//! Runtime event tracing: `trace --events` reports what the program did, with
+//! source spans from the same debug info the debugger uses.
 
 mod common;
 
-use std::path::Path;
 use std::process::Command;
 
-fn root() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
-
 #[test]
-fn the_matrix_has_one_row_per_rule() {
-    let rows = yashy_driver::trace::matrix(&root()).expect("the matrix must build");
-    assert!(
-        rows.len() > 20,
-        "the catalog has many rule families: {}",
-        rows.len()
+fn trace_events_reports_allocations_frees_and_io() {
+    let dir = common::work_dir("trace-events");
+    common::write(
+        &dir,
+        "main.ya",
+        "fn main() {\n    let buf = alloc(16);\n    buf.free();\n    print(\"done\");\n}\n",
     );
-    let mut names: Vec<&str> = rows.iter().map(|row| row.rule.as_str()).collect();
-    names.sort_unstable();
-    let count = names.len();
-    names.dedup();
-    assert_eq!(names.len(), count, "a rule must have one row");
-    let codes: usize = rows.iter().map(|row| row.codes.len()).sum();
-    assert_eq!(codes, yashy_common::codes::CODES.len());
+    let output = Command::new(common::yashyc())
+        .args(["trace", "--events", "--json", "main.ya"])
+        .current_dir(&dir)
+        .output()
+        .expect("yashyc must run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "tracing must succeed:\n{}\n{stdout}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("\"events\""), "{stdout}");
+    assert!(stdout.contains("\"alloc\""), "{stdout}");
+    assert!(stdout.contains("\"free\""), "{stdout}");
+    assert!(stdout.contains("\"io\""), "{stdout}");
+    assert!(
+        stdout.contains("main.ya"),
+        "spans must name the source: {stdout}"
+    );
 }
 
 #[test]
-fn runtime_events_are_not_claimed() {
+fn trace_without_events_still_prints_the_rule_matrix() {
     let output = Command::new(common::yashyc())
-        .args(["trace", "--events"])
+        .args(["trace", "--json"])
         .output()
-        .expect("the CLI must run");
-    assert_eq!(output.status.code(), Some(2));
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("not implemented"), "{stderr}");
+        .expect("yashyc must run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"rules\""), "{stdout}");
+    assert_eq!(stdout.matches("\"mode\": \"events\"").count(), 0);
 }

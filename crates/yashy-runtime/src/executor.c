@@ -834,6 +834,12 @@ int yashy_task_spawn(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
      * address before that child's join retires its mark) is recorded in the
      * phase-13 ledger as an open finding. */
     int rc = yax_enqueue(ex, poll, frame);
+#if defined(__clang__) || defined(__GNUC__)
+    if (rc == 0) {
+        yashy_trace_record(YASHY_TRACE_TASK_START, 0,
+                           (unsigned long long)(size_t)__builtin_return_address(0));
+    }
+#endif
     /* A spawn while a scope is active belongs to that scope: register it so
      * leaving the scope joins or cancels it in reverse spawn order. */
     if (rc == 0 && ex->active_scope != NULL) {
@@ -1195,6 +1201,10 @@ void yashy_task_release(yashy_executor *ex, void *frame) {
     if (frame == NULL) {
         return;
     }
+#if defined(__clang__) || defined(__GNUC__)
+    yashy_trace_record(YASHY_TRACE_TASK_END, 0,
+                       (unsigned long long)(size_t)__builtin_return_address(0));
+#endif
     yax_scope_note_released(ex, frame);
     /* A worker may have requeued the record after this `await` unqueued it
      * (it dequeued first, saw the task pending, and put it back), and it may
@@ -1212,6 +1222,10 @@ void yashy_task_cancel(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
     if (frame == NULL) {
         return;
     }
+#if defined(__clang__) || defined(__GNUC__)
+    yashy_trace_record(YASHY_TRACE_TASK_END, 0,
+                       (unsigned long long)(size_t)__builtin_return_address(0));
+#endif
     /* Retire the frame -- queue record and registry entry together -- before
      * freeing it. A frame whose driver will not let go is left live: the
      * cancel path must not read a `defer` into a double run or free a frame

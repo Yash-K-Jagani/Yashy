@@ -388,8 +388,13 @@ lookup in `addr.rs`.
   source span; `inspect --human` prints a clickable position; `inspect --addr
   <hex> --binary <binary> <source.ya>` resolves an address through `llvm-nm`
   and the index. `inspect --layout <file.ya> <Type>` reports size, alignment
-  and field offsets from the checker's layout walk. The whole `trace --events`
-  verb is still open, so the step stays unchecked.
+  and field offsets from the checker's layout walk. `trace --events <file.ya>`
+  builds a debug binary, runs it with `YASHY_TRACE_FILE` set, and reports one
+  JSON event per allocation, free, task start/end and I/O in the runtime
+  table's deterministic order. Each event's source span comes from
+  `llvm-symbolizer` over the recorded return address, with the raw address as
+  the fallback. The runtime changes are behind the environment variable, so a
+  program that does not ask for a trace pays one cached `getenv`.
 - [ ] **Step 2: `tokens --bpe` is a measurement, not an opinion.** For a file or
   a corpus, report tokens per keyword/operator and corpus totals for `o200k`,
   `cl100k` and a Llama-family tokenizer. The tokenizer tables are vendored as

@@ -22,7 +22,7 @@ use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode, ExitStatus};
+use std::process::{Command, ExitCode, ExitStatus, Stdio};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use yashy_codegen::{
@@ -1118,21 +1118,106 @@ fn run(args: &[String]) -> ExitCode {
 ///
 /// The static rule-to-code-to-test matrix. Runtime `--events` tracing is not
 /// implemented; asking for it says so instead of pretending.
+/// Build a debug binary, run it with the runtime's event trace enabled, and
+/// render the recorded events.
+///
+/// The runtime records raw return addresses; this command turns them into
+/// source spans with `llvm-symbolizer`. The binary is built in a scratch
+/// directory and removed afterwards, so `trace --events` leaves no artifact
+/// behind except the report it prints.
+fn trace_events_cmd(source: &Path, program_args: &[String], json: bool) -> ExitCode {
+    use yashy_driver::trace;
+
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or(0);
+    let scratch =
+        std::env::temp_dir().join(format!("yashy-trace-events-{}-{stamp}", std::process::id()));
+    if let Err(error) = fs::create_dir_all(&scratch) {
+        eprintln!("error: cannot create {}: {error}", scratch.display());
+        return exit_code(EXIT_INTERNAL);
+    }
+    let binary = scratch.join(format!("program{}", std::env::consts::EXE_SUFFIX));
+    let events_file = scratch.join("events.txt");
+    let build_args = vec![
+        source.to_string_lossy().into_owned(),
+        "-o".to_string(),
+        binary.to_string_lossy().into_owned(),
+        "--debug-info".to_string(),
+    ];
+    let built = build(CommandKind::Build, &build_args);
+    let ok = exit_code(EXIT_OK);
+    let result = if built != ok {
+        built
+    } else {
+        let mut child = Command::new(&binary);
+        child
+            .env("YASHY_TRACE_FILE", &events_file)
+            .stdout(Stdio::null());
+        for argument in program_args {
+            child.arg(argument);
+        }
+        match child.status() {
+            Ok(status) if status.success() => match fs::read_to_string(&events_file) {
+                Ok(text) => {
+                    let (mut events, dropped) = trace::parse_events(&text);
+                    trace::symbolize(&mut events, &binary);
+                    if json {
+                        println!("{}", trace::events_json(&events, dropped, source).render());
+                    } else {
+                        for event in &events {
+                            println!(
+                                "{:>4} {:<11} {:<32} {}",
+                                event.seq, event.kind, event.span, event.size
+                            );
+                        }
+                        if dropped > 0 {
+                            eprintln!(
+                                "warning: {dropped} event(s) dropped; the trace table is full"
+                            );
+                        }
+                    }
+                    EXIT_OK
+                }
+                Err(error) => {
+                    eprintln!("error: cannot read {}: {error}", events_file.display());
+                    EXIT_INTERNAL
+                }
+            },
+            Ok(status) => {
+                eprintln!("warning: the traced program exited with {status}");
+                EXIT_OK
+            }
+            Err(error) => {
+                eprintln!("error: cannot run {}: {error}", binary.display());
+                EXIT_INTERNAL
+            }
+        }
+    };
+    let _ = fs::remove_dir_all(&scratch);
+    exit_code(result)
+}
+
 fn trace_cmd(args: &[String]) -> ExitCode {
     use yashy_driver::trace;
 
     let mut json = false;
     let mut fail_orphans = false;
+    let mut events = false;
+    let mut program_args: Vec<String> = Vec::new();
+    let mut after_separator = false;
     let mut root: Option<PathBuf> = None;
     for argument in args {
+        if after_separator {
+            program_args.push(argument.clone());
+            continue;
+        }
         match argument.as_str() {
             "--json" => json = true,
             "--fail-orphans" => fail_orphans = true,
-            "--events" => {
-                return usage_error(
-                    "`trace --events` is not implemented; `yashyc trace --json` is the static rule matrix",
-                )
-            }
+            "--events" => events = true,
+            "--" => after_separator = true,
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown option `{other}` for `trace`"));
             }
@@ -1143,6 +1228,12 @@ fn trace_cmd(args: &[String]) -> ExitCode {
                 root = Some(PathBuf::from(other));
             }
         }
+    }
+    if events {
+        let Some(source) = root else {
+            return usage_error("`trace --events` needs a source file");
+        };
+        return trace_events_cmd(&source, &program_args, json);
     }
     let root = root.unwrap_or_else(|| PathBuf::from("."));
     let rows = match trace::matrix(&root) {
