@@ -157,6 +157,8 @@ usage:
   --opt-list   list the optimization passes in order with their bench rows
   --inventory  with `verify`: list every `extern` declaration and `unsafe` call,
                the assumptions the proof rests on; never changes the exit code
+  --color <auto|always|never>  when to colour output; auto is the default and
+               degrades under NO_COLOR, CLICOLOR=0, TERM=dumb and a pipe
   --json       print a stable machine-readable report (check, verify, test, explain, doctor)";
 
 /// The stack the front end runs on; the parser owns the requirement because
@@ -164,7 +166,14 @@ usage:
 const FRONT_END_STACK_BYTES: usize = yashy_parser::FRONT_END_STACK_BYTES;
 
 fn main() -> ExitCode {
-    let args: Vec<String> = env::args().skip(1).collect();
+    let mut args: Vec<String> = env::args().skip(1).collect();
+    args = match yashy_driver::term::take_global_flags(args) {
+        Ok(args) => args,
+        Err(message) => {
+            eprintln!("error: {message}");
+            return exit_code(EXIT_USAGE);
+        }
+    };
     let worker_args = args.clone();
     match std::thread::Builder::new()
         .name("yashyc".to_string())
@@ -3084,7 +3093,7 @@ fn lint_cmd(args: &[String]) -> ExitCode {
         let mut map = SourceMap::new();
         map.add_file(file.clone(), source);
         for diagnostic in &diagnostics {
-            eprint!("{}", map.render(diagnostic));
+            eprint!("{}", yashy_driver::term::render_diagnostic(&map, diagnostic));
         }
         if diagnostics.is_empty() {
             println!("no lints in {file}");
@@ -3332,7 +3341,7 @@ fn check(args: &[String]) -> ExitCode {
                 print_check_json("check", &sources, &all, reported, None);
             } else {
                 for d in &warning_diags {
-                    eprint!("{}", sources.render(d));
+                    eprint!("{}", yashy_driver::term::render_diagnostic(&sources, d));
                 }
                 report_timings(&timings);
             }
@@ -3511,7 +3520,7 @@ fn verify(args: &[String]) -> ExitCode {
             } else {
                 if !report.is_empty() {
                     for diagnostic in &report.diagnostics {
-                        eprint!("{}", sources.render(diagnostic));
+                        eprint!("{}", yashy_driver::term::render_diagnostic(&sources, diagnostic));
                     }
                 }
                 if let Some(assumptions) = &assumptions {
@@ -3687,7 +3696,7 @@ fn normalise_newlines(text: &str) -> String {
 /// a fresh map here would put every caret in the entry file.
 fn render(sources: &SourceMap, diagnostics: &[Diagnostic]) -> ExitCode {
     for diagnostic in diagnostics {
-        eprint!("{}", sources.render(diagnostic));
+        eprint!("{}", yashy_driver::term::render_diagnostic(&sources, diagnostic));
     }
     exit_code(EXIT_COMPILE_ERROR)
 }
@@ -3749,7 +3758,7 @@ fn expand(args: &[String]) -> ExitCode {
         Ok(tokens) => tokens,
         Err(diagnostics) => {
             for diagnostic in diagnostics {
-                eprint!("{}", sources.render(&diagnostic));
+                eprint!("{}", yashy_driver::term::render_diagnostic(&sources, &diagnostic));
             }
             return exit_code(EXIT_COMPILE_ERROR);
         }
@@ -3758,7 +3767,7 @@ fn expand(args: &[String]) -> ExitCode {
         Ok(program) => program,
         Err(diagnostics) => {
             for diagnostic in diagnostics {
-                eprint!("{}", sources.render(&diagnostic));
+                eprint!("{}", yashy_driver::term::render_diagnostic(&sources, &diagnostic));
             }
             return exit_code(EXIT_COMPILE_ERROR);
         }
@@ -3767,7 +3776,7 @@ fn expand(args: &[String]) -> ExitCode {
     let expanded = match expanded {
         Ok(tokens) => tokens,
         Err(diagnostic) => {
-            eprint!("{}", sources.render(&diagnostic));
+            eprint!("{}", yashy_driver::term::render_diagnostic(&sources, &diagnostic));
             return exit_code(EXIT_COMPILE_ERROR);
         }
     };
@@ -3785,7 +3794,7 @@ fn expand(args: &[String]) -> ExitCode {
         }
         Err(diagnostics) => {
             for diagnostic in diagnostics {
-                eprint!("{}", sources.render(&diagnostic));
+                eprint!("{}", yashy_driver::term::render_diagnostic(&sources, &diagnostic));
             }
             exit_code(EXIT_COMPILE_ERROR)
         }

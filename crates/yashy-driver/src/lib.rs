@@ -32,6 +32,7 @@ pub mod sarif;
 pub mod scaffold;
 pub mod target;
 pub mod task;
+pub mod term;
 pub mod test_harness;
 pub mod toolchain;
 pub mod watch;

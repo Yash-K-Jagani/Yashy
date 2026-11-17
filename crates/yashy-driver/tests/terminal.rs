@@ -21,6 +21,15 @@ fn run(args: &[&str]) -> (i32, String, String) {
     )
 }
 
+fn pipe_plain(cmd: &mut Command) -> (i32, String, String) {
+    let output = cmd.output().expect("the CLI must run");
+    (
+        output.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
+}
+
 #[test]
 fn help_lists_every_verb() {
     let (code, stdout, stderr) = run(&["help"]);
@@ -102,4 +111,57 @@ fn piped_output_has_no_ansi_escapes() {
         !all.contains('\u{1b}'),
         "piped output must have no ANSI: {all:?}"
     );
+}
+
+#[test]
+fn always_colour_emits_sgr_and_never_does_not() {
+    let dir = common::work_dir("terminal-colour");
+    common::write(&dir, "main.ya", "fn main() { missing(); }\n");
+    let (code, _, always) = pipe_plain(
+        Command::new(yashyc())
+            .args(["check", "--color=always", "main.ya"])
+            .current_dir(&dir),
+    );
+    assert_eq!(code, 1, "{always}");
+    assert!(
+        always.contains('\u{1b}'),
+        "--color=always must emit SGR: {always:?}"
+    );
+
+    let (_, _, never) = pipe_plain(
+        Command::new(yashyc())
+            .args(["check", "--color=never", "main.ya"])
+            .current_dir(&dir),
+    );
+    assert!(
+        !never.contains('\u{1b}'),
+        "--color=never must be plain: {never:?}"
+    );
+}
+
+#[test]
+fn columns_wraps_a_long_diagnostic() {
+    let dir = common::work_dir("terminal-columns");
+    common::write(&dir, "main.ya", "fn main() { let x: int = 1; }\n");
+    let (_, _, stderr) = pipe_plain(
+        Command::new(yashyc())
+            .args(["check", "--color=never", "main.ya"])
+            .env("COLUMNS", "40")
+            .current_dir(&dir),
+    );
+    assert!(stderr.contains("E0109"), "{stderr}");
+    for line in stderr.lines() {
+        assert!(
+            line.chars().count() <= 40,
+            "COLUMNS=40 must wrap `{line}` ({} chars)",
+            line.chars().count()
+        );
+    }
+}
+
+#[test]
+fn an_unknown_colour_policy_is_a_usage_error() {
+    let (code, _, stderr) = run(&["--color=sometimes", "check", "main.ya"]);
+    assert_eq!(code, 2, "{stderr}");
+    assert!(stderr.contains("unknown colour policy"), "{stderr}");
 }

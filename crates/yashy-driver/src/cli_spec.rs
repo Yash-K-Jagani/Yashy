@@ -422,6 +422,13 @@ pub fn render_completions(shell: &str) -> Result<String, String> {
                 flags.push(flag);
             }
         }
+        // Global output flags are accepted by every verb, so every completion
+        // script offers them even though no single verb declares them.
+        for flag in ["--color", "--no-color"] {
+            if !flags.contains(&flag) {
+                flags.push(flag);
+            }
+        }
         flags
     };
     match shell {

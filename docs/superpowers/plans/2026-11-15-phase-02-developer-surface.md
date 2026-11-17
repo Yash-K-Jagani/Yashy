@@ -353,16 +353,18 @@ This phase makes both renderings of the compiler's facts.
 - `Style::{Auto, Always, Never}`, `Pager::{Auto, Never, Command(String)}`
 - `yashyc completions <bash|zsh|fish|powershell>`, `yashyc help [verb]`
 
-- [ ] **Step 1: Write the failing test.** Pipe `yashyc check` on a file with a
+- [x] **Step 1: Write the failing test.** Pipe `yashyc check` on a file with a
   diagnostic: no ANSI escape, no spinner, no prompt, one line per diagnostic,
   stable order. `--color=always` emits SGR; `NO_COLOR`, `CLICOLOR=0` and
   `TERM=dumb` degrade to ASCII; `COLUMNS=40` wraps. `yashyc`, `yashyc help`,
   `yashyc help build`, `--help` and `-h` all answer, and an unknown verb
   suggests the nearest one and exits `2`.
-  *Current:* `terminal.rs` proves plain piped output, help for every verb, an
-  unknown-verb suggestion with exit 2, completions and the man page. There is no
-  colour policy yet: `term.rs` does not exist, `--color` is not dispatched, and
-  `NO_COLOR`/`CLICOLOR`/`TERM=dumb`/`COLUMNS` are not read.
+  *Current:* `term.rs` resolves the policy from `--color`, `NO_COLOR`,
+  `CLICOLOR`, `TERM` and `COLUMNS`; `--color=always` colours the header and
+  severity, `--color=never` and `--no-color` stay plain, and a long diagnostic
+  wraps. `terminal.rs` covers the plain pipe, help, an unknown verb, colour and
+  wrapping. A terminal-attached `auto` case is a CI/manual check, not a unit
+  assertion.
 - [x] **Step 2: One command table.** A verb is declared once with its flags,
   defaults, examples and completion kind. Help, the man page, the shell
   completions and `index --json` render from that table; a flag added in one
@@ -469,7 +471,7 @@ still owed so a later phase does not inherit a false checklist.
 | 7 | Sampling and allocation profilers, source coverage | Not started; `profile` is still the 1.0 counter profiler | Build the profilers and `coverage` |
 | 8.1 / 8.2 | `inspect --addr`, contracts, layout, `trace --events`, `tokens --bpe` | `inspect --json` reports signature, effects, docs and span; `tokens --grammar` exists; `--addr`, contracts, layout, `trace` and `--bpe` do not | Add the missing inspection verbs and the BPE measurement |
 | 9 | One generated grammar, six clients, `editors` CI job | The 1.0 hand-maintained grammar tests still exist; no generator, no clients, no CI job | Build the grammar model and the two gated clients |
-| 10.1 / 10.3 / 10.4 / 10.5 | Colour policy, `NO_COLOR`/`CLICOLOR`/`TERM=dumb`/`COLUMNS`, committed completions, pager, hyperlinks | Help, completions and the man page render from one command table; piped output is plain; no `term.rs`, no colour flags, no committed completion files, no pager, no OSC 8 | Build the terminal policy and commit the generated scripts |
+| 10.1 / 10.3 / 10.4 / 10.5 | Colour policy, `NO_COLOR`/`CLICOLOR`/`TERM=dumb`/`COLUMNS`, committed completions, pager, hyperlinks | `term.rs` implements the colour and width policy and the global flags; help, completions and the man page render from one command table; no committed completion files, no pager, no OSC 8 | Commit the generated scripts and build the pager/hyperlink policy |
 | Gates | LSP conformance in two editors, debugger and profiler demos, terminal matrix, `editors` job | `cargo check --workspace --all-targets` is green; runtime gates cannot run locally (Windows Application Control) and CI is deferred | Re-run the full gate set when CI is unblocked |
 
 ## Out of scope

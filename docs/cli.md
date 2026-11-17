@@ -506,6 +506,26 @@ message names the nearest known code, for example
 code still writes that human message to stderr; the JSON envelope is for a
 catalog entry that exists.
 
+## Colour and width
+
+Human diagnostics are coloured only when the stream is a terminal. `--color`
+forces colour, `--color=never` and `--no-color` turn it off, and `--color=auto`
+is the default. `NO_COLOR` (any value), `CLICOLOR=0` and `TERM=dumb` also turn
+it off, so a pipe, a file and a dumb terminal always receive plain text. The
+flags are global: they may appear before or after the verb, and everything
+after `--` belongs to the program being run.
+
+`COLUMNS` wraps a diagnostic that is wider than the shell. The caret line is
+never wrapped, so it keeps pointing at the source column.
+
+```text
+yashyc check --color=never main.ya
+NO_COLOR=1 yashyc check main.ya
+COLUMNS=40 yashyc check main.ya
+```
+
+`--json` writes no escape and no spinner, whatever the terminal says.
+
 ## Timings
 
 `--timings` makes the compiler report how long each pipeline phase took. It is
