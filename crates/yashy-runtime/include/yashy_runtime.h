@@ -45,7 +45,8 @@ typedef struct yashy_str yashy_str;
 #define YASHY_TRACE_TASK_END 4
 #define YASHY_TRACE_IO 5
 
-void yashy_trace_record(int kind, long long size, unsigned long long pc);
+void yashy_trace_record(int kind, long long size, unsigned long long pc,
+                        unsigned long long ptr);
 
 /* Writes the NUL-terminated string to stdout, byte for byte. Nothing else: no
  * newline, and no line-ending translation (see the note in runtime.c). */
@@ -138,7 +139,8 @@ static YASHY_ALWAYS_INLINE void *yashy_alloc_aligned(long long size,
     yashy_alloc_note(1);
 #if defined(__clang__) || defined(__GNUC__)
     yashy_trace_record(YASHY_TRACE_ALLOC, size,
-                       (unsigned long long)(size_t)__builtin_return_address(0));
+                       (unsigned long long)(size_t)__builtin_return_address(0),
+                       (unsigned long long)(size_t)aligned);
 #endif
     return (void *)aligned;
 }

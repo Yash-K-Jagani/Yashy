@@ -356,17 +356,26 @@ debug locations.
 - [ ] **Step 3: Allocation profiling has no hidden hooks.** The allocator
   interface records size, site and a bounded stack; `--alloc-report` is the
   same data in table form. Leaks are reported at exit with the allocation span.
-  *Current:* partial. `yashyc profile --alloc-report <file.ya>` builds, runs with
-  `YASHY_LEAK_REPORT=1`, parses the runtime's total and emits a schema-v1
-  envelope that states the site is unavailable. The allocator does not record
-  size, site or a bounded stack, so no leaking span is reported.
+  *Current:* the runtime event trace now records size, address, caller and a
+  bounded three-frame stack for every allocation and free, behind
+  `YASHY_TRACE_FILE`. `profile --alloc-report` builds with debug info, runs with
+  that variable set, and renders the same events as `allocations` (every site)
+  and `sites` (blocks still live at exit), with counts, bytes and source spans
+  from `llvm-symbolizer`. A verified program cannot leak, so `sites` is empty
+  there by construction; the attribution is real, not invented.
 - [ ] **Step 4: Coverage is source-based.** Compile with clang's
   `-fprofile-instr-generate -fcoverage-mapping`, run the test suite, merge
   profiles, and render per-file/per-line counts. `--fail-under` gates CI.
-  *Current:* not implemented. The `!dbg` prerequisite is now met for checked
-  statements; what remains is clang coverage flags, profile merge and lcov/JSON
-  rendering. `yashyc coverage` is an explicit usage error pointing at
-  docs/coverage.md rather than a false success.
+  *Current:* `yashyc coverage <file.ya>` builds with `--debug-info` and clang's
+  `-fprofile-instr-generate -fcoverage-mapping`, runs with `LLVM_PROFILE_FILE`,
+  merges with `llvm-profdata merge -sparse` and exports lcov with
+  `llvm-cov export`. `coverage.rs` parses the records into per-file, per-line
+  counts and renders either lcov or a schema-v1 JSON envelope with
+  `covered_lines`, `total_lines` and `percent`; `--fail-under` exits `1` below
+  the threshold. The helpers are found beside clang or through
+  `YASHY_LLVM_PROFDATA`/`YASHY_LLVM_COV`, and a missing helper is a usage error
+  naming what to install. The command covers one program; running the whole
+  test suite under one merged profile is still a CI gate.
 - [x] **Step 5: Commit.**
 
 ### Task 8: `inspect`, `trace`, `tokens`

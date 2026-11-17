@@ -1,26 +1,30 @@
 # Coverage
 
-Source-level coverage is **not implemented** in 2.0 yet. This page records why,
-so the gap is not mistaken for a flag that exists.
+`yashyc coverage <file.ya>` measures which Yashy source lines ran. It is
+source-based: the debug build attaches `!dbg` locations from HIR spans, clang
+writes a coverage mapping from them, and llvm-cov reads the recorded profile
+back as lcov records naming Yashy lines.
 
-The intended path was clang's `-fprofile-instr-generate -fcoverage-mapping`,
-run over the test suite and merged into lcov and JSON with a `--fail-under`
-gate. Coverage mapping needs a source mapping in the LLVM IR: the backend
-would have to attach `!dbg` locations from HIR spans to instructions. The
-current code generator emits no debug metadata at all, so a coverage-instrumented
-build would produce profile data that cannot be attributed to a Yashy source
-line.
+```text
+yashyc coverage main.ya
+yashyc coverage --json main.ya
+yashyc coverage --format json --fail-under 80 main.ya
+```
 
-Until that lands:
+The command builds the file with `--debug-info` and coverage instrumentation
+in a scratch directory, runs it with `LLVM_PROFILE_FILE` set, merges the raw
+profile with `llvm-profdata merge -sparse`, and exports lcov with
+`llvm-cov export -format=lcov`. Both helpers are looked up beside the clang
+used for the build; `YASHY_LLVM_PROFDATA` and `YASHY_LLVM_COV` override the
+lookup. If either is missing the command is a usage error naming what to
+install, never a silent empty report.
 
-- there is no `yashyc coverage` verb; asking for it is a usage error;
-- `yashyc test` reports which test programs passed, not which source lines ran;
-- debug builds now emit a `!dbg` location per checked statement, so the
-  metadata prerequisite is met; what remains is the instrumentation, profile
-  merge and lcov/JSON rendering pipeline;
-- `docs/debugging.md` tracks the parallel gap for typed locals and values.
+Without `--format` the command prints the lcov records. With `--format json`
+(or `--json`) it prints a schema-v1 envelope with `files`, `covered_lines`,
+`total_lines` and a rounded `percent`. `--fail-under <pct>` exits `1` when the
+covered fraction is below the threshold; it is meant for CI and is a gate, not
+a change to the report. Program arguments go after `--`.
 
-The work order is therefore: emit `!dbg` line locations from HIR spans, then
-wire coverage mapping and the source-aware debugger on top of the same fact.
-Implementing one without the other would create a second, drifting notion of a
-source position.
+The scratch binary, raw profile and merged profile are removed after the run.
+A program that exits non-zero is refused: a partial run would report coverage
+that never reached the lines after a failure.

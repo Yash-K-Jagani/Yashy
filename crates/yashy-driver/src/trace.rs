@@ -125,15 +125,19 @@ pub struct Event {
     pub kind: &'static str,
     pub size: i64,
     pub pc: String,
+    pub ptr: u64,
+    pub stack: Vec<String>,
     pub span: String,
 }
 
 /// Parse the runtime's flat event file.
 ///
-/// The runtime writes `seq kind size pc` lines in table order and one trailing
-/// `# dropped N` line when the bounded table overflowed. Parsing is strict: a
-/// malformed line is skipped rather than becoming a wrong event, because a
-/// trace that lies about its events is worse than a short one.
+/// The runtime writes `seq kind size pc ptr s1,s2,s3` lines in table order and
+/// one trailing `# dropped N` line when the bounded table overflowed. The
+/// pointer is what lets a free be matched to its allocation, and the three
+/// callers are the bounded stack. Parsing is strict: a malformed line is
+/// skipped rather than becoming a wrong event, because a trace that lies about
+/// its events is worse than a short one.
 pub fn parse_events(text: &str) -> (Vec<Event>, u64) {
     let mut events = Vec::new();
     let mut dropped = 0;
@@ -144,7 +148,7 @@ pub fn parse_events(text: &str) -> (Vec<Event>, u64) {
             continue;
         }
         let fields: Vec<&str> = line.split_whitespace().collect();
-        if fields.len() != 4 {
+        if !(5..=6).contains(&fields.len()) {
             continue;
         }
         let (Ok(seq), Ok(kind), Ok(size)) = (
@@ -152,6 +156,9 @@ pub fn parse_events(text: &str) -> (Vec<Event>, u64) {
             fields[1].parse::<u8>(),
             fields[2].parse::<i64>(),
         ) else {
+            continue;
+        };
+        let Ok(ptr) = u64::from_str_radix(fields[4], 16) else {
             continue;
         };
         let kind = match kind {
@@ -162,11 +169,17 @@ pub fn parse_events(text: &str) -> (Vec<Event>, u64) {
             5 => "io",
             _ => continue,
         };
+        let stack = fields
+            .get(5)
+            .map(|text| text.split(',').map(str::to_string).collect())
+            .unwrap_or_default();
         events.push(Event {
             seq,
             kind,
             size,
             pc: fields[3].to_string(),
+            ptr,
+            stack,
             span: String::new(),
         });
     }
@@ -307,7 +320,7 @@ mod tests {
     #[test]
     fn runtime_events_parse_in_table_order() {
         let (events, dropped) =
-            parse_events("1 1 16 12ab\n2 5 0 dead\n3 2 0 beef\n# dropped 7\nnot an event\n");
+            parse_events("1 1 16 12ab 1000 a,b,c\n2 5 0 dead 0 d,e,f\n3 2 0 beef 1000 g,h,i\n# dropped 7\nnot an event\n");
         assert_eq!(dropped, 7);
         assert_eq!(events.len(), 3);
         assert_eq!(events[0].kind, "alloc");

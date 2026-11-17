@@ -1016,6 +1016,19 @@ a generated command file that sets a breakpoint on `main` and dumps the
 async task table on stop; the same table is available without a debugger
 through `YASHY_DEBUG=1`.
 
+`profile --alloc-report <file.ya>` builds with debug info, runs with the
+runtime's event trace enabled and reports every allocation site with a byte
+count and a source span, plus the blocks still live at exit. See
+[profiling](profiling.md).
+
+## `yashyc coverage <file.ya> [--json] [--format lcov|json] [--fail-under <pct>]`
+
+Builds with debug info and LLVM coverage mapping, runs the program, merges the
+raw profile and renders lcov records or a schema-v1 JSON summary of covered
+lines. `--fail-under` exits `1` when coverage is below the threshold. The LLVM
+helpers are found beside the clang doing the build, or through
+`YASHY_LLVM_PROFDATA` / `YASHY_LLVM_COV`; see [coverage](coverage.md).
+
 ## `yashy.toml` and `yashyc lock --check`
 
 A project may carry a manifest beside its source. The reader is a documented

@@ -1884,6 +1884,15 @@ fn link_arguments(
             .iter()
             .map(|flag| flag.to_string()),
     );
+    // Source-based coverage is the one other caller that wants instrumentation
+    // at the link stage. It is opt-in through the environment because the
+    // `coverage` verb builds in-process and cannot otherwise pass a flag to
+    // this helper. The IR itself is unchanged; the coverage mapping is added
+    // by clang when it assembles the instrumented binary.
+    if std::env::var("YASHY_COVERAGE").ok().as_deref() == Some("1") {
+        args.push("-fprofile-instr-generate".to_string());
+        args.push("-fcoverage-mapping".to_string());
+    }
     args.extend(
         options
             .cpu

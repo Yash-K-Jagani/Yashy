@@ -89,3 +89,29 @@ fn a_debug_run_generates_a_syntactically_valid_lldb_file() {
     );
     let _ = std::fs::remove_dir_all(".yashy");
 }
+
+#[test]
+fn alloc_report_names_the_site_of_every_allocation() {
+    let dir = common::work_dir("profile-alloc-site");
+    common::write(
+        &dir,
+        "main.ya",
+        "fn main() {\n    let buf = alloc(16);\n    buf.free();\n    print(\"done\");\n}\n",
+    );
+    let (code, stdout, stderr) = run(&[
+        "profile",
+        "--alloc-report",
+        dir.join("main.ya").to_str().unwrap(),
+    ]);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert!(stdout.contains("\"allocations\""), "{stdout}");
+    assert!(stdout.contains("\"sites\""), "{stdout}");
+    assert!(
+        stdout.contains("main.ya"),
+        "the allocation site must name the source: {stdout}"
+    );
+    assert!(
+        stdout.contains("\"live_allocations\": 0"),
+        "the program frees its buffer: {stdout}"
+    );
+}

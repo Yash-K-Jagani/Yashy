@@ -216,9 +216,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "tasks" => tasks(rest),
         "check" => check(rest),
         "lint" => lint_cmd(rest),
-        "coverage" => usage_error(
-            "`yashyc coverage` is not implemented yet: source coverage needs LLVM debug metadata; see docs/coverage.md",
-        ),
+        "coverage" => coverage_cmd(rest),
         "fix" => fix_cmd(rest),
         "verify" => verify(rest),
         "test" => test(rest),
@@ -5152,23 +5150,27 @@ fn lsp_cmd(args: &[String]) -> ExitCode {
 /// runtime's live-allocation total. No source site is available because the
 /// allocator does not carry one yet; the JSON says so.
 fn alloc_report(input: PathBuf) -> ExitCode {
+    use yashy_driver::trace;
+
     let dir = temp_run_dir();
     if let Err(error) = fs::create_dir_all(&dir) {
         eprintln!("error: cannot create {}: {error}", dir.display());
         return exit_code(EXIT_COMPILE_ERROR);
     }
     let output = dir.join(format!("alloc{}", std::env::consts::EXE_SUFFIX));
+    let events_file = dir.join("events.txt");
     let build_arguments = vec![
         input.to_string_lossy().into_owned(),
         "-o".to_string(),
         output.to_string_lossy().into_owned(),
+        "--debug-info".to_string(),
     ];
     let code = build(CommandKind::Run, &build_arguments);
     if code != exit_code(EXIT_OK) {
         let _ = fs::remove_dir_all(&dir);
         return code;
     }
-    let mut captured = String::new();
+    let mut ran = false;
     for attempt in 0..LAUNCH_ATTEMPTS {
         let candidate = match launch_candidate(&output, attempt) {
             Ok(path) => path,
@@ -5179,11 +5181,12 @@ fn alloc_report(input: PathBuf) -> ExitCode {
             }
         };
         let child = Command::new(&candidate)
-            .env("YASHY_LEAK_REPORT", "1")
-            .output();
+            .env("YASHY_TRACE_FILE", &events_file)
+            .stdout(Stdio::null())
+            .status();
         match child {
-            Ok(result) => {
-                captured = String::from_utf8_lossy(&result.stderr).into_owned();
+            Ok(_) => {
+                ran = true;
                 break;
             }
             Err(error) if blocked_by_policy(&error) => continue,
@@ -5194,29 +5197,265 @@ fn alloc_report(input: PathBuf) -> ExitCode {
             }
         }
     }
+    if !ran {
+        let _ = fs::remove_dir_all(&dir);
+        return exit_code(EXIT_INTERNAL);
+    }
+    let text = match fs::read_to_string(&events_file) {
+        Ok(text) => text,
+        Err(error) => {
+            eprintln!("error: cannot read {}: {error}", events_file.display());
+            let _ = fs::remove_dir_all(&dir);
+            return exit_code(EXIT_INTERNAL);
+        }
+    };
     let _ = fs::remove_dir_all(&dir);
-    let live = captured
-        .lines()
-        .rev()
-        .find_map(|line| {
-            let rest = line.strip_prefix("yashy: leak report: ")?;
-            let count = rest.strip_suffix(" live allocations")?.trim();
-            count.parse::<i64>().ok()
+
+    let (mut events, dropped) = trace::parse_events(&text);
+    trace::symbolize(&mut events, &output);
+
+    // Walk in table order: an allocation is live if its pointer has not been
+    // freed by the time the program ends. Reusing a pointer after a free is
+    // common (a loop that allocates and releases one buffer), so a "was ever
+    // freed" set would wrongly call the second allocation a leak.
+    let mut live: std::collections::BTreeMap<u64, &trace::Event> =
+        std::collections::BTreeMap::new();
+    let mut frees = std::collections::HashSet::new();
+    for event in &events {
+        match event.kind {
+            "alloc" => {
+                live.insert(event.ptr, event);
+                frees.remove(&event.ptr);
+            }
+            "free" => {
+                if live.remove(&event.ptr).is_none() {
+                    frees.insert(event.ptr);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut by_site: std::collections::BTreeMap<&str, (u64, i64)> =
+        std::collections::BTreeMap::new();
+    for event in live.values() {
+        let entry = by_site.entry(event.span.as_str()).or_insert((0, 0));
+        entry.0 += 1;
+        entry.1 += event.size;
+    }
+    let mut all_by_site: std::collections::BTreeMap<&str, (u64, i64)> =
+        std::collections::BTreeMap::new();
+    for event in events.iter().filter(|event| event.kind == "alloc") {
+        let entry = all_by_site.entry(event.span.as_str()).or_insert((0, 0));
+        entry.0 += 1;
+        entry.1 += event.size;
+    }
+    let allocations: Vec<Json> = all_by_site
+        .into_iter()
+        .map(|(span, (count, bytes))| {
+            let mut site = Json::object();
+            site.set("span", Json::string(span));
+            site.set("count", Json::number(count as i64));
+            site.set("bytes", Json::number(bytes));
+            site
         })
-        .unwrap_or(0);
+        .collect();
+    let sites: Vec<Json> = by_site
+        .into_iter()
+        .map(|(span, (count, bytes))| {
+            let mut site = Json::object();
+            site.set("span", Json::string(span));
+            site.set("count", Json::number(count as i64));
+            site.set("bytes", Json::number(bytes));
+            site
+        })
+        .collect();
+
     let mut report = Json::object();
     report.set("schema_version", Json::number(1));
     report.set("tool", Json::string("profile --alloc-report"));
-    report.set("program", Json::string(input.to_string_lossy()));
-    report.set("live_allocations", Json::number(live));
     report.set(
-        "note",
-        Json::string(
-            "the runtime reports a total only; allocation sites need site ids in the allocator and are not available yet",
-        ),
+        "program",
+        Json::string(input.to_string_lossy().into_owned()),
     );
+    report.set("live_allocations", Json::number(live.len() as i64));
+    report.set("events", Json::number(events.len() as i64));
+    report.set("dropped", Json::number(dropped as i64));
+    report.set("allocations", Json::array(allocations));
+    report.set("sites", Json::array(sites));
     println!("{}", report.render());
     exit_code(EXIT_OK)
+}
+
+/// `yashyc coverage <file.ya> [--json] [--format lcov|json] [--fail-under <pct>] [-- args]`
+///
+/// The debug info from HIR spans is what makes the result source-based: clang
+/// writes a coverage mapping into the instrumented binary and llvm-cov reads
+/// it back as lcov records naming Yashy lines, not LLVM instructions.
+fn coverage_cmd(args: &[String]) -> ExitCode {
+    use yashy_driver::coverage;
+
+    let mut json = false;
+    let mut format: Option<String> = None;
+    let mut fail_under: Option<f64> = None;
+    let mut source: Option<PathBuf> = None;
+    let mut program_args: Vec<String> = Vec::new();
+    let mut after_separator = false;
+    let mut i = 0;
+    while i < args.len() {
+        if after_separator {
+            program_args.push(args[i].clone());
+            i += 1;
+            continue;
+        }
+        match args[i].as_str() {
+            "--json" => json = true,
+            "--format" => {
+                if i + 1 < args.len() {
+                    format = Some(args[i + 1].clone());
+                    i += 1;
+                } else {
+                    return usage_error("`--format` needs `lcov` or `json`");
+                }
+            }
+            "--fail-under" => {
+                if i + 1 < args.len() {
+                    match args[i + 1].parse::<f64>() {
+                        Ok(value) if (0.0..=100.0).contains(&value) => fail_under = Some(value),
+                        _ => return usage_error("`--fail-under` needs a percentage from 0 to 100"),
+                    }
+                    i += 1;
+                } else {
+                    return usage_error("`--fail-under` needs a percentage");
+                }
+            }
+            "--" => after_separator = true,
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `coverage`"));
+            }
+            other => {
+                if source.is_some() {
+                    return usage_error("`coverage` takes one source file");
+                }
+                source = Some(PathBuf::from(other));
+            }
+        }
+        i += 1;
+    }
+    let Some(source) = source else {
+        return usage_error("`coverage` needs a source file");
+    };
+    match format.as_deref() {
+        None | Some("lcov") | Some("json") => {}
+        Some(other) => return usage_error(&format!("unknown coverage format `{other}`")),
+    }
+
+    let toolchain = match detect() {
+        Ok(toolchain) => toolchain,
+        Err(message) => {
+            eprintln!("error: {message}");
+            return exit_code(EXIT_COMPILE_ERROR);
+        }
+    };
+    let Some(profdata) =
+        coverage::find_tool("llvm-profdata", &toolchain.llc, "YASHY_LLVM_PROFDATA")
+    else {
+        eprintln!("error: `llvm-profdata` is needed for coverage; set YASHY_LLVM_PROFDATA or install LLVM");
+        return exit_code(EXIT_USAGE);
+    };
+    let Some(llvm_cov) = coverage::find_tool("llvm-cov", &toolchain.llc, "YASHY_LLVM_COV") else {
+        eprintln!("error: `llvm-cov` is needed for coverage; set YASHY_LLVM_COV or install LLVM");
+        return exit_code(EXIT_USAGE);
+    };
+
+    let dir = temp_run_dir();
+    if let Err(error) = fs::create_dir_all(&dir) {
+        eprintln!("error: cannot create {}: {error}", dir.display());
+        return exit_code(EXIT_INTERNAL);
+    }
+    let binary = dir.join(format!("coverage{}", std::env::consts::EXE_SUFFIX));
+    let raw = dir.join("coverage.profraw");
+    let merged = dir.join("coverage.profdata");
+    let build_args = vec![
+        source.to_string_lossy().into_owned(),
+        "-o".to_string(),
+        binary.to_string_lossy().into_owned(),
+        "--debug-info".to_string(),
+    ];
+    env::set_var("YASHY_COVERAGE", "1");
+    let built = build(CommandKind::Run, &build_args);
+    env::remove_var("YASHY_COVERAGE");
+    if built != exit_code(EXIT_OK) {
+        let _ = fs::remove_dir_all(&dir);
+        return built;
+    }
+    let mut child = Command::new(&binary);
+    child.env("LLVM_PROFILE_FILE", &raw).stdout(Stdio::null());
+    for argument in &program_args {
+        child.arg(argument);
+    }
+    if !child.status().is_ok_and(|status| status.success()) {
+        eprintln!("error: the instrumented program did not exit successfully");
+        let _ = fs::remove_dir_all(&dir);
+        return exit_code(EXIT_COMPILE_ERROR);
+    }
+    let merge = Command::new(&profdata)
+        .arg("merge")
+        .arg("-sparse")
+        .arg(&raw)
+        .arg("-o")
+        .arg(&merged)
+        .output();
+    if !merge.is_ok_and(|result| result.status.success()) {
+        eprintln!("error: `llvm-profdata merge` failed; no coverage data was produced");
+        let _ = fs::remove_dir_all(&dir);
+        return exit_code(EXIT_INTERNAL);
+    }
+    let exported = Command::new(&llvm_cov)
+        .arg("export")
+        .arg(&binary)
+        .arg(format!("-instr-profile={}", merged.display()))
+        .arg("-format=lcov")
+        .output();
+    let exported = match exported {
+        Ok(result) if result.status.success() => result,
+        Ok(result) => {
+            eprintln!(
+                "error: `llvm-cov export` failed: {}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let _ = fs::remove_dir_all(&dir);
+            return exit_code(EXIT_INTERNAL);
+        }
+        Err(error) => {
+            eprintln!("error: cannot run llvm-cov: {error}");
+            let _ = fs::remove_dir_all(&dir);
+            return exit_code(EXIT_INTERNAL);
+        }
+    };
+    let lcov = String::from_utf8_lossy(&exported.stdout).into_owned();
+    let files = coverage::parse_lcov(&lcov);
+    let (covered, total) = coverage::summary(&files);
+    let percent = if total == 0 {
+        0.0
+    } else {
+        covered as f64 * 100.0 / total as f64
+    };
+    if json || format.as_deref() == Some("json") {
+        println!("{}", coverage::to_json(&files, &source).render());
+    } else {
+        print!("{lcov}");
+    }
+    let result = match fail_under {
+        Some(minimum) if percent < minimum => {
+            eprintln!(
+                "error: coverage is {percent:.2}% (below {minimum:.2}%): {covered}/{total} lines"
+            );
+            EXIT_COMPILE_ERROR
+        }
+        _ => EXIT_OK,
+    };
+    let _ = fs::remove_dir_all(&dir);
+    exit_code(result)
 }
 
 fn profile_cmd(args: &[String]) -> ExitCode {

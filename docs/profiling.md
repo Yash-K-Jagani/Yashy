@@ -22,15 +22,19 @@ counter table produced by a build that collected one.
 yashyc profile --alloc-report main.ya
 ```
 
-The program is rebuilt and run with `YASHY_LEAK_REPORT=1`. The C runtime prints
-its live-allocation total at exit; the command parses that line and emits a
-schema-v1 envelope with `live_allocations` and a note explaining what is not
-there. A program that frees everything it allocates reports `0`.
+The program is rebuilt with debug info and run with `YASHY_TRACE_FILE` set. The
+runtime records every allocation and free with its byte size, its address, the
+caller's return address and a bounded three-frame stack; the driver symbolises
+those addresses with `llvm-symbolizer` and emits a schema-v1 envelope. It has
+`live_allocations`, an `allocations` array grouping every allocation by its
+source span (count and bytes), and a `sites` array with the same shape for the
+blocks still live at exit. A program that frees everything reports `0` and an
+empty `sites` array.
 
-The report has **no allocation site, size histogram or bounded stack**. The
-runtime counts allocations but does not carry a site id or a size per live
-block, so a leaking site cannot be named. That is the next slice of work, not a
-number this command guesses.
+The trace table is bounded at 16384 events; a run that fills it reports a
+`dropped` count rather than a shorter, silently wrong report. The runtime does
+no symbolisation itself: a program that does not ask for a trace pays one
+cached `getenv` and records nothing.
 
 ## What is not here
 
@@ -38,7 +42,9 @@ number this command guesses.
   Symbols would need per-instruction LLVM debug metadata; debug builds currently
 carry only a function-entry line table, which is not enough to attribute samples
 inside a function.
-- Allocation profiler with source spans: not implemented; see above.
+- Allocation profiler with source spans: shipped for allocations and frees; a
+  leaking program cannot be built without `--no-verify`, so `sites` is empty on
+  a verified program by construction.
 - Flame graph: not implemented.
 
 A `--sample` flag is reserved in the command table but the measurement path is

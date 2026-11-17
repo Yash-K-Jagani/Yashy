@@ -55,6 +55,8 @@ typedef struct {
     int kind;
     long long size;
     unsigned long long pc;
+    unsigned long long ptr;
+    unsigned long long stack[3];
 } yashy_trace_event_record;
 
 static yashy_trace_event_record yashy_trace_events[YASHY_TRACE_CAPACITY];
@@ -84,7 +86,8 @@ static void yashy_trace_configure(void) {
     }
 }
 
-void yashy_trace_record(int kind, long long size, unsigned long long pc) {
+void yashy_trace_record(int kind, long long size, unsigned long long pc,
+                        unsigned long long ptr) {
     yashy_trace_configure();
     if (!yashy_trace_enabled) {
         return;
@@ -95,6 +98,14 @@ void yashy_trace_record(int kind, long long size, unsigned long long pc) {
         yashy_trace_events[slot].kind = kind;
         yashy_trace_events[slot].size = size;
         yashy_trace_events[slot].pc = pc;
+        yashy_trace_events[slot].ptr = ptr;
+        /* A bounded caller chain, captured here rather than at each hook so
+         * every kind of event has the same shape. Three frames are enough to
+         * name the enclosing function without turning the trace into a
+         * full profile. */
+        yashy_trace_events[slot].stack[0] = YASHY_TRACE_CALLER(1);
+        yashy_trace_events[slot].stack[1] = YASHY_TRACE_CALLER(2);
+        yashy_trace_events[slot].stack[2] = YASHY_TRACE_CALLER(3);
     } else {
         __sync_fetch_and_add(&yashy_trace_dropped, 1);
     }
@@ -110,9 +121,11 @@ static void yashy_trace_flush(void) {
     }
     long long count = yashy_trace_next < YASHY_TRACE_CAPACITY ? yashy_trace_next : YASHY_TRACE_CAPACITY;
     for (long long i = 0; i < count; i++) {
-        fprintf(out, "%lld %d %lld %llx\n", yashy_trace_events[i].seq,
-                yashy_trace_events[i].kind, yashy_trace_events[i].size,
-                yashy_trace_events[i].pc);
+        fprintf(out, "%lld %d %lld %llx %llx %llx,%llx,%llx\n",
+                yashy_trace_events[i].seq, yashy_trace_events[i].kind,
+                yashy_trace_events[i].size, yashy_trace_events[i].pc,
+                yashy_trace_events[i].ptr, yashy_trace_events[i].stack[0],
+                yashy_trace_events[i].stack[1], yashy_trace_events[i].stack[2]);
     }
     fprintf(out, "# dropped %lld\n", yashy_trace_dropped);
     fclose(out);
@@ -236,7 +249,7 @@ void yashy_metrics(const char *kind, const char *name, long long value) {
  * call site and symbolises to the Yashy line that printed. */
 static void yashy_trace_io(void) {
 #if defined(__clang__) || defined(__GNUC__)
-    yashy_trace_record(YASHY_TRACE_IO, 0, YASHY_TRACE_CALLER(2));
+    yashy_trace_record(YASHY_TRACE_IO, 0, YASHY_TRACE_CALLER(2), 0);
 #endif
 }
 
@@ -425,7 +438,8 @@ void yashy_free(void *ptr) {
     }
 #if defined(__clang__) || defined(__GNUC__)
     yashy_trace_record(YASHY_TRACE_FREE, 0,
-                       YASHY_TRACE_CALLER(1));
+                       YASHY_TRACE_CALLER(1),
+                       (unsigned long long)(size_t)ptr);
 #endif
     free(((void **)ptr)[-1]);
     yashy_count_add(&yashy_live_allocations, -1);

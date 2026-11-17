@@ -219,6 +219,13 @@ pub const COMMANDS: &[CommandSpec] = &[
         takes_path: false,
     },
     CommandSpec {
+        name: "coverage",
+        summary: "measure which Yashy source lines ran",
+        usage: "yashyc coverage <file.ya> [--json] [--format lcov|json] [--fail-under <pct>] [-- args]",
+        flags: &["--json", "--format", "--fail-under"],
+        takes_path: true,
+    },
+    CommandSpec {
         name: "tokens",
         summary: "dump a file's tokens or regenerate the editor grammars",
         usage: "yashyc tokens [--json] <file.ya> | tokens --grammar <dir> | tokens --bpe <path>...",

@@ -13,6 +13,7 @@ pub mod capability_check;
 pub mod cfg;
 pub mod cli_spec;
 pub mod context;
+pub mod coverage;
 pub mod daemon;
 pub mod daemon_protocol;
 pub mod debug;
