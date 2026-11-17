@@ -1150,6 +1150,21 @@ wrong sources, a lockfile that disagrees with the manifest, and an untrusted
 registry; each finding is [E1804](errors/E1804.md). A clean run prints
 `ok: N packages, M bytes` and exits 0.
 
+`[audit]` in `yashy.toml` tightens the policy: `allowed-licenses` and
+`allowed-packages` are allowlists ([E1807](errors/E1807.md)), and
+`require-signatures = true` fails when no trusted key is configured
+([E1805](errors/E1805.md)).
+
+```text
+yashyc sbom [dir] --format spdx-json
+yashyc verify-package <tarball> [--registry <dir>]
+```
+
+`sbom` prints a deterministic SPDX 2.3 document for the package and the
+compiler binary. `verify-package` checks the tarball's detached signature
+([E1805](errors/E1805.md)) and that an SBOM names its SHA-256
+([E1806](errors/E1806.md)); it exits 1 on any finding.
+
 A registry is a directory: `index.json` plus `packages/<hash>.tar`, written
 through staging files and renamed into place. `publish` takes the name,
 version and description from the package's `yashy.toml` and hashes the whole

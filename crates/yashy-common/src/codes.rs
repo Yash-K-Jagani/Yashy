@@ -124,6 +124,12 @@ pub const DEPENDENCY_CYCLE: &str = "E1801";
 pub const OFFLINE_MISSING: &str = "E1803";
 /// A package audit found a policy violation.
 pub const AUDIT_FAILURE: &str = "E1804";
+/// A package signature is missing, from an unknown key, or invalid.
+pub const SIGNATURE_INVALID: &str = "E1805";
+/// A package's SBOM is missing or disagrees with the package.
+pub const SBOM_MISMATCH: &str = "E1806";
+/// A package names a license or source outside the audit policy.
+pub const POLICY_DENIED: &str = "E1807";
 /// A resource is used after it has been released.
 pub const USE_AFTER_CLOSE: &str = "E1401";
 /// A bare linear value is shared across a thread boundary.
@@ -516,6 +522,24 @@ pub const CODES: &[Code] = &[
         page: include_str!("../../../docs/errors/E1804.md"),
     },
     Code {
+        id: SIGNATURE_INVALID,
+        title: "invalid package signature",
+        summary: "A package signature is missing, names an untrusted key, or does not match the artifact.",
+        page: include_str!("../../../docs/errors/E1805.md"),
+    },
+    Code {
+        id: SBOM_MISMATCH,
+        title: "package SBOM mismatch",
+        summary: "A package's SBOM is missing or does not describe the artifact it accompanies.",
+        page: include_str!("../../../docs/errors/E1806.md"),
+    },
+    Code {
+        id: POLICY_DENIED,
+        title: "package policy denial",
+        summary: "A package names a license or source outside the project's audit policy.",
+        page: include_str!("../../../docs/errors/E1807.md"),
+    },
+    Code {
         id: SANDBOX_DENIED,
         title: "sandbox capability denied",
         summary: "A sandboxed program touched a path, the network or a child process outside its capability set.",
@@ -816,6 +840,9 @@ pub fn rule_for(id: &str) -> &'static str {
         LOCKFILE_MISMATCH => "PKG-3",
         OFFLINE_MISSING => "PKG-4",
         AUDIT_FAILURE => "PKG-5",
+        SIGNATURE_INVALID => "PKG-6",
+        SBOM_MISMATCH => "PKG-7",
+        POLICY_DENIED => "PKG-8",
         SANDBOX_DENIED => "SANDBOX-1",
         SANDBOX_LIMIT => "SANDBOX-2",
         UNUSED_BINDING => "LINT-1",

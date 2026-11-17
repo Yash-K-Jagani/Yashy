@@ -25,7 +25,7 @@ pub mod toml;
 pub mod version;
 
 pub use lock::{hash_tree, sha256_hex, LockError, LockedPackage, Lockfile};
-pub use manifest::{Dependency, Manifest, Package, Workspace};
+pub use manifest::{AuditPolicy, Dependency, Manifest, Package, Workspace};
 pub use req::VersionReq;
 pub use sbom::{spdx_json, SbomPackage};
 pub use signature::{public_key, sign, verify, Keyring, Signature, VerifyError};

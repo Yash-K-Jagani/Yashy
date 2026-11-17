@@ -11,6 +11,14 @@ use std::path::Path;
 
 use crate::toml::{self, Document, Location, ParseError, Value};
 
+/// The `[audit]` policy. An empty list means "no restriction of that kind".
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AuditPolicy {
+    pub allowed_licenses: Vec<String>,
+    pub allowed_packages: Vec<String>,
+    pub require_signatures: bool,
+}
+
 /// A parsed `yashy.toml`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Manifest {
@@ -19,6 +27,8 @@ pub struct Manifest {
     pub dev_dependencies: BTreeMap<String, Dependency>,
     /// The `[workspace]` table, when this manifest is a workspace root.
     pub workspace: Option<Workspace>,
+    /// The `[audit]` policy: allowed licenses, packages and signature requirement.
+    pub audit: Option<AuditPolicy>,
     /// Feature name -> enabled dependency names or other feature names.
     pub features: BTreeMap<String, Vec<String>>,
     /// Dependencies declared `optional = true`; they are only resolved when a
@@ -105,7 +115,7 @@ fn manifest_from(document: &Document) -> Result<Manifest, ParseError> {
     for key in root.keys() {
         if !matches!(
             key.as_str(),
-            "package" | "dependencies" | "dev-dependencies" | "workspace" | "features"
+            "package" | "dependencies" | "dev-dependencies" | "workspace" | "features" | "audit"
         ) {
             return Err(error_at(
                 key,
@@ -171,6 +181,7 @@ fn manifest_from(document: &Document) -> Result<Manifest, ParseError> {
         dependencies,
         dev_dependencies,
         workspace: parse_workspace(root, document)?,
+        audit: parse_audit(root, document)?,
         features: parse_features(root, document)?,
         optional_dependencies: optional_dependencies(root),
     })
@@ -197,6 +208,7 @@ fn parse_workspace_only(document: &Document) -> Result<Manifest, ParseError> {
         dependencies: BTreeMap::new(),
         dev_dependencies: BTreeMap::new(),
         workspace: Some(workspace),
+        audit: None,
         features: BTreeMap::new(),
         optional_dependencies: BTreeSet::new(),
     })
@@ -254,6 +266,57 @@ fn optional_dependencies(root: &toml::Table) -> BTreeSet<String> {
         }
     }
     out
+}
+
+/// Parse the `[audit]` policy table.
+fn parse_audit(root: &toml::Table, document: &Document) -> Result<Option<AuditPolicy>, ParseError> {
+    let Some(Value::Table(table)) = root.get("audit") else {
+        return Ok(None);
+    };
+    let mut policy = AuditPolicy::default();
+    for (key, value) in table {
+        match (key.as_str(), value) {
+            ("allowed-licenses", Value::Array(items)) => {
+                policy.allowed_licenses = string_array(items, "audit.allowed-licenses", document)?;
+            }
+            ("allowed-packages", Value::Array(items)) => {
+                policy.allowed_packages = string_array(items, "audit.allowed-packages", document)?;
+            }
+            ("require-signatures", Value::Bool(value)) => policy.require_signatures = *value,
+            (key, _) => {
+                let location = document.location(&format!("audit.{key}"));
+                return Err(ParseError {
+                    line: location.line,
+                    column: location.column,
+                    message: format!(
+                        "`{key}` is not an audit field; expected `allowed-licenses`, `allowed-packages` or `require-signatures`"
+                    ),
+                });
+            }
+        }
+    }
+    Ok(Some(policy))
+}
+
+fn string_array(
+    items: &[Value],
+    path: &str,
+    document: &Document,
+) -> Result<Vec<String>, ParseError> {
+    items
+        .iter()
+        .map(|item| match item {
+            Value::String(text) => Ok(text.clone()),
+            _ => {
+                let location = document.location(path);
+                Err(ParseError {
+                    line: location.line,
+                    column: location.column,
+                    message: format!("`{path}` must be an array of strings"),
+                })
+            }
+        })
+        .collect()
 }
 fn parse_workspace(
     root: &toml::Table,

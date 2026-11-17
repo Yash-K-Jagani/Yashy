@@ -114,3 +114,19 @@ fn a_package_with_a_build_script_is_e1804() {
     assert!(text.contains("E1804"), "{text}");
     assert!(text.contains("build.rs"), "{text}");
 }
+
+#[test]
+fn audit_policy_denies_a_disallowed_license() {
+    let dir = work_dir("audit-policy");
+    write(
+        &dir,
+        "yashy.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nlicense = \"GPL-3.0\"\n\n\
+         [audit]\nallowed-licenses = [\"MIT\"]\n",
+    );
+    write(&dir, "main.ya", "fn main() {}\n");
+    let report = yashy_driver::audit::audit_project(&dir, &yashy_driver::Store::open().unwrap())
+        .expect("audit runs");
+    assert!(!report.ok);
+    assert!(report.findings.iter().any(|finding| finding.code == yashy_common::codes::POLICY_DENIED));
+}

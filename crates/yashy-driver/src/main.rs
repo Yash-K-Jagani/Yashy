@@ -249,6 +249,8 @@ fn dispatch(args: &[String]) -> ExitCode {
         "update" => update_cmd(rest),
         "add" => add_cmd(rest),
         "audit" => audit_cmd(rest),
+        "sbom" => sbom_cmd(rest),
+        "verify-package" => verify_package_cmd(rest),
         "publish" => publish_cmd(rest),
         "fmt" => fmt(rest),
         "playground" => playground(rest),
@@ -5489,6 +5491,160 @@ fn publish_cmd(args: &[String]) -> ExitCode {
 }
 
 /// `yashyc audit [dir] [--json]`: a read-only package check.
+
+/// `yashyc sbom [dir] [--format spdx-json]`: an SPDX document from the same
+/// facts the package audit reads.
+fn sbom_cmd(args: &[String]) -> ExitCode {
+    let mut directory: Option<PathBuf> = None;
+    for argument in args {
+        match argument.as_str() {
+            "--format" | "--json" => {}
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `sbom`"));
+            }
+            other => {
+                if directory.is_some() {
+                    return usage_error("`sbom` takes one directory");
+                }
+                directory = Some(PathBuf::from(other));
+            }
+        }
+    }
+    let root = directory.unwrap_or_else(|| PathBuf::from("."));
+    let mut packages = Vec::new();
+    match yashy_manifest::sbom::from_directory(&root) {
+        Ok(package) => packages.push(package),
+        Err(message) => {
+            eprintln!("error: {message}");
+            return exit_code(EXIT_USAGE);
+        }
+    }
+    if let Ok(exe) = env::current_exe() {
+        if let Ok(bytes) = fs::read(&exe) {
+            packages.push(yashy_manifest::sbom::compiler(
+                &bytes,
+                env!("CARGO_PKG_VERSION"),
+            ));
+        }
+    }
+    println!("{}", yashy_manifest::spdx_json(&packages).render());
+    exit_code(EXIT_OK)
+}
+
+/// `yashyc verify-package <tarball> [--registry <dir>]`.
+fn verify_package_cmd(args: &[String]) -> ExitCode {
+    let mut registry: Option<PathBuf> = None;
+    let mut tarball: Option<PathBuf> = None;
+    let mut iter = args.iter();
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
+            "--registry" => match iter.next() {
+                Some(value) => registry = Some(PathBuf::from(value)),
+                None => return usage_error("`--registry` needs a directory"),
+            },
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `verify-package`"));
+            }
+            other => {
+                if tarball.is_some() {
+                    return usage_error("`verify-package` takes one tarball");
+                }
+                tarball = Some(PathBuf::from(other));
+            }
+        }
+    }
+    let Some(tarball) = tarball else {
+        return usage_error("`verify-package` needs a tarball");
+    };
+    let bytes = match fs::read(&tarball) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            eprintln!("error: cannot read {}: {error}", tarball.display());
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    let digest = yashy_manifest::sha256_hex(&bytes);
+    let keys = match yashy_driver::registry::load_keyring() {
+        Ok(keys) => keys,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    let mut findings: Vec<(String, String)> = Vec::new();
+
+    let sig_path = PathBuf::from(format!("{}.sig", tarball.display()));
+    let sig_text = fs::read_to_string(&sig_path).ok();
+    if keys.is_empty() {
+        findings.push((
+            yashy_common::codes::SIGNATURE_INVALID.to_string(),
+            "no trusted key is configured".to_string(),
+        ));
+    } else if let Some(text) = sig_text {
+        match yashy_driver::registry::signature_from_text(&text) {
+            Ok(signature) => {
+                if let Err(error) =
+                    yashy_driver::registry::verify_tarball(&bytes, &signature, &keys)
+                {
+                    findings.push((
+                        yashy_common::codes::SIGNATURE_INVALID.to_string(),
+                        error.to_string(),
+                    ));
+                }
+            }
+            Err(error) => findings.push((
+                yashy_common::codes::SIGNATURE_INVALID.to_string(),
+                error.to_string(),
+            )),
+        }
+    } else {
+        findings.push((
+            yashy_common::codes::SIGNATURE_INVALID.to_string(),
+            format!("no signature at {}", sig_path.display()),
+        ));
+    }
+
+    let sbom_dir = registry
+        .map(|dir| dir.join("sbom"))
+        .unwrap_or_else(|| tarball.parent().unwrap_or(Path::new(".")).to_path_buf());
+    let sbom = fs::read_dir(&sbom_dir)
+        .ok()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
+        .filter_map(|entry| fs::read_to_string(entry.path()).ok())
+        .find(|text| text.contains(&digest));
+    if sbom.is_none() {
+        findings.push((
+            yashy_common::codes::SBOM_MISMATCH.to_string(),
+            format!("no SBOM in {} names digest {digest}", sbom_dir.display()),
+        ));
+    }
+
+    let mut report = Json::object();
+    report.set("schema_version", Json::number(1));
+    report.set("tool", Json::string("verify-package"));
+    report.set("package", Json::string(tarball.to_string_lossy()));
+    report.set("digest", Json::string(digest));
+    let entries: Vec<Json> = findings
+        .iter()
+        .map(|(code, detail)| {
+            let mut item = Json::object();
+            item.set("code", Json::string(code));
+            item.set("detail", Json::string(detail));
+            item
+        })
+        .collect();
+    report.set("findings", Json::array(entries));
+    println!("{}", report.render());
+    if findings.is_empty() {
+        exit_code(EXIT_OK)
+    } else {
+        exit_code(EXIT_COMPILE_ERROR)
+    }
+}
+
 fn audit_cmd(args: &[String]) -> ExitCode {
     let json = args.iter().any(|argument| argument == "--json");
     let arguments = args

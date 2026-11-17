@@ -334,6 +334,20 @@ pub const COMMANDS: &[CommandSpec] = &[
         takes_path: false,
     },
     CommandSpec {
+        name: "sbom",
+        summary: "print an SPDX SBOM for a package",
+        usage: "yashyc sbom [dir] [--format spdx-json]",
+        flags: &["--format"],
+        takes_path: false,
+    },
+    CommandSpec {
+        name: "verify-package",
+        summary: "verify a package tarball's signature and SBOM",
+        usage: "yashyc verify-package <tarball> [--registry <dir>]",
+        flags: &["--registry"],
+        takes_path: true,
+    },
+    CommandSpec {
         name: "publish",
         summary: "publish the project to a registry",
         usage: "yashyc publish [path] --registry <dir> [--key-id <id>]",

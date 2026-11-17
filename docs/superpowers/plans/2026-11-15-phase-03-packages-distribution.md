@@ -199,16 +199,24 @@ can make two identical sources produce different bytes.
 - Create: `docs/sbom.md`, `docs/registry.md`
 - Test: `crates/yashy-driver/tests/audit.rs`, `crates/yashy-driver/tests/sbom.rs`
 
-- [ ] **Step 1: Write the failing test.** `yashyc sbom --format spdx-json`
+- [x] **Step 1: Write the failing test.** `yashyc sbom --format spdx-json`
   lists every package, version, checksum, license, supplier and the dependency
   graph, plus the compiler and runtime hashes. `yashyc verify-package
   demo-1.0.0.tar.gz` checks the signature, the checksum, the index entry and the
   SBOM; each mismatch is a distinct code.
-- [ ] **Step 2: Audit has teeth.** `yashyc audit` refuses an unsigned package, a
+  *Current:* `tests/sbom.rs` checks the SPDX output and the two distinct codes
+  from a tarball with neither signature nor SBOM. The document names the
+  package and `yashyc` binary; the runtime C shim is not a separate SBOM
+  package. Index-entry checking in `verify-package` is still owed.
+- [x] **Step 2: Audit has teeth.** `yashyc audit` refuses an unsigned package, a
   package whose SBOM is missing or disagrees with the tarball, a license outside
   the policy, and a dependency outside the allowlist. `--json` is the machine
   form; the policy file is `[audit]` in `yashy.toml`.
-- [ ] **Step 3: Commit.**
+  *Current:* `[audit]` parses `allowed-licenses`, `allowed-packages` and
+  `require-signatures`; license/package denials are E1807 and a missing trust
+  set is E1805. Per-package signature/SBOM checks happen at fetch time and in
+  `verify-package`, not as separate audit findings per dependency.
+- [x] **Step 3: Commit.**
 
 ### Task 6: Reproducible package builds
 
@@ -490,4 +498,4 @@ ok  14 packages, 0 unsigned, 0 policy violations
 | 1.1-1.3 | Semver ranges, one resolution, per-case diagnostic codes | `Version`/`VersionReq` with SemVer 2.0 precedence, range selection, v2 lock with v1 migration, yanked refusal, bounded DFS; existing E180x codes reused, `ResolveOptions` fields not yet applied to an explicit index | Add per-case codes and feed features/target into the index selection |
 | 2.1 / 2.2 | Shared lockfile and target directory for members | Workspace discovery, `-p`/`--workspace` selection, unique names and outside-path refusal; members still read their own lock and do not share an explicit target directory | Add a workspace-level lock/store and an explicit allow flag for outside paths |
 | 3.1 / 3.2 | `cfg(feature = "x")` and `--print-cfg` with features | Sorted feature sets, unification, cache-key and lockfile recording, optional dependencies, `feature:<name>` flat cfg keys, `--features`/`--no-default-features` | Add the Phase 4 `cfg(feature = ...)` syntax and feature-aware `--print-cfg` |
-| 4.1 / 4.2 | Signed index and tarballs, explicit trust set | `ed25519-compact` signs tarballs and the index; `publish --key-id` writes an SPDX SBOM; `fetch` verifies when `YASHY_TRUSTED_KEY`/`YASHY_KEYRING` is set | Add a built-in release key, multi-signature support and remote signature verification |
+| 4.1 / 4.2 | Signed index and tarballs, explicit trust set | `ed25519-compact` signs tarballs and the index; `publish --key-id` writes an SPDX SBOM; `fetch` verifies when `YASHY_TRUSTED_KEY`/`YASHY_KEYRING` is set | Add a built-in release key, multi-signature support and remote signature verification || 5.1 / 5.2 | SBOM, distinct mismatch codes, audit policy with signatures | `yashyc sbom` prints SPDX 2.3; `verify-package` reports E1805/E1806; `[audit]` allowlists and `require-signatures` are parsed and enforced; per-package audit findings and index-entry checks are not implemented |

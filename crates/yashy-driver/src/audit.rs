@@ -101,7 +101,10 @@ fn has_build_script(root: &Path) -> bool {
         if path.file_name().is_some_and(|name| name == "build.rs") {
             return true;
         }
-        if path.is_dir() && path.file_name().is_some_and(|name| name != ".git") && has_build_script(&path) {
+        if path.is_dir()
+            && path.file_name().is_some_and(|name| name != ".git")
+            && has_build_script(&path)
+        {
             return true;
         }
     }
@@ -127,6 +130,7 @@ pub fn audit_project(directory: &Path, store: &Store) -> Result<AuditReport, Aud
             });
         }
     };
+    let audit_policy = manifest.audit.clone();
     let mut findings = Vec::new();
     let mut report = AuditReport {
         ok: true,
@@ -179,19 +183,15 @@ pub fn audit_project(directory: &Path, store: &Store) -> Result<AuditReport, Aud
             )));
         }
     };
-    let mut packages: Vec<(String, PathBuf)> = vec![(
-        manifest.package.name.clone(),
-        directory.to_path_buf(),
-    )];
+    let mut packages: Vec<(String, PathBuf)> =
+        vec![(manifest.package.name.clone(), directory.to_path_buf())];
     for package in &graph.packages {
         packages.push((package.name.clone(), package.root.clone()));
     }
     packages.sort();
     for (name, root) in packages {
         report.packages += 1;
-        report.source_bytes = report
-            .source_bytes
-            .saturating_add(source_bytes(&root));
+        report.source_bytes = report.source_bytes.saturating_add(source_bytes(&root));
         match Manifest::load(&root.join("yashy.toml")) {
             Ok(package_manifest) => {
                 if package_manifest.package.license.is_none() {
@@ -208,17 +208,61 @@ pub fn audit_project(directory: &Path, store: &Store) -> Result<AuditReport, Aud
                         "package contains build.rs",
                     ));
                 }
+                if let Some(policy) = &audit_policy {
+                    if !policy.allowed_licenses.is_empty() {
+                        let license = package_manifest.package.license.as_deref().unwrap_or("");
+                        if !policy
+                            .allowed_licenses
+                            .iter()
+                            .any(|allowed| allowed == license)
+                        {
+                            findings.push(finding(
+                                codes::POLICY_DENIED,
+                                &name,
+                                format!("license `{license}` is not in the audit allowlist"),
+                            ));
+                        }
+                    }
+                    if !policy.allowed_packages.is_empty()
+                        && &name != &manifest.package.name
+                        && !policy.allowed_packages.contains(&name)
+                    {
+                        findings.push(finding(
+                            codes::POLICY_DENIED,
+                            &name,
+                            "package is not in the audit allowlist",
+                        ));
+                    }
+                }
             }
             Err(error) => {
                 findings.push(finding(
                     codes::MANIFEST_SYNTAX,
                     &name,
-                    format!("yashy.toml:{}:{}: {}", error.line, error.column, error.message),
+                    format!(
+                        "yashy.toml:{}:{}: {}",
+                        error.line, error.column, error.message
+                    ),
                 ));
             }
         }
     }
 
+    if audit_policy
+        .as_ref()
+        .is_some_and(|policy| policy.require_signatures)
+    {
+        let has_keys = crate::registry::load_keyring()
+            .map(|keys| !keys.is_empty())
+            .unwrap_or(false);
+        if !has_keys {
+            findings.push(finding(
+                codes::SIGNATURE_INVALID,
+                &manifest.package.name,
+                "the audit policy requires signatures, but no trusted key is configured",
+            ));
+        }
+    }
     findings.sort_by(|left, right| {
         left.code
             .cmp(&right.code)
