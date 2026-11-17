@@ -29,6 +29,8 @@ pub const COMMANDS: &[CommandSpec] = &[
             "--release",
             "--timings",
             "--debug-info",
+            "--features",
+            "--no-default-features",
             "--jobs",
             "--target",
             "--emit-ir",

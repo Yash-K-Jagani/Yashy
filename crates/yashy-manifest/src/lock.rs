@@ -107,6 +107,8 @@ impl LockedPackage {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Lockfile {
     pub packages: Vec<LockedPackage>,
+    /// The features this lock was resolved under, sorted.
+    pub features: Vec<String>,
 }
 
 impl Lockfile {
@@ -117,7 +119,10 @@ impl Lockfile {
             package.dependencies.dedup();
         }
         packages.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
-        Lockfile { packages }
+        Lockfile {
+            packages,
+            features: Vec::new(),
+        }
     }
 
     /// Parse lockfile text.
@@ -149,6 +154,17 @@ impl Lockfile {
         out.push_str(HEADER);
         out.push('\n');
         out.push_str(&format!("version = {LOCKFILE_VERSION}\n"));
+        if !self.features.is_empty() {
+            let mut names = self.features.clone();
+            names.sort();
+            names.dedup();
+            let rendered = names
+                .iter()
+                .map(|name| escape(name))
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.push_str(&format!("features = [{rendered}]\n"));
+        }
         let mut packages = self.packages.clone();
         for package in &mut packages {
             package.dependencies.sort();
@@ -279,7 +295,7 @@ fn lock_from_document(document: &Document) -> Result<Lockfile, LockError> {
     let root = &document.root;
     let at = |path: &str| document.location(path);
     for key in root.keys() {
-        if !matches!(key.as_str(), "version" | "package") {
+        if !matches!(key.as_str(), "version" | "package" | "features") {
             let location = at(key);
             return Err(LockError::new(
                 location.line,
@@ -313,8 +329,40 @@ fn lock_from_document(document: &Document) -> Result<Lockfile, LockError> {
             }
         }
     }
+    let features = match root.get("features") {
+        Some(Value::Array(values)) => {
+            let mut names = Vec::new();
+            for value in values {
+                match value {
+                    Value::String(text) => names.push(text.clone()),
+                    _ => {
+                        let location = at("features");
+                        return Err(LockError::new(
+                            location.line,
+                            location.column,
+                            "`features` must be an array of strings",
+                        ));
+                    }
+                }
+            }
+            names.sort();
+            names.dedup();
+            names
+        }
+        Some(_) => {
+            let location = at("features");
+            return Err(LockError::new(
+                location.line,
+                location.column,
+                "`features` must be an array of strings",
+            ));
+        }
+        None => Vec::new(),
+    };
     let Some(entry) = root.get("package") else {
-        return Ok(Lockfile::new(Vec::new()));
+        let mut lock = Lockfile::new(Vec::new());
+        lock.features = features;
+        return Ok(lock);
     };
     let Value::Array(items) = entry else {
         let location = at("package");
@@ -461,7 +509,9 @@ fn lock_from_document(document: &Document) -> Result<Lockfile, LockError> {
             dependencies,
         });
     }
-    Ok(Lockfile::new(packages))
+    let mut lock = Lockfile::new(packages);
+    lock.features = features;
+    Ok(lock)
 }
 
 fn lock_string(

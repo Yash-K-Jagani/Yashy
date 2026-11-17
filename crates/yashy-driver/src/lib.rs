@@ -18,6 +18,7 @@ pub mod debug;
 pub mod debug_info;
 pub mod doc;
 pub mod doc_server;
+pub mod features;
 pub mod fetch;
 pub mod fix;
 pub mod grammar;

@@ -1066,6 +1066,27 @@ app` runs one, and `yashyc build` with no file builds the default member. A
 member may depend on a sibling by path (`path = "../lib"`); a path dependency
 outside the workspace is refused unless explicitly allowed.
 
+### Features
+
+A manifest may declare feature groups and optional dependencies:
+
+```toml
+[features]
+default = ["std"]
+std = []
+tls = ["net"]
+
+[dependencies.net]
+version = "1.0.0"
+optional = true
+```
+
+`yashyc build --features tls,std` enables the named features (comma-separated);
+`--no-default-features` skips `default`. The selected set is sorted, recorded in
+`yashy.lock`, included in the IR cache key, and exposed to `cfg` as
+`feature:<name>` keys. An optional dependency is resolved only when its feature
+is enabled; an unknown feature is a diagnostic.
+
 ### Resolution: `update`, `fetch`, `add`, `--offline`
 
 A registry range resolves once to the highest non-yanked version that

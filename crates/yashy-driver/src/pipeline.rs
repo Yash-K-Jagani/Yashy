@@ -667,6 +667,7 @@ pub fn ir_cache_key(
         options.reproducible.to_string(),
         options.target.to_string(),
         options.debug_info.to_string(),
+        options.features.iter().cloned().collect::<Vec<_>>().join(","),
     ]
     .join("|");
 
@@ -839,8 +840,11 @@ pub(crate) fn cached_runtime_object(
 /// reads better than one passing `OptLevel::default()` and `CpuTarget::default()`
 /// positionally. [`BuildOptions::default`] is a portable, `-O2`,
 /// exact-semantics build.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct BuildOptions {
+    /// Selected cargo-style features; part of the IR cache key and exposed as
+    /// `feature:<name>` cfg keys.
+    pub features: std::collections::BTreeSet<String>,
     /// Emit LLVM debug metadata derived from HIR spans. Off by default so a
     /// normal build's IR stays byte-identical to the 1.0 golden files.
     pub debug_info: bool,
@@ -916,6 +920,7 @@ pub struct BuildOptions {
 impl Default for BuildOptions {
     fn default() -> Self {
         Self {
+            features: std::collections::BTreeSet::new(),
             debug_info: false,
             opt: OptLevel::default(),
             cpu: CpuTarget::default(),
@@ -1052,7 +1057,7 @@ pub fn compile_to_binary(
     let mut program = Parser::new(tokens, &sources, file).parse_program()?;
     // The one-file path filters `cfg` too, or a single-file build would be the
     // one place a platform branch is resolved on the wrong platform.
-    let set = crate::cfg::CfgSet::for_target(options.target, options.release);
+    let set = crate::cfg::CfgSet::for_target(options.target, options.release).with_features(&options.features);
     let cfg_diagnostics = crate::cfg::filter(&mut program, &set, file);
     if !cfg_diagnostics.is_empty() {
         return Err(cfg_diagnostics);
@@ -1713,7 +1718,7 @@ pub fn compile_hir_timed(
      -> Result<(), Vec<Diagnostic>> {
         let args = link_arguments(
             hir,
-            options,
+            options.clone(),
             &target,
             toolchain,
             &ir_path,

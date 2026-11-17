@@ -129,15 +129,22 @@ can make two identical sources produce different bytes.
 - Modify: `crates/yashy-driver/src/cfg.rs` (feature keys; `cfg(feature = "x")` is Phase 4 syntax)
 - Test: `crates/yashy-driver/tests/features.rs`
 
-- [ ] **Step 1: Write the failing test.** `default = ["std"]`, an optional
+- [x] **Step 1: Write the failing test.** `default = ["std"]`, an optional
   dependency gated by a feature, `--features tls`, `--no-default-features`.
   Assert the feature set is in the cache key, is recorded in the lockfile, and
   that two members requesting different features unify to the union.
-- [ ] **Step 2: Features are deterministic.** The selected set sorts, unions
+  *Current:* `tests/features.rs` and the `features` unit tests pin defaults,
+  disabling, optional dependencies, union and unknown-name diagnostics. The
+  selected set is in `BuildOptions`, the IR cache key and the lockfile; a full
+  two-member cache-key diff is a CI test.
+- [x] **Step 2: Features are deterministic.** The selected set sorts, unions
   and is written to the lockfile; the resolver never chooses a feature on its
   own. A feature name is a `cfg` key (Phase 4 reads it); a misspelt feature is
   a diagnostic, never a false condition.
-- [ ] **Step 3: Commit.**
+  *Current:* features are a sorted `BTreeSet`, exposed as `feature:<name>` cfg
+  keys. Phase 4's `cfg(feature = "x")` syntax is not here yet; the flat key is
+  the current spelling. `--print-cfg` does not yet accept `--features`.
+- [x] **Step 3: Commit.**
 
 ### Task 4: Signed registry v1
 
@@ -471,3 +478,4 @@ ok  14 packages, 0 unsigned, 0 policy violations
 |---|---|---|---|
 | 1.1-1.3 | Semver ranges, one resolution, per-case diagnostic codes | `Version`/`VersionReq` with SemVer 2.0 precedence, range selection, v2 lock with v1 migration, yanked refusal, bounded DFS; existing E180x codes reused, `ResolveOptions` fields not yet applied to an explicit index | Add per-case codes and feed features/target into the index selection |
 | 2.1 / 2.2 | Shared lockfile and target directory for members | Workspace discovery, `-p`/`--workspace` selection, unique names and outside-path refusal; members still read their own lock and do not share an explicit target directory | Add a workspace-level lock/store and an explicit allow flag for outside paths |
+| 3.1 / 3.2 | `cfg(feature = "x")` and `--print-cfg` with features | Sorted feature sets, unification, cache-key and lockfile recording, optional dependencies, `feature:<name>` flat cfg keys, `--features`/`--no-default-features` | Add the Phase 4 `cfg(feature = ...)` syntax and feature-aware `--print-cfg` |

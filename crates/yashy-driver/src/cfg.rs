@@ -39,9 +39,18 @@ pub const KEYS: [&str; 8] = [
 pub struct CfgSet {
     target: String,
     active: BTreeSet<&'static str>,
+    /// Enabled features, exposed as `feature:<name>` cfg keys.
+    features: BTreeSet<String>,
 }
 
 impl CfgSet {
+    /// Add the selected features as `feature:<name>` keys.
+    pub fn with_features(mut self, features: &BTreeSet<String>) -> CfgSet {
+        for feature in features {
+            self.features.insert(format!("feature:{feature}"));
+        }
+        self
+    }
     /// The keys true for `triple` at the given profile.
     ///
     /// An unrecognised triple answers no OS key at all rather than guessing:
@@ -67,22 +76,21 @@ impl CfgSet {
         CfgSet {
             target: triple.to_string(),
             active,
+            features: BTreeSet::new(),
         }
     }
 
     /// Whether `key` is true. An unknown key is not true; the filter reports it
     /// separately, so this stays a pure predicate.
     pub fn is_active(&self, key: &str) -> bool {
-        self.active.contains(key)
+        self.active.contains(key) || self.features.contains(key)
     }
 
-    /// The active keys, sorted.
-    ///
-    /// Sorted rather than grouped by kind, so two runs can be compared by
-    /// `diff` and a build script can read the list without knowing the order
-    /// the keys are declared in.
-    pub fn active_keys(&self) -> Vec<&'static str> {
-        self.active.iter().copied().collect()
+    /// The active keys, sorted. Feature keys are included as `feature:<name>`.
+    pub fn active_keys(&self) -> Vec<String> {
+        let mut keys: BTreeSet<String> = self.active.iter().map(|key| (*key).to_string()).collect();
+        keys.extend(self.features.iter().cloned());
+        keys.into_iter().collect()
     }
 
     /// The triple this set was derived from.
@@ -104,7 +112,7 @@ pub fn evaluate(
 ) -> bool {
     match expr {
         CfgExpr::Key(name, span) => {
-            if !KEYS.contains(&name.as_str()) {
+            if !KEYS.contains(&name.as_str()) && !name.starts_with("feature:") {
                 diagnostics.push(unknown_key(file, name, *span));
                 return false;
             }

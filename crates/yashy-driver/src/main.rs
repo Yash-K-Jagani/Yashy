@@ -364,6 +364,9 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     let mut pgo = false;
     // How many threads the front end may parse on. `0` means "one per core".
     let mut jobs: usize = 0;
+    let mut requested_features: Vec<String> = Vec::new();
+    let mut no_default_features = false;
+
     // `--offline` never touches the network or invokes git. A package that is
     // not already in the store is `E1803`, never a silent fetch.
     let mut offline = false;
@@ -395,6 +398,11 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
             "--emit-ir" => emit_ir = true,
             "--timings" => timings_flag = true,
             "--debug-info" => debug_info = true,
+            "--features" => match args.next() {
+                Some(value) => requested_features.extend(value.split(',').map(str::to_string)),
+                None => return stopped(usage_error("`--features` needs a comma-separated list")),
+            },
+            "--no-default-features" => no_default_features = true,
             "--no-verify" => no_verify = true,
             "--jobs" => match args.next() {
                 Some(value) => match value.parse::<usize>() {
@@ -795,9 +803,34 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         }
     }
 
+    let selected_features = {
+        let manifest_path = input
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("yashy.toml");
+        match Manifest::load(&manifest_path) {
+            Ok(manifest) => {
+                match yashy_driver::features::select(
+                    &manifest,
+                    &requested_features,
+                    no_default_features,
+                ) {
+                    Ok(features) => features.enabled,
+                    Err(message) => return stopped(usage_error(&message)),
+                }
+            }
+            Err(_) if requested_features.is_empty() => std::collections::BTreeSet::new(),
+            Err(_) => {
+                return stopped(usage_error(
+                    "`--features` needs a yashy.toml with a `[features]` table",
+                ))
+            }
+        }
+    };
     let output = output.unwrap_or_else(|| default_output(&input));
     let opt = resolve_opt(command, release, opt);
     let options = BuildOptions {
+        features: selected_features,
         debug_info,
         opt,
         cpu,
@@ -3974,7 +4007,7 @@ fn check(args: &[String]) -> ExitCode {
                 Json::array(
                     set.active_keys()
                         .iter()
-                        .map(|key| Json::string(*key))
+                        .map(|key| Json::string(key.clone()))
                         .collect(),
                 ),
             );

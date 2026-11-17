@@ -6,7 +6,7 @@
 //! malformed manifest is `E1800` at a line and column, never a panic and never
 //! a silently ignored typo.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use crate::toml::{self, Document, Location, ParseError, Value};
@@ -19,6 +19,11 @@ pub struct Manifest {
     pub dev_dependencies: BTreeMap<String, Dependency>,
     /// The `[workspace]` table, when this manifest is a workspace root.
     pub workspace: Option<Workspace>,
+    /// Feature name -> enabled dependency names or other feature names.
+    pub features: BTreeMap<String, Vec<String>>,
+    /// Dependencies declared `optional = true`; they are only resolved when a
+    /// feature enables them.
+    pub optional_dependencies: BTreeSet<String>,
 }
 
 /// The `[workspace]` table. Members are paths relative to the root.
@@ -100,7 +105,7 @@ fn manifest_from(document: &Document) -> Result<Manifest, ParseError> {
     for key in root.keys() {
         if !matches!(
             key.as_str(),
-            "package" | "dependencies" | "dev-dependencies" | "workspace"
+            "package" | "dependencies" | "dev-dependencies" | "workspace" | "features"
         ) {
             return Err(error_at(
                 key,
@@ -166,6 +171,8 @@ fn manifest_from(document: &Document) -> Result<Manifest, ParseError> {
         dependencies,
         dev_dependencies,
         workspace: parse_workspace(root, document)?,
+        features: parse_features(root, document)?,
+        optional_dependencies: optional_dependencies(root),
     })
 }
 
@@ -190,9 +197,64 @@ fn parse_workspace_only(document: &Document) -> Result<Manifest, ParseError> {
         dependencies: BTreeMap::new(),
         dev_dependencies: BTreeMap::new(),
         workspace: Some(workspace),
+        features: BTreeMap::new(),
+        optional_dependencies: BTreeSet::new(),
     })
 }
 
+/// Parse `[features]`: each feature names dependencies or other features.
+fn parse_features(
+    root: &toml::Table,
+    document: &Document,
+) -> Result<BTreeMap<String, Vec<String>>, ParseError> {
+    let Some(Value::Table(table)) = root.get("features") else {
+        return Ok(BTreeMap::new());
+    };
+    let mut features = BTreeMap::new();
+    for (name, value) in table {
+        let Value::Array(items) = value else {
+            let location = document.location(&format!("features.{name}"));
+            return Err(ParseError {
+                line: location.line,
+                column: location.column,
+                message: format!("feature `{name}` must be an array of strings"),
+            });
+        };
+        let mut entries = Vec::new();
+        for item in items {
+            match item {
+                Value::String(text) => entries.push(text.clone()),
+                _ => {
+                    let location = document.location(&format!("features.{name}"));
+                    return Err(ParseError {
+                        line: location.line,
+                        column: location.column,
+                        message: format!("feature `{name}` must be an array of strings"),
+                    });
+                }
+            }
+        }
+        features.insert(name.clone(), entries);
+    }
+    Ok(features)
+}
+
+/// Dependencies declared `optional = true` in either dependency table.
+fn optional_dependencies(root: &toml::Table) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for table_name in ["dependencies", "dev-dependencies"] {
+        if let Some(Value::Table(table)) = root.get(table_name) {
+            for (name, value) in table {
+                if let Value::Table(fields) = value {
+                    if let Some(Value::Bool(true)) = fields.get("optional") {
+                        out.insert(name.clone());
+                    }
+                }
+            }
+        }
+    }
+    out
+}
 fn parse_workspace(
     root: &toml::Table,
     document: &Document,
@@ -411,13 +473,16 @@ fn dependency_from_table(
     document: &Document,
 ) -> Result<Dependency, ParseError> {
     for key in fields.keys() {
-        if !matches!(key.as_str(), "path" | "git" | "rev" | "version") {
+        if !matches!(
+            key.as_str(),
+            "path" | "git" | "rev" | "version" | "optional"
+        ) {
             let Location { line, column } = document.location(&format!("{path}.{key}"));
             return Err(ParseError {
                 line,
                 column,
                 message: format!(
-                    "`{key}` is not a dependency field; expected path, git, rev or version"
+                    "`{key}` is not a dependency field; expected path, git, rev, version or optional"
                 ),
             });
         }
