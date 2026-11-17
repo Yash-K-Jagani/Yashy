@@ -5539,7 +5539,9 @@ fn self_update_cmd(args: &[String]) -> ExitCode {
     let keys = match yashy_driver::registry::load_keyring() {
         Ok(keys) if !keys.is_empty() => keys,
         Ok(_) => {
-            eprintln!("error: self-update needs a trusted key; set YASHY_TRUSTED_KEY or YASHY_KEYRING");
+            eprintln!(
+                "error: self-update needs a trusted key; set YASHY_TRUSTED_KEY or YASHY_KEYRING"
+            );
             return exit_code(EXIT_USAGE);
         }
         Err(error) => {
@@ -5587,7 +5589,11 @@ fn self_update_cmd(args: &[String]) -> ExitCode {
         eprintln!("error: the replacement failed; the previous binary was restored");
         return exit_code(EXIT_INTERNAL);
     }
-    println!("updated {}; previous binary at {}", current.display(), backup.display());
+    println!(
+        "updated {}; previous binary at {}",
+        current.display(),
+        backup.display()
+    );
     exit_code(EXIT_OK)
 }
 
@@ -5753,9 +5759,10 @@ fn verify_package_cmd(args: &[String]) -> ExitCode {
 
 fn audit_cmd(args: &[String]) -> ExitCode {
     let json = args.iter().any(|argument| argument == "--json");
+    let capabilities = args.iter().any(|argument| argument == "--capabilities");
     let arguments = args
         .iter()
-        .filter(|argument| *argument != "--json")
+        .filter(|argument| *argument != "--json" && *argument != "--capabilities")
         .cloned()
         .collect::<Vec<_>>();
     let project = match project_args(&arguments, "audit") {
@@ -5769,6 +5776,38 @@ fn audit_cmd(args: &[String]) -> ExitCode {
             return error.status();
         }
     };
+    let manifest_path = project.directory.join("yashy.toml");
+    if capabilities {
+        match yashy_manifest::Manifest::load(&manifest_path) {
+            Ok(manifest) => {
+                let resolved = yashy_driver::policy::resolve(&manifest, &[]);
+                let mut names: Vec<String> = resolved
+                    .granted
+                    .entries()
+                    .iter()
+                    .map(|(name, _)| (*name).to_string())
+                    .collect();
+                names.extend(resolved.denied);
+                names.sort();
+                names.dedup();
+                let rendered = if names.is_empty() {
+                    "none".to_string()
+                } else {
+                    names.join(", ")
+                };
+                println!("capabilities: {rendered}");
+            }
+            Err(error) => {
+                eprintln!(
+                    "error: {}:{}: {}",
+                    manifest_path.display(),
+                    error.line,
+                    error.message
+                );
+                return exit_code(EXIT_USAGE);
+            }
+        }
+    }
     match yashy_driver::audit::audit_project(&project.directory, &store) {
         Ok(report) => {
             if json {
@@ -5923,9 +5962,17 @@ fn add_cmd(args: &[String]) -> ExitCode {
     let mut git: Option<String> = None;
     let mut rev: Option<String> = None;
     let mut registry: Option<String> = None;
+    let mut allow: Vec<String> = Vec::new();
     let mut iter = args.iter();
     while let Some(argument) = iter.next() {
         match argument.as_str() {
+            "--allow" => match iter.next() {
+                Some(value) => match yashy_driver::policy::check_request(value, &[]) {
+                    Ok(()) => allow.push(value.clone()),
+                    Err(message) => return usage_error(&message),
+                },
+                None => return usage_error("`--allow` needs a capability name"),
+            },
             "--path" => match iter.next() {
                 Some(value) => path = Some(value.clone()),
                 None => return usage_error("`--path` needs a directory"),
@@ -6012,6 +6059,9 @@ fn add_cmd(args: &[String]) -> ExitCode {
             return usage_error("a dependency has exactly one source")
         }
     };
+    if !allow.is_empty() {
+        println!("adding with capabilities: {}", allow.join(", "));
+    }
     let manifest_path = Path::new("yashy.toml").to_path_buf();
     let manifest = match load_manifest_at(&manifest_path) {
         Ok(manifest) => manifest,

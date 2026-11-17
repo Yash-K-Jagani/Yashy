@@ -323,14 +323,14 @@ pub const COMMANDS: &[CommandSpec] = &[
         name: "add",
         summary: "add a dependency to the manifest",
         usage: "yashyc add <name> [--path <dir>|--git <url>] [--rev <commit>]",
-        flags: &["--path", "--git", "--rev", "--registry"],
+        flags: &["--path", "--git", "--rev", "--registry", "--allow"],
         takes_path: false,
     },
     CommandSpec {
         name: "audit",
         summary: "audit dependencies for advisories",
-        usage: "yashyc audit [--json] [path]",
-        flags: &["--json"],
+        usage: "yashyc audit [--json] [--capabilities] [path]",
+        flags: &["--json", "--capabilities"],
         takes_path: false,
     },
     CommandSpec {

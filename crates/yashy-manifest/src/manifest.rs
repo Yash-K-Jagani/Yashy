@@ -9,6 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
+use crate::capability::CapabilitySet;
 use crate::toml::{self, Document, Location, ParseError, Value};
 
 /// The `[audit]` policy. An empty list means "no restriction of that kind".
@@ -29,6 +30,8 @@ pub struct Manifest {
     pub workspace: Option<Workspace>,
     /// The `[audit]` policy: allowed licenses, packages and signature requirement.
     pub audit: Option<AuditPolicy>,
+    /// The `[capabilities]` grant for this package.
+    pub capabilities: Option<CapabilitySet>,
     /// Feature name -> enabled dependency names or other feature names.
     pub features: BTreeMap<String, Vec<String>>,
     /// Dependencies declared `optional = true`; they are only resolved when a
@@ -115,7 +118,13 @@ fn manifest_from(document: &Document) -> Result<Manifest, ParseError> {
     for key in root.keys() {
         if !matches!(
             key.as_str(),
-            "package" | "dependencies" | "dev-dependencies" | "workspace" | "features" | "audit"
+            "package"
+                | "dependencies"
+                | "dev-dependencies"
+                | "workspace"
+                | "features"
+                | "audit"
+                | "capabilities"
         ) {
             return Err(error_at(
                 key,
@@ -182,6 +191,7 @@ fn manifest_from(document: &Document) -> Result<Manifest, ParseError> {
         dev_dependencies,
         workspace: parse_workspace(root, document)?,
         audit: parse_audit(root, document)?,
+        capabilities: parse_capabilities(root, document)?,
         features: parse_features(root, document)?,
         optional_dependencies: optional_dependencies(root),
     })
@@ -209,6 +219,7 @@ fn parse_workspace_only(document: &Document) -> Result<Manifest, ParseError> {
         dev_dependencies: BTreeMap::new(),
         workspace: Some(workspace),
         audit: None,
+        capabilities: None,
         features: BTreeMap::new(),
         optional_dependencies: BTreeSet::new(),
     })
@@ -269,6 +280,40 @@ fn optional_dependencies(root: &toml::Table) -> BTreeSet<String> {
 }
 
 /// Parse the `[audit]` policy table.
+
+/// Parse `[capabilities]`: each key names a capability and its value is an
+/// array of path patterns (or an empty array for an all-or-nothing right).
+fn parse_capabilities(
+    root: &toml::Table,
+    document: &Document,
+) -> Result<Option<CapabilitySet>, ParseError> {
+    let Some(Value::Table(table)) = root.get("capabilities") else {
+        return Ok(None);
+    };
+    let mut map = std::collections::BTreeMap::new();
+    for (name, value) in table {
+        let patterns = match value {
+            Value::Array(items) => string_array(items, &format!("capabilities.{name}"), document)?,
+            _ => {
+                let location = document.location(&format!("capabilities.{name}"));
+                return Err(ParseError {
+                    line: location.line,
+                    column: location.column,
+                    message: format!("capability `{name}` must be an array of patterns"),
+                });
+            }
+        };
+        map.insert(name.clone(), patterns);
+    }
+    CapabilitySet::from_map(&map).map(Some).map_err(|message| {
+        let location = document.location("capabilities");
+        ParseError {
+            line: location.line,
+            column: location.column,
+            message,
+        }
+    })
+}
 fn parse_audit(root: &toml::Table, document: &Document) -> Result<Option<AuditPolicy>, ParseError> {
     let Some(Value::Table(table)) = root.get("audit") else {
         return Ok(None);

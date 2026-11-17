@@ -16,6 +16,7 @@
 //! exist, that versions are exact pins, and that a git dependency names a
 //! commit.
 
+pub mod capability;
 pub mod lock;
 pub mod manifest;
 pub mod req;
@@ -24,6 +25,7 @@ pub mod signature;
 pub mod toml;
 pub mod version;
 
+pub use capability::CapabilitySet;
 pub use lock::{hash_tree, sha256_hex, LockError, LockedPackage, Lockfile};
 pub use manifest::{AuditPolicy, Dependency, Manifest, Package, Workspace};
 pub use req::VersionReq;

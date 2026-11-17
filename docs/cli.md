@@ -1087,6 +1087,13 @@ optional = true
 `feature:<name>` keys. An optional dependency is resolved only when its feature
 is enabled; an unknown feature is a diagnostic.
 
+### Capabilities
+
+A package declares permissions in `[capabilities]`; a missing declaration is no
+permission. `yashyc audit --capabilities` prints the resolved union, and `yashyc
+add <name> --allow <capability>` records an explicit grant. See
+[capabilities.md](capabilities.md) for the closed name set and the pattern rules.
+
 ### Signed registries
 
 `yashyc publish --registry <dir> --key-id <id>` writes a reviewable artifact

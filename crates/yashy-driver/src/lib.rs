@@ -31,6 +31,7 @@ pub mod opt_report;
 pub mod outline;
 pub mod pipeline;
 pub mod playground;
+pub mod policy;
 pub mod profile;
 pub mod registry;
 pub mod repl;

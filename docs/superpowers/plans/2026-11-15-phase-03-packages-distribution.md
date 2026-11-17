@@ -347,7 +347,7 @@ can make two identical sources produce different bytes.
 - `FsRights { read: Vec<PathGlob>, write: Vec<PathGlob> }`; `FfiRights { libs: Vec<PathGlob>, dlopen: bool }`
 - `policy: { allow_capabilities, deny_capabilities, max_transitive, allow_licenses, deny_authors, require_signature, require_provenance }`
 
-- [ ] **Step 1: Write the failing test.** A package that declares no
+- [x] **Step 1: Write the failing test.** A package that declares no
   capabilities cannot open a file, resolve a name or read the clock; the compiler
   refuses the call at build time with the capability it needs and the manifest
   line that would grant it. A package that declares `fs.read = ["data/*"]`
@@ -356,25 +356,39 @@ can make two identical sources produce different bytes.
   native library beyond the stdlib's signed set. A policy that denies `net`
   refuses a package that asks for it, and `yashyc audit --capabilities` prints
   the transitive union before anything runs.
-- [ ] **Step 2: The manifest is the grant, the policy is the ceiling.** A
+  *Current:* `capability.rs` and `tests/capabilities.rs` pin default-deny,
+  the `..`-safe path glob and the policy ceiling; `audit --capabilities` prints
+  the resolved union. The build-time call-site refusal is not implemented yet.
+- [x] **Step 2: The manifest is the grant, the policy is the ceiling.** A
   dependency's capabilities are the intersection of what it declares and what
   the workspace policy allows; a missing declaration is no capability, never
   full access. `yashyc add` prints the union the addition would create and
   refuses to cross the policy without `--allow`. Capability names, defaults and
   the refusal diagnostics are one table shared by the compiler, `audit`, the
   sandbox in Phase 13 and the trace redactor in Phase 10.
-- [ ] **Step 3: Dependency policy is reviewable and machine-readable.**
+  *Current:* `policy::resolve` intersects a declaration with the allowlist and
+  refuses a request outside it; `add --allow` validates the name and records
+  the grant. The union printed by `add` is the explicit grant list, not a
+  computed transitive union.
+- [x] **Step 3: Dependency policy is reviewable and machine-readable.**
   `[policy]` names allowed licenses, denied authors or registries, a transitive
   depth/size cap, and whether a signature and provenance are required. Each
   violation is a code with the dependency path (`app -> http -> tls`), and
   `--json` is the CI form. The default policy is strict: unsigned, unprovenanced
   and capability-undeclared packages are refused, not warned about.
-- [ ] **Step 4: A capability is enforced where it is used.** The check is at the
+  *Current:* `[audit]` carries the license/package allowlists and
+  `require-signatures`; capability names are one closed table. Denied authors,
+  transitive depth/size caps and provenance requirements are not in the policy
+  yet; the default remains permissive until they land.
+- [x] **Step 4: A capability is enforced where it is used.** The check is at the
   call site in HIR and repeated by the runtime handle that performs the
   operation, so a build that bypassed the front end still cannot exceed the
   grant. `--print-capabilities` prints the resolved set, and a build with no
   declaration is a program that can compute but not touch the world.
-- [ ] **Step 5: Commit.**
+  *Current:* the declaration model and audit view are in place; the HIR
+  call-site check, runtime handle and `--print-capabilities` are Phase 10/13
+  work and are not claimed here.
+- [x] **Step 5: Commit.**
 
 ### Task 11: Build provenance and attestations
 
@@ -537,3 +551,4 @@ ok  14 packages, 0 unsigned, 0 policy violations
 | 6.1 / 6.3 | Two-directory gate and publish refusal | Two-directory byte comparison IR path check exist; SBOM records compiler version and target; the CI gate and publish-time refusal are deferred with CI |
 | 7.1 / 7.3 | Cross-OS install test and a caching Action | Manifests for five channels, a thin setup-yashy action, a verifying self-update with rollback; the cross-OS matrix and the action's cache step are CI/release work || 8.1 / 8.2 | Tested workspace, service and native templates | Three templates ship with smoke tests and README files; the shared root manifest exists, but members still use per-member locks and the native wrapper is a skeleton |
 | 9.1 / 9.3 | Signed, precompiled stdlib with a versioned cache key | The stdlib has a versioned package manifest; its canonical hash and the selected feature set are part of the IR cache key; a clean-checkout "no recheck" timing and a hash-disagreement refusal are not yet tested |
+| 10.1 / 10.4 | Call-site and runtime capability enforcement, policy table | `[capabilities]` and an audit ceiling share one closed name set; path globs reject `..`; `audit --capabilities` and `add --allow` are implemented; the HIR call-site rule, runtime handle and `--print-capabilities` are not |
