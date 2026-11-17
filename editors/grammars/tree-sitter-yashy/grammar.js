@@ -14,7 +14,7 @@ module.exports = grammar({
     _expression: $ => choice($.identifier, $.integer, $.string, $.binary_expression),
     binary_expression: $ => seq($._expression, $.operator, $._expression),
 
-    keyword: $ => choice("fn", "struct", "enum", "const", "var", "let", "import", "extern", "unsafe", "pure", "io", "async", "await", "defer", "return", "break", "continue", "if", "else", "for", "while", "in", "switch", "case", "default", "as", "move", "true", "false", "impl", "object", "trait", "macro", "pub", "requires", "ensures", "invariant", "repr", "cfg", "and", "or", "not"),
+    keyword: $ => choice("fn", "struct", "enum", "const", "var", "let", "import", "extern", "unsafe", "pure", "io", "async", "await", "defer", "return", "break", "continue", "if", "else", "for", "while", "in", "switch", "case", "default", "as", "move", "true", "false", "impl", "object", "trait", "macro", "pub", "requires", "ensures", "invariant", "repr", "cfg", "and", "or", "not", "matches"),
     type: $ => choice("int", "float", "bool", "char", "string", "void", "Mutex", "Channel", "Task", "Self", "Option", "Result", "Iterator", "i64", "f64", "u8", "i32", "usize"),
     operator: $ => choice("+", "-", "*", "/", "%", "=", "==", "!", "!=", "<", "<=", ">", ">=", "+=", "-=", "*=", "/=", "%=", "&&", "||", "|", "&", "^", "~", "<<", ">>", "&=", "|=", "^=", "<<=", ">>="),
     delimiter: $ => choice("(", ")", "{", "}", "[", "]", ",", ";", ":", "::", ":=", ".", "..", "...", "->", "=>", "$", "@", "?"),

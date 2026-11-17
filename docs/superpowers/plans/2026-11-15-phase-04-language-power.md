@@ -113,7 +113,12 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 - [x] **Step 2: `else if` is parser sugar, not HIR.** On `else` followed by `if`, `parse_else_block` parses the nested `if`/`if let` and wraps it in a one-statement `Block` as the `else_block`. There is no new AST, HIR or verifier node. A user-written `else { if ... }` produces the same tree; semantics never change.
 - [ ] **Step 3: `let else`.** `let Some(x) = opt else { return; };` binds on the matching path and requires the else block to diverge (`return`, `break`, `continue`, `panic`, or a call returning `!`-like divergence). A non-diverging else is a diagnostic; a refutable `let` without `else` stays `E0100`.
 - [ ] **Step 4: Slice/rest and `@`.** `[first, .., last]`, `[head, ..rest]`, `x @ 0..10`, and nested combinations bind names with element types; a rest binding is a view with the source's lifetime rules; every alternative of an or-pattern binds the same names (`E1002`).
-- [ ] **Step 5: `matches` and if-let chains.** `x matches Some(_)` is an expression returning `bool` (desugars to a two-arm `switch`); `if let Some(x) = a && let Some(y) = b { }` desugars to nested `if let` with short-circuit order, and the bindings are visible in the body only.
+- [ ] **Step 5: `matches` and if-let chains.** `x matches Some(_)` is an
+  expression returning `bool`: the parser desugars it to a two-arm `switch`
+  value (`case PAT => true`, `default => false`), so no HIR or verifier node is
+  added and the pattern's bindings stay arm-local. A sema test checks a variant
+  test. The keyword is in all eleven generated editor grammars. **Still owed:**
+  `if let Some(x) = a && let Some(y) = b { }` chains and their desugar proof.
 - [ ] **Step 6: Commit.**
 
 ### Task 4: Built-in derives and explicit closure captures

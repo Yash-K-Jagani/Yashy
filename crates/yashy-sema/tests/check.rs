@@ -2871,3 +2871,25 @@ fn membership_desugars_to_the_containers_own_method() {
         check_source("fn f() { const m = map[string]int { \"k\": 1 }; const ok = \"k\" in m; }");
     assert!(map.0.is_ok(), "{:?}", map.0.err());
 }
+
+#[test]
+fn matches_is_a_boolean_variant_test() {
+    let (result, _, _) = check_source(
+        "enum Shape { Circle(float), Square(float) } \
+         fn f(Shape s) -> bool { return s matches Circle; }",
+    );
+    let hir = result.expect("a variant test must type-check");
+    let f = hir
+        .items
+        .iter()
+        .find_map(|item| match item {
+            HirItem::Fn(function) if function.name == "f" => Some(function),
+            _ => None,
+        })
+        .expect("the function");
+    let text = format!("{:?}", f.body);
+    assert!(
+        text.contains("SwitchExpr") || text.contains("Switch"),
+        "{text}"
+    );
+}

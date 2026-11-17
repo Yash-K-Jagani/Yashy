@@ -662,12 +662,12 @@ pub enum TokenKind {
     Default,
     /// `as`, for a cast: `x as f64`.
     ///
-    /// Spec §3.1 lists it among the keywords and Task 6 parses casts, so
+    /// Spec Â§3.1 lists it among the keywords and Task 6 parses casts, so
     /// without it `x as f64` lexes as three identifiers.
     As,
     /// `move`, for an ownership transfer: `move buf`.
     ///
-    /// Spec §3.1 lists it too. The memory model it belongs to arrives in M3,
+    /// Spec Â§3.1 lists it too. The memory model it belongs to arrives in M3,
     /// but a keyword added later is a breaking change to every file that uses
     /// `move` as a name, so it is a keyword now.
     Move,
@@ -713,6 +713,8 @@ pub enum TokenKind {
     KwAnd,
     KwOr,
     KwNot,
+    /// `matches` -- the variant-test expression: `x matches Some(_)`.
+    Matches,
 
     // Punctuation. `ColonEq`, `DotDot`, `Question`, `Bang`, `AndAnd` and `OrOr`
     // are additions to the punctuation the interface first named: `:=` is the
@@ -887,7 +889,7 @@ impl TokenKind {
         TokenKind::ShrEq,
     ];
 
-    pub const KEYWORDS: [&'static str; 42] = [
+    pub const KEYWORDS: [&'static str; 43] = [
         "fn",
         "struct",
         "enum",
@@ -930,6 +932,7 @@ impl TokenKind {
         "and",
         "or",
         "not",
+        "matches",
     ];
 
     pub fn keyword(text: &str) -> Option<TokenKind> {
@@ -976,6 +979,7 @@ impl TokenKind {
             "and" => TokenKind::KwAnd,
             "or" => TokenKind::KwOr,
             "not" => TokenKind::KwNot,
+            "matches" => TokenKind::Matches,
             _ => return None,
         })
     }
@@ -1025,6 +1029,7 @@ impl TokenKind {
                 | TokenKind::KwAnd
                 | TokenKind::KwOr
                 | TokenKind::KwNot
+                | TokenKind::Matches
         )
     }
 
@@ -1087,6 +1092,7 @@ impl TokenKind {
             TokenKind::KwAnd => Naming::Fixed("and"),
             TokenKind::KwOr => Naming::Fixed("or"),
             TokenKind::KwNot => Naming::Fixed("not"),
+            TokenKind::Matches => Naming::Fixed("matches"),
             TokenKind::LParen => Naming::Fixed("("),
             TokenKind::RParen => Naming::Fixed(")"),
             TokenKind::LBrace => Naming::Fixed("{"),
@@ -1192,7 +1198,7 @@ mod tests {
     /// The keyword table, written out here as well as in the integration tests
     /// so that a keyword added to one list and not the other is a failing test
     /// rather than a difference nobody notices.
-    const KEYWORDS: [(&str, TokenKind); 41] = [
+    const KEYWORDS: [(&str, TokenKind); 42] = [
         ("fn", TokenKind::Fn),
         ("struct", TokenKind::Struct),
         ("enum", TokenKind::Enum),
@@ -1234,6 +1240,7 @@ mod tests {
         ("and", TokenKind::KwAnd),
         ("or", TokenKind::KwOr),
         ("not", TokenKind::KwNot),
+        ("matches", TokenKind::Matches),
     ];
 
     #[test]
@@ -1489,11 +1496,11 @@ mod tests {
 
     #[test]
     fn a_multi_byte_character_survives_decoding() {
-        let lit = match StringLit::decode("\"héllo\"") {
+        let lit = match StringLit::decode("\"hÃ©llo\"") {
             Ok(lit) => lit,
             Err(e) => panic!("must decode: {}", e.message),
         };
-        assert_eq!(lit.value, "héllo");
+        assert_eq!(lit.value, "hÃ©llo");
         assert_eq!(lit.bytes.len(), 6, "five characters, six bytes");
     }
 

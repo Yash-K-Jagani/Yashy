@@ -2,8 +2,8 @@ use yashy_common::Span;
 use yashy_lexer::{Lexer, StringPiece, Token, TokenKind};
 
 use crate::ast::{
-    BinOp, CallArg, Expr, InterpFormat, InterpPart, LambdaParam, Literal, SliceElement, StringLit,
-    TypeExpr, UnOp,
+    BinOp, CallArg, Expr, InterpFormat, InterpPart, LambdaParam, Literal, Pattern, SliceElement,
+    StringLit, SwitchArm, TypeExpr, UnOp,
 };
 use crate::error::{self, ParseError};
 use crate::parser::{cover, Parser, MAX_NESTING_DEPTH};
@@ -190,6 +190,38 @@ impl<'src> Parser<'src> {
                 receiver: Box::new(container),
                 method: "contains".to_string(),
                 args: vec![value],
+                span,
+            };
+        }
+        // `subject matches PATTERN` is a boolean variant/test expression. It is
+        // sugar for a two-arm `switch` value: the pattern arm yields `true`,
+        // the default arm `false`. No new HIR node is needed and the bindings
+        // the pattern declares stay local to the arm bodies (which are just
+        // literals here), so `x matches Some(v)` binds nothing observable.
+        if self.eat(TokenKind::Matches) {
+            let pattern = self.parse_pattern()?;
+            let pattern_span = crate::exprs::pattern_span(&pattern);
+            let span = cover(expr_span(&value), pattern_span);
+            let true_span = pattern_span;
+            let false_span = pattern_span;
+            value = Expr::SwitchExpr {
+                subject: Box::new(value),
+                arms: vec![
+                    SwitchArm {
+                        pattern,
+                        guard: None,
+                        body: Expr::Literal(Literal::Bool(true), true_span),
+                        is_default: false,
+                        span: true_span,
+                    },
+                    SwitchArm {
+                        pattern: Pattern::Wildcard(pattern_span),
+                        guard: None,
+                        body: Expr::Literal(Literal::Bool(false), false_span),
+                        is_default: true,
+                        span: false_span,
+                    },
+                ],
                 span,
             };
         }
