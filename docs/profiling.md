@@ -35,7 +35,9 @@ number this command guesses.
 ## What is not here
 
 - Sampling CPU profiler (`perf_event_open`, ETW, `sample`): not integrated.
-  Symbols would need LLVM debug metadata, which the backend does not emit.
+  Symbols would need per-instruction LLVM debug metadata; debug builds currently
+carry only a function-entry line table, which is not enough to attribute samples
+inside a function.
 - Allocation profiler with source spans: not implemented; see above.
 - Flame graph: not implemented.
 

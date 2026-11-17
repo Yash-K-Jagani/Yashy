@@ -68,14 +68,18 @@ This phase makes both renderings of the compiler's facts.
 
 **Files:**
 - Modify: `crates/yashy-lsp/src/server.rs`, `crates/yashy-lsp/src/lib.rs`, `crates/yashy-lsp/src/main.rs`
-- Create: `crates/yashy-lsp/src/references.rs`, `rename.rs`, `actions.rs`, `symbols.rs`, `hierarchy.rs`, `hints.rs`, `format.rs`
-- Create: `crates/yashy-lsp/tests/conformance.rs`, `crates/yashy-lsp/tests/transcripts/*.jsonrpc`
+- Create: `crates/yashy-lsp/tests/conformance.rs`
 - Test: `crates/yashy-driver/tests/lsp.rs` (extend)
 
+*Actual:* all LSP features live in `server.rs` and `model.rs`; the split
+modules named in the original sketch were never created. The shared transcript
+is `tests/conformance.rs`, not a directory of `.jsonrpc` files.
+
 **Interfaces:**
-- `LspModel` — one snapshot built from `yashy-query`: symbols, types, effects, spans, doc comments, references.
-- `ConformanceCase { name, transcript: PathBuf, expect: Vec<JsonRpcExpectation> }`
-- `run_transcript(case: &ConformanceCase) -> Result<(), Vec<String>>`
+- `LspModel` — one snapshot rebuilt from the document; the source-derived-table
+  substitution is recorded in the Exceptions table.
+- The conformance transcript is a Rust test that drives real JSON-RPC messages;
+  `ConformanceCase`/`run_transcript` were never introduced as named types.
 
 - [x] **Step 1: Write the failing transcript.** A file with a struct, a
   method, a generic function and an incomplete expression. Assert `references`,
@@ -93,8 +97,10 @@ This phase makes both renderings of the compiler's facts.
   macro-origin and out-of-workspace refusals do not apply yet. Edits are a
   `WorkspaceEdit` with LSP ranges.
 - [x] **Step 4: Pull and push diagnostics.** Keep push diagnostics for
-  compatibility; add `textDocument/diagnostic`. Result ids and delta semantic
-  tokens are still open.
+  compatibility; add `textDocument/diagnostic`.
+  *Current:* both are answered over stdio. Semantic tokens are sent in LSP's
+  delta encoding (`delta_line`/`delta_start`), so that half of the original
+  "still open" note was false; pull-diagnostic `resultId`s are not emitted.
 - [x] **Step 5: Two clients, one transcript.** Wire the VS Code and Neovim
   clients (Task 9 owns their packaging, grammar and debug adapters) and run the
   same transcript through both.
@@ -108,17 +114,22 @@ This phase makes both renderings of the compiler's facts.
 ### Task 2: Machine-applicable diagnostics
 
 **Files:**
-- Modify: `crates/yashy-common/src/diagnostic.rs` (additive `suggestions[]`, stable `id`)
+- Modify: `crates/yashy-common/src/diagnostic.rs` (additive `suggestions[]`)
 - Modify: `crates/yashy-common/src/codes.rs` (rule id per code)
 - Create: `crates/yashy-driver/src/fix.rs`, `crates/yashy-driver/src/sarif.rs`
 - Modify: `crates/yashy-driver/src/main.rs` (`fix`, `--sarif`)
 - Modify: `docs/cli.md` (schema v1 additive fields)
 - Test: `crates/yashy-driver/tests/diagnostics_json.rs`, `crates/yashy-driver/tests/fix.rs`
 
+*Actual:* the linter in Task 3 also lives in `yashy-driver/src/lint.rs`; no
+separate `yashy-lint` crate was created.
+
 **Interfaces:**
 - `Suggestion { span, replacement: String, applicability: MachineApplicable | MaybeIncorrect, message }`
 - `apply_suggestions(source: &str, suggestions: &[Suggestion]) -> Result<String, FixError>`
-- `to_sarif(diagnostics: &[Diagnostic]) -> SarifLog`
+- `to_sarif(sources: &SourceMap, diagnostics: &[Diagnostic]) -> Json` — the source map
+  is needed for real line/column regions and for `fixes` artifact URIs; the
+  original sketch without it could only print byte offsets as lines.
 
 - [ ] **Step 1: Write the failing test.** A program with a name typo, a missing
   `move`, and a wrong argument order. Assert `check --json` carries one
@@ -133,33 +144,38 @@ This phase makes both renderings of the compiler's facts.
   the step stays unchecked.
 - [x] **Step 2: One edit model.** A suggestion is a byte span, replacement text
   and an applicability class. The CLI and `check --json` use the same struct;
-  the LSP code action does not consume it yet.
+  the LSP quick fix is built from the same checker facts (removed keywords and
+  "did you mean" messages) and emits the same replacement in a `WorkspaceEdit`.
 - [x] **Step 3: Apply safely.** Suggestions are applied back-to-front,
   non-overlapping, and only to a file whose content hash matches the one the
   diagnostic was computed from. `--dry-run` prints the patched file; `--json`
   emits the diagnostic suggestions.
-- [x] **Step 4: SARIF.** Emit §2.1.0 with rules, levels and physical locations.
-  `fixes` objects are not emitted yet; CI upload and the schema test pin the
-  shape that does exist.
+- [x] **Step 4: SARIF.** Emit §2.1.0 with rules, levels, physical locations and
+  `fixes` objects. The source map supplies line/column regions and artifact
+  URIs. CI upload is still deferred with the rest of CI.
 - [x] **Step 5: Commit.**
 
 ### Task 3: Lint and formatter completeness
 
 **Files:**
-- Create: `crates/yashy-driver/src/lint.rs`, `crates/yashy-lint/src/lib.rs`
+- Create: `crates/yashy-driver/src/lint.rs`
 - Modify: `crates/yashy-fmt/src/lib.rs` (new grammar from Phase 4 lands here too)
-- Create: `docs/lints.md` (generated), `crates/yashy-lint/tests/*.rs`
+- Create: `docs/lints.md` (generated)
 - Test: `crates/yashy-driver/tests/lint.rs`, `crates/yashy-driver/tests/fmt_check.rs` (extend)
 
+*Actual:* linting is a module in `yashy-driver`, not a separate `yashy-lint`
+crate; the `Lint` interface below is the implemented one.
+
 **Interfaces:**
-- `Lint { code: &'static str, group: LintGroup, rule: RuleId, check: fn(&HirProgram, &mut LintBag) }`
+- `Lint { code: &'static str, group: LintGroup, message: &'static str, hint: &'static str }` —
+  checks are source-level advice; the HIR-based `rule: RuleId` and `LintBag`
+  sketch was not built.
 - `LintGroup::{Correctness, Style, Complexity, Perf, Security, Deprecated}`
 - `yashyc lint [--group <g>] [--deny <code>] [--json]`
 
-- [x] **Step 1: Write the failing test.** An unused binding, a shadowed name
-  and a removed keyword are reported with a code and a group. `--deny`, the
-  `switch`/`while`/`Result` lints and lint-supplied suggestions are not
-  implemented yet; `lint.rs` tests the three lints it has.
+- [x] **Step 1: Write the failing test.** An unused binding, a shadowed name, a
+  removed keyword and the `switch`/`while`/`Result` cases are reported with a
+  code and a group; `--deny` promotes a lint to an error.
   *Current:* six lints now: unused, shadowed, removed `var`, long
   `else if` chains (`LINT-SWITCH`), endless `while true` (`LINT-WHILE`) and an
   ignored fallible call (`LINT-RESULT`). Each has a code, group, message, fix
@@ -196,13 +212,16 @@ This phase makes both renderings of the compiler's facts.
   implemented; `error_catalog.rs` checks the page, heading, catalog entry,
   `explain --json` record and the all-codes envelope.
 - [x] **Step 2: Make the catalog generated.** `yashyc explain --all --json` is
-  the machine form; `docs/errors.md` is rendered from it plus the pages. A code
-  without a page fails the build; a page without a code fails the docs test.
+  the machine form; a code without a page fails the build.
+  *Current:* `docs/errors.md` is committed and its links are checked by
+  `tests/docs.rs`, but no test regenerates it from `explain --all`, and no test
+  fails on an orphan page without a code.
 - [x] **Step 3: Rule ids.** Every code names the rule it enforces
   (`OWN-3`, `ALIAS-2`, `DET-4`, …) through `codes::rule_for`; `explain --json`
   and `explain --all --json` carry a `rule` field, and a unit test refuses an
-  empty or duplicate rule. Phase 9 turns this into the full traceability
-  matrix.
+  empty or duplicate rule. `yashyc trace --json` renders a static
+  rule-to-code-to-test matrix from those facts; the full Phase 9 matrix (with
+  conformance cases and stdlib coverage) is still owed.
 - [x] **Step 4: Commit.**
 
 ### Task 5: `new`, `task`, `repl`, `doc --serve`
@@ -213,10 +232,16 @@ This phase makes both renderings of the compiler's facts.
 - Create: `crates/yashy-driver/tests/new.rs`, `crates/yashy-driver/tests/task.rs`, `crates/yashy-driver/tests/repl.rs`, `crates/yashy-driver/tests/doc_server.rs`
 - Add templates under `templates/{bin,lib,http,cli}`
 
+*Actual:* the four templates are data in `scaffold.rs`; there is no `templates/`
+directory. All four named in the sketch exist (`bin`, `lib`, `cli`, `http`).
+
 - [x] **Step 1: Write the failing `new` test.** `yashyc new hello --template bin`
   creates a project whose first `yashyc test` passes in under a minute on a cold
   machine; `--list` is the machine form; an unknown template is a diagnostic,
   not a panic.
+  *Current:* `tests/new.rs` proves project creation and that the first test
+  passes; the 60-second cold-machine bound is a CI measurement, not asserted
+  locally.
 - [x] **Step 2: `task` is a named command, not a shell.** `yashy.toml` gains
   `[tasks] test = "yashyc test"`, `fmt = "yashyc fmt -w ."`. `yashyc task <name>`
   runs the named compiler verb sequence. It never executes an arbitrary shell
@@ -247,11 +272,14 @@ This phase makes both renderings of the compiler's facts.
 ### Task 6: The debugger
 
 **Files:**
-- Modify: `crates/yashy-codegen/src/*` (DWARF on ELF/Mach-O, CodeView/PDB on Windows)
 - Create: `crates/yashy-driver/src/debug.rs`, `crates/yashy-runtime/debug/pretty_printers.py`
 - Modify: `crates/yashy-driver/src/main.rs` (`debug`)
 - Create: `crates/yashy-driver/tests/debug.rs`
 - Docs: `docs/debugging.md`
+
+*Actual:* debug metadata is added by `crates/yashy-driver/src/debug_info.rs`
+as an IR post-pass; `yashy-codegen` itself was not modified, so normal IR stays
+byte-identical. Verified with clang and `llvm-readobj`.
 
 - [ ] **Step 1: Write the failing test.** Compile a program with a function,
   a struct, a `switch` and an async task. Assert the binary has a line table and
@@ -298,6 +326,11 @@ This phase makes both renderings of the compiler's facts.
 - Create: `crates/yashy-driver/tests/profile_sampling.rs`, `crates/yashy-driver/tests/coverage.rs`
 - Docs: `docs/profiling.md`, `docs/coverage.md`
 
+*Actual:* only `docs/profiling.md` and `docs/coverage.md` and
+`profile --alloc-report` landed; `coverage.rs`, `sample.rs`, `profile_sampling.rs`
+and `coverage.rs` were not created because their gates need per-instruction
+debug locations.
+
 - [ ] **Step 1: Write the failing test.** A program with a hot loop, a cold
   function and one deliberate leak. Assert the sampler attributes ≥ 80% of
   samples to the hot function, the allocation profiler names the leaking site
@@ -311,10 +344,10 @@ This phase makes both renderings of the compiler's facts.
   `perf record` when permitted), Windows ETW/`DbgHelp` stack walking, macOS
   `sample`; when none is available, say so and fall back to the counter
   profiler. Symbols come from the debug info Phase 2 already emits.
-  *Current:* not integrated. The backend emits no LLVM debug metadata, so the
-  plan's premise that Phase 2 already emits symbols is false. `profile --sample`
-  is reserved in the command table but uses the counter path; a native sampler
-  would have no symbols to attribute samples to.
+  *Current:* not integrated. Function-level `!dbg` metadata now exists in debug
+  builds, but there is no per-instruction location for a native sampler to
+  attribute frames to. `profile --sample` is reserved in the command table but
+  uses the counter path, and no platform sampler is spawned.
 - [ ] **Step 3: Allocation profiling has no hidden hooks.** The allocator
   interface records size, site and a bounded stack; `--alloc-report` is the
   same data in table form. Leaks are reported at exit with the allocation span.
@@ -325,17 +358,21 @@ This phase makes both renderings of the compiler's facts.
 - [ ] **Step 4: Coverage is source-based.** Compile with clang's
   `-fprofile-instr-generate -fcoverage-mapping`, run the test suite, merge
   profiles, and render per-file/per-line counts. `--fail-under` gates CI.
-  *Current:* not implemented. Coverage mapping needs `!dbg` line locations from
-  HIR spans, which the backend does not emit; `yashyc coverage` is an explicit
-  usage error pointing at docs/coverage.md rather than a false success.
+  *Current:* not implemented. Coverage mapping needs a `!dbg` location on each
+  instruction; debug builds currently emit only one per function. `yashyc
+  coverage` is an explicit usage error pointing at docs/coverage.md rather than
+  a false success.
 - [x] **Step 5: Commit.**
 
 ### Task 8: `inspect`, `trace`, `tokens`
 
 **Files:**
-- Create: `crates/yashy-driver/src/inspect.rs`, `crates/yashy-driver/src/trace.rs`, `crates/yashy-driver/src/tokens.rs`
-- Modify: `crates/yashy-driver/src/main.rs`
+- Create: `crates/yashy-driver/src/trace.rs`, `crates/yashy-driver/src/tokens.rs`
+- Modify: `crates/yashy-driver/src/main.rs`; Create: `crates/yashy-driver/src/addr.rs`
 - Create: `crates/yashy-driver/tests/inspect.rs`, `crates/yashy-driver/tests/trace.rs`, `crates/yashy-driver/tests/tokens.rs`
+
+*Actual:* there is no `inspect.rs`; the verb lives in `main.rs` and the address
+lookup in `addr.rs`.
 
 - [ ] **Step 1: Write the failing test.** `inspect --json` reports a symbol's
   signature, effects, contracts, layout (when Phase 11A lands) and source span;
@@ -358,8 +395,11 @@ This phase makes both renderings of the compiler's facts.
   than faked. `yashyc trace --json` now emits the static rule matrix as well.
 - [x] **Step 3: Document the architecture drift test.** `cargo test -p
   yashy-driver --test architecture` asserts that `docs/architecture.md` lists
-  every workspace crate and every dispatch verb, and that the phase table in
-  the master plan names every phase file that exists.
+  every workspace crate and every command-table verb, and that the phase table
+  in the master plan names every phase file that exists.
+  *Current:* one dispatch-only arm (`coverage`) is an explicit usage error and
+  is deliberately absent from the command table, so the test covers the table,
+  not literally every `match` arm.
 - [x] **Step 4: Commit.**
 
 ### Task 9: Editors, one grammar source
@@ -413,8 +453,9 @@ This phase makes both renderings of the compiler's facts.
   Helix, Zed, Emacs and JetBrains get documented LSP/DAP configurations that
   point at `yashyc lsp --stdio`; none of them bundles a second compiler.
   *Current:* all six clients and their configs are committed. `yashyc debug`
-  is not implemented yet (Task 6), so the DAP launch entry is declared but
-  named as pending in the VS Code README rather than claimed as working.
+  is implemented now (LLDB/cdb, generated scripts), so the DAP launch entry is
+  real; the script stops on symbol names and function entry lines, not on a
+  typed in-function value.
 - [x] **Step 4: Two gated, four documented.** VS Code and Neovim are the gate;
   the other editor configurations are validated when the editor's headless CLI
   is available and are cuttable. Format-on-save, run, test and debug work from
@@ -427,15 +468,21 @@ This phase makes both renderings of the compiler's facts.
 ### Task 10: The terminal surface
 
 **Files:**
-- Create: `crates/yashy-driver/src/cli_spec.rs`, `term.rs`, `completions.rs`, `man.rs`, `hyperlink.rs`
+- Create: `crates/yashy-driver/src/cli_spec.rs`, `crates/yashy-driver/src/term.rs`
 - Modify: `crates/yashy-driver/src/main.rs` (dispatch, help, colour, pager)
 - Create: `scripts/completions/{yashyc.bash,yashyc.zsh,yashyc.fish,yashyc.ps1}` (generated)
-- Create: `docs/man/yashyc.1` (generated), `docs/terminal.md`
-- Test: `crates/yashy-driver/tests/terminal.rs`, `.../completions.rs`, `.../man.rs`
+- Create: `docs/terminal.md`
+- Test: `crates/yashy-driver/tests/terminal.rs`
+
+*Actual:* colour, width, pager and hyperlinks all live in `term.rs`; the
+separate `completions.rs`, `man.rs` and `hyperlink.rs` modules named in the
+sketch were not created, nor was a committed `docs/man/yashyc.1` (the man page
+is printed by `yashyc man` from the same command table). All four completion
+scripts and the terminal tests are committed.
 
 **Interfaces:**
-- `CommandSpec { name, aliases, summary, usage, flags, examples, completion }`
-- `Style::{Auto, Always, Never}`, `Pager::{Auto, Never, Command(String)}`
+- `CommandSpec { name, summary, usage, flags, takes_path }`
+- `Color::{Auto, Always, Never}`, `Pager::{Auto, Always, Never}`, `Hyperlink::{Auto, Always, Never}`
 - `yashyc completions <bash|zsh|fish|powershell>`, `yashyc help [verb]`
 
 - [x] **Step 1: Write the failing test.** Pipe `yashyc check` on a file with a
@@ -451,10 +498,12 @@ This phase makes both renderings of the compiler's facts.
   wrapping. A terminal-attached `auto` case is a CI/manual check, not a unit
   assertion.
 - [x] **Step 2: One command table.** A verb is declared once with its flags,
-  defaults, examples and completion kind. Help, the man page, the shell
-  completions and `index --json` render from that table; a flag added in one
-  place cannot be missing from another. The table now names every verb in
-  `dispatch` (the previous 18-verb gap is closed).
+  defaults, examples and completion kind. Help, the man page and the shell
+  completions render from that table; a flag added in one place cannot be
+  missing from another. The table now names every verb in `dispatch` (the
+  previous 18-verb gap is closed).
+  *Current:* `index --json` renders the project's symbol index, not the command
+  table — that half of the original sentence was never true.
 - [x] **Step 3: Shell integration is generated.** `yashyc completions bash`
   (and zsh, fish, PowerShell) prints a script that completes verbs, flags and
   file arguments; the generated files under `scripts/completions/` are
@@ -494,8 +543,9 @@ This phase makes both renderings of the compiler's facts.
   global flags; capability is a positive list (`WT_SESSION`, `TERM_PROGRAM`,
   `KITTY_WINDOW_ID`, `VTE_VERSION` ≥ 5000, a known `TERM`). `inspect --human`
   prints `path:line:col: signature` through the same helper, so a click opens
-  the declaration. `trace` does not exist yet, so its half of this step waits
-  for Task 8.
+  the declaration. `yashyc trace --json` prints the static rule matrix in
+  plain text; it has no source span to link yet. Runtime `trace --events` is
+  not implemented.
 - [x] **Step 6: Commit.**
 
 ## Gates
@@ -503,21 +553,25 @@ This phase makes both renderings of the compiler's facts.
 | Gate | Command | Passes when |
 |---|---|---|
 | LSP conformance | `cargo test -p yashy-lsp --test conformance` | every transcript feature answers with a stable span; no panic on an incomplete file |
-| Editor matrix | `editors` CI job | VS Code and Neovim each complete, hover, rename, format and stop at a breakpoint in the fixture; Helix, Zed, Emacs and JetBrains configurations validate when their headless CLI is present |
+| Editor matrix | `editors` CI job (deferred) | No such job exists yet; client configs are asserted by `tests/grammar.rs`, and real-editor runs are manual/CI work |
 | Generated grammar | `cargo test -p yashy-driver --test grammar` | `yashyc tokens --grammar` reproduces every committed file; a new keyword fails until regenerated |
-| Terminal | `cargo test -p yashy-driver --test terminal` | piped output is plain and ordered; colour, pager and hyperlink policy hold; every verb is in help, man and all four completions; each script parses |
-| Machine fixes | `cargo test -p yashy-driver --test fix` | every fixable diagnostic applies; a conflicting fix is refused; a stale hash is refused |
-| Schema | `cargo test -p yashy-driver --test diagnostics_json --test schema_diff` | v1 fields unchanged; `suggestions[]` and `id` are additive; SARIF validates |
-| Error catalog | `cargo test -p yashy-driver --test error_catalog` | every code has a page, a catalog entry, an `explain --json` record and a triggering test |
-| First test | `yashyc new hello && cd hello && yashyc test` | under 60 s on a cold machine, both OSes |
-| Debugger | `cargo test -p yashy-driver --test debug` | a source breakpoint stops on the expected line; a struct prints as a value; `inspect --addr` maps back |
-| Profilers | `cargo test -p yashy-driver --test profile_sampling` | ≥ 80% of samples on the hot function; the leaking site is named with a span |
-| Coverage | `cargo test -p yashy-driver --test coverage` | lcov and JSON agree; `--fail-under` gates |
+| Terminal | `cargo test -p yashy-driver --test terminal` | piped output is plain and ordered; colour, pager and hyperlink policy hold; every verb is in help, man output and all four completions; each script parses |
+| Machine fixes | `cargo test -p yashy-driver --test fix` | removed keywords and name typos apply; a conflicting fix is refused; a stale hash is refused. Missing-`move` and argument-order producers are not implemented |
+| Schema | `cargo test -p yashy-driver --test diagnostics_json --test schema_diff` | v1 fields unchanged; `suggestions[]` is additive; SARIF validates and carries `fixes` |
+| Error catalog | `cargo test -p yashy-driver --test error_catalog` | every code has a page, a catalog entry and an `explain --json` record; the triggering-fixture assertion is not implemented |
+| First test | `yashyc new hello && cd hello && yashyc test` | under 60 s on a cold machine, both OSes; not measurable locally |
+| Debugger | `cargo test -p yashy-driver --test debug --test debug_info` | backend selection, scripts, function-level line tables and `inspect --addr` are tested; a typed in-function stop is not implemented |
+| Profilers | `cargo test -p yashy-driver --lib` (unit tests only) | wall-clock and recorded counter reports; no sampler or allocation-site test exists |
+| Coverage | `cargo test -p yashy-driver --test coverage` (does not exist) | `yashyc coverage` is an explicit not-implemented usage error; per-instruction locations are required first |
 | Architecture | `cargo test -p yashy-driver --test architecture` | crates and verbs in the doc match the workspace |
 | No regression | `cargo test --workspace` | green on Windows and Linux |
 | No P0 | `docs/triage.md` | no P0 |
 
 ## Demo
+
+> The transcripts below describe the *intended* 2.0 surface. Lines that need
+> native sampling, source coverage or a typed debugger value are not executable
+> today; see the Exceptions table for the implemented subset.
 
 ```console
 $ yashyc new hello --template bin
@@ -587,7 +641,9 @@ still owed so a later phase does not inherit a false checklist.
 - Language forms (Phase 4); the LSP formats the 1.0 grammar and gains each new
   form in the phase that adds it.
 - Signed registry and installers (Phase 3).
-- The traceability matrix (Phase 9); this phase adds rule ids only.
+- The full traceability matrix (Phase 9); this phase adds rule ids and a static
+  rule-to-code-to-test view through `yashyc trace --json`, without conformance
+  or stdlib coverage rows.
 - A GUI editor or a GUI debugger; the extensions are thin clients and
   `yashyc debug` drives an existing backend.
 - Remote development over SSH or a network debug adapter; LSP and DAP speak
@@ -607,7 +663,7 @@ still owed so a later phase does not inherit a false checklist.
 | The REPL promises more than it can run | A documented HIR subset; unsupported input names the boundary and points at `yashyc run` |
 | The debugger only works on Linux | `yashyc debug` selects LLDB or `cdb`; the gate runs on Windows and Linux |
 | Sampling needs privileges | Fall back to the counter profiler with a diagnostic naming the missing capability |
-| A lint becomes a second verifier | Lints are style/correctness advice over HIR; no lint changes whether a program builds |
+| A lint becomes a second verifier | Lints are source-level advice; they never change whether a program builds |
 | Six editors become six grammars | One `GrammarModel`; keyword and operator tables are generated, the tree-sitter rule skeleton is written once, and CI diffs every generated file |
 | Terminal behaviour is only tested by eye | Piped, TTY, `NO_COLOR`, `TERM=dumb`, `COLUMNS` and hyperlink modes are transcript tests; JSON never carries an escape |
 | An editor bundles its own compiler | Every client calls `yashyc lsp` and `yashyc debug`; the extension is a protocol adapter, not a second front end |

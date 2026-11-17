@@ -933,8 +933,9 @@ and `metrics_add`/`metrics_set` produce byte-identical stderr across runs.
 Builds a program, writes a debugger command file in a temporary directory and
 starts LLDB (or `cdb` on Windows when LLDB is absent). The child gets
 `YASHY_DEBUG=1`, so a fault prints the live task table. `--binary <path>` skips
-the build. See [debugging.md](debugging.md) for what is and is not available:
-the backend does not emit a line table yet, so breakpoints are on symbol names.
+the build. Debug builds carry a function-level line table now; breakpoints work
+at a function's entry line, but not inside a body yet. See
+[debugging.md](debugging.md).
 
 ## `yashyc repl`
 

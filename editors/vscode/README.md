@@ -25,7 +25,7 @@ code --install-extension .
 | Format on save | the language server's formatting request, which calls `yashyc fmt` |
 | `Yashy: Check file`, `Yashy: Run tests`, `Yashy: Doctor` | compiler verbs in a terminal |
 | Tasks named in `yashy.toml` | `yashyc task <name>` |
-| Debug | a DAP configuration that calls `yashyc debug` (the debugger lands in Phase 2 Task 6; until then the launch entry is present but the verb is not) |
+| Debug | a DAP configuration that calls `yashyc debug` (available now: LLDB/cdb, symbol and function-entry-line breakpoints; typed in-function values still need per-instruction debug info) |
 
 No grammar is written by hand here. Editing `syntaxes/yashy.tmLanguage.json`
 directly is lost on the next regeneration; add the token to the lexer instead.
