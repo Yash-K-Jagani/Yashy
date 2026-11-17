@@ -4,6 +4,7 @@
 //! [`serve`] is the whole server, so the tests drive it through an in-memory
 //! pipe instead of spawning a process.
 
+pub mod model;
 pub mod server;
 pub mod text;
 

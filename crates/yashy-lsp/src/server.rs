@@ -94,6 +94,28 @@ impl Server {
                 let result = self.semantic_tokens(params);
                 self.reply(out, id, result)?;
             }
+            Some("textDocument/documentSymbol") => {
+                self.reply(out, id, self.document_symbols(params))?
+            }
+            Some("textDocument/references") => self.reply(out, id, self.references(params))?,
+            Some("textDocument/prepareRename") => {
+                self.reply(out, id, self.prepare_rename(params))?
+            }
+            Some("textDocument/rename") => self.reply(out, id, self.rename(params))?,
+            Some("textDocument/foldingRange") => {
+                self.reply(out, id, self.folding_ranges(params))?
+            }
+            Some("textDocument/selectionRange") => {
+                self.reply(out, id, self.selection_ranges(params))?
+            }
+            Some("textDocument/documentHighlight") => {
+                self.reply(out, id, self.highlights(params))?
+            }
+            Some("textDocument/diagnostic") => {
+                self.reply(out, id, self.pull_diagnostics(params))?
+            }
+            Some("textDocument/codeAction") => self.reply(out, id, self.code_actions(params))?,
+            Some("textDocument/formatting") => self.reply(out, id, self.formatting(params))?,
             Some(other) => {
                 if let Some(id) = id {
                     self.reply_error(out, id, -32601, &format!("unknown method `{other}`"))?;
@@ -511,6 +533,237 @@ impl Server {
         Some((uri, text, offset))
     }
 
+    /// The document text for a URI, from the open buffer or from disk.
+    fn text_for(&self, uri: &str) -> Option<String> {
+        if let Some(text) = self.documents.get(uri) {
+            return Some(text.clone());
+        }
+        std::fs::read_to_string(uri_to_path(uri)).ok()
+    }
+
+    fn model_for(&self, params: Option<&Value>) -> Option<(String, crate::model::LspModel, usize)> {
+        let (uri, text, offset) = self.cursor(params)?;
+        let model = crate::model::LspModel::new(&text);
+        Some((uri, model, offset))
+    }
+
+    fn document_symbols(&self, params: Option<&Value>) -> Value {
+        let Some(uri) = params
+            .and_then(|p| p.get("textDocument"))
+            .and_then(|d| d.get("uri"))
+            .and_then(Value::as_str)
+        else {
+            return Value::Null;
+        };
+        let Some(text) = self.text_for(uri) else {
+            return Value::Null;
+        };
+        let model = crate::model::LspModel::new(&text);
+        Value::Arr(
+            model
+                .symbols
+                .iter()
+                .map(|symbol| {
+                    let (sl, sc, el, ec) = model.range(symbol.start, symbol.end);
+                    object([
+                        ("name", string(&symbol.name)),
+                        ("kind", number(symbol.kind.lsp())),
+                        ("range", range(sl, sc, el, ec)),
+                        ("selectionRange", range(sl, sc, el, ec)),
+                    ])
+                })
+                .collect(),
+        )
+    }
+
+    fn references(&self, params: Option<&Value>) -> Value {
+        let Some((_uri, model, offset)) = self.model_for(params) else {
+            return Value::Null;
+        };
+        let Some(word) = word_at(&model.text, offset) else {
+            return Value::Null;
+        };
+        let Some(occurrences) = model.occurrences.get(word) else {
+            return Value::Null;
+        };
+        Value::Arr(
+            occurrences
+                .iter()
+                .map(|(start, end)| {
+                    let (sl, sc, el, ec) = model.range(*start, *end);
+                    object([("range", range(sl, sc, el, ec))])
+                })
+                .collect(),
+        )
+    }
+
+    fn prepare_rename(&self, params: Option<&Value>) -> Value {
+        let Some((_uri, model, offset)) = self.model_for(params) else {
+            return Value::Null;
+        };
+        let Some(word) = word_at(&model.text, offset) else {
+            return Value::Null;
+        };
+        let Some((start, end)) = model
+            .occurrences
+            .get(word)
+            .and_then(|occurrences| occurrences.first())
+        else {
+            return Value::Null;
+        };
+        let (sl, sc, el, ec) = model.range(*start, *end);
+        object([
+            ("range", range(sl, sc, el, ec)),
+            ("placeholder", string(word)),
+        ])
+    }
+
+    fn rename(&self, params: Option<&Value>) -> Value {
+        let Some(new_name) = params
+            .and_then(|p| p.get("newName"))
+            .and_then(Value::as_str)
+        else {
+            return Value::Null;
+        };
+        // A rename must be an identifier, and must not collide with another
+        // declared name. Refuse rather than corrupt the document.
+        if new_name.is_empty()
+            || !new_name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_')
+            || new_name.chars().next().is_some_and(|c| c.is_ascii_digit())
+        {
+            return object([("error", string("not a valid Yashy identifier"))]);
+        }
+        let Some((uri, model, offset)) = self.model_for(params) else {
+            return Value::Null;
+        };
+        let Some(word) = word_at(&model.text, offset) else {
+            return Value::Null;
+        };
+        if model.symbols.iter().any(|symbol| symbol.name == new_name) {
+            return object([("error", string("the new name is already declared"))]);
+        }
+        let Some(occurrences) = model.occurrences.get(word) else {
+            return Value::Null;
+        };
+        let edits: Vec<Value> = occurrences
+            .iter()
+            .map(|(start, end)| {
+                let (sl, sc, el, ec) = model.range(*start, *end);
+                object([
+                    ("range", range(sl, sc, el, ec)),
+                    ("newText", string(new_name)),
+                ])
+            })
+            .collect();
+        object([("changes", object([(uri.as_str(), Value::Arr(edits))]))])
+    }
+
+    fn folding_ranges(&self, params: Option<&Value>) -> Value {
+        let Some((_uri, model, _)) = self.model_for(params) else {
+            return Value::Null;
+        };
+        Value::Arr(
+            model
+                .symbols
+                .iter()
+                .map(|symbol| {
+                    let (sl, _, el, _) = model.range(symbol.start, symbol.end);
+                    object([
+                        ("startLine", number(i64::from(sl))),
+                        ("endLine", number(i64::from(el))),
+                    ])
+                })
+                .collect(),
+        )
+    }
+
+    fn selection_ranges(&self, params: Option<&Value>) -> Value {
+        let Some((_uri, model, offset)) = self.model_for(params) else {
+            return Value::Null;
+        };
+        let Some(word) = word_at(&model.text, offset) else {
+            return Value::Null;
+        };
+        let occurrences = model
+            .occurrences
+            .get(word)
+            .cloned()
+            .unwrap_or_else(|| vec![(offset, offset)]);
+        Value::Arr(
+            occurrences
+                .iter()
+                .map(|(start, end)| {
+                    let (sl, sc, el, ec) = model.range(*start, *end);
+                    object([("range", range(sl, sc, el, ec))])
+                })
+                .collect(),
+        )
+    }
+
+    fn highlights(&self, params: Option<&Value>) -> Value {
+        self.references(params)
+    }
+
+    fn pull_diagnostics(&self, params: Option<&Value>) -> Value {
+        let Some(uri) = params
+            .and_then(|p| p.get("textDocument"))
+            .and_then(|d| d.get("uri"))
+            .and_then(Value::as_str)
+        else {
+            return Value::Null;
+        };
+        let Some(text) = self.text_for(uri) else {
+            return Value::Null;
+        };
+        let diagnostics = diagnostics_text(&text);
+        object([("items", Value::Arr(diagnostics))])
+    }
+
+    fn code_actions(&self, params: Option<&Value>) -> Value {
+        let Some((_uri, model, offset)) = self.model_for(params) else {
+            return Value::Null;
+        };
+        let Some(word) = word_at(&model.text, offset) else {
+            return Value::Null;
+        };
+        let Some((start, end)) = model
+            .occurrences
+            .get(word)
+            .and_then(|occurrences| occurrences.first())
+        else {
+            return Value::Null;
+        };
+        let (sl, sc, el, ec) = model.range(*start, *end);
+        Value::Arr(vec![object([
+            ("title", string(format!("rename `{word}`"))),
+            ("kind", string("refactor.rename")),
+            ("edit", object([("changes", Value::Arr(vec![]))])),
+            ("range", range(sl, sc, el, ec)),
+        ])])
+    }
+
+    fn formatting(&self, params: Option<&Value>) -> Value {
+        let Some(uri) = params
+            .and_then(|p| p.get("textDocument"))
+            .and_then(|d| d.get("uri"))
+            .and_then(Value::as_str)
+        else {
+            return Value::Null;
+        };
+        let Some(text) = self.text_for(uri) else {
+            return Value::Null;
+        };
+        // The formatter is the single source of layout. A rename of this verb
+        // must not become a second formatting implementation in the LSP.
+        let formatted = yashy_fmt::format(&text).unwrap_or_else(|_| text.clone());
+        Value::Arr(vec![object([
+            ("newText", string(formatted)),
+            ("range", range(0, 0, u32::MAX, u32::MAX)),
+        ])])
+    }
+
     fn reply<W: Write>(&self, out: &mut W, id: Option<Value>, result: Value) -> io::Result<()> {
         let Some(id) = id else {
             return Ok(());
@@ -562,6 +815,24 @@ fn initialize() -> Value {
                 ("textDocumentSync", number(1)),
                 ("hoverProvider", Value::Bool(true)),
                 ("definitionProvider", Value::Bool(true)),
+                ("referencesProvider", Value::Bool(true)),
+                (
+                    "renameProvider",
+                    object([("prepareProvider", Value::Bool(true))]),
+                ),
+                ("documentSymbolProvider", Value::Bool(true)),
+                ("foldingRangeProvider", Value::Bool(true)),
+                ("selectionRangeProvider", Value::Bool(true)),
+                ("documentHighlightProvider", Value::Bool(true)),
+                ("codeActionProvider", Value::Bool(true)),
+                ("documentFormattingProvider", Value::Bool(true)),
+                (
+                    "diagnosticProvider",
+                    object([
+                        ("interFileDependencies", Value::Bool(false)),
+                        ("workspaceDiagnostics", Value::Bool(false)),
+                    ]),
+                ),
                 (
                     "completionProvider",
                     object([("triggerCharacters", Value::Arr(vec![string(":")]))]),
@@ -615,6 +886,66 @@ fn keep_entry(
     diagnostics
         .into_iter()
         .filter(|diagnostic| sources.path(diagnostic.file) == entry)
+        .collect()
+}
+
+/// An LSP Range from four zero-based coordinates.
+fn range(sl: u32, sc: u32, el: u32, ec: u32) -> Value {
+    object([
+        (
+            "start",
+            object([
+                ("line", number(i64::from(sl))),
+                ("character", number(i64::from(sc))),
+            ]),
+        ),
+        (
+            "end",
+            object([
+                ("line", number(i64::from(el))),
+                ("character", number(i64::from(ec))),
+            ]),
+        ),
+    ])
+}
+
+/// Diagnostics for a source string, in LSP form, for pull diagnostics.
+fn diagnostics_text(text: &str) -> Vec<Value> {
+    let uri = "file:///model.ya";
+    let path = uri_to_path(uri);
+    let mut sources = SourceMap::new();
+    let modules = match load(&mut sources, &path, text.to_string()) {
+        Ok(modules) => modules,
+        Err(diagnostics) => return diagnostics_to_lsp(text, &diagnostics),
+    };
+    let borrowed: Vec<(FileId, &yashy_parser::Program)> = modules
+        .iter()
+        .map(|module| (module.file, &module.program))
+        .collect();
+    match check_modules_with(&borrowed, &sources, CheckOptions::default()) {
+        Ok(_) => Vec::new(),
+        Err(diagnostics) => diagnostics_to_lsp(text, &diagnostics),
+    }
+}
+
+fn diagnostics_to_lsp(text: &str, diagnostics: &[yashy_common::Diagnostic]) -> Vec<Value> {
+    let index = LineIndex::new(text);
+    diagnostics
+        .iter()
+        .map(|diagnostic| {
+            let start = diagnostic.span.start as usize;
+            let end = (diagnostic.span.end as usize)
+                .max(start + 1)
+                .min(text.len());
+            let (sl, sc) = index.position(text, start);
+            let (el, ec) = index.position(text, end);
+            object([
+                ("range", range(sl, sc, el, ec)),
+                ("severity", number(severity(diagnostic.severity))),
+                ("source", string("yashy")),
+                ("message", string(&diagnostic.message)),
+            ])
+        })
         .collect()
 }
 

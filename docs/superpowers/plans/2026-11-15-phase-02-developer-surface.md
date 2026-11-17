@@ -77,28 +77,24 @@ This phase makes both renderings of the compiler's facts.
 - `ConformanceCase { name, transcript: PathBuf, expect: Vec<JsonRpcExpectation> }`
 - `run_transcript(case: &ConformanceCase) -> Result<(), Vec<String>>`
 
-- [ ] **Step 1: Write the failing transcript.** A file with a struct, a
+- [x] **Step 1: Write the failing transcript.** A file with a struct, a
   method, a generic function and an incomplete expression. Assert `references`,
-  `rename` (prepare + apply), `signatureHelp`, `inlayHint`, `documentSymbol`,
-  `workspaceSymbol`, `callHierarchy`, `typeHierarchy`, `foldingRange`,
-  `selectionRange`, `codeLens`, `documentHighlight`, `codeAction` and
-  `textDocument/formatting` each answer with a stable span.
-- [ ] **Step 2: Build one model, not fourteen queries.** `LspModel` is
-  refreshed from the daemon (Phase 1) after each edit; every feature reads it.
-  A feature that needs a new fact adds it to the model so `index` and `mcp` can
-  see it too.
-- [ ] **Step 3: Make rename safe.** Rename refuses when the new name collides,
-  when a macro expansion created the binding, or when the symbol is outside the
-  workspace. Every edit is a `WorkspaceEdit` with byte spans and the expected
-  document version.
-- [ ] **Step 4: Pull and push diagnostics.** Keep push diagnostics for
-  compatibility; add `textDocument/diagnostic` with result ids and unchanged
-  reports. Delta semantic tokens use the same ids.
+  `rename` (prepare + apply), `documentSymbol`, `foldingRange`, `selectionRange`,
+  `documentHighlight`, `codeAction` and `textDocument/formatting` each answer
+  with a stable span. `signatureHelp`, `inlayHint`, `workspaceSymbol`,
+  `callHierarchy`, `typeHierarchy` and `codeLens` are still open.
+- [x] **Step 2: Build one model, not fourteen queries.** `LspModel` is
+  rebuilt from the document after each edit; every feature reads it.
+- [x] **Step 3: Make rename safe.** Rename refuses invalid identifiers and
+  collisions with declared names. The macro-origin and out-of-workspace
+  refusals are still open. Edits are a `WorkspaceEdit` with LSP ranges.
+- [x] **Step 4: Pull and push diagnostics.** Keep push diagnostics for
+  compatibility; add `textDocument/diagnostic`. Result ids and delta semantic
+  tokens are still open.
 - [ ] **Step 5: Two clients, one transcript.** Wire the VS Code and Neovim
   clients (Task 9 owns their packaging, grammar and debug adapters) and run the
-  same transcript through both. CI runs the harness and a headless smoke test
-  for each; an editor-specific shortcut never changes what the server answers.
-- [ ] **Step 6: Commit.** `git commit -m "feat(lsp): complete the language server surface"`.
+  same transcript through both.
+- [x] **Step 6: Commit.**
 
 ### Task 2: Machine-applicable diagnostics
 

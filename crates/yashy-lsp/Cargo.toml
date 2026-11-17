@@ -10,6 +10,7 @@ path = "src/main.rs"
 [dependencies]
 yashy-common = { path = "../yashy-common" }
 yashy-driver = { path = "../yashy-driver" }
+yashy-fmt = { path = "../yashy-fmt" }
 yashy-lexer = { path = "../yashy-lexer" }
 yashy-parser = { path = "../yashy-parser" }
 yashy-sema = { path = "../yashy-sema" }
