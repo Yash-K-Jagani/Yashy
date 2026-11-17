@@ -185,8 +185,11 @@ does — see §5.
 
 A pattern in `let`, `const` or `for` must be irrefutable (`E0100`). `switch`
 arms may be refutable; every alternative of an or-pattern binds the same names
-with the same types (`E1002`). 2.0 adds `let else`, slice/rest patterns, `@`
-bindings, `matches`, and if-let chains (Phase 4).
+with the same types (`E1002`). `else if` and if-let chains are parser sugar for
+nested statements, and `x matches PAT` is sugar for a two-arm `switch` value.
+`x is P` is pointer address identity or an enum variant test (E1517 on a value
+type). `needle in container` is sugar for `container.contains(needle)`. The
+slice/rest, `@` binding and `let else` forms are still owed.
 
 ### 4.6 Macros and `cfg`
 
