@@ -225,19 +225,19 @@ block with one placement bit.
 Yashy has no borrow checker, so the aliasing model is **conservative by
 default**:
 
-1. **Owning pointers are unique.** Linearity means an owning pointer is moved,
+1. **ALIAS-1 — Owning pointers are unique.** Linearity means an owning pointer is moved,
    not copied. A pointer parameter passed by value is therefore the only path to
    its allocation for the duration of the call, and codegen may emit `noalias`
    and `nonnull` for it.
-2. **FFI pointers may alias.** `*const T` and bare `*T` carry no uniqueness
+2. **ALIAS-2 — FFI pointers may alias.** `*const T` and bare `*T` carry no uniqueness
    assumption. `noalias` on an `extern` parameter or an `unsafe fn` parameter is
    an explicit promise; safe code cannot declare one, so safe code cannot break
    one.
-3. **Disjoint views are proved, not assumed.** Two views may alias unless the
+3. **ALIAS-3 — Disjoint views are proved, not assumed.** Two views may alias unless the
    compiler proves the ranges disjoint from bounds and indexing facts.
-4. **No aliasing assumption crosses a safe call.** Because safe Yashy has no
+4. **ALIAS-4 — No aliasing assumption crosses a safe call.** Because safe Yashy has no
    references, there is no `&mut`-style exclusivity to miscompile.
-5. **Every assumption is reported.** `--opt-report` names each `noalias`,
+5. **ALIAS-5 — Every assumption is reported.** `--opt-report` names each `noalias`,
    `nonnull` and `dereferenceable` it emitted and the fact that licensed it.
 
 The written rules are normative (2.0, Phase 4); the alias corpus and the
