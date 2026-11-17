@@ -77,3 +77,41 @@ fn new_refuses_a_non_empty_directory() {
         .expect("the original file remains")
         .contains("keep"));
 }
+
+#[test]
+fn the_workspace_template_creates_two_members() {
+    let dir = work_dir("new-workspace-template");
+    let output = new(&dir, &["new", "shop", "--template", "workspace"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let root = dir.join("shop");
+    assert!(root.join("yashy.toml").is_file());
+    assert!(root.join("app/yashy.toml").is_file());
+    assert!(root.join("lib/src/lib.ya").is_file());
+    let manifest = fs::read_to_string(root.join("yashy.toml")).unwrap();
+    assert!(manifest.contains("[workspace]"));
+    assert!(!manifest.contains("[package]"));
+}
+
+#[test]
+fn service_and_native_templates_have_tests_and_docs() {
+    for template in ["service", "native"] {
+        let dir = work_dir(&format!("new-{template}-template"));
+        let output = new(&dir, &["new", "demo", "--template", template]);
+        assert!(
+            output.status.success(),
+            "{template}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let root = dir.join("demo");
+        assert!(root.join("tests/smoke.ya").is_file(), "{template}");
+        assert!(root.join("README.md").is_file(), "{template}");
+        assert!(root.join("main.ya").is_file(), "{template}");
+        if template == "native" {
+            assert!(root.join("fixture.c").is_file());
+        }
+    }
+}

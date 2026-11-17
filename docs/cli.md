@@ -1103,6 +1103,15 @@ single pinned dependency `ed25519-compact`; no curve arithmetic is written
 here. Remote signature verification is not implemented — mirror the registry
 locally to verify it.
 
+### Project templates
+
+`yashyc new <name> --template <name>` creates a project whose first test
+passes. The templates are `bin`, `lib`, `cli`, `http`, `workspace`, `service`
+and `native`. `workspace` creates two members and a shared root manifest
+(`yashyc test --workspace` runs both); `service` prints a health response
+until the HTTP stack lands in Phase 6; `native` includes a C fixture and an
+`extern "C"` declaration.
+
 ### Resolution: `update`, `fetch`, `add`, `--offline`
 
 A registry range resolves once to the highest non-yanked version that

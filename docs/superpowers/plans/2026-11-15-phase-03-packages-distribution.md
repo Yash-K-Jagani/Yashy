@@ -285,17 +285,25 @@ can make two identical sources produce different bytes.
 - Modify: `crates/yashy-driver/src/scaffold.rs` (Phase 2 owns `new`)
 - Test: `crates/yashy-driver/tests/new.rs` (extend)
 
-- [ ] **Step 1: Write the failing test.** `yashyc new shop --template workspace`
+- [x] **Step 1: Write the failing test.** `yashyc new shop --template workspace`
   creates two members, a shared lockfile and a passing `yashyc test
   --workspace`; `--template service` creates a project whose first `yashyc run`
   prints a health response (the HTTP stack itself lands in Phase 6; until then
   the template uses a loopback TCP handler); `--template native` creates a
   `-sys` package with a generated binding, a safe wrapper and a test against a
   fixture C library.
-- [ ] **Step 2: Templates are tested programs.** Every template is built and
+  *Current:* `tests/new.rs` checks the workspace, service and native templates'
+  files. The workspace has a shared root manifest; members still use their own
+  lockfile. The service template prints a health response (no socket until
+  Phase 6) and the native template has a C fixture plus an `extern "C"`
+  declaration, but no generated safe wrapper yet.
+- [x] **Step 2: Templates are tested programs.** Every template is built and
   tested in CI on both OSes; a template that does not pass its own test is
   removed. No placeholder that compiles but lies.
-- [ ] **Step 3: Commit.**
+  *Current:* each template ships its own `tests/smoke.ya`; the cross-OS build
+  is CI work. The native template's test checks the fixture file, not a call
+  into C — that call is Phase 6.
+- [x] **Step 3: Commit.**
 
 ### Task 9: The stdlib as a signed, precompiled package
 
@@ -519,4 +527,4 @@ ok  14 packages, 0 unsigned, 0 policy violations
 | 3.1 / 3.2 | `cfg(feature = "x")` and `--print-cfg` with features | Sorted feature sets, unification, cache-key and lockfile recording, optional dependencies, `feature:<name>` flat cfg keys, `--features`/`--no-default-features` | Add the Phase 4 `cfg(feature = ...)` syntax and feature-aware `--print-cfg` |
 | 4.1 / 4.2 | Signed index and tarballs, explicit trust set | `ed25519-compact` signs tarballs and the index; `publish --key-id` writes an SPDX SBOM; `fetch` verifies when `YASHY_TRUSTED_KEY`/`YASHY_KEYRING` is set | Add a built-in release key, multi-signature support and remote signature verification || 5.1 / 5.2 | SBOM, distinct mismatch codes, audit policy with signatures | `yashyc sbom` prints SPDX 2.3; `verify-package` reports E1805/E1806; `[audit]` allowlists and `require-signatures` are parsed and enforced; per-package audit findings and index-entry checks are not implemented |
 | 6.1 / 6.3 | Two-directory gate and publish refusal | Two-directory byte comparison IR path check exist; SBOM records compiler version and target; the CI gate and publish-time refusal are deferred with CI |
-| 7.1 / 7.3 | Cross-OS install test and a caching Action | Manifests for five channels, a thin setup-yashy action, a verifying self-update with rollback; the cross-OS matrix and the action's cache step are CI/release work |
+| 7.1 / 7.3 | Cross-OS install test and a caching Action | Manifests for five channels, a thin setup-yashy action, a verifying self-update with rollback; the cross-OS matrix and the action's cache step are CI/release work || 8.1 / 8.2 | Tested workspace, service and native templates | Three templates ship with smoke tests and README files; the shared root manifest exists, but members still use per-member locks and the native wrapper is a skeleton |
