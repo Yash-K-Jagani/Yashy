@@ -26,9 +26,21 @@ fn edges(lock: &Lockfile) -> BTreeMap<String, Vec<String>> {
     out
 }
 
-/// The human rendering of [`tree`].
+/// The human rendering of [`tree`], with duplicate and feature marks.
 pub fn tree_lines(lock: &Lockfile, depth: usize) -> Vec<String> {
+    tree_lines_with_features(lock, depth, &std::collections::BTreeSet::new())
+}
+
+pub fn tree_lines_with_features(
+    lock: &Lockfile,
+    depth: usize,
+    features: &std::collections::BTreeSet<String>,
+) -> Vec<String> {
     let graph = edges(lock);
+    let mut versions: BTreeMap<String, usize> = BTreeMap::new();
+    for package in &lock.packages {
+        *versions.entry(package.name.clone()).or_default() += 1;
+    }
     let mut lines = Vec::new();
     let mut seen = BTreeSet::new();
     let root = lock
@@ -47,7 +59,23 @@ pub fn tree_lines(lock: &Lockfile, depth: usize) -> Vec<String> {
             .find(|package| package.name == name)
             .map(|package| package.version.as_str())
             .unwrap_or("?");
-        lines.push(format!("{prefix}{name} {version}"));
+        let marks = if versions.get(&name).copied().unwrap_or(0) > 1 {
+            " (duplicate)"
+        } else {
+            ""
+        };
+        let enabled: Vec<String> = features
+            .iter()
+            .map(|feature| format!("[feature:{feature}]"))
+            .collect();
+        lines.push(format!(
+            "{prefix}{name} {version}{marks}{}",
+            if enabled.is_empty() {
+                String::new()
+            } else {
+                format!(" {}", enabled.join(" "))
+            }
+        ));
         if level < depth {
             if let Some(children) = graph.get(&name) {
                 for child in children {
@@ -329,10 +357,25 @@ pub fn outdated(lock: &Lockfile, registry: &Path) -> Result<Json, String> {
         let yanked = candidates
             .iter()
             .any(|entry| entry.version == package.version && entry.yanked);
+        let locked_version = yashy_manifest::Version::parse(&package.version);
+        let newest_version = newest.as_deref().and_then(yashy_manifest::Version::parse);
+        let change = match (&locked_version, &newest_version) {
+            (Some(old), Some(new)) if new > old => {
+                if new.major != old.major {
+                    "major"
+                } else if new.minor != old.minor {
+                    "minor"
+                } else {
+                    "patch"
+                }
+            }
+            _ => "none",
+        };
         let mut row = Json::object();
         row.set("name", Json::string(&package.name));
         row.set("locked", Json::string(&package.version));
         row.set("newest", Json::string(newest.as_deref().unwrap_or("?")));
+        row.set("change", Json::string(change));
         row.set("yanked", Json::bool(yanked));
         rows.push(row);
     }

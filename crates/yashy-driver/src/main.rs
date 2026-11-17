@@ -5742,11 +5742,12 @@ fn tree_cmd(args: &[String]) -> ExitCode {
             return exit_code(EXIT_USAGE);
         }
     };
+    let features: std::collections::BTreeSet<String> = lock.features.iter().cloned().collect();
     let report = yashy_driver::pkg_cmd::tree(&lock, depth);
     if json {
         println!("{}", report.render());
     } else {
-        for line in yashy_driver::pkg_cmd::tree_lines(&lock, depth) {
+        for line in yashy_driver::pkg_cmd::tree_lines_with_features(&lock, depth, &features) {
             println!("{line}");
         }
     }

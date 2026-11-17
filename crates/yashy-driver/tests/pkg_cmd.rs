@@ -84,3 +84,16 @@ fn vendor_produces_a_complete_local_registry() {
     // The vendor tree is a registry source that can be read back.
     assert!(yashy_driver::registry::read_index(&vendored).is_ok());
 }
+#[test]
+fn tree_marks_duplicates_and_enabled_features() {
+    let dir = common::work_dir("pkg-tree-marks");
+    let lock = Lockfile::new(vec![
+        LockedPackage { name: "app".into(), version: "0.1.0".into(), source: "path+.".into(), hash: "sha256:a".into(), dependencies: vec![] },
+        LockedPackage { name: "lib".into(), version: "1.0.0".into(), source: "path+lib".into(), hash: "sha256:b".into(), dependencies: vec![] },
+        LockedPackage { name: "lib".into(), version: "2.0.0".into(), source: "path+lib2".into(), hash: "sha256:c".into(), dependencies: vec![] },
+    ]);
+    let features = std::collections::BTreeSet::from(["tls".to_string()]);
+    let lines = yashy_driver::pkg_cmd::tree_lines_with_features(&lock, 2, &features);
+    assert!(lines.iter().any(|line| line.contains("duplicate")), "{lines:?}");
+    assert!(lines.iter().any(|line| line.contains("feature:tls")), "{lines:?}");
+}
