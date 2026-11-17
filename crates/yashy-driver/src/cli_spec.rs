@@ -202,9 +202,16 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "tokens",
         summary: "dump a file's tokens or regenerate the editor grammars",
-        usage: "yashyc tokens [--json] <file.ya> | tokens --grammar <dir>",
-        flags: &["--json", "--grammar"],
+        usage: "yashyc tokens [--json] <file.ya> | tokens --grammar <dir> | tokens --bpe <path>...",
+        flags: &["--json", "--grammar", "--bpe"],
         takes_path: true,
+    },
+    CommandSpec {
+        name: "trace",
+        summary: "print the generated rule-to-code-to-test matrix",
+        usage: "yashyc trace [--json] [--fail-orphans] [root]",
+        flags: &["--json", "--fail-orphans"],
+        takes_path: false,
     },
     CommandSpec {
         name: "lint",

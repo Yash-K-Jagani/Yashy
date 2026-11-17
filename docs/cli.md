@@ -829,14 +829,18 @@ Windows, and a gate that fails on a clean checkout is a gate people disable.
 
 Prints the compiler version.
 
-## `yashyc tokens <file.ya> [--json]` / `yashyc tokens --grammar <dir>`
+## `yashyc tokens <file.ya> [--json]` / `yashyc tokens --grammar <dir>` / `yashyc tokens --bpe <path>...`
 
-The first form prints the lexer's view of one source file: each token's kind,
-written text and half-open byte span, in a schema-v1 envelope. It is the
-fastest way to see what the parser will see when a diagnostic or a grammar
-looks wrong.
+`yashyc tokens <file.ya> --json` prints the lexer's view of a file with byte
+spans, which is the fastest way to see what a grammar rule should match.
 
-The second form regenerates all editor grammars from the lexer's own tables.
+`--bpe` measures the lexical single-token property over files or directories
+with **Yashy's own lexer**. Its JSON names `yashy-lexer` as the tokenizer and
+states that the o200k, cl100k and Llama vocabularies are not vendored; it does
+not claim to measure them. It is the language-side baseline the design goal
+needs, not the external-tokenizer gate.
+
+The `--grammar` form regenerates all editor grammars from the lexer's own tables.
 Both `editors` and `editors/grammars` are accepted as the directory:
 
 ```text
@@ -848,6 +852,14 @@ It writes the canonical TextMate, Vim, Emacs, Helix and tree-sitter files plus
 their client copies. `cargo test -p yashy-driver --test grammar` compares every
 file with the renderer, so a keyword added to the lexer cannot be highlighted
 in one editor and missing from another. See [editors/README.md](../editors/README.md).
+
+## `yashyc trace [--json] [--fail-orphans] [root]`
+
+Prints the generated rule-to-code-to-test matrix: every rule from
+`codes::rule_for`, the catalog codes it names, and the test files that mention
+those codes. `--fail-orphans` exits `1` when a rule has no test. `--json` is a
+schema-v1 envelope with an `orphan_rules` array. Runtime `--events` tracing is
+not implemented; asking for it is a usage error rather than a silent success.
 
 ## `yashyc index [path] [--json]`
 

@@ -221,6 +221,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "cache" => cache_cmd(rest),
         "inspect" => inspect_cmd(rest),
         "tokens" => tokens(rest),
+        "trace" => trace_cmd(rest),
         "serve" => serve(rest),
         "watch" => watch_cmd(rest),
         "explain" => explain(rest),
@@ -986,6 +987,72 @@ fn run(args: &[String]) -> ExitCode {
 /// Builds a program, writes a debugger script and starts the native backend.
 /// Breakpoints are on symbol names: the backend does not emit a line table yet,
 /// so `docs/debugging.md` says so instead of promising source lines.
+/// `yashyc trace [--json] [--fail-orphans] [root]`
+///
+/// The static rule-to-code-to-test matrix. Runtime `--events` tracing is not
+/// implemented; asking for it says so instead of pretending.
+fn trace_cmd(args: &[String]) -> ExitCode {
+    use yashy_driver::trace;
+
+    let mut json = false;
+    let mut fail_orphans = false;
+    let mut root: Option<PathBuf> = None;
+    for argument in args {
+        match argument.as_str() {
+            "--json" => json = true,
+            "--fail-orphans" => fail_orphans = true,
+            "--events" => {
+                return usage_error(
+                    "`trace --events` is not implemented; `yashyc trace --json` is the static rule matrix",
+                )
+            }
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `trace`"));
+            }
+            other => {
+                if root.is_some() {
+                    return usage_error("`trace` takes one root directory");
+                }
+                root = Some(PathBuf::from(other));
+            }
+        }
+    }
+    let root = root.unwrap_or_else(|| PathBuf::from("."));
+    let rows = match trace::matrix(&root) {
+        Ok(rows) => rows,
+        Err(message) => {
+            eprintln!("error: {message}");
+            return exit_code(EXIT_INTERNAL);
+        }
+    };
+    let orphans: Vec<&trace::RuleRow> = rows.iter().filter(|row| row.tests.is_empty()).collect();
+    if json {
+        println!("{}", trace::to_json(&rows).render());
+    } else {
+        for row in &rows {
+            println!(
+                "{:<14} {} code(s), {} test file(s)",
+                row.rule,
+                row.codes.len(),
+                row.tests.len()
+            );
+        }
+    }
+    if fail_orphans && !orphans.is_empty() {
+        eprintln!(
+            "error: {} rule(s) have no test: {}",
+            orphans.len(),
+            orphans
+                .iter()
+                .map(|row| row.rule.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        return exit_code(EXIT_COMPILE_ERROR);
+    }
+    exit_code(EXIT_OK)
+}
+
 fn debug_cmd(args: &[String]) -> ExitCode {
     use yashy_driver::debug;
 
@@ -1749,6 +1816,23 @@ fn inspect_cmd(args: &[String]) -> ExitCode {
                     })
                     .unwrap_or_default();
                 object.set("effects", Json::array(effects));
+                object.set(
+                    "contracts",
+                    Json::array(
+                        symbol
+                            .contracts
+                            .iter()
+                            .map(|(kind, text, span)| {
+                                let mut contract = Json::object();
+                                contract.set("kind", Json::string(kind));
+                                contract.set("text", Json::string(text));
+                                contract.set("start", Json::number(i64::from(span.start)));
+                                contract.set("end", Json::number(i64::from(span.end)));
+                                contract
+                            })
+                            .collect(),
+                    ),
+                );
                 object
             })
             .collect();
@@ -1802,12 +1886,14 @@ fn position_of(path: &str, offset: u32) -> (u32, u32) {
 /// every committed editor grammar from the same token classes the lexer uses.
 fn tokens(args: &[String]) -> ExitCode {
     let mut json = false;
+    let mut bpe = false;
     let mut grammar: Option<PathBuf> = None;
     let mut operands: Vec<String> = Vec::new();
     let mut iter = args.iter();
     while let Some(argument) = iter.next() {
         match argument.as_str() {
             "--json" => json = true,
+            "--bpe" => bpe = true,
             "--grammar" => {
                 let Some(value) = iter.next() else {
                     return usage_error("`--grammar` needs a directory");
@@ -1821,7 +1907,7 @@ fn tokens(args: &[String]) -> ExitCode {
         }
     }
     if let Some(dir) = grammar {
-        if !operands.is_empty() {
+        if !operands.is_empty() || bpe {
             return usage_error("`tokens --grammar` takes no source file");
         }
         let written = match yashy_driver::grammar::write_all(&dir) {
@@ -1849,6 +1935,33 @@ fn tokens(args: &[String]) -> ExitCode {
             );
         }
         return exit_code(EXIT_OK);
+    }
+    if bpe {
+        if operands.is_empty() {
+            return usage_error("`tokens --bpe` needs a file or directory");
+        }
+        let mut paths: Vec<PathBuf> = Vec::new();
+        for operand in &operands {
+            let path = PathBuf::from(operand);
+            if path.is_dir() {
+                let mut found = Vec::new();
+                yashy_driver::index::collect_files_from(&path, &mut found);
+                found.sort();
+                paths.extend(found);
+            } else {
+                paths.push(path);
+            }
+        }
+        return match yashy_driver::tokens::bpe_json(&paths) {
+            Ok(report) => {
+                println!("{}", report.render());
+                exit_code(EXIT_OK)
+            }
+            Err(message) => {
+                eprintln!("error: {message}");
+                exit_code(EXIT_USAGE)
+            }
+        };
     }
     let Some(file) = operands.first() else {
         return usage_error("`tokens` needs a source file, or `--grammar <dir>`");

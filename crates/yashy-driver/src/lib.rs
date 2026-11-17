@@ -40,6 +40,7 @@ pub mod term;
 pub mod test_harness;
 pub mod tokens;
 pub mod toolchain;
+pub mod trace;
 pub mod watch;
 
 use yashy_common::{Diagnostic, FileId, Json, SourceMap, Span};

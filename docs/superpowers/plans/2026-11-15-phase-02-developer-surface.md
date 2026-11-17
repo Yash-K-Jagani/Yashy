@@ -311,13 +311,19 @@ This phase makes both renderings of the compiler's facts.
   `inspect --addr` maps an address to a span. `trace --events` emits a JSON
   event per allocation, free, task start/end and I/O with a span id, in a
   deterministic order.
-  *Current:* `inspect --json` reports signature, effects, docs and source span
-  from the index. `--addr`, contracts, layout and the whole `trace` verb are
-  still open, so the step stays unchecked.
+  *Current:* `inspect --json` reports signature, effects, docs, contracts and
+  source span from the index; `inspect --human` prints a clickable position.
+  `--addr`, layout and the whole `trace --events` verb are still open, so the
+  step stays unchecked.
 - [ ] **Step 2: `tokens --bpe` is a measurement, not an opinion.** For a file or
   a corpus, report tokens per keyword/operator and corpus totals for `o200k`,
   `cl100k` and a Llama-family tokenizer. The tokenizer tables are vendored as
   data (no network). Phase 4 uses it to audit new syntax; Phase 13 gates it.
+  *Current:* `tokens --bpe <paths>` measures the lexical single-token property
+  with Yashy's own lexer and reports per-token-class counts and corpus totals.
+  The three external vocabulary tables are not vendored, so the JSON names its
+  tokenizer and says it cannot measure them; the Phase 13 gate is unmet rather
+  than faked. `yashyc trace --json` now emits the static rule matrix as well.
 - [x] **Step 3: Document the architecture drift test.** `cargo test -p
   yashy-driver --test architecture` asserts that `docs/architecture.md` lists
   every workspace crate and every dispatch verb, and that the phase table in
@@ -539,7 +545,7 @@ still owed so a later phase does not inherit a false checklist.
 | 5.3 / 5.4 | `repl`, `doc --serve` | A compiling REPL with retained declarations, type reporting and honest refusals; a loopback read-only docs server with `/json` and `/search`; no persistent HIR interpreter | Add an HIR interpreter only if compile-per-expression is too slow |
 | 6 | DWARF/CodeView debugger, async task view, pretty printers | `yashyc debug` selects LLDB or cdb, writes a symbol-breakpoint script and enables the runtime's live task table; no `!dbg` metadata, so no line table, typed locals or attached pretty printers | Emit debug metadata from HIR spans, then line breakpoints and value printers |
 | 7 | Sampling and allocation profilers, source coverage | Not started; `profile` is still the 1.0 counter profiler | Build the profilers and `coverage` |
-| 8.1 / 8.2 | `inspect --addr`, contracts, layout, `trace --events`, `tokens --bpe` | `inspect --json` reports signature, effects, docs and span; `tokens --grammar` exists; `--addr`, contracts, layout, `trace` and `--bpe` do not | Add the missing inspection verbs and the BPE measurement |
+| 8.1 / 8.2 | `inspect --addr`, contracts, layout, `trace --events`, `tokens --bpe` | `inspect --json` reports contracts and spans; `tokens --bpe` measures Yashy's own tokenizer; `trace --json` emits the static rule matrix | Add `--addr` via a linker map, vendor the three BPE vocabularies, and implement runtime events |
 | 9 | One generated grammar, six clients, `editors` CI job | One model drives 11 generated files; all six clients are committed; `tests/grammar.rs` is the byte gate and the LSP conformance transcript is shared; no `editors` CI job yet, and the real-editor run is deferred with CI | Add the `editors` job when CI is unblocked |
 | 10.1 / 10.3 / 10.4 / 10.5 | Colour policy, `NO_COLOR`/`CLICOLOR`/`TERM=dumb`/`COLUMNS`, committed completions, pager, hyperlinks | `term.rs` implements the colour, width, pager and OSC 8 policies; `scripts/completions/*` are committed and diff-tested; `docs/terminal.md` documents the install; a signal-killed child reports `1` instead of re-raising the signal | Re-raise the child's signal on Unix |
 | Gates | LSP conformance in two editors, debugger and profiler demos, terminal matrix, `editors` job | `cargo check --workspace --all-targets` is green; runtime gates cannot run locally (Windows Application Control) and CI is deferred | Re-run the full gate set when CI is unblocked |
