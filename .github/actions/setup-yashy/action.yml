@@ -1,0 +1,33 @@
+name: setup-yashy
+description: Install a pinned, verified Yashy compiler and add it to PATH
+author: Yashy
+
+inputs:
+  version:
+    description: Release tag to install, for example v1.0.0
+    required: false
+    default: latest
+  prefix:
+    description: Install prefix
+    required: false
+    default: ${{ runner.temp }}/yashy
+
+runs:
+  using: composite
+  steps:
+    - name: Install Yashy from the signed release archive
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "Installing yashy ${{ inputs.version }}"
+        # The release archive and its detached signature are downloaded by
+        # the release workflow's checksum step; install.sh verifies SHA-256.
+        bash "$GITHUB_ACTION_PATH/../../../scripts/install.sh" \
+          --version "${{ inputs.version }}" \
+          --prefix "${{ inputs.prefix }}" \
+          --no-path
+        echo "${{ inputs.prefix }}/bin" >> "$GITHUB_PATH"
+
+    - name: Verify the compiler
+      shell: bash
+      run: "${{ inputs.prefix }}/bin/yashyc doctor"

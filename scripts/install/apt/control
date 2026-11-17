@@ -1,0 +1,15 @@
+#!/usr/bin/env sh
+# Debian/Ubuntu control metadata for the signed Yashy release archive.
+# The .deb is assembled by scripts/package-release.sh; this file is the source
+# of truth for its dependencies and description.
+Package: yashy
+Version: 1.0.0
+Section: devel
+Priority: optional
+Architecture: amd64
+Depends: libc6 (>= 2.31)
+Maintainer: Yashy <yash.k.jagani@gmail.com>
+Description: statically typed language compiled to native binaries
+ Yashy compiles through LLVM to native binaries. The package installs
+ yashyc and the bundled standard library under /usr/share/yashy/stdlib.
+Homepage: https://github.com/Yash-K-Jagani/Yashy

@@ -251,6 +251,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "audit" => audit_cmd(rest),
         "sbom" => sbom_cmd(rest),
         "verify-package" => verify_package_cmd(rest),
+        "self-update" => self_update_cmd(rest),
         "publish" => publish_cmd(rest),
         "fmt" => fmt(rest),
         "playground" => playground(rest),
@@ -5494,6 +5495,102 @@ fn publish_cmd(args: &[String]) -> ExitCode {
 
 /// `yashyc sbom [dir] [--format spdx-json]`: an SPDX document from the same
 /// facts the package audit reads.
+
+/// `yashyc self-update --archive <file> --signature <file>`
+///
+/// The new binary is verified before the current one is touched. Verification
+/// uses the same explicit trust set as the registry; an unsigned archive is
+/// refused. The previous binary is kept as `<exe>.old` for rollback.
+fn self_update_cmd(args: &[String]) -> ExitCode {
+    let mut archive: Option<PathBuf> = None;
+    let mut signature: Option<PathBuf> = None;
+    let mut dry_run = false;
+    let mut iter = args.iter();
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
+            "--archive" => match iter.next() {
+                Some(value) => archive = Some(PathBuf::from(value)),
+                None => return usage_error("`--archive` needs a path"),
+            },
+            "--signature" => match iter.next() {
+                Some(value) => signature = Some(PathBuf::from(value)),
+                None => return usage_error("`--signature` needs a path"),
+            },
+            "--dry-run" => dry_run = true,
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `self-update`"))
+            }
+            other => return usage_error(&format!("unexpected argument `{other}`")),
+        }
+    }
+    let Some(archive) = archive else {
+        return usage_error("`self-update` needs `--archive <file>`; see docs/install.md");
+    };
+    let Some(signature) = signature else {
+        return usage_error("`self-update` needs `--signature <file>`; see docs/install.md");
+    };
+    let bytes = match fs::read(&archive) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            eprintln!("error: cannot read {}: {error}", archive.display());
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    let keys = match yashy_driver::registry::load_keyring() {
+        Ok(keys) if !keys.is_empty() => keys,
+        Ok(_) => {
+            eprintln!("error: self-update needs a trusted key; set YASHY_TRUSTED_KEY or YASHY_KEYRING");
+            return exit_code(EXIT_USAGE);
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    let text = match fs::read_to_string(&signature) {
+        Ok(text) => text,
+        Err(error) => {
+            eprintln!("error: cannot read {}: {error}", signature.display());
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    let parsed = match yashy_driver::registry::signature_from_text(&text) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    if let Err(error) = yashy_driver::registry::verify_tarball(&bytes, &parsed, &keys) {
+        eprintln!("error: {error}");
+        return exit_code(EXIT_COMPILE_ERROR);
+    }
+    if dry_run {
+        println!("archive verified; {} bytes, no files changed", bytes.len());
+        return exit_code(EXIT_OK);
+    }
+    let current = match env::current_exe() {
+        Ok(path) => path,
+        Err(error) => {
+            eprintln!("error: cannot locate the running binary: {error}");
+            return exit_code(EXIT_INTERNAL);
+        }
+    };
+    let backup = current.with_extension("old");
+    let staged = current.with_extension("new");
+    if let Err(error) = fs::write(&staged, &bytes) {
+        eprintln!("error: cannot stage the new binary: {error}");
+        return exit_code(EXIT_INTERNAL);
+    }
+    if fs::rename(&current, &backup).is_err() || fs::rename(&staged, &current).is_err() {
+        let _ = fs::rename(&backup, &current);
+        eprintln!("error: the replacement failed; the previous binary was restored");
+        return exit_code(EXIT_INTERNAL);
+    }
+    println!("updated {}; previous binary at {}", current.display(), backup.display());
+    exit_code(EXIT_OK)
+}
+
 fn sbom_cmd(args: &[String]) -> ExitCode {
     let mut directory: Option<PathBuf> = None;
     for argument in args {

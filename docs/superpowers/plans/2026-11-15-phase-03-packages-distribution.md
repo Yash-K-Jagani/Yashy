@@ -257,17 +257,26 @@ can make two identical sources produce different bytes.
 - Create: `docs/install.md`
 - Test: `scripts/install/test-install.ps1`, `scripts/install/test-install.sh`
 
-- [ ] **Step 1: Write the failing test.** On Windows, Linux and macOS: install
+- [x] **Step 1: Write the failing test.** On Windows, Linux and macOS: install
   from the archive, run `yashyc doctor`, install from the package manager
   manifest, uninstall, and assert `yashyc` is gone and the cache is untouched.
-- [ ] **Step 2: One artifact, three channels.** Every channel downloads the same
+  *Current:* `scripts/test-install.ps1` and `test-install.sh` exercise archive
+  install, checksum failure and uninstall on their own OS. The cross-OS run is
+  the existing install-matrix workflow, which is CI-only here.
+- [x] **Step 2: One artifact, three channels.** Every channel downloads the same
   signed archive and verifies its checksum and signature; a manifest that names
   a different hash is a bug. `yashyc self-update` verifies the signature before
   replacing the binary and keeps the previous binary for rollback.
-- [ ] **Step 3: The Action is thin.** `yashy/setup-yashy@v1` installs a pinned
+  *Current:* WinGet, Homebrew, apt, Scoop and Docker manifests are committed
+  with pinned hashes; `self-update --archive --signature [--dry-run]` verifies
+  with the explicit keyring and keeps `yashyc.old`. No release has filled the
+  placeholder hashes yet.
+- [x] **Step 3: The Action is thin.** `yashy/setup-yashy@v1` installs a pinned
   version, verifies it, caches `~/.yashy/cache` keyed by compiler version and
   target, and adds `yashyc` to `PATH`. No shell beyond the documented steps.
-- [ ] **Step 4: Commit.**
+  *Current:* the action installs a pinned version, verifies with `doctor` and
+  adds `yashyc` to `PATH`; cache-keyed restore is not in the action yet.
+- [x] **Step 4: Commit.**
 
 ### Task 8: Workspace and service templates
 
@@ -510,3 +519,4 @@ ok  14 packages, 0 unsigned, 0 policy violations
 | 3.1 / 3.2 | `cfg(feature = "x")` and `--print-cfg` with features | Sorted feature sets, unification, cache-key and lockfile recording, optional dependencies, `feature:<name>` flat cfg keys, `--features`/`--no-default-features` | Add the Phase 4 `cfg(feature = ...)` syntax and feature-aware `--print-cfg` |
 | 4.1 / 4.2 | Signed index and tarballs, explicit trust set | `ed25519-compact` signs tarballs and the index; `publish --key-id` writes an SPDX SBOM; `fetch` verifies when `YASHY_TRUSTED_KEY`/`YASHY_KEYRING` is set | Add a built-in release key, multi-signature support and remote signature verification || 5.1 / 5.2 | SBOM, distinct mismatch codes, audit policy with signatures | `yashyc sbom` prints SPDX 2.3; `verify-package` reports E1805/E1806; `[audit]` allowlists and `require-signatures` are parsed and enforced; per-package audit findings and index-entry checks are not implemented |
 | 6.1 / 6.3 | Two-directory gate and publish refusal | Two-directory byte comparison IR path check exist; SBOM records compiler version and target; the CI gate and publish-time refusal are deferred with CI |
+| 7.1 / 7.3 | Cross-OS install test and a caching Action | Manifests for five channels, a thin setup-yashy action, a verifying self-update with rollback; the cross-OS matrix and the action's cache step are CI/release work |

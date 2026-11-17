@@ -348,6 +348,13 @@ pub const COMMANDS: &[CommandSpec] = &[
         takes_path: true,
     },
     CommandSpec {
+        name: "self-update",
+        summary: "verify and replace the running compiler binary",
+        usage: "yashyc self-update --archive <file> --signature <file> [--dry-run]",
+        flags: &["--archive", "--signature", "--dry-run"],
+        takes_path: false,
+    },
+    CommandSpec {
         name: "publish",
         summary: "publish the project to a registry",
         usage: "yashyc publish [path] --registry <dir> [--key-id <id>]",

@@ -1,0 +1,19 @@
+# winget manifest source for Yashy.
+# The installer downloads the signed release archive and verifies its SHA-256
+# before extraction; this file pins the URLs and the checksums.
+PackageIdentifier: Yashy.Yashy
+PackageVersion: 1.0.0
+PackageLocale: en-US
+Publisher: Yashy
+PublisherUrl: https://github.com/Yash-K-Jagani/Yashy
+PackageName: Yashy
+ShortDescription: A statically typed language compiled to native binaries
+License: MIT
+LicenseUrl: https://github.com/Yash-K-Jagani/Yashy/blob/main/LICENSE
+InstallerType: zip
+Installers:
+  - Architecture: x64
+    Url: https://github.com/Yash-K-Jagani/Yashy/releases/download/v1.0.0/yashy-x86_64-pc-windows-msvc.zip
+    Sha256: REPLACE_WITH_RELEASE_SHA256
+ManifestType: singleton
+ManifestVersion: 1.6.0
