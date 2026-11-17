@@ -2847,3 +2847,14 @@ fn else_if_lowers_to_a_nested_if_in_the_else_block() {
         .expect("the outer else block");
     assert!(matches!(outer.stmts.first(), Some(HirStmt::If { .. })));
 }
+
+#[test]
+fn defer_expression_and_block_forms_both_check() {
+    let expression = check_source("fn f() { let p = alloc(8); defer p.free(); }");
+    assert!(expression.0.is_ok(), "{:?}", expression.0.err());
+    let block = check_source("fn f() { let p = alloc(8); defer { p.free(); } }");
+    assert!(block.0.is_ok(), "{:?}", block.0.err());
+    let list =
+        check_source("fn f() { let p = alloc(8); let q = alloc(8); defer p.free(), q.free(); }");
+    assert!(list.0.is_ok(), "{:?}", list.0.err());
+}

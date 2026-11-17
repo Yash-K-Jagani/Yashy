@@ -123,11 +123,13 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 - [ ] **Step 1: Write the failing test.** `struct Point derive(Debug, Eq, Hash) { x: int, y: int }` and an enum with `Encode`/`Decode`. Assert the generated impls are deterministic (same bytes across runs), visible in `index --json`, and refused when a field does not implement the requirement (naming the field).
 - [ ] **Step 2: Derives are compiler-known, not macros.** Each derive is a built-in expansion over HIR with a stable order: fields in declaration order, variants in declaration order, no hash-map iteration. `derive(Debug)` renders a stable, readable form; `Encode`/`Decode` use the Phase 7 codec interface.
 - [ ] **Step 3: Capture modes are in the type.** A closure writes `move` / value / by-pointer captures; the closure's type records each captured binding and its mode, the verifier sees every capture, and a `move` closure cannot outlive a value it moved. A capture mode that cannot be honoured is a diagnostic, not a silent copy.
-- [ ] **Step 4: `defer expr;` and scoped release.** The expression form is
-  sugar for `defer { expr; }`; a comma list registers each release in order; an
-  arena's exit hook is a `defer` over the arena, not a new construct. Release
-  order and double-free rules are unchanged. `defer` across an `.await` is
-  checked by the Phase 10 rule; this phase adds the parse and the desugar test.
+- [x] **Step 4: `defer expr;` and scoped release.** `defer expr;` and
+  `defer a(), b();` parse into the same `Stmt::Defer` body a braced block
+  produces, one `Stmt::Expr` per release in source order, so the verifier's
+  release order and double-free rules are unchanged. Parser tests in
+  `crates/yashy-parser/tests/defer.rs` pin the tree and a sema test pins both
+  spellings. An arena's exit hook is still a `defer` over the arena; no new
+  construct was added.
 - [ ] **Step 5: Commit.**
 
 ### Task 5: Typed pointers, `unsafe`, and the aliasing model

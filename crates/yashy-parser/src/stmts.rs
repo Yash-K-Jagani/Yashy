@@ -922,11 +922,31 @@ impl<'src> Parser<'src> {
 
     fn parse_defer(&mut self) -> Result<Stmt, ParseError> {
         let kw = self.expect(TokenKind::Defer)?;
-        let body = self.parse_block()?;
-        let body_span = body.span;
+        if self.check(TokenKind::LBrace) {
+            let body = self.parse_block()?;
+            let body_span = body.span;
+            return Ok(Stmt::Defer {
+                body,
+                span: cover(kw.span, body_span),
+            });
+        }
+        // `defer expr;` and `defer a(), b();` are sugar for a block of the
+        // same expression statements, registered in source order. This keeps
+        // the verifier's release order and double-free rules in one place.
+        let mut stmts = Vec::new();
+        loop {
+            let expression = self.parse_expr()?;
+            let expression_span = crate::exprs::expr_span(&expression);
+            stmts.push(Stmt::Expr(expression, expression_span));
+            if !self.eat(TokenKind::Comma) {
+                break;
+            }
+        }
+        let semi = self.expect(TokenKind::Semi)?;
+        let span = cover(kw.span, semi.span);
         Ok(Stmt::Defer {
-            body,
-            span: cover(kw.span, body_span),
+            body: Block { stmts, span },
+            span,
         })
     }
 
