@@ -5,7 +5,7 @@
 //! must not overlap, and only to text whose hash matches the hash the
 //! diagnostic was computed from.
 
-use yashy_common::{Applicability, Suggestion};
+use yashy_common::{Applicability, Diagnostic, SourceMap, Span, Suggestion};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FixError {
@@ -24,6 +24,57 @@ impl std::fmt::Display for FixError {
             FixError::OutOfBounds => write!(f, "a suggestion points outside the source"),
         }
     }
+}
+
+/// Turn a "did you mean `name`?" note into a machine-applicable edit.
+///
+/// The checker already knows the nearest name; this only turns the fact it
+/// printed into the edit model the CLI, SARIF and the LSP share. It never
+/// guesses a name the compiler did not suggest, and it refuses to rewrite a
+/// span whose source text is no longer an identifier.
+pub fn attach_typo_suggestions(sources: &SourceMap, diagnostics: &mut [Diagnostic]) {
+    for diagnostic in diagnostics.iter_mut() {
+        if !diagnostic.suggestions.is_empty() {
+            continue;
+        }
+        let Some(near) = suggested_name(&diagnostic.message) else {
+            continue;
+        };
+        let text = sources.file(diagnostic.file);
+        let start = diagnostic.span.start as usize;
+        if text.is_empty()
+            || start >= text.len()
+            || !text.as_bytes()[start].is_ascii_alphabetic() && text.as_bytes()[start] != b'_'
+        {
+            continue;
+        }
+        let mut end = start;
+        while end < text.len() {
+            let byte = text.as_bytes()[end];
+            if byte.is_ascii_alphanumeric() || byte == b'_' {
+                end += 1;
+            } else {
+                break;
+            }
+        }
+        let written = &text[start..end];
+        if written == near || near.is_empty() {
+            continue;
+        }
+        diagnostic.suggestions.push(Suggestion {
+            span: Span::new(start as u32, end as u32),
+            replacement: near.to_string(),
+            applicability: Applicability::MachineApplicable,
+            message: format!("use `{near}`"),
+        });
+    }
+}
+
+fn suggested_name(message: &str) -> Option<&str> {
+    let at = message.find("did you mean `")? + "did you mean `".len();
+    let rest = &message[at..];
+    let close = rest.find('`')?;
+    Some(&rest[..close])
 }
 
 /// A stable hash of the bytes a diagnostic was computed from.
@@ -76,4 +127,46 @@ pub fn apply_suggestions(source: &str, suggestions: &[Suggestion]) -> Result<Str
         previous_start = start;
     }
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use yashy_common::{Diagnostic, FileId, Severity, SourceMap};
+
+    #[test]
+    fn a_did_you_mean_message_becomes_a_machine_applicable_edit() {
+        let mut sources = SourceMap::new();
+        let file = sources.add_file(
+            "main.ya".to_string(),
+            "fn main() { let x = 1; retun x; }\n".to_string(),
+        );
+        let mut diagnostic = Diagnostic::new(
+            Severity::Error,
+            file,
+            yashy_common::Span::new(23, 28),
+            "unknown name `retun`; did you mean `return`?".to_string(),
+        );
+        attach_typo_suggestions(&sources, std::slice::from_mut(&mut diagnostic));
+        assert_eq!(diagnostic.suggestions.len(), 1);
+        assert_eq!(diagnostic.suggestions[0].replacement, "return");
+        assert_eq!(
+            apply_suggestions(sources.file(file), &diagnostic.suggestions).unwrap(),
+            "fn main() { let x = 1; return x; }\n"
+        );
+    }
+
+    #[test]
+    fn a_message_without_a_suggestion_adds_no_edit() {
+        let mut sources = SourceMap::new();
+        let file = sources.add_file("main.ya".to_string(), "fn main() {}\n".to_string());
+        let mut diagnostic = Diagnostic::new(
+            Severity::Error,
+            file,
+            yashy_common::Span::new(12, 13),
+            "type mismatch".to_string(),
+        );
+        attach_typo_suggestions(&sources, std::slice::from_mut(&mut diagnostic));
+        assert!(diagnostic.suggestions.is_empty());
+    }
 }

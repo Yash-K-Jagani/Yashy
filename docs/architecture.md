@@ -321,7 +321,8 @@ deterministic, and `yashyc trace` says which capability it read.
 The compiler verbs are the API; the human rendering is generated from the JSON
 model. 1.0 ships `build`, `run`, `check`, `verify`, `test`, `fmt`, `explain`,
 `init`, `doctor`, `expand`, `index`, `outline`, `graph`, `search`, `context`,
-`mcp`, `lsp`, `doc`, `profile`, `tasks`, the package verbs and `playground`.
+`mcp`, `lsp`, `doc`, `profile`, `tasks`, the package verbs (`lock`, `fetch`,
+`update`, `add`, `audit`, `publish`) and `playground`.
 2.0 adds `watch`, `serve`, `new`, `fix`, `lint`, `coverage`, `task`, `repl`,
 `debug`, `bench`, `fuzz`, `migrate`, `conformance`, `sbom`, `inspect`, `trace`
 and `tokens` (Phases 2, 3, 9, 13, 14). Each new verb has a human and a `--json`

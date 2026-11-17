@@ -206,6 +206,12 @@ missing file is a usage error (`2`). A diagnostic with a catalog code ends with
 a `docs:` line naming its page, for example
 `docs: https://yashy.dev/errors/E0100`.
 
+A fixable diagnostic carries a `suggestions[]` array in JSON: a byte span, a
+replacement and an applicability. Removed keywords and checker "did you mean"
+name typos produce machine-applicable edits, applied by `yashyc fix`. The
+language server offers the same edits as quick fixes, and `--sarif` emits them
+as SARIF 2.1.0 `fixes` objects with real line/column regions.
+
 | Option | Meaning |
 |---|---|
 | `--print-cfg` | Print the `cfg` keys that are true for this target, one per line, sorted, and stop. Needs no source file. See [`cfg`](#cfg-and---target). |

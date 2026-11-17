@@ -116,13 +116,19 @@ impl Server {
             }
             Some("textDocument/codeAction") => self.reply(out, id, self.code_actions(params))?,
             Some("textDocument/formatting") => self.reply(out, id, self.formatting(params))?,
-            Some("textDocument/signatureHelp") => self.reply(out, id, self.signature_help(params))?,
+            Some("textDocument/signatureHelp") => {
+                self.reply(out, id, self.signature_help(params))?
+            }
             Some("textDocument/inlayHint") => self.reply(out, id, self.inlay_hints(params))?,
             Some("workspace/symbol") => self.reply(out, id, self.workspace_symbols(params))?,
-            Some("textDocument/prepareCallHierarchy") => self.reply(out, id, self.prepare_call_hierarchy(params))?,
+            Some("textDocument/prepareCallHierarchy") => {
+                self.reply(out, id, self.prepare_call_hierarchy(params))?
+            }
             Some("callHierarchy/incomingCalls") => self.reply(out, id, Value::Arr(Vec::new()))?,
             Some("callHierarchy/outgoingCalls") => self.reply(out, id, Value::Arr(Vec::new()))?,
-            Some("textDocument/prepareTypeHierarchy") => self.reply(out, id, self.prepare_type_hierarchy(params))?,
+            Some("textDocument/prepareTypeHierarchy") => {
+                self.reply(out, id, self.prepare_type_hierarchy(params))?
+            }
             Some("typeHierarchy/supertypes") => self.reply(out, id, Value::Arr(Vec::new()))?,
             Some("typeHierarchy/subtypes") => self.reply(out, id, Value::Arr(Vec::new()))?,
             Some("textDocument/codeLens") => self.reply(out, id, self.code_lens(params))?,
@@ -732,26 +738,76 @@ impl Server {
     }
 
     fn code_actions(&self, params: Option<&Value>) -> Value {
-        let Some((_uri, model, offset)) = self.model_for(params) else {
+        let Some((uri, model, offset)) = self.model_for(params) else {
             return Value::Null;
         };
-        let Some(word) = word_at(&model.text, offset) else {
-            return Value::Null;
-        };
-        let Some((start, end)) = model
-            .occurrences
-            .get(word)
-            .and_then(|occurrences| occurrences.first())
-        else {
-            return Value::Null;
-        };
-        let (sl, sc, el, ec) = model.range(*start, *end);
-        Value::Arr(vec![object([
-            ("title", string(format!("rename `{word}`"))),
-            ("kind", string("refactor.rename")),
-            ("edit", object([("changes", Value::Arr(vec![]))])),
-            ("range", range(sl, sc, el, ec)),
-        ])])
+        let mut actions = Vec::new();
+
+        // Removed keywords have one obvious replacement. The same edit is
+        // offered by `yashyc fix`; neither side formats text on its own.
+        for (word, replacement) in [("var", "let"), ("println", "print")] {
+            for (start, end) in model.occurrences.get(word).cloned().unwrap_or_default() {
+                if start <= offset && offset <= end {
+                    actions.push(quick_fix(
+                        &uri,
+                        &model,
+                        start,
+                        end,
+                        replacement,
+                        format!("use `{replacement}`"),
+                        "quickfix",
+                    ));
+                }
+            }
+        }
+
+        // A "did you mean" message is a fact the checker already proved. Turn
+        // it into the edit instead of asking the user to retype the name.
+        for diagnostic in diagnostics_text(&model.text) {
+            let Some(message) = diagnostic.get("message").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(near) = message
+                .split("did you mean `")
+                .nth(1)
+                .and_then(|rest| rest.split('`').next())
+            else {
+                continue;
+            };
+            let Some(written) = message.split('`').nth(1) else {
+                continue;
+            };
+            for (start, end) in model.occurrences.get(written).cloned().unwrap_or_default() {
+                actions.push(quick_fix(
+                    &uri,
+                    &model,
+                    start,
+                    end,
+                    near,
+                    format!("use `{near}`"),
+                    "quickfix",
+                ));
+            }
+        }
+
+        // Rename stays as a refactor: the user supplies the new name, so this
+        // action is intentionally not a machine-applicable fix.
+        if let Some(word) = word_at(&model.text, offset) {
+            if let Some((start, end)) = model
+                .occurrences
+                .get(word)
+                .and_then(|occurrences| occurrences.first())
+            {
+                let (sl, sc, el, ec) = model.range(*start, *end);
+                actions.push(object([
+                    ("title", string(format!("rename `{word}`"))),
+                    ("kind", string("refactor.rename")),
+                    ("edit", object([("changes", Value::Arr(vec![]))])),
+                    ("range", range(sl, sc, el, ec)),
+                ]));
+            }
+        }
+        Value::Arr(actions)
     }
 
     fn formatting(&self, params: Option<&Value>) -> Value {
@@ -816,10 +872,13 @@ impl Server {
             .or_else(|| builtin_signature(name).map(str::to_string));
         match signature {
             Some(signature) => object([
-                ("signatures", Value::Arr(vec![object([
-                    ("label", string(signature)),
-                    ("parameters", Value::Arr(Vec::new())),
-                ])])),
+                (
+                    "signatures",
+                    Value::Arr(vec![object([
+                        ("label", string(signature)),
+                        ("parameters", Value::Arr(Vec::new())),
+                    ])]),
+                ),
                 ("activeSignature", number(0)),
                 ("activeParameter", number(0)),
             ]),
@@ -872,10 +931,10 @@ impl Server {
                 symbols.push(object([
                     ("name", string(&symbol.name)),
                     ("kind", number(symbol.kind.lsp())),
-                    ("location", object([
-                        ("uri", string(uri)),
-                        ("range", range(sl, sc, el, ec)),
-                    ])),
+                    (
+                        "location",
+                        object([("uri", string(uri)), ("range", range(sl, sc, el, ec))]),
+                    ),
                 ]));
             }
         }
@@ -920,14 +979,24 @@ impl Server {
                 .iter()
                 .map(|symbol| {
                     let (sl, sc, el, ec) = model.range(symbol.start, symbol.end);
-                    let count = model.occurrences.get(&symbol.name).map(Vec::len).unwrap_or(0);
+                    let count = model
+                        .occurrences
+                        .get(&symbol.name)
+                        .map(Vec::len)
+                        .unwrap_or(0);
                     object([
                         ("range", range(sl, sc, el, ec)),
-                        ("command", object([
-                            ("title", string(format!("{count} references"))),
-                            ("command", string("editor.action.findReferences")),
-                            ("arguments", Value::Arr(vec![string(uri.clone()), number(i64::from(sl))])),
-                        ])),
+                        (
+                            "command",
+                            object([
+                                ("title", string(format!("{count} references"))),
+                                ("command", string("editor.action.findReferences")),
+                                (
+                                    "arguments",
+                                    Value::Arr(vec![string(uri.clone()), number(i64::from(sl))]),
+                                ),
+                            ]),
+                        ),
                     ])
                 })
                 .collect(),
@@ -996,12 +1065,21 @@ fn initialize() -> Value {
                 ("documentHighlightProvider", Value::Bool(true)),
                 ("codeActionProvider", Value::Bool(true)),
                 ("documentFormattingProvider", Value::Bool(true)),
-                ("signatureHelpProvider", object([("triggerCharacters", Value::Arr(vec![string("("), string(",")]))])),
+                (
+                    "signatureHelpProvider",
+                    object([(
+                        "triggerCharacters",
+                        Value::Arr(vec![string("("), string(",")]),
+                    )]),
+                ),
                 ("inlayHintProvider", Value::Bool(true)),
                 ("workspaceSymbolProvider", Value::Bool(true)),
                 ("callHierarchyProvider", Value::Bool(true)),
                 ("typeHierarchyProvider", Value::Bool(true)),
-                ("codeLensProvider", object([("resolveProvider", Value::Bool(false))])),
+                (
+                    "codeLensProvider",
+                    object([("resolveProvider", Value::Bool(false))]),
+                ),
                 (
                     "diagnosticProvider",
                     object([
@@ -1728,4 +1806,27 @@ fn write_message<W: Write>(out: &mut W, value: &Value) -> io::Result<()> {
     let body = crate::json::to_string(value);
     write!(out, "Content-Length: {}\r\n\r\n{body}", body.len())?;
     out.flush()
+}
+/// One workspace edit for a machine-applicable quick fix.
+fn quick_fix(
+    uri: &str,
+    model: &crate::model::LspModel,
+    start: usize,
+    end: usize,
+    replacement: &str,
+    title: String,
+    kind: &str,
+) -> Value {
+    let (sl, sc, el, ec) = model.range(start, end);
+    let edit = object([
+        ("range", range(sl, sc, el, ec)),
+        ("newText", string(replacement)),
+    ]);
+    let changes = object([(uri, Value::Arr(vec![edit]))]);
+    object([
+        ("title", string(title)),
+        ("kind", string(kind)),
+        ("edit", object([("changes", changes)])),
+        ("range", range(sl, sc, el, ec)),
+    ])
 }

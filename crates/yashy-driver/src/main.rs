@@ -3656,7 +3656,7 @@ fn fix_cmd(args: &[String]) -> ExitCode {
         0,
         &mut Vec::new(),
     );
-    let diagnostics = match outcome {
+    let mut diagnostics = match outcome {
         Ok((hir, exports)) => {
             let mut warnings = Vec::new();
             yashy_verify::pass::warnings::check(&hir, &exports, &mut warnings);
@@ -3664,6 +3664,7 @@ fn fix_cmd(args: &[String]) -> ExitCode {
         }
         Err(diagnostics) => diagnostics,
     };
+    yashy_driver::fix::attach_typo_suggestions(&sources, &mut diagnostics);
     let suggestions: Vec<yashy_common::Suggestion> = diagnostics
         .iter()
         .flat_map(|diagnostic| diagnostic.suggestions.clone())
@@ -3848,8 +3849,9 @@ fn check(args: &[String]) -> ExitCode {
                 }
             }
             let has_denied = deny_warnings && !warning_diags.is_empty();
+            yashy_driver::fix::attach_typo_suggestions(&sources, &mut warning_diags);
             if sarif {
-                println!("{}", yashy_driver::sarif::to_sarif(&warning_diags).render());
+                println!("{}", yashy_driver::sarif::to_sarif(&sources, &warning_diags).render());
             } else if json {
                 let mut all = warning_diags;
                 print_check_json("check", &sources, &all, reported, None);
@@ -3865,9 +3867,10 @@ fn check(args: &[String]) -> ExitCode {
                 exit_code(EXIT_OK)
             }
         }
-        Err(diagnostics) => {
+        Err(mut diagnostics) => {
+            yashy_driver::fix::attach_typo_suggestions(&sources, &mut diagnostics);
             if sarif {
-                println!("{}", yashy_driver::sarif::to_sarif(&diagnostics).render());
+                println!("{}", yashy_driver::sarif::to_sarif(&sources, &diagnostics).render());
                 if diagnostics.iter().any(|diagnostic| diagnostic.is_error()) {
                     exit_code(EXIT_COMPILE_ERROR)
                 } else {

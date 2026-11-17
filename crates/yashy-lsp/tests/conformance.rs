@@ -107,7 +107,11 @@ fn every_feature_answers_with_a_stable_range() {
         request(14, "textDocument/signatureHelp", at(&uri, 2, 24, &[])),
         request(15, "textDocument/inlayHint", at(&uri, 2, 0, &[])),
         request(16, "workspace/symbol", object([("query", string("Poi"))])),
-        request(17, "textDocument/prepareCallHierarchy", at(&uri, 2, 22, &[])),
+        request(
+            17,
+            "textDocument/prepareCallHierarchy",
+            at(&uri, 2, 22, &[]),
+        ),
         request(18, "textDocument/prepareTypeHierarchy", at(&uri, 0, 8, &[])),
         request(19, "textDocument/codeLens", at(&uri, 0, 0, &[])),
     ];
@@ -171,7 +175,10 @@ fn every_feature_answers_with_a_stable_range() {
         .expect("workspace symbols answer");
     let rendered = to_string(workspace);
     assert!(rendered.contains("Point"), "{rendered}");
-    assert!(!rendered.contains("\\\"name\\\": \\\"add\\\""), "{rendered}");
+    assert!(
+        !rendered.contains("\\\"name\\\": \\\"add\\\""),
+        "{rendered}"
+    );
 
     // code lenses attach a reference count to each declaration.
     let lenses = replies
@@ -200,4 +207,33 @@ fn an_incomplete_file_still_answers_every_feature() {
             "feature {id} must answer on an incomplete file"
         );
     }
+}
+
+#[test]
+fn code_actions_offer_a_real_edit_for_a_removed_keyword() {
+    let uri = path_to_uri(&std::env::temp_dir().join("lsp-fix.ya"));
+    // The cursor is on `var`, which the checker would replace with `let`.
+    let messages = vec![
+        did_open(&uri, "fn main() { var int x = 1; }\n"),
+        request(1, "textDocument/codeAction", at(&uri, 0, 12, &[])),
+    ];
+    let replies = run(messages);
+    let result = replies
+        .iter()
+        .find(|reply| reply.get("id").and_then(Value::as_i64) == Some(1))
+        .and_then(|reply| reply.get("result"))
+        .expect("codeAction answers");
+    let rendered = to_string(result);
+    assert!(
+        rendered.contains("use `let`"),
+        "a quick fix must be offered: {rendered}"
+    );
+    assert!(
+        rendered.contains("newText"),
+        "the edit must carry replacement text: {rendered}"
+    );
+    assert!(
+        rendered.contains("\"let\""),
+        "the replacement must be `let`: {rendered}"
+    );
 }

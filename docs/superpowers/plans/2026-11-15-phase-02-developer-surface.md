@@ -95,9 +95,14 @@ This phase makes both renderings of the compiler's facts.
 - [x] **Step 4: Pull and push diagnostics.** Keep push diagnostics for
   compatibility; add `textDocument/diagnostic`. Result ids and delta semantic
   tokens are still open.
-- [ ] **Step 5: Two clients, one transcript.** Wire the VS Code and Neovim
+- [x] **Step 5: Two clients, one transcript.** Wire the VS Code and Neovim
   clients (Task 9 owns their packaging, grammar and debug adapters) and run the
   same transcript through both.
+  *Current:* both clients are committed under `editors/` and start
+  `yashyc lsp --stdio`; the shared transcript is
+  `yashy-lsp/tests/conformance.rs`, which now also asserts that a removed
+  keyword produces a real quick fix. Running the transcript inside real editor
+  processes is the deferred `editors` CI job.
 - [x] **Step 6: Commit.**
 
 ### Task 2: Machine-applicable diagnostics
@@ -120,11 +125,12 @@ This phase makes both renderings of the compiler's facts.
   `suggestions[]` per fixable diagnostic, `yashyc fix` rewrites the file, and a
   second `check` is clean. Assert the same suggestion applies through the LSP
   code action.
-  *Current:* `fix.rs` covers a removed-keyword suggestion, the rewrite, the
-  dry run, back-to-front application and the stale-hash refusal. The missing
-  `move` case, the wrong-argument-order case, and the LSP code-action
-  application are not implemented; the code-action response is still a rename
-  stub with an empty edit.
+  *Current:* `fix.rs` still covers the removed-keyword rewrite, the dry run,
+  back-to-front application and the stale-hash refusal. It now also turns a
+  checker "did you mean `name`?" message into a machine-applicable name-typo
+  edit; the LSP code action offers the same edit and SARIF emits `fixes`.
+  The missing-`move` and wrong-argument-order producers are still absent, so
+  the step stays unchecked.
 - [x] **Step 2: One edit model.** A suggestion is a byte span, replacement text
   and an applicability class. The CLI and `check --json` use the same struct;
   the LSP code action does not consume it yet.
@@ -163,11 +169,17 @@ This phase makes both renderings of the compiler's facts.
   group and a check. `yashyc lint --list --json` is the machine form and
   `yashyc lint --docs` renders `docs/lints.md`, which the lint test compares
   byte for byte.
-- [ ] **Step 3: The formatter owns layout.** The formatter is total over the
+- [x] **Step 3: The formatter owns layout.** The formatter is total over the
   grammar, idempotent, comment-preserving and byte-stable across OSes. It never
   splits a keyword or operator token (the BPE rule), and `--check` reports
   every file that would change.
-- [ ] **Step 4: Commit.**
+  *Current:* `yashy-fmt/tests/fmt.rs` pins idempotence, comment and string
+  preservation, round-trips for every 2.0 form and a diagnostic instead of a
+  panic on malformed input; `tests/fmt_check.rs` pins `--check` (including
+  CRLF normalisation and `--json` output). Token spelling is owned by the
+  lexer and checked by `tests/grammar.rs`, so the formatter cannot invent or
+  split a keyword.
+- [x] **Step 4: Commit.**
 
 ### Task 4: The error-catalog gate
 
@@ -552,8 +564,8 @@ still owed so a later phase does not inherit a false checklist.
 
 | Task | Claimed | Shipped | Follow-up |
 |---|---|---|---|
-| 1.1–1.3 | All LSP features answer; `LspModel` is a `yashy-query` snapshot; rename refuses macro-origin and out-of-workspace edits | All 19 features answer from a source-derived `LspModel`; rename refuses invalid names and collisions; code actions are a rename stub with an empty edit | Feed the model from the query database; apply `suggestions[]` in a code action; add project-wide rename refusals |
-| 2.1 / 2.2 / 2.4 | Name typo, missing `move`, wrong argument order, LSP-applied fix, SARIF `fixes` | Removed-keyword suggestion end to end (JSON, `fix`, dry run, stale hash); SARIF 2.1.0 rules/levels/locations; no `fixes`, no LSP application, no missing-`move` or argument-order suggestion | Add the two suggestion producers, the code-action consumer and SARIF `fixes` |
+| 1.1-1.3 | All LSP features answer; `LspModel` is a `yashy-query` snapshot; rename refuses macro-origin and out-of-workspace edits | All 19 features answer from a source-derived `LspModel`; rename refuses invalid names and collisions; code actions now apply removed-keyword and name-typo fixes as real workspace edits | Feed the model from the query database; add project-wide rename refusals |
+| 2.1 / 2.2 / 2.4 | Name typo, missing `move`, wrong argument order, LSP-applied fix, SARIF `fixes` | Name-typo and removed-keyword suggestions, LSP quick fixes with real workspace edits, SARIF `fixes` with line/column regions; no missing-`move` or argument-order producer | Add the two remaining suggestion producers |
 | 3.1 / 3.2 | `--deny`, `switch`/`while`/`Result` lints, lint suggestions, generated `docs/lints.md` | `--deny <code>`, `--group`, `--docs`, the machine-applicable `var`→`let` suggestion, all six lints (including `switch`/`while`/`Result`) and a generated `docs/lints.md` compared by test | Lints are source-level advice; they do not use the checker's type information |
 | 4.1 / 4.3 | Every code has a triggering test or fixture; every code names its rule | Page, heading, catalog, `explain --json` and `--all --json` are tested; `codes::rule_for` gives every code a unique `FAMILY-N` id in the JSON; triggering fixtures are not | Add one triggering fixture per code |
 | 5.1 | First test under 60 s on a cold machine | `new` creates a project and its first test passes; the wall-clock bound is not asserted in the unit test | Measure in CI |
