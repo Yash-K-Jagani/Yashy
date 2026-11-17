@@ -2025,3 +2025,16 @@ fn a_type_alias_parses_as_an_item() {
         Some(Item::TypeAlias { .. })
     ));
 }
+
+#[test]
+fn pub_crate_is_a_scoped_visibility_form() {
+    let program = parse_src("pub(crate) fn f() { }").expect("pub(crate) must parse");
+    assert!(matches!(
+        program.items.first(),
+        Some(Item::Public {
+            crate_visible: true,
+            ..
+        })
+    ));
+    assert!(parse_src("pub(super) fn f() { }").is_err());
+}

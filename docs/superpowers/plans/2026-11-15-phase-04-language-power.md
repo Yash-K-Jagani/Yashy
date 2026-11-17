@@ -95,6 +95,11 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 - Test: `crates/yashy-driver/tests/modules.rs`, `crates/yashy-sema/tests/visibility.rs`
 
 - [ ] **Step 1: Write the failing test.** `type Pair[T] = (T, T);`, `pub(crate) fn`, `pub(super) fn`, `pub(in crate::db) fn`, and `pub use db::Row;`. Assert an out-of-scope use is refused with the span of the declaration and the use; assert `index --json` shows the re-export once, with the original span.
+  *Current:* the `type Pair[T]` half is in place and pinned by parser and sema
+  tests (`crates/yashy-parser/tests/items.rs`, `crates/yashy-sema/tests/check.rs`).
+  The visibility and `pub use` half is still absent: the lexer has no
+  `crate`/`super` keywords, `Item::Public` carries no level, and the index has
+  no re-export dedup. The step stays open for that reason.
 - [x] **Step 2: Aliases are transparent.** An alias expands at resolution and never reaches HIR as a distinct type. A recursive alias is `E15xx`; an alias that shadows a type is refused.
   *Current:* `type Name = Target;` and `type Pair[T] = (T, T)` both parse;
   plain aliases resolve their target once at declaration, generic aliases
@@ -103,6 +108,11 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   an existing type is refused, and a target that mentions its own alias name is
   E1519 with a catalog page and type rule (TYPE-11).
 - [ ] **Step 3: Visibility is one lattice.** `private < pub(crate) < pub(super) < pub(in path) < pub` is not a total order; the checker compares the declaring module and the use site, not a rank. `pub use` re-exports the item once; two paths to one item are one symbol in `index`.
+  *Current:* `pub(crate)` parses as a scoped form on `Item::Public` and, because
+  this compiler's crate is its whole program, has the same reach as plain `pub`.
+  `pub(super)` and `pub(in path)` are rejected with a diagnostic that names
+  the limitation. The full declaring-module-vs-use-site lattice, `pub use`
+  re-exports and index dedup are still owed.
 - [ ] **Step 4: Commit.**
 
 ### Task 3: Patterns and control flow

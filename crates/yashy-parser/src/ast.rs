@@ -106,6 +106,9 @@ pub enum Item {
     Public {
         /// The item the `pub` applies to.
         item: Box<Item>,
+        /// True when the source wrote `pub(crate)`: visible in every module of
+        /// the crate, which in this compiler is every module of the program.
+        crate_visible: bool,
         /// The span of the `pub` keyword.
         span: Span,
     },

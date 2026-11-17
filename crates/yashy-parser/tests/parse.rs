@@ -131,6 +131,7 @@ fn full_program(spans: &mut Spans) -> Program {
         // body that holds every statement -- wrapped in `pub`, because the
         // modifier is an item of its own and has to be built too.
         Item::Public {
+            crate_visible: false,
             item: Box::new(Item::Fn {
                 name: "d".to_string(),
                 type_params: Vec::new(),
@@ -668,6 +669,7 @@ fn debug_names_every_item_type_variant_and_its_fields() {
         case(
             "Item::Public",
             Item::Public {
+                crate_visible: false,
                 item: Box::new(Item::Import {
                     path: vec!["a".to_string()],
                     alias: None,

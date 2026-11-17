@@ -5,7 +5,7 @@ if exists("b:current_syntax")
   finish
 endif
 
-syntax keyword yashyKeyword fn struct enum const var let import extern unsafe pure io async await defer return break continue if else for while in switch case default as move true false impl object trait macro pub requires ensures invariant repr cfg and or not matches is type
+syntax keyword yashyKeyword fn struct enum const var let import extern unsafe pure io async await defer return break continue if else for while in switch case default as move true false impl object trait macro pub requires ensures invariant repr cfg and or not matches is type crate
 syntax keyword yashyType int float bool char string void Mutex Channel Task Self Option Result Iterator i64 f64 u8 i32 usize
 syntax match yashyDocComment "///.*$"
 syntax match yashyComment "//.*$"

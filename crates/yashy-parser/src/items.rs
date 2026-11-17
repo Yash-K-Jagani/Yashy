@@ -261,10 +261,11 @@ impl<'src> Parser<'src> {
                 repr: Some(ReprKind::C),
                 span: cover(repr_span, span),
             }),
-            Item::Public { item, span } => {
+            Item::Public { item, span, .. } => {
                 let inner = self.attach_repr(*item, repr_span)?;
                 Ok(Item::Public {
                     item: Box::new(inner),
+                    crate_visible: false,
                     span,
                 })
             }
@@ -280,9 +281,27 @@ impl<'src> Parser<'src> {
     /// every kind an item can be.
     fn parse_public_item(&mut self) -> Result<Item, ParseError> {
         let keyword = self.expect(TokenKind::Pub)?;
+        // `pub(crate)` is the only scoped form parsed today: a crate is this
+        // compiler's whole program, so it has the same reach as plain `pub`.
+        // `pub(super)` and `pub(in path)` are not accepted yet.
+        let crate_visible = if self.eat(TokenKind::LParen) {
+            if self.eat(TokenKind::Crate) {
+                self.expect(TokenKind::RParen)?;
+                true
+            } else {
+                return Err(self.error(
+                    self.peek_span(),
+                    "only `pub(crate)` is supported; write `pub` for crate-wide visibility"
+                        .to_string(),
+                ));
+            }
+        } else {
+            false
+        };
         let item = self.parse_item()?;
         Ok(Item::Public {
             item: Box::new(item),
+            crate_visible,
             span: keyword.span,
         })
     }

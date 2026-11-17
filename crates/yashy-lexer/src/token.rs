@@ -625,6 +625,7 @@ pub enum TokenKind {
     // Keywords.
     Fn,
     Type,
+    Crate,
     Struct,
     Enum,
     /// impl -- a block of methods for a type.
@@ -892,9 +893,10 @@ impl TokenKind {
         TokenKind::ShrEq,
     ];
 
-    pub const KEYWORDS: [&'static str; 45] = [
+    pub const KEYWORDS: [&'static str; 46] = [
         "fn",
         "type",
+        "crate",
         "struct",
         "enum",
         "const",
@@ -944,6 +946,7 @@ impl TokenKind {
         Some(match text {
             "fn" => TokenKind::Fn,
             "type" => TokenKind::Type,
+            "crate" => TokenKind::Crate,
             "struct" => TokenKind::Struct,
             "enum" => TokenKind::Enum,
             "const" => TokenKind::Const,
@@ -1058,6 +1061,7 @@ impl TokenKind {
         match self {
             TokenKind::Fn => Naming::Fixed("fn"),
             TokenKind::Type => Naming::Fixed("type"),
+            TokenKind::Crate => Naming::Fixed("crate"),
             TokenKind::Struct => Naming::Fixed("struct"),
             TokenKind::Enum => Naming::Fixed("enum"),
             TokenKind::Impl => Naming::Fixed("impl"),
@@ -1208,9 +1212,10 @@ mod tests {
     /// The keyword table, written out here as well as in the integration tests
     /// so that a keyword added to one list and not the other is a failing test
     /// rather than a difference nobody notices.
-    const KEYWORDS: [(&str, TokenKind); 44] = [
+    const KEYWORDS: [(&str, TokenKind); 45] = [
         ("fn", TokenKind::Fn),
         ("type", TokenKind::Type),
+        ("crate", TokenKind::Crate),
         ("struct", TokenKind::Struct),
         ("enum", TokenKind::Enum),
         ("const", TokenKind::Const),
