@@ -5400,12 +5400,17 @@ fn exit_code(code: i32) -> ExitCode {
 fn publish_cmd(args: &[String]) -> ExitCode {
     let mut directory: Option<PathBuf> = None;
     let mut registry: Option<String> = None;
+    let mut key_id: Option<String> = None;
     let mut iter = args.iter();
     while let Some(argument) = iter.next() {
         match argument.as_str() {
             "--registry" => match iter.next() {
                 Some(value) => registry = Some(value.clone()),
                 None => return usage_error("`--registry` needs a directory"),
+            },
+            "--key-id" => match iter.next() {
+                Some(value) => key_id = Some(value.clone()),
+                None => return usage_error("`--key-id` needs a key name"),
             },
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown option `{other}` for `publish`"))
@@ -5429,6 +5434,42 @@ fn publish_cmd(args: &[String]) -> ExitCode {
         }
     };
     let directory = directory.unwrap_or_else(|| PathBuf::from("."));
+    if let Some(key_id) = key_id {
+        let seed_hex = match env::var("YASHY_SIGNING_SEED") {
+            Ok(text) => text,
+            Err(_) => {
+                return usage_error(
+                    "`publish --key-id` needs `YASHY_SIGNING_SEED` (hex 32-byte seed)",
+                )
+            }
+        };
+        let seed: Vec<u8> = match seed_hex
+            .as_bytes()
+            .chunks(2)
+            .map(|pair| {
+                std::str::from_utf8(pair)
+                    .ok()
+                    .and_then(|text| u8::from_str_radix(text, 16).ok())
+            })
+            .collect()
+        {
+            Some(bytes) => bytes,
+            None => return usage_error("`YASHY_SIGNING_SEED` must be 64 hexadecimal digits"),
+        };
+        return match yashy_driver::registry::publish_signed(&directory, &root, &key_id, &seed) {
+            Ok((entry, files)) => {
+                println!("published {}@{} {}", entry.name, entry.version, entry.hash);
+                for file in files {
+                    println!("  {}", file.display());
+                }
+                exit_code(EXIT_OK)
+            }
+            Err(error) => {
+                eprintln!("error: {error}");
+                exit_code(EXIT_COMPILE_ERROR)
+            }
+        };
+    }
     match yashy_driver::registry::publish(&directory, &root) {
         Ok(entry) => {
             println!(

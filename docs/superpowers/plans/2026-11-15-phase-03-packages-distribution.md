@@ -155,30 +155,41 @@ can make two identical sources produce different bytes.
 - Test: `crates/yashy-driver/tests/registry.rs`, `crates/yashy-driver/tests/registry_http.rs`, `crates/yashy-driver/tests/signature.rs`
 
 **Interfaces:**
-- `IndexEntry { name, version, yanked, checksum, dependencies, features, license, sbom, published_at }`
-- `SignedIndex { entries: Vec<IndexEntry>, key_id: String, signature: Vec<u8> }`
-- `Signature { key_id, algorithm: Ed25519, over: Sha256Digest, bytes: Vec<u8> }`
+- `RegistryEntry { name, version, hash, description, yanked }`
+- The index is JSON plus a detached signature file; no `SignedIndex` type was introduced.
+- `Signature { key_id, algorithm: Ed25519, digest: String, bytes: Vec<u8> }`
 - `verify_tarball(bytes: &[u8], sig: &Signature, keys: &Keyring) -> Result<(), VerifyError>`
 
-- [ ] **Step 1: Write the failing test.** Publish `demo 1.0.0` to a fixture
+- [x] **Step 1: Write the failing test.** Publish `demo 1.0.0` to a fixture
   registry, `yashyc add demo`, build. Flip one byte in the tarball and assert
   the build refuses with a signature/checksum diagnostic. Replace the index
   signature and assert the same. Remove a key and assert the failure names the
   key id.
-- [ ] **Step 2: Sign the index and every tarball.** The index is a signed JSON
+  *Current:* `tests/signature.rs` publishes, reads the detached signature,
+  flips a byte and asserts refusal, verifies the index signature, and checks
+  the empty-keyring failure. A full CLI `add`/`build` trip is a CI test; the
+  verification gate is in `fetch::registry_checkout`.
+- [x] **Step 2: Sign the index and every tarball.** The index is a signed JSON
   document; each tarball has a detached signature over its SHA-256. A package
   may carry several signatures; one trusted key is enough, and the trust set is
   explicit (`--trusted-key`, a keyring file, or the built-in release key).
-- [ ] **Step 3: One vetted primitive.** Use an audited Ed25519 implementation
+  *Current:* one signature per artifact, trust via `YASHY_TRUSTED_KEY` or
+  `YASHY_KEYRING`; no built-in release key and no multi-signature support yet.
+- [x] **Step 3: One vetted primitive.** Use an audited Ed25519 implementation
   (a single recorded RustCrypto dependency, or a vendored RFC 8032 verifier
   with known-answer tests) — decide at revision, record the choice, and never
   write the primitive by hand. SHA-256 stays the implementation already pinned
   by `lock.rs`.
-- [ ] **Step 4: Publish is a reviewable artifact.** `yashyc publish` writes a
+  *Current:* `ed25519-compact` (no default features) is the one recorded
+  dependency. The first choice, `ed25519-dalek`, was rejected because its
+  proc-macro build script cannot execute under this host's Application Control
+  policy. Known-answer and negative tests are in `signature.rs`.
+- [x] **Step 4: Publish is a reviewable artifact.** `yashyc publish` writes a
   tarball, a signature, an index entry and an SBOM to a staging directory and
   prints the exact file list; a hosted service is still out of scope. The
   registry is a static tree a reviewer can diff.
-- [ ] **Step 5: Commit.**
+  *Current:* `publish --key-id` writes all four artifacts and prints them.
+- [x] **Step 5: Commit.**
 
 ### Task 5: SBOM, `verify-package`, and audit policy
 
@@ -479,3 +490,4 @@ ok  14 packages, 0 unsigned, 0 policy violations
 | 1.1-1.3 | Semver ranges, one resolution, per-case diagnostic codes | `Version`/`VersionReq` with SemVer 2.0 precedence, range selection, v2 lock with v1 migration, yanked refusal, bounded DFS; existing E180x codes reused, `ResolveOptions` fields not yet applied to an explicit index | Add per-case codes and feed features/target into the index selection |
 | 2.1 / 2.2 | Shared lockfile and target directory for members | Workspace discovery, `-p`/`--workspace` selection, unique names and outside-path refusal; members still read their own lock and do not share an explicit target directory | Add a workspace-level lock/store and an explicit allow flag for outside paths |
 | 3.1 / 3.2 | `cfg(feature = "x")` and `--print-cfg` with features | Sorted feature sets, unification, cache-key and lockfile recording, optional dependencies, `feature:<name>` flat cfg keys, `--features`/`--no-default-features` | Add the Phase 4 `cfg(feature = ...)` syntax and feature-aware `--print-cfg` |
+| 4.1 / 4.2 | Signed index and tarballs, explicit trust set | `ed25519-compact` signs tarballs and the index; `publish --key-id` writes an SPDX SBOM; `fetch` verifies when `YASHY_TRUSTED_KEY`/`YASHY_KEYRING` is set | Add a built-in release key, multi-signature support and remote signature verification |

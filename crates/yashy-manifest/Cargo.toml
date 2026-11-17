@@ -4,4 +4,5 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+ed25519-compact = { version = "2", default-features = false }
 yashy-common = { path = "../yashy-common" }

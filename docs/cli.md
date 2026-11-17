@@ -1087,6 +1087,22 @@ optional = true
 `feature:<name>` keys. An optional dependency is resolved only when its feature
 is enabled; an unknown feature is a diagnostic.
 
+### Signed registries
+
+`yashyc publish --registry <dir> --key-id <id>` writes a reviewable artifact
+set: the tarball, a detached Ed25519 signature over it, an SPDX 2.3 SBOM and a
+signature over the index. The signing seed comes from `YASHY_SIGNING_SEED`
+(64 hex digits); the command prints every file it wrote.
+
+A reader's trust set is explicit. `YASHY_TRUSTED_KEY=id:hex_public_key` names
+one key; `YASHY_KEYRING` names a text file with `id=hex_public_key` per line.
+An empty trust set trusts nothing and leaves the existing checksum check in
+place. When a key is trusted, `fetch` verifies the tarball's signature before
+extracting it, so a flipped byte is a fetch error. The primitive is the
+single pinned dependency `ed25519-compact`; no curve arithmetic is written
+here. Remote signature verification is not implemented — mirror the registry
+locally to verify it.
+
 ### Resolution: `update`, `fetch`, `add`, `--offline`
 
 A registry range resolves once to the highest non-yanked version that

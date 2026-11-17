@@ -19,11 +19,15 @@
 pub mod lock;
 pub mod manifest;
 pub mod req;
+pub mod sbom;
+pub mod signature;
 pub mod toml;
 pub mod version;
 
 pub use lock::{hash_tree, sha256_hex, LockError, LockedPackage, Lockfile};
 pub use manifest::{Dependency, Manifest, Package, Workspace};
 pub use req::VersionReq;
+pub use sbom::{spdx_json, SbomPackage};
+pub use signature::{public_key, sign, verify, Keyring, Signature, VerifyError};
 pub use toml::{ParseError, Value};
 pub use version::Version;

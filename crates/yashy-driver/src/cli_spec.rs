@@ -336,8 +336,8 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "publish",
         summary: "publish the project to a registry",
-        usage: "yashyc publish [path] --registry <dir>",
-        flags: &["--registry"],
+        usage: "yashyc publish [path] --registry <dir> [--key-id <id>]",
+        flags: &["--registry", "--key-id"],
         takes_path: false,
     },
     CommandSpec {

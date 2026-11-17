@@ -88,9 +88,21 @@ impl Store {
                 entry.name, entry.version
             ))
         })?;
-        let _entries = read_tarball(&bytes).map_err(|error| {
-            FetchError::new(format!("cannot read registry tarball: {error}"))
-        })?;
+        let keys = crate::registry::load_keyring()
+            .map_err(|error| FetchError::new(format!("cannot load the keyring: {error}")))?;
+        if !keys.is_empty() {
+            let signature = crate::registry::tarball_signature(source, entry).map_err(|error| {
+                FetchError::new(format!("`{}@{}`: {error}", entry.name, entry.version))
+            })?;
+            crate::registry::verify_tarball(&bytes, &signature, &keys).map_err(|error| {
+                FetchError::new(format!(
+                    "signature check failed for `{}@{}`: {error}",
+                    entry.name, entry.version
+                ))
+            })?;
+        }
+        let _entries = read_tarball(&bytes)
+            .map_err(|error| FetchError::new(format!("cannot read registry tarball: {error}")))?;
         let staging = self.root.join(format!(
             ".staging-registry-{}-{:x}",
             std::process::id(),
@@ -108,9 +120,7 @@ impl Store {
         })?;
         let extracted = yashy_manifest::hash_tree(&staging).map_err(|error| {
             let _ = std::fs::remove_dir_all(&staging);
-            FetchError::new(format!(
-                "cannot hash extracted registry package: {error}"
-            ))
+            FetchError::new(format!("cannot hash extracted registry package: {error}"))
         })?;
         if extracted != entry.hash {
             let _ = std::fs::remove_dir_all(&staging);
@@ -120,12 +130,14 @@ impl Store {
             )));
         }
         make_read_only(&staging);
-        std::fs::create_dir_all(directory.parent().expect("the store has a parent")).map_err(|error| {
-            let _ = std::fs::remove_dir_all(&staging);
-            FetchError::new(format!(
-                "cannot create the registry store directory: {error}"
-            ))
-        })?;
+        std::fs::create_dir_all(directory.parent().expect("the store has a parent")).map_err(
+            |error| {
+                let _ = std::fs::remove_dir_all(&staging);
+                FetchError::new(format!(
+                    "cannot create the registry store directory: {error}"
+                ))
+            },
+        )?;
         match std::fs::rename(&staging, &directory) {
             Ok(()) => Ok(directory),
             Err(_) if directory.is_dir() => {

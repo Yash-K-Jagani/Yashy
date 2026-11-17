@@ -811,6 +811,212 @@ pub fn read_index_text(text: &str) -> Result<Vec<RegistryEntry>, RegistryError> 
     Ok(entries)
 }
 
+/// JSON form of a detached signature, stored next to the artifact.
+pub fn signature_json(signature: &yashy_manifest::Signature) -> Json {
+    let mut value = Json::object();
+    value.set("key_id", Json::string(&signature.key_id));
+    value.set("algorithm", Json::string(signature.algorithm));
+    value.set("digest", Json::string(&signature.digest));
+    value.set(
+        "bytes",
+        Json::string(
+            signature
+                .bytes
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>(),
+        ),
+    );
+    value
+}
+
+/// Read one string field from a signature file written by `signature_json`.
+fn signature_field(text: &str, name: &str) -> Result<String, RegistryError> {
+    let needle = format!("\"{name}\": \"");
+    let start = text
+        .find(&needle)
+        .ok_or_else(|| registry_error(format!("signature has no `{name}`")))?
+        + needle.len();
+    let end = text[start..]
+        .find('"')
+        .ok_or_else(|| registry_error(format!("signature has no closing `{name}`")))?;
+    Ok(text[start..start + end].to_string())
+}
+
+/// Read a detached signature back from its JSON form.
+pub fn signature_from_text(text: &str) -> Result<yashy_manifest::Signature, RegistryError> {
+    let hex = signature_field(text, "bytes")?;
+    let mut bytes = Vec::new();
+    for pair in hex.as_bytes().chunks(2) {
+        let value = std::str::from_utf8(pair).unwrap_or("");
+        let byte = u8::from_str_radix(value, 16)
+            .map_err(|_| registry_error("signature bytes must be hexadecimal"))?;
+        bytes.push(byte);
+    }
+    Ok(yashy_manifest::Signature {
+        key_id: signature_field(text, "key_id")?,
+        algorithm: "Ed25519",
+        digest: signature_field(text, "digest")?,
+        bytes,
+    })
+}
+/// Publish a signed, reviewable artifact set to a local registry.
+pub fn publish_signed(
+    package_root: &Path,
+    registry_root: &Path,
+    key_id: &str,
+    seed: &[u8],
+) -> Result<(RegistryEntry, Vec<PathBuf>), RegistryError> {
+    let entry = publish(package_root, registry_root)?;
+    let tarball = std::fs::read(tarball_path(registry_root, &entry))
+        .map_err(|error| registry_error(format!("cannot read the published tarball: {error}")))?;
+    let signature = yashy_manifest::sign(&tarball, key_id, seed)
+        .map_err(|error| registry_error(format!("cannot sign the tarball: {error}")))?;
+    let hash = entry.hash.trim_start_matches("sha256:");
+    let packages = registry_root.join("packages");
+    std::fs::create_dir_all(&packages).map_err(|error| {
+        registry_error(format!("cannot create {}: {error}", packages.display()))
+    })?;
+    let sig_path = packages.join(format!("{hash}.sig"));
+    std::fs::write(
+        &sig_path,
+        format!("{}\n", signature_json(&signature).render()),
+    )
+    .map_err(|error| registry_error(format!("cannot write {}: {error}", sig_path.display())))?;
+
+    let sbom = yashy_manifest::sbom::from_directory(package_root)
+        .map_err(|error| registry_error(format!("cannot build the SBOM: {error}")))?;
+    let sbom_dir = registry_root.join("sbom");
+    std::fs::create_dir_all(&sbom_dir).map_err(|error| {
+        registry_error(format!("cannot create {}: {error}", sbom_dir.display()))
+    })?;
+    let sbom_path = sbom_dir.join(format!("{}-{}.spdx.json", entry.name, entry.version));
+    std::fs::write(
+        &sbom_path,
+        format!("{}\n", yashy_manifest::spdx_json(&[sbom]).render()),
+    )
+    .map_err(|error| registry_error(format!("cannot write {}: {error}", sbom_path.display())))?;
+
+    let index = std::fs::read(index_path(registry_root))
+        .map_err(|error| registry_error(format!("cannot read the published index: {error}")))?;
+    let index_signature = yashy_manifest::sign(&index, key_id, seed)
+        .map_err(|error| registry_error(format!("cannot sign the index: {error}")))?;
+    let index_sig = registry_root.join("index.sig");
+    std::fs::write(
+        &index_sig,
+        format!("{}\n", signature_json(&index_signature).render()),
+    )
+    .map_err(|error| registry_error(format!("cannot write {}: {error}", index_sig.display())))?;
+
+    let files = vec![
+        tarball_path(registry_root, &entry),
+        sig_path,
+        sbom_path,
+        index_sig,
+    ];
+    Ok((entry, files))
+}
+
+/// Verify a tarball against its detached signature and the explicit trust set.
+pub fn verify_tarball(
+    bytes: &[u8],
+    signature: &yashy_manifest::Signature,
+    keys: &yashy_manifest::Keyring,
+) -> Result<(), RegistryError> {
+    yashy_manifest::verify(bytes, signature, keys)
+        .map_err(|error| registry_error(error.to_string()))
+}
+
+/// Verify the signed index document.
+pub fn verify_index(
+    source: &RegistrySource,
+    keys: &yashy_manifest::Keyring,
+) -> Result<(), RegistryError> {
+    let (index, signature) = match source {
+        RegistrySource::Local(root) => {
+            let index = std::fs::read(index_path(root))
+                .map_err(|error| registry_error(format!("cannot read the index: {error}")))?;
+            let text = std::fs::read_to_string(root.join("index.sig")).map_err(|error| {
+                registry_error(format!("cannot read the index signature: {error}"))
+            })?;
+            (index, signature_from_text(&text)?)
+        }
+        RegistrySource::Remote(_) => {
+            return Err(registry_error(
+                "a remote registry signature is not implemented; use a local mirror",
+            ))
+        }
+    };
+    verify_tarball(&index, &signature, keys)
+}
+
+/// Load the explicit trust set from the environment.
+///
+/// `YASHY_KEYRING` names a text file with one `id=hex_public_key` per line;
+/// `YASHY_TRUSTED_KEY` names a single `id:hex_public_key` pair. An empty
+/// environment trusts nothing, which is the safe default.
+pub fn load_keyring() -> Result<yashy_manifest::Keyring, RegistryError> {
+    let mut keys = yashy_manifest::Keyring::default();
+    if let Ok(pairs) = std::env::var("YASHY_TRUSTED_KEY") {
+        for pair in pairs.split(',') {
+            let Some((id, hex)) = pair.split_once(':') else {
+                return Err(registry_error("a trusted key is `id:hex_public_key`"));
+            };
+            let bytes = hex_bytes(hex.trim())?;
+            keys.insert(id.trim(), &bytes)
+                .map_err(|error| registry_error(error.to_string()))?;
+        }
+    }
+    if let Ok(path) = std::env::var("YASHY_KEYRING") {
+        let text = std::fs::read_to_string(&path)
+            .map_err(|error| registry_error(format!("cannot read {path}: {error}")))?;
+        for line in text
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        {
+            let Some((id, hex)) = line.split_once('=') else {
+                return Err(registry_error("a keyring line is `id=hex_public_key`"));
+            };
+            let bytes = hex_bytes(hex.trim())?;
+            keys.insert(id.trim(), &bytes)
+                .map_err(|error| registry_error(error.to_string()))?;
+        }
+    }
+    Ok(keys)
+}
+
+fn hex_bytes(text: &str) -> Result<Vec<u8>, RegistryError> {
+    if text.len() % 2 != 0 {
+        return Err(registry_error(
+            "a public key is an even number of hex digits",
+        ));
+    }
+    (0..text.len())
+        .step_by(2)
+        .map(|at| u8::from_str_radix(&text[at..at + 2], 16))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| registry_error("a public key must be hexadecimal"))
+}
+
+/// Read the signature stored next to one tarball entry.
+pub fn tarball_signature(
+    source: &RegistrySource,
+    entry: &RegistryEntry,
+) -> Result<yashy_manifest::Signature, RegistryError> {
+    let RegistrySource::Local(root) = source else {
+        return Err(registry_error(
+            "a remote tarball signature is not implemented; use a local mirror",
+        ));
+    };
+    let hash = entry.hash.trim_start_matches("sha256:");
+    let path = root.join("packages").join(format!("{hash}.sig"));
+    let text = std::fs::read_to_string(&path)
+        .map_err(|error| registry_error(format!("cannot read {}: {error}", path.display())))?;
+    signature_from_text(&text)
+        .map_err(|error| registry_error(format!("bad signature at {}: {error}", path.display())))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
