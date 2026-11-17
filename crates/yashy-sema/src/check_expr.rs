@@ -3997,11 +3997,8 @@ impl<'src> Checker<'src> {
                         )
                         .with_code(codes::WRONG_TYPE_ARG_COUNT));
                     }
-                    let pairs: Vec<(String, TypeExpr)> = params
-                        .iter()
-                        .cloned()
-                        .zip(args.iter().cloned())
-                        .collect();
+                    let pairs: Vec<(String, TypeExpr)> =
+                        params.iter().cloned().zip(args.iter().cloned()).collect();
                     let expanded = substitute_type_expr(&target, &pairs);
                     let resolved = self.resolve_type_in(&expanded, allow_c)?;
                     return Ok(Type {
