@@ -3475,6 +3475,14 @@ impl<'src> Checker<'src> {
                     self.error(*span, format!("`{name}` is already a type"));
                     return;
                 }
+                if Self::type_expr_mentions(target, name) {
+                    self.error_code(
+                        *span,
+                        codes::RECURSIVE_ALIAS,
+                        format!("`{name}` expands to a type that mentions itself"),
+                    );
+                    return;
+                }
                 if type_params.is_empty() {
                     match self.resolve_type(target) {
                         Ok(resolved) => {
@@ -3781,6 +3789,32 @@ impl<'src> Checker<'src> {
                 self.report(e);
                 never(fallback_span)
             }
+        }
+    }
+
+    /// Whether a type expression mentions a named type anywhere in its tree.
+    fn type_expr_mentions(expr: &TypeExpr, name: &str) -> bool {
+        match expr {
+            TypeExpr::Name(found, _) => found == name,
+            TypeExpr::Ptr { pointee, .. }
+            | TypeExpr::View(pointee, _)
+            | TypeExpr::Slice(pointee, _)
+            | TypeExpr::Channel(pointee, _)
+            | TypeExpr::Option(pointee, _) => Self::type_expr_mentions(pointee, name),
+            TypeExpr::FixedArray(element, _, _) => Self::type_expr_mentions(element, name),
+            TypeExpr::Result(ok, err, _) => {
+                Self::type_expr_mentions(ok, name) || Self::type_expr_mentions(err, name)
+            }
+            TypeExpr::Map(key, value, _) => {
+                Self::type_expr_mentions(key, name) || Self::type_expr_mentions(value, name)
+            }
+            TypeExpr::Fn { params, ret, .. } => {
+                params.iter().any(|param| Self::type_expr_mentions(param, name))
+                    || Self::type_expr_mentions(ret, name)
+            }
+            TypeExpr::Tuple(items, _) => items.iter().any(|item| Self::type_expr_mentions(item, name)),
+            TypeExpr::Generic { args, .. } => args.iter().any(|arg| Self::type_expr_mentions(arg, name)),
+            TypeExpr::Unit(_) => false,
         }
     }
 

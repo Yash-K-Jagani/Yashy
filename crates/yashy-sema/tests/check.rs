@@ -2985,3 +2985,15 @@ fn a_generic_alias_expands_per_use() {
         .expect("the function");
     assert!(matches!(f.ret.kind, yashy_hir::ty::TypeKind::Tuple(_)));
 }
+
+#[test]
+fn a_recursive_alias_is_e1519() {
+    let (result, _, _) = check_source("type Loop = Option[Loop]; fn f() { }");
+    let diags = result.expect_err("a self-referential alias must be refused");
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.code == Some(yashy_common::codes::RECURSIVE_ALIAS)),
+        "E1519 expected: {diags:?}"
+    );
+}
