@@ -260,8 +260,8 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   (`contains` → `map_contains_key`) makes map keys work too. Parser tests in
   `crates/yashy-parser/tests/membership.rs` pin the desugaring, precedence and
   non-chaining, and a sema test checks string, slice and map membership. A
-  container without `contains` reports the ordinary "no method" error rather
-  than a dedicated E1516; `Range[T]` membership is still owed with Step 2.
+  container without `contains` reports E1516 with a catalog page and rule ID
+  (IN-1); `Range[T]` membership is still owed with Step 2.
 - [ ] **Step 4: `is` is identity and variant test, never value equality.** For
   raw pointers and owning pointers, `p is q` compares addresses and
   `p is not q` is its negation; for `Option[*T]` a null pointer `is None`.

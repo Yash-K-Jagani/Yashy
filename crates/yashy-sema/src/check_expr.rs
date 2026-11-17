@@ -7631,7 +7631,15 @@ impl<'src> Checker<'src> {
             return Some(checked);
         }
         let Some(builtin) = builtin_method_name(method, &receiver_ty.kind) else {
-            self.error(span, format!("no method `{method}` on `{receiver_ty}`"));
+            if method == "contains" {
+                self.error_code(
+                    span,
+                    codes::MEMBERSHIP_UNSUPPORTED,
+                    format!("`in` needs a `contains` method on `{receiver_ty}`"),
+                );
+            } else {
+                self.error(span, format!("no method `{method}` on `{receiver_ty}`"));
+            }
             return Some(None);
         };
         let mut call_args = Vec::with_capacity(args.len().saturating_add(1));

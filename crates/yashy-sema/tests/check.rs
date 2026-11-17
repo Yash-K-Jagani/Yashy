@@ -2935,3 +2935,15 @@ fn layout_queries_accept_the_underscore_spellings() {
     let (result, _, _) = check_source(source);
     assert!(result.is_ok(), "{:?}", result.err());
 }
+
+#[test]
+fn membership_on_an_unsupported_container_is_e1516() {
+    let result = check_source("struct Box { value: int } fn f(Box b) -> bool { return 1 in b; }");
+    let diags = result.0.expect_err("no contains method on a struct");
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.code == Some(yashy_common::codes::MEMBERSHIP_UNSUPPORTED)),
+        "E1516 expected: {diags:?}"
+    );
+}
