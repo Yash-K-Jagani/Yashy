@@ -90,3 +90,31 @@ fn the_committed_lint_page_is_the_rendered_registry() {
     .expect("docs/lints.md must exist");
     assert_eq!(page, rendered, "run `yashyc lint --docs > docs/lints.md`");
 }
+
+#[test]
+fn the_switch_while_and_result_lints_fire() {
+    let dir = work_dir("lint-three-rules");
+    write(
+        &dir,
+        "main.ya",
+        "fn main() {\n  if x == 1 { } else if x == 2 { } else if x == 3 { }\n  while true { }\n  let _x = read_file(\"a.txt\");\n}\n",
+    );
+    let output = run(&dir, &["lint", "--json", "main.ya"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for code in ["LINT-SWITCH", "LINT-WHILE", "LINT-RESULT"] {
+        assert!(stdout.contains(code), "{code} is missing from {stdout}");
+    }
+}
+
+#[test]
+fn a_handled_result_is_not_linted() {
+    let dir = work_dir("lint-result-handled");
+    write(
+        &dir,
+        "main.ya",
+        "fn main() {\n  let x = read_file(\"a.txt\")?;\n}\n",
+    );
+    let output = run(&dir, &["lint", "--json", "main.ya"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains("LINT-RESULT"), "{stdout}");
+}

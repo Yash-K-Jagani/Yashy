@@ -73,6 +73,24 @@ pub const LINTS: &[Lint] = &[
         message: "`var` was removed: use `let`",
         hint: "`let` is the only mutable binding keyword",
     },
+    Lint {
+        code: "LINT-SWITCH",
+        group: LintGroup::Style,
+        message: "a long `if`/`else if` chain over one value reads better as `switch`",
+        hint: "rewrite the chain as `switch value { case ... -> ... }`",
+    },
+    Lint {
+        code: "LINT-WHILE",
+        group: LintGroup::Correctness,
+        message: "`while true` without a `break` never ends",
+        hint: "add a `break` exit, or use a bounded `for` loop",
+    },
+    Lint {
+        code: "LINT-RESULT",
+        group: LintGroup::Correctness,
+        message: "a fallible call's `Result` is ignored",
+        hint: "propagate it with `?` or handle it with `switch`/`match`",
+    },
 ];
 
 /// Run every lint over `source`.
@@ -113,6 +131,45 @@ pub fn check_filtered(source: &str, file: FileId, group: Option<LintGroup>) -> V
                             > 1
                     {
                         out.push(make(lint, file, start, start + name.len()));
+                    }
+                }
+            }
+            "LINT-SWITCH" => {
+                if find_word(source, "else if").len() >= 2 {
+                    let start = find_word(source, "else if")[0].0;
+                    out.push(make(lint, file, start, start + 7));
+                }
+            }
+            "LINT-WHILE" => {
+                for (start, _) in find_word(source, "while true") {
+                    if find_word(source, "break").is_empty() {
+                        out.push(make(lint, file, start, start + 10));
+                    }
+                }
+            }
+            "LINT-RESULT" => {
+                for fallible in [
+                    "read_file",
+                    "write_file",
+                    "parse_i64",
+                    "parse_f64",
+                    "getenv",
+                ] {
+                    for (start, _) in find_word(source, fallible) {
+                        let line_start = source[..start].rfind('\n').map_or(0, |at| at + 1);
+                        let line_end = source[start..]
+                            .find('\n')
+                            .map_or(source.len(), |at| start + at);
+                        let line = &source[line_start..line_end];
+                        let handled = line.contains('?')
+                            || line.contains("switch")
+                            || line.contains("match")
+                            || line.contains("is_ok")
+                            || line.contains("is_err")
+                            || line.contains("unwrap");
+                        if !handled {
+                            out.push(make(lint, file, start, start + fallible.len()));
+                        }
                     }
                 }
             }
@@ -191,7 +248,12 @@ fn let_bindings(source: &str) -> Vec<(usize, String)> {
             at += 1;
         }
         // Skip the type: `let int name` / `let string name`.
-        while at < bytes.len() && (bytes[at].is_ascii_alphanumeric() || bytes[at] == b'_' || bytes[at] == b'[' || bytes[at] == b']') {
+        while at < bytes.len()
+            && (bytes[at].is_ascii_alphanumeric()
+                || bytes[at] == b'_'
+                || bytes[at] == b'['
+                || bytes[at] == b']')
+        {
             at += 1;
         }
         while at < bytes.len() && bytes[at].is_ascii_whitespace() {

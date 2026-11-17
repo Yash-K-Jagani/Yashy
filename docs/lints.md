@@ -10,3 +10,6 @@ group with `--group <correctness|style|complexity|perf|security|deprecated>`.
 | `LINT-UNUSED` | correctness | a binding is never used | remove the binding, or use `_` if the value is intentionally ignored |
 | `LINT-SHADOW` | style | a binding shadows an earlier name in the same function | rename one of the bindings so both stay readable |
 | `LINT-VAR` | correctness | `var` was removed: use `let` | `let` is the only mutable binding keyword |
+| `LINT-SWITCH` | style | a long `if`/`else if` chain over one value reads better as `switch` | rewrite the chain as `switch value { case ... -> ... }` |
+| `LINT-WHILE` | correctness | `while true` without a `break` never ends | add a `break` exit, or use a bounded `for` loop |
+| `LINT-RESULT` | correctness | a fallible call's `Result` is ignored | propagate it with `?` or handle it with `switch`/`match` |
