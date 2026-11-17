@@ -69,3 +69,18 @@ fn remove_writes_a_backup_and_drops_the_dependency() {
     let lock = Lockfile::load(&dir.join("yashy.lock")).unwrap();
     assert!(lock.packages.iter().all(|package| package.name != "lib"));
 }
+#[test]
+fn vendor_produces_a_complete_local_registry() {
+    let dir = common::work_dir("pkg-vendor");
+    let registry = dir.join("registry");
+    let vendored = dir.join("vendor");
+    common::write(&registry, "index.json", "{\"packages\":[]}\n");
+    std::fs::create_dir_all(registry.join("packages")).unwrap();
+    common::write(&registry, "packages/abc.tar", "binary");
+    let (count, _) = yashy_driver::pkg_cmd::vendor(&registry, &vendored).unwrap();
+    assert_eq!(count, 0, "an empty index has no entries to count");
+    assert!(vendored.join("index.json").is_file());
+    assert!(vendored.join("packages").is_dir());
+    // The vendor tree is a registry source that can be read back.
+    assert!(yashy_driver::registry::read_index(&vendored).is_ok());
+}

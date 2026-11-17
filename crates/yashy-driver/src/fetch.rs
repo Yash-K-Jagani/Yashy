@@ -76,9 +76,11 @@ impl Store {
         if directory.is_dir() {
             return Ok(directory);
         }
-        if offline {
+        // `--offline` forbids the network, not a local directory: a vendored
+        // registry is a complete local mirror and can fill the store.
+        if offline && !source.is_local() {
             return Err(FetchError::new(format!(
-                "`{}@{}` is not in the local store; run `yashyc fetch` without `--offline` (or `yashyc update`) first",
+                "`{}@{}` is not in the local store and the registry is remote; run `yashyc fetch` first",
                 entry.name, entry.version
             )));
         }

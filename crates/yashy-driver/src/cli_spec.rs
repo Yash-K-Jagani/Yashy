@@ -29,6 +29,7 @@ pub const COMMANDS: &[CommandSpec] = &[
             "--release",
             "--timings",
             "--debug-info",
+            "--print-capabilities",
             "--features",
             "--no-default-features",
             "--jobs",
@@ -387,6 +388,13 @@ pub const COMMANDS: &[CommandSpec] = &[
         summary: "print one locked package's facts",
         usage: "yashyc info <package> [--json] [dir]",
         flags: &["--json"],
+        takes_path: false,
+    },
+    CommandSpec {
+        name: "yank",
+        summary: "mark a released version as yanked with a reason",
+        usage: "yashyc yank <name>@<version> --registry <dir> --reason <text>",
+        flags: &["--registry", "--reason"],
         takes_path: false,
     },
     CommandSpec {

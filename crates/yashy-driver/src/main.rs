@@ -259,6 +259,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "outdated" => outdated_cmd(rest),
         "vendor" => vendor_cmd(rest),
         "remove" => remove_cmd(rest),
+        "yank" => yank_cmd(rest),
         "verify-attestation" => verify_attestation_cmd(rest),
         "publish" => publish_cmd(rest),
         "fmt" => fmt(rest),
@@ -402,10 +403,12 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     // Emit LLVM debug metadata from HIR spans. Off unless a debug build asks
     // for a line table.
     let mut debug_info = false;
+    let mut print_capabilities = false;
 
     let mut args = args.iter();
     while let Some(argument) = args.next() {
         match argument.as_str() {
+            "--print-capabilities" => print_capabilities = true,
             "--emit-ir" => emit_ir = true,
             "--timings" => timings_flag = true,
             "--debug-info" => debug_info = true,
@@ -706,6 +709,49 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     };
 
     let (hir, mut report) = (hir, report);
+
+    // A manifest that declares capabilities asks for call-site enforcement.
+    // Older projects with no `[capabilities]` table keep their existing build.
+    let manifest_path = input
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("yashy.toml");
+    let manifest = Manifest::load(&manifest_path).ok();
+    if print_capabilities {
+        if let Some(manifest) = &manifest {
+            let resolved = yashy_driver::policy::resolve(manifest, &[]);
+            let mut names: Vec<String> = resolved
+                .granted
+                .entries()
+                .iter()
+                .map(|(name, _)| (*name).to_string())
+                .collect();
+            names.extend(resolved.denied);
+            names.sort();
+            names.dedup();
+            println!("capabilities: {}", names.join(", "));
+        } else {
+            println!("capabilities: none");
+        }
+        return BuildOutcome {
+            code: exit_code(EXIT_OK),
+            timings,
+        };
+    }
+    if let Some(manifest) = &manifest {
+        let capability_diagnostics = yashy_driver::capability_check::check(&hir, manifest);
+        if !capability_diagnostics.is_empty() {
+            let mut local = SourceMap::new();
+            local.add_file(
+                input.to_string_lossy(),
+                fs::read_to_string(&input).unwrap_or_default(),
+            );
+            return BuildOutcome {
+                code: render(&local, &capability_diagnostics),
+                timings,
+            };
+        }
+    }
 
     // Apply the warning policy: --allow suppresses, --deny upgrades to errors.
     if allow_warnings {
@@ -4055,6 +4101,13 @@ fn check(args: &[String]) -> ExitCode {
         Ok((hir, exports)) => {
             let mut warning_diags = Vec::new();
             yashy_verify::pass::warnings::check(&hir, &exports, &mut warning_diags);
+            let manifest_path = input
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join("yashy.toml");
+            if let Ok(manifest) = Manifest::load(&manifest_path) {
+                warning_diags.extend(yashy_driver::capability_check::check(&hir, &manifest));
+            }
             // Apply the warning policy.
             if allow_warnings {
                 warning_diags.clear();
@@ -5603,6 +5656,66 @@ fn vendor_cmd(args: &[String]) -> ExitCode {
     }
 }
 
+
+/// `yashyc yank <name>@<version> --registry <dir> --reason <text>`
+fn yank_cmd(args: &[String]) -> ExitCode {
+    use yashy_driver::registry;
+
+    let mut spec: Option<String> = None;
+    let mut registry: Option<String> = None;
+    let mut reason: Option<String> = None;
+    let mut iter = args.iter();
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
+            "--registry" => match iter.next() {
+                Some(value) => registry = Some(value.clone()),
+                None => return usage_error("`--registry` needs a directory"),
+            },
+            "--reason" => match iter.next() {
+                Some(value) => reason = Some(value.clone()),
+                None => return usage_error("`--reason` needs text"),
+            },
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `yank`"))
+            }
+            other => spec = Some(other.to_string()),
+        }
+    }
+    let Some(spec) = spec else {
+        return usage_error("`yank` needs `<name>@<version>`");
+    };
+    let Some((name, version)) = spec.split_once('@') else {
+        return usage_error("`yank` needs `<name>@<version>`");
+    };
+    let Some(registry) = registry else {
+        return usage_error("`yank` needs `--registry <dir>`");
+    };
+    let Some(reason) = reason else {
+        return usage_error("`yank` needs a non-empty `--reason`");
+    };
+    let root = match registry::registry_path(&registry) {
+        Ok(path) => path,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    match registry::yank(&root, name, version, &reason) {
+        Ok(files) => {
+            println!("yanked {name}@{version}: {reason}");
+            for file in files {
+                println!("  {}", file.display());
+            }
+            exit_code(EXIT_OK)
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
+            exit_code(EXIT_USAGE)
+        }
+    }
+}
+
+
 fn tree_cmd(args: &[String]) -> ExitCode {
     let mut depth = usize::MAX;
     let mut json = false;
@@ -5928,11 +6041,18 @@ fn verify_attestation_cmd(args: &[String]) -> ExitCode {
             return exit_code(EXIT_USAGE);
         }
     };
-    let statement = match fs::read(&attestation) {
+    let statement_value = match fs::read(&attestation) {
         Ok(bytes) => bytes,
         Err(error) => {
             eprintln!("error: cannot read {}: {error}", attestation.display());
             return exit_code(EXIT_USAGE);
+        }
+    };
+    let parsed_statement = match yashy_manifest::Statement::from_json_text(&statement_value) {
+        Ok(statement) => statement,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return exit_code(EXIT_COMPILE_ERROR);
         }
     };
     let sig_text = match fs::read_to_string(&signature) {
@@ -5962,17 +6082,40 @@ fn verify_attestation_cmd(args: &[String]) -> ExitCode {
             return exit_code(EXIT_USAGE);
         }
     };
-    if let Err(error) = yashy_driver::registry::verify_tarball(&statement, &parsed, &keys) {
+    if let Err(error) = yashy_driver::registry::verify_tarball(&statement_value, &parsed, &keys) {
         eprintln!("error: attestation signature: {error}");
         return exit_code(EXIT_COMPILE_ERROR);
     }
-    let rendered = String::from_utf8_lossy(&statement);
     let digest = yashy_manifest::sha256_hex(&bytes);
-    if !rendered.contains(&digest) {
+    if !parsed_statement
+        .subject
+        .iter()
+        .any(|(_, value)| value == &digest)
+    {
         eprintln!("error: the subject digest {digest} does not name this artifact");
         return exit_code(EXIT_COMPILE_ERROR);
     }
-    println!("attestation verified for {} ({digest})", artifact.display());
+    for (material, expected) in &parsed_statement.predicate.materials {
+        let path = PathBuf::from(material);
+        match fs::read(&path) {
+            Ok(bytes) => {
+                let actual = yashy_manifest::sha256_hex(&bytes);
+                if &actual != expected {
+                    eprintln!("error: material `{material}` was {actual}, expected {expected}");
+                    return exit_code(EXIT_COMPILE_ERROR);
+                }
+            }
+            Err(error) => {
+                eprintln!("error: cannot check material `{material}`: {error}");
+                return exit_code(EXIT_COMPILE_ERROR);
+            }
+        }
+    }
+    println!(
+        "attestation verified for {} ({digest}, {} material(s))",
+        artifact.display(),
+        parsed_statement.predicate.materials.len()
+    );
     exit_code(EXIT_OK)
 }
 

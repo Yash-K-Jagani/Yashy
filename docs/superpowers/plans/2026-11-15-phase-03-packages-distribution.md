@@ -367,7 +367,9 @@ folded into the IR cache key rather than resolver inputs.
   the transitive union before anything runs.
   *Current:* `capability.rs` and `tests/capabilities.rs` pin default-deny,
   the `..`-safe path glob and the policy ceiling; `audit --capabilities` prints
-  the root package's resolved capabilities, not a transitive union. The build-time call-site refusal is not implemented yet.
+  the root package's resolved capabilities, not a transitive union. A manifest
+  with `[capabilities]` now makes `check`/`build` refuse an ungranted call with
+  E1808; `--print-capabilities` prints the resolved set and stops.
 - [x] **Step 2: The manifest is the grant, the policy is the ceiling.** A
   dependency's capabilities are the intersection of what it declares and what
   the workspace policy allows; a missing declaration is no capability, never
@@ -395,8 +397,9 @@ folded into the IR cache key rather than resolver inputs.
   grant. `--print-capabilities` prints the resolved set, and a build with no
   declaration is a program that can compute but not touch the world.
   *Current:* the declaration model and audit view are in place; the HIR
-  call-site check, runtime handle and `--print-capabilities` are later-phase
-  work and are not claimed here.
+  HIR call-site check and `--print-capabilities` are implemented; the runtime
+  handle that repeats the grant when the operation executes is still later-phase
+  work.
 - [x] **Step 5: Commit.**
 
 ### Task 11: Build provenance and attestations
@@ -425,9 +428,10 @@ folded into the IR cache key rather than resolver inputs.
   the tarball is refused with the field that disagrees.
   *Current:* `tests/attest.rs` pins the standard statement types, subject and
   material digests and a negative signature case. `attest --material` records
-  any file the caller names, but the compiler does not automatically name the
-  source commit, lockfile, toolchain or native libraries; the verifier does not
-  rebuild from materials.
+  any named file; the statement parses back through `Statement::from_json_text`,
+  the verifier re-hashes every named material and checks the subject digest. The
+  compiler does not automatically name the source commit, lockfile, toolchain or
+  native libraries, and there is no rebuild-from-materials gate.
 - [x] **Step 2: Provenance is produced by the same build that produces the
   artifact.** The statement is written in the same invocation as the package, is
   signed by the release key, and is embedded in the registry entry next to the
@@ -441,8 +445,9 @@ folded into the IR cache key rather than resolver inputs.
   digests, then optionally rebuilds `--reproducible` from the named materials and
   compares. A provenance that only asserts what the builder says is a claim; the
   gate is the rebuild.
-  *Current:* the verifier checks the signature and the subject digest. It does
-  not re-hash the named materials or rebuild; those are the remaining work.
+  *Current:* the verifier checks the signature, the subject digest and every
+  named material digest. It does not rebuild the artifact from those materials;
+  that stronger gate is still owed.
 - [x] **Step 4: The format is standard and minimal.** Use in-toto attestation
   and SLSA provenance v1 JSON; do not invent a schema. A future registry can
   consume the same envelope, and the release pipeline publishes it unchanged.
@@ -467,9 +472,10 @@ folded into the IR cache key rather than resolver inputs.
   native libraries and reverse dependencies; `remove` takes a dependency out of
   the manifest, the lock and the cache, and `yank` is refused without a reason.
   *Current:* `tests/pkg_cmd.rs` pins `tree`, `why`, `info` and `remove`; the CLI
-  also has `outdated` and `vendor`. Feature/duplicate marks, major/minor/patch
-  classification, an offline build from a vendor directory and `yank` are not
-  implemented. `info` omits size, signature, provenance and native libraries.
+  also has `outdated`, `vendor` and `yank` (with a mandatory reason and an
+  index backup). A vendor directory is now a complete local registry that
+  supports `fetch --offline`. Feature/duplicate marks, major/minor/patch
+  classification and richer `info` fields are not implemented.
 - [x] **Step 2: Every command has one JSON form and one human form.** `--json`
   is stable and used by the Action and the agent; the human form is the same
   facts with color only on a TTY. Duplicates and feature conflicts are explained,
@@ -481,8 +487,10 @@ folded into the IR cache key rather than resolver inputs.
   a backup of the manifest and lock, print what changed, and can be undone;
   `vendor` is additive and reports the bytes and the license files it wrote.
   *Current:* `remove` writes `yashy.toml.bak`, rewrites the lock and prints the
-  changed files. `yank` is not implemented. `vendor` is additive and reports
-  archive bytes, but does not copy license files.
+  changed files; `yank` writes `index.json.bak`, refuses an empty reason and
+  is refused on an already-yanked version. `vendor` is additive, copies the
+  index, signatures and SBOMs, and reports archive bytes; it does not copy
+  license files.
 - [x] **Step 4: Commit.**
 
 ## Gates
@@ -585,5 +593,5 @@ ok  14 packages, 0 unsigned, 0 policy violations
 | 6.1 / 6.3 | Two-directory gate and publish refusal | Two-directory byte comparison IR path check exist; SBOM records compiler version and target; the CI gate and publish-time refusal are deferred with CI |
 | 7.1 / 7.3 | Cross-OS install test and a caching Action | Manifests for five channels, a thin setup-yashy action, a verifying self-update with rollback; the cross-OS matrix and the action's cache step are CI/release work || 8.1 / 8.2 | Tested workspace, service and native templates | Three templates ship with smoke tests and README files; the shared root manifest exists, but members still use per-member locks and the native wrapper is a skeleton |
 | 9.1 / 9.3 | Signed, precompiled stdlib with a versioned cache key | The stdlib has a versioned package manifest; its canonical hash and the selected feature set are part of the IR cache key; a clean-checkout "no recheck" timing and a hash-disagreement refusal are not yet tested |
-| 10.1 / 10.4 | Call-site and runtime capability enforcement, policy table | `[capabilities]` and an audit ceiling share one closed name set; path globs reject `..`; `audit --capabilities` and `add --allow` are implemented; the HIR call-site rule, runtime handle and `--print-capabilities` are not || 11.1 / 11.3 | Provenance produced by the build and verified by rebuild | In-toto/SLSA v1 statement, signed `attest` output and subject-digest verification; automatic material discovery and rebuild verification are not implemented |
-| 12.1 / 12.3 | Full package surface with reversible mutations | `tree`, `why`, `outdated`, `vendor`, `info` and `remove` are committed with JSON and human forms; `yank`, offline vendor builds, feature/duplicate marks and richer `info` fields are not implemented |
+| 10.1 / 10.4 | Call-site and runtime capability enforcement, policy table | `[capabilities]` and an audit ceiling share one closed name set; path globs reject `..`; the HIR call-site check (E1808), `audit --capabilities`, `add --allow` and `--print-capabilities` are implemented; the runtime handle and full `[policy]` table are not || 11.1 / 11.3 | Provenance produced by the build and verified by rebuild | In-toto/SLSA v1 statement, signed `attest` output, subject and material digest verification; automatic material discovery and rebuild verification are not implemented |
+| 12.1 / 12.3 | Full package surface with reversible mutations | `tree`, `why`, `outdated`, `vendor`, `info`, `remove` and `yank` are committed; a vendor tree supports offline fetch; feature/duplicate marks and richer `info` fields are not implemented |

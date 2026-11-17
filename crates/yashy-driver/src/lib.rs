@@ -9,6 +9,7 @@
 
 pub mod addr;
 pub mod audit;
+pub mod capability_check;
 pub mod cfg;
 pub mod cli_spec;
 pub mod context;

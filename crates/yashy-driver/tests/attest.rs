@@ -46,3 +46,17 @@ fn a_signed_statement_verifies_against_its_bytes() {
     changed[20] ^= 0xff;
     assert!(yashy_manifest::verify(&changed, &signature, &keys).is_err());
 }
+#[test]
+fn a_statement_round_trips_through_json() {
+    let statement = yashy_manifest::for_artifact(
+        "demo.tar.gz",
+        b"artifact",
+        "x86_64-pc-windows-msvc",
+        "yashyc 1.0.0",
+        BTreeMap::from([("yashy.toml".to_string(), yashy_manifest::sha256_hex(b"manifest"))]),
+    );
+    let parsed = yashy_manifest::Statement::from_json_text(&statement.bytes()).unwrap();
+    assert_eq!(parsed.subject, statement.subject);
+    assert_eq!(parsed.predicate.materials, statement.predicate.materials);
+    assert_eq!(parsed.predicate.target, "x86_64-pc-windows-msvc");
+}

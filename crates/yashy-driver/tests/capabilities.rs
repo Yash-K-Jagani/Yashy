@@ -3,6 +3,7 @@
 mod common;
 
 use std::path::Path;
+use std::process::Command;
 
 use yashy_manifest::CapabilitySet;
 
@@ -45,4 +46,17 @@ fn an_undeclared_package_has_no_capabilities() {
     .unwrap();
     let resolved = yashy_driver::policy::resolve(&plain, &[]);
     assert!(resolved.granted.entries().is_empty());
+}
+#[test]
+fn build_refuses_a_call_without_its_capability() {
+    let dir = common::work_dir("capability-build");
+    common::write(&dir, "yashy.toml", "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[capabilities]\nfs.read = [\"data/*\"]\n");
+    common::write(&dir, "main.ya", "fn main() { let x = getenv(\"HOME\"); }\n");
+    let output = Command::new(common::yashyc())
+        .args(["check", "main.ya"])
+        .current_dir(&dir)
+        .output()
+        .expect("yashyc must run");
+    let all = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(all.contains("E1808"), "the capability must be named: {all}");
 }

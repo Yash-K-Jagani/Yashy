@@ -75,6 +75,62 @@ impl Statement {
         object
     }
 
+    /// Parse a statement written by [`Statement::bytes`].
+    pub fn from_json_text(text: &[u8]) -> Result<Statement, String> {
+        use yashy_common::json_rpc::{self, Value};
+        let text = std::str::from_utf8(text).map_err(|error| error.to_string())?;
+        let value = json_rpc::parse(text).map_err(|error| format!("invalid statement JSON: {error}"))?;
+        let field = |object: &Value, name: &str| -> Result<String, String> {
+            match object.get(name) {
+                Some(Value::Str(text)) => Ok(text.clone()),
+                _ => Err(format!("statement has no `{name}` string")),
+            }
+        };
+        if field(&value, "_type")? != "https://in-toto.io/Statement/v1" {
+            return Err("statement does not use in-toto Statement v1".to_string());
+        }
+        if field(&value, "predicateType")? != "https://slsa.dev/provenance/v1" {
+            return Err("predicate does not use SLSA v1".to_string());
+        }
+        let mut subject = Vec::new();
+        if let Some(Value::Arr(items)) = value.get("subject") {
+            for item in items {
+                let name = field(item, "name")?;
+                let digest = match item.get_path(&["digest", "sha256"]) {
+                    Some(Value::Str(text)) => text.clone(),
+                    _ => return Err("subject has no sha256 digest".to_string()),
+                };
+                subject.push((name, digest));
+            }
+        }
+        let predicate = value
+            .get("predicate")
+            .ok_or_else(|| "statement has no predicate".to_string())?;
+        let mut materials = BTreeMap::new();
+        if let Some(Value::Arr(items)) = predicate.get("materials") {
+            for item in items {
+                let uri = field(item, "uri")?;
+                let digest = match item.get_path(&["digest", "sha256"]) {
+                    Some(Value::Str(text)) => text.clone(),
+                    _ => return Err("material has no sha256 digest".to_string()),
+                };
+                materials.insert(uri, digest);
+            }
+        }
+        Ok(Statement {
+            subject,
+            predicate: Provenance {
+                build_type: field(predicate, "buildType")?,
+                builder: match predicate.get_path(&["builder", "id"]) {
+                    Some(Value::Str(text)) => text.clone(),
+                    _ => return Err("predicate has no builder id".to_string()),
+                },
+                target: field(predicate, "target")?,
+                materials,
+            },
+        })
+    }
+
     /// The statement bytes that are signed.
     pub fn bytes(&self) -> Vec<u8> {
         format!("{}\n", self.to_json().render()).into_bytes()

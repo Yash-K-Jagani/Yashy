@@ -326,7 +326,7 @@ model. 1.0 ships `build`, `run`, `check`, `verify`, `test`, `fmt`, `explain`,
 `2.0 adds `watch`, `serve`, `new`, `fix`, `lint`, `coverage`, `task`, `repl`,
 `debug`, `bench`, `fuzz`, `migrate`, `conformance`, `sbom`, `inspect`, `trace`,
 `tokens`, `tree`, `why`, `info`, `outdated`, `vendor`, `remove`,
-`verify-package`, `self-update`, `attest` and `verify-attestation` (Phases 2,
+`verify-package`, `self-update`, `yank`, `attest` and `verify-attestation` (Phases 2,
 3, 9, 13, 14). Most query verbs have a human and a `--json` form; several
 mutating verbs (`publish`, `attest`, `self-update`, `remove`, `vendor`) print a
 human summary only. A schema diff in CI forbids removing a field.

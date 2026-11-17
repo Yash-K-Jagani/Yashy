@@ -27,6 +27,8 @@ pub struct RegistryEntry {
     /// Yanked versions stay in the index for auditability but are never
     /// selected by a range and are refused when pinned directly.
     pub yanked: bool,
+    /// Why the version was yanked. Required by `yashyc yank`.
+    pub yanked_reason: Option<String>,
 }
 
 /// Where a registry lives.
@@ -126,6 +128,9 @@ fn index_json(entries: &[RegistryEntry]) -> String {
         item.set("hash", Json::string(&entry.hash));
         item.set("description", Json::string(&entry.description));
         item.set("yanked", Json::bool(entry.yanked));
+        if let Some(reason) = &entry.yanked_reason {
+            item.set("yanked_reason", Json::string(reason));
+        }
         array.push(item);
     }
     let mut object = Json::object();
@@ -213,6 +218,45 @@ pub fn select_source(
             .then_with(|| left.name.cmp(&right.name))
     });
     Ok(entries.pop())
+}
+
+/// Mark a released version as yanked. The reason is mandatory and recorded in
+/// the index; the previous index is kept as `index.json.bak`.
+pub fn yank(
+    registry_root: &Path,
+    name: &str,
+    version: &str,
+    reason: &str,
+) -> Result<Vec<PathBuf>, RegistryError> {
+    if reason.trim().is_empty() {
+        return Err(registry_error("`yank` needs a non-empty `--reason`"));
+    }
+    let path = index_path(registry_root);
+    let mut entries = read_index(registry_root)?;
+    let entry = entries
+        .iter_mut()
+        .find(|entry| entry.name == name && entry.version == version)
+        .ok_or_else(|| registry_error(format!("no released version `{name}` {version}")))?;
+    if entry.yanked {
+        return Err(registry_error(format!(
+            "`{name}` {version} is already yanked: {}",
+            entry.yanked_reason.as_deref().unwrap_or("no reason recorded")
+        )));
+    }
+    entry.yanked = true;
+    entry.yanked_reason = Some(reason.trim().to_string());
+
+    let backup = PathBuf::from(format!("{}.bak", path.display()));
+    let text = std::fs::read_to_string(&path)
+        .map_err(|error| registry_error(format!("cannot read {}: {error}", path.display())))?;
+    std::fs::write(&backup, text)
+        .map_err(|error| registry_error(format!("cannot write {}: {error}", backup.display())))?;
+    let staging = registry_root.join("index.json.yank.tmp");
+    std::fs::write(&staging, format!("{}\n", index_json(&entries)))
+        .map_err(|error| registry_error(format!("cannot write {}: {error}", staging.display())))?;
+    std::fs::rename(&staging, &path)
+        .map_err(|error| registry_error(format!("cannot replace {}: {error}", path.display())))?;
+    Ok(vec![backup, path])
 }
 
 /// Fetch a URL.
@@ -323,6 +367,7 @@ pub fn publish(package_root: &Path, registry_root: &Path) -> Result<RegistryEntr
         hash: hash.clone(),
         description: manifest.package.description.clone().unwrap_or_default(),
         yanked: false,
+        yanked_reason: None,
     };
     let mut entries = read_index(registry_root)?;
     if let Some(existing) = entries
@@ -748,6 +793,7 @@ pub fn read_index_text(text: &str) -> Result<Vec<RegistryEntry>, RegistryError> 
                 let mut hash = String::new();
                 let mut description = String::new();
                 let mut yanked = false;
+                let mut yanked_reason = None;
                 loop {
                     parser.skip_whitespace();
                     if parser.parse_char('}') {
@@ -762,6 +808,7 @@ pub fn read_index_text(text: &str) -> Result<Vec<RegistryEntry>, RegistryError> 
                         "hash" => hash = value,
                         "description" => description = value,
                         "yanked" => yanked = value == "true",
+                        "yanked_reason" => yanked_reason = Some(value),
                         _ => {}
                     }
                     if !parser.parse_char(',') {
@@ -789,6 +836,7 @@ pub fn read_index_text(text: &str) -> Result<Vec<RegistryEntry>, RegistryError> 
                     hash,
                     description,
                     yanked,
+                    yanked_reason,
                 });
                 if !parser.parse_char(',') {
                     parser.skip_whitespace();

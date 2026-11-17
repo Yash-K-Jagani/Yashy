@@ -262,14 +262,43 @@ pub fn vendor(registry: &Path, out: &Path) -> Result<(usize, u64), String> {
         .map_err(|error| format!("cannot read the registry: {error}"))?;
     let mut count = 0usize;
     let mut bytes = 0u64;
+
+    // A vendor directory is a complete local registry, not a pile of tarballs.
+    for name in ["index.json", "index.sig"] {
+        let source = registry.join(name);
+        if let Ok(data) = std::fs::read(&source) {
+            std::fs::write(out.join(name), &data).map_err(|error| error.to_string())?;
+            bytes += data.len() as u64;
+        }
+    }
+    let sbom_dir = registry.join("sbom");
+    if sbom_dir.is_dir() {
+        let target = out.join("sbom");
+        std::fs::create_dir_all(&target).map_err(|error| error.to_string())?;
+        for entry in std::fs::read_dir(&sbom_dir).map_err(|error| error.to_string())?.flatten() {
+            if let Ok(data) = std::fs::read(entry.path()) {
+                std::fs::write(target.join(entry.file_name()), &data)
+                    .map_err(|error| error.to_string())?;
+                bytes += data.len() as u64;
+            }
+        }
+    }
+    let packages = out.join("packages");
+    std::fs::create_dir_all(&packages).map_err(|error| error.to_string())?;
     for entry in entries {
         let source = crate::registry::tarball_path(registry, &entry);
         let Ok(data) = std::fs::read(&source) else {
             continue;
         };
-        let target = out.join(source.file_name().unwrap_or_default());
+        let target = packages.join(source.file_name().unwrap_or_default());
         std::fs::write(&target, &data).map_err(|error| error.to_string())?;
         bytes += data.len() as u64;
+        let signature = source.with_extension("sig");
+        if let Ok(data) = std::fs::read(&signature) {
+            let name = signature.file_name().unwrap_or_default();
+            std::fs::write(packages.join(name), &data).map_err(|error| error.to_string())?;
+            bytes += data.len() as u64;
+        }
         count += 1;
     }
     Ok((count, bytes))

@@ -75,3 +75,24 @@ fn an_spdx_sbom_names_the_package() {
     assert!(json.contains("SPDX-2.3"));
     assert!(json.contains("demo"));
 }
+#[test]
+fn yanking_a_version_requires_a_reason_and_is_reversible_from_the_backup() {
+    let dir = common::work_dir("registry-yank");
+    let package = dir.join("package");
+    let registry = dir.join("registry");
+    std::fs::create_dir_all(&package).unwrap();
+    std::fs::create_dir_all(&registry).unwrap();
+    common::write(&package, "yashy.toml", "[package]\nname = \"demo\"\nversion = \"1.0.0\"\n");
+    common::write(&package, "main.ya", "fn main() {}\n");
+    yashy_driver::registry::publish(&package, &registry).unwrap();
+    assert!(yashy_driver::registry::yank(&registry, "demo", "1.0.0", "").is_err());
+    let files = yashy_driver::registry::yank(&registry, "demo", "1.0.0", "broken build").unwrap();
+    assert!(files.iter().any(|path| path.to_string_lossy().ends_with("index.json.bak")));
+    let entries = yashy_driver::registry::read_index(&registry).unwrap();
+    let entry = entries.iter().find(|entry| entry.name == "demo").unwrap();
+    assert!(entry.yanked);
+    assert_eq!(entry.yanked_reason.as_deref(), Some("broken build"));
+    let source = yashy_driver::registry::RegistrySource::Local(registry);
+    let req = yashy_manifest::VersionReq::parse("^1.0").unwrap();
+    assert!(yashy_driver::registry::select_source(&source, "demo", &req).unwrap().is_none());
+}

@@ -130,6 +130,8 @@ pub const SIGNATURE_INVALID: &str = "E1805";
 pub const SBOM_MISMATCH: &str = "E1806";
 /// A package names a license or source outside the audit policy.
 pub const POLICY_DENIED: &str = "E1807";
+/// A call needs a capability the package did not grant.
+pub const CAPABILITY_DENIED: &str = "E1808";
 /// A resource is used after it has been released.
 pub const USE_AFTER_CLOSE: &str = "E1401";
 /// A bare linear value is shared across a thread boundary.
@@ -534,6 +536,12 @@ pub const CODES: &[Code] = &[
         page: include_str!("../../../docs/errors/E1806.md"),
     },
     Code {
+        id: CAPABILITY_DENIED,
+        title: "capability not granted",
+        summary: "A call needs a capability the package did not grant in its manifest.",
+        page: include_str!("../../../docs/errors/E1808.md"),
+    },
+    Code {
         id: POLICY_DENIED,
         title: "package policy denial",
         summary: "A package names a license or source outside the project's audit policy.",
@@ -843,6 +851,7 @@ pub fn rule_for(id: &str) -> &'static str {
         SIGNATURE_INVALID => "PKG-6",
         SBOM_MISMATCH => "PKG-7",
         POLICY_DENIED => "PKG-8",
+        CAPABILITY_DENIED => "PKG-9",
         SANDBOX_DENIED => "SANDBOX-1",
         SANDBOX_LIMIT => "SANDBOX-2",
         UNUSED_BINDING => "LINT-1",

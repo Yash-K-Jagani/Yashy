@@ -1081,7 +1081,7 @@ version = "1.0.0"
 optional = true
 ```
 
-`yashyc build --features tls,std` enables the named features (comma-separated);
+`yashyc build --print-capabilities` prints the resolved capability set and\nstops. A manifest with `[capabilities]` asks the checker to refuse a call that\nneeds a grant it did not declare ([E1808](errors/E1808.md)); a manifest without\nthe table keeps the historical permissive behaviour. `yashyc build --features tls,std` enables the named features (comma-separated);
 `--no-default-features` skips `default`. The selected set is sorted, recorded in
 `yashy.lock`, included in the IR cache key, and exposed to `cfg` as
 `feature:<name>` keys. An optional dependency is resolved only when its feature
