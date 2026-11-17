@@ -63,6 +63,7 @@ dependencies = [
  "yashy-common",
  "yashy-expand",
  "yashy-fmt",
+ "yashy-hir",
  "yashy-lexer",
  "yashy-manifest",
  "yashy-parser",

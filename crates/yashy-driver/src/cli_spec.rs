@@ -130,6 +130,13 @@ pub const COMMANDS: &[CommandSpec] = &[
         takes_path: false,
     },
     CommandSpec {
+        name: "repl",
+        summary: "check and run expressions with retained declarations",
+        usage: "yashyc repl",
+        flags: &[],
+        takes_path: false,
+    },
+    CommandSpec {
         name: "fmt",
         summary: "format Yashy sources",
         usage: "yashyc fmt [-w] <files...>",

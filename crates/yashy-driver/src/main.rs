@@ -34,6 +34,7 @@ use yashy_common::{
     EXIT_OK, EXIT_USAGE,
 };
 use yashy_driver::test_harness::{self, TestStatus};
+use yashy_driver::pipeline::{check_and_verify, compile_to_binary};
 use yashy_driver::{
     check_and_verify_timed, compile_hir_timed, detect, diagnostic_json,
     load_and_check_exports_timed, load_and_check_timed, opt_report, resolve_opt, span_json, timed,
@@ -225,6 +226,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "explain" => explain(rest),
         "init" => init(rest),
         "new" => new_cmd(rest),
+        "repl" => repl_cmd(rest),
         "task" => task_cmd(rest),
         "doctor" => doctor(rest),
         "expand" => expand(rest),
@@ -973,6 +975,153 @@ fn run(args: &[String]) -> ExitCode {
     run_as(args, RunMode::Plain)
 }
 
+/// `yashyc repl`: a compiling REPL over the real checker and compiler.
+///
+/// Declarations are kept as source text and rechecked with every line. An
+/// expression becomes a one-function program that prints its value; its type
+/// is read from the HIR the checker produced. There is no second interpreter.
+fn repl_cmd(args: &[String]) -> ExitCode {
+    use std::io::{BufRead as _, Write as _};
+
+    if !args.is_empty() {
+        return usage_error("`repl` takes no arguments; use `:quit` to leave");
+    }
+    let mut repl = yashy_driver::repl::Repl::new();
+    let stdin = std::io::stdin();
+    let mut input = stdin.lock();
+    println!(
+        "Yashy REPL. Declarations are kept; expressions are compiled and run.\n{}",
+        yashy_driver::repl::Repl::help()
+    );
+    loop {
+        print!("yashy> ");
+        let _ = std::io::stdout().flush();
+        let mut line = String::new();
+        match input.read_line(&mut line) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(error) => {
+                eprintln!("error: cannot read a REPL line: {error}");
+                return exit_code(EXIT_INTERNAL);
+            }
+        }
+        let kind = match repl.classify(&line) {
+            Ok(kind) => kind,
+            Err(message) => {
+                eprintln!("error: {message}");
+                continue;
+            }
+        };
+        use yashy_driver::repl::Line;
+        match kind {
+            Line::Empty => continue,
+            Line::Exit => break,
+            Line::Help => println!("{}", yashy_driver::repl::Repl::help()),
+            Line::Clear => {
+                repl.clear();
+                println!("cleared");
+            }
+            Line::Declarations => {
+                if repl.declarations().is_empty() {
+                    println!("(no declarations yet)");
+                } else {
+                    print!("{}", repl.declarations());
+                }
+            }
+            Line::Declaration => {
+                let program = repl.program_for_declaration(&line);
+                let mut sources = SourceMap::new();
+                match check_and_verify(
+                    &mut sources,
+                    Path::new("<repl>"),
+                    program,
+                    false,
+                    &OPTIONS,
+                    0,
+                ) {
+                    Ok(_) => {
+                        repl.accept(&line);
+                        println!("ok");
+                    }
+                    Err(diagnostics) => {
+                        for diagnostic in &diagnostics {
+                            eprint!(
+                                "{}",
+                                yashy_driver::term::render_diagnostic(&sources, diagnostic)
+                            );
+                        }
+                    }
+                }
+            }
+            Line::Expression => {
+                let program = repl.program_for(&line);
+                let mut sources = SourceMap::new();
+                match check_and_verify(
+                    &mut sources,
+                    Path::new("<repl>"),
+                    program.clone(),
+                    false,
+                    &OPTIONS,
+                    0,
+                ) {
+                    Ok((hir, _)) => {
+                        let ty = yashy_driver::repl::Repl::result_type(&hir)
+                            .unwrap_or_else(|| "unknown".to_string());
+                        repl_expression(&program, &ty);
+                    }
+                    Err(diagnostics) => {
+                        for diagnostic in &diagnostics {
+                            eprint!(
+                                "{}",
+                                yashy_driver::term::render_diagnostic(&sources, diagnostic)
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+    exit_code(EXIT_OK)
+}
+
+/// Compile and run one generated REPL program, then remove its scratch files.
+fn repl_expression(program: &str, ty: &str) {
+    let toolchain = match detect() {
+        Ok(toolchain) => toolchain,
+        Err(message) => {
+            eprintln!("error: {message}");
+            return;
+        }
+    };
+    let dir = temp_run_dir();
+    if let Err(error) = std::fs::create_dir_all(&dir) {
+        eprintln!("error: cannot create the REPL scratch directory: {error}");
+        return;
+    }
+    let out = dir.join(format!("repl{}", std::env::consts::EXE_SUFFIX));
+    let options = BuildOptions {
+        ir_cache: false,
+        ..BuildOptions::default()
+    };
+    let built = compile_to_binary(program, "<repl>", &out, &toolchain, options);
+    if let Err(diagnostics) = built {
+        let mut sources = SourceMap::new();
+        sources.add_file("<repl>".to_string(), program.to_string());
+        for diagnostic in &diagnostics {
+            eprint!(
+                "{}",
+                yashy_driver::term::render_diagnostic(&sources, diagnostic)
+            );
+        }
+    } else {
+        match status_with_retry_env(&out, &[], &[]) {
+            Ok(_) => println!("type: {ty}"),
+            Err(error) => eprintln!("error: cannot run the REPL expression: {error}"),
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 fn tasks(args: &[String]) -> ExitCode {
     run_as(args, RunMode::Tasks)
 }
@@ -1562,7 +1711,11 @@ fn tokens(args: &[String]) -> ExitCode {
             report.set("written", Json::array(paths));
             println!("{}", report.render());
         } else {
-            println!("wrote {} editor files under {}", written.len(), dir.display());
+            println!(
+                "wrote {} editor files under {}",
+                written.len(),
+                dir.display()
+            );
         }
         return exit_code(EXIT_OK);
     }
@@ -4404,6 +4557,8 @@ fn profile_cmd(args: &[String]) -> ExitCode {
 fn doc_cmd(args: &[String]) -> ExitCode {
     let mut json = false;
     let mut private = false;
+    let mut serve = false;
+    let mut port = 0u16;
     let mut out_dir: Option<PathBuf> = None;
     let mut input: Option<PathBuf> = None;
     let mut i = 0;
@@ -4411,6 +4566,17 @@ fn doc_cmd(args: &[String]) -> ExitCode {
         match args[i].as_str() {
             "--json" => json = true,
             "--private" => private = true,
+            "--serve" => serve = true,
+            "--port" => {
+                if i + 1 >= args.len() {
+                    return usage_error("`--port` needs a value");
+                }
+                port = match args[i + 1].parse::<u16>() {
+                    Ok(port) => port,
+                    Err(_) => return usage_error("`--port` needs a number from 0 to 65535"),
+                };
+                i += 1;
+            }
             "--out" => {
                 if i + 1 >= args.len() {
                     return usage_error("`--out` needs a value");
@@ -4431,23 +4597,41 @@ fn doc_cmd(args: &[String]) -> ExitCode {
         i += 1;
     }
     let root = input.unwrap_or_else(|| PathBuf::from("."));
-    match yashy_driver::doc::build_doc(&root, private) {
-        Ok(model) => {
-            if json {
-                println!("{}", yashy_driver::doc::to_json(&model).render());
-            } else {
-                let out = out_dir.unwrap_or_else(|| PathBuf::from("target/doc"));
-                if let Err(error) = model.write_to(&out) {
-                    eprintln!("error: cannot write docs to {}: {error}", out.display());
-                    return exit_code(EXIT_COMPILE_ERROR);
-                }
-                println!("wrote {} modules to {}", model.modules.len(), out.display());
+    if serve {
+        match yashy_driver::doc_server::bind(&root, private, port) {
+            Ok((listener, model, chosen)) => {
+                println!("serving docs on http://127.0.0.1:{chosen}/ (read-only)");
+                use std::io::Write as _;
+                let _ = std::io::stdout().flush();
+                yashy_driver::doc_server::serve_bound(listener, model);
+                // `serve` blocks; reaching here would mean the loopback listener
+                // closed, which is a clean exit for a docs server.
+                exit_code(EXIT_OK)
             }
-            exit_code(EXIT_OK)
+            Err(message) => {
+                eprintln!("error: {message}");
+                exit_code(EXIT_USAGE)
+            }
         }
-        Err(message) => {
-            eprintln!("error: {message}");
-            exit_code(EXIT_USAGE)
+    } else {
+        match yashy_driver::doc::build_doc(&root, private) {
+            Ok(model) => {
+                if json {
+                    println!("{}", yashy_driver::doc::to_json(&model).render());
+                } else {
+                    let out = out_dir.unwrap_or_else(|| PathBuf::from("target/doc"));
+                    if let Err(error) = model.write_to(&out) {
+                        eprintln!("error: cannot write docs to {}: {error}", out.display());
+                        return exit_code(EXIT_COMPILE_ERROR);
+                    }
+                    println!("wrote {} modules to {}", model.modules.len(), out.display());
+                }
+                exit_code(EXIT_OK)
+            }
+            Err(message) => {
+                eprintln!("error: {message}");
+                exit_code(EXIT_USAGE)
+            }
         }
     }
 }

@@ -901,7 +901,28 @@ where observable, and pins the process id field, so `log_info`/`log_error`
 and `metrics_add`/`metrics_set` produce byte-identical stderr across runs.
 `YASHY_DETERMINISTIC=1` does the same for a test run.
 
-## `yashyc doc [path] [--out DIR] [--json] [--private]`
+## `yashyc repl`
+
+An interactive session over the real checker and compiler. A declaration
+(`fn`, `struct`, `const`, `let`, ...) is checked and kept for later lines; an
+expression becomes a small program that prints its value, compiled and run by
+the same pipeline a file build uses. The value's type comes from the checked
+HIR, not from a guess in the prompt.
+
+```text
+yashy> fn double(int x) -> int { return x * 2; }
+ok
+yashy> double(21)
+42
+type: int
+```
+
+`:help`, `:decls`, `:clear` and `:quit` control the session. There is no
+interpreter for the whole language: FFI, `unsafe`, imports, `async`, threads and
+filesystem writes are refused with a pointer to `yashyc run`. State is retained
+as source text, so a declaration that fails to check is never added.
+
+## `yashyc doc [path] [--out DIR] [--json] [--private] [--serve] [--port <n>]`
 
 Renders the public surface from the compiler's own tables into `target/doc/`
 (one Markdown file per module plus `index.md`). A private item appears only
@@ -909,6 +930,12 @@ with `--private`; an undocumented public item appears with
 `No documentation.` `--json` emits the same model the Markdown renders
 from. The output is byte-identical across runs and OSes. HTML is out of
 scope: the Markdown is what `llms.txt` and the index already consume.
+
+`--serve` builds the model once and serves it on `127.0.0.1` only. `--port 0`
+asks the OS for a free port and prints the chosen URL; the loop never binds a
+wildcard address and has no write route. The routes are `/` (index), `/json`,
+`/search?q=...` and `/<module>.md`; everything else is a `404`. A docs server
+that could edit the project would be a different, much more dangerous program.
 
 ## `yashyc lsp`
 

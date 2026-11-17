@@ -207,15 +207,28 @@ This phase makes both renderings of the compiler's facts.
   `[tasks] test = "yashyc test"`, `fmt = "yashyc fmt -w ."`. `yashyc task <name>`
   runs the named compiler verb sequence. It never executes an arbitrary shell
   string; a task is a list of verbs and arguments, and `--list` names them.
-- [ ] **Step 3: A REPL with honest limits.** The REPL parses and checks a
+- [x] **Step 3: A REPL with honest limits.** The REPL parses and checks a
   snippet, then evaluates it in a persistent HIR interpreter for the supported
   subset (values, functions, structs, `Option`/`Result`, no FFI, threads, or
   filesystem writes). Unsupported input says so and points at `yashyc run`.
   State is retained between lines; each line reports its type.
-- [ ] **Step 4: `doc --serve`.** Serve the rendered docs over a loopback HTTP
+  *Current:* implemented as a **compiling** REPL, not a persistent HIR
+  interpreter: `repl.rs` keeps accepted declarations as source text, every
+  line is checked by the real checker, an expression becomes a one-function
+  program printed by `print(...)`, and the value's type is read from the
+  checked HIR with `expr_ty`. FFI, `unsafe`, imports, `async`, threads and
+  filesystem writes are refused with a pointer to `yashyc run`. The difference
+  from the plan is a deliberate one: a second interpreter would be a second
+  implementation of the language, and the compiler already compiles a small
+  program quickly.
+- [x] **Step 4: `doc --serve`.** Serve the rendered docs over a loopback HTTP
   server with a search index and a `/json` endpoint. No write access, no
   network bind beyond loopback, `--port 0` prints the chosen port.
-- [ ] **Step 5: Commit.**
+  *Current:* `doc_server.rs` builds the model once, binds only `127.0.0.1`,
+  serves `/`, `/json`, `/search?q=...` and `/<module>.md`, and answers `404`
+  for anything else. `--port 0` prints the chosen URL. The routing rules are
+  unit-tested; `tests/doc_server.rs` also binds a real loopback socket.
+- [x] **Step 5: Commit.**
 
 ### Task 6: The debugger
 
@@ -506,7 +519,7 @@ still owed so a later phase does not inherit a false checklist.
 | 3.1 / 3.2 | `--deny`, `switch`/`while`/`Result` lints, lint suggestions, generated `docs/lints.md` | `--deny <code>`, `--group`, `--docs`, the machine-applicable `var`→`let` suggestion and a generated `docs/lints.md` compared by test; the three named lints are still absent | Add the `switch`/`while`/`Result` rules |
 | 4.1 / 4.3 | Every code has a triggering test or fixture; every code names its rule | Page, heading, catalog, `explain --json` and `--all --json` are tested; `codes::rule_for` gives every code a unique `FAMILY-N` id in the JSON; triggering fixtures are not | Add one triggering fixture per code |
 | 5.1 | First test under 60 s on a cold machine | `new` creates a project and its first test passes; the wall-clock bound is not asserted in the unit test | Measure in CI |
-| 5.3 / 5.4 | `repl`, `doc --serve` | Neither exists; `repl.rs` and `doc_server.rs` are not created | Build both |
+| 5.3 / 5.4 | `repl`, `doc --serve` | A compiling REPL with retained declarations, type reporting and honest refusals; a loopback read-only docs server with `/json` and `/search`; no persistent HIR interpreter | Add an HIR interpreter only if compile-per-expression is too slow |
 | 6 | DWARF/CodeView debugger, async task view, pretty printers | Not started; `run --debug` still writes an LLDB script | Build the debugger |
 | 7 | Sampling and allocation profilers, source coverage | Not started; `profile` is still the 1.0 counter profiler | Build the profilers and `coverage` |
 | 8.1 / 8.2 | `inspect --addr`, contracts, layout, `trace --events`, `tokens --bpe` | `inspect --json` reports signature, effects, docs and span; `tokens --grammar` exists; `--addr`, contracts, layout, `trace` and `--bpe` do not | Add the missing inspection verbs and the BPE measurement |
