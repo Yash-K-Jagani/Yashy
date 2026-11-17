@@ -50,3 +50,11 @@ docs/stdlib.md text eol=lf
 # reason that has nothing to do with the table under test.
 scripts/completions/* text eol=lf
 docs/lints.md text eol=lf
+
+# The editor grammars are compared byte for byte with the renderer's output.
+# A CRLF checkout would make that comparison fail for a reason that has
+# nothing to do with the lexer's vocabulary.
+editors/grammars/** text eol=lf
+editors/vscode/syntaxes/*.json text eol=lf
+editors/vim/*.vim text eol=lf
+editors/emacs/*.el text eol=lf
