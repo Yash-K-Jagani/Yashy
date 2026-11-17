@@ -185,3 +185,50 @@ fn if_let_without_a_pattern_is_a_parse_error() {
 fn while_let_without_a_value_is_a_parse_error() {
     assert!(!parse_err("fn main() { while let Some(x) { } }").is_empty());
 }
+
+#[test]
+fn else_if_is_sugar_for_else_block_holding_one_if() {
+    let stmt = "if a { } else if b { } else { }";
+    let (source, statement) = first_main_stmt(stmt);
+    match statement {
+        Stmt::If {
+            else_block: Some(block),
+            span,
+            ..
+        } => {
+            assert_eq!(source_of(&source, span), stmt);
+            assert_eq!(block.stmts.len(), 1, "one nested if: {block:?}");
+            match &block.stmts[0] {
+                Stmt::If {
+                    else_block: Some(inner),
+                    ..
+                } => assert!(inner.stmts.is_empty(), "the trailing else: {inner:?}"),
+                other => panic!("expected a nested `if`, got {other:?}"),
+            }
+        }
+        other => panic!("expected an `if`, got {other:?}"),
+    }
+}
+
+#[test]
+fn else_if_let_keeps_the_pattern_and_the_nested_value() {
+    let stmt = "if let Some(x) = a { use(x); } else if let Some(y) = b { use(y); }";
+    let (_, statement) = first_main_stmt(stmt);
+    match statement {
+        Stmt::IfLet {
+            else_block: Some(block),
+            ..
+        } => match &block.stmts[0] {
+            Stmt::IfLet {
+                pattern,
+                else_block: None,
+                ..
+            } => assert!(
+                matches!(pattern, Pattern::TupleVariant { path, .. } if path == &["Some".to_string()]),
+                "{pattern:?}"
+            ),
+            other => panic!("expected a nested `if let`, got {other:?}"),
+        },
+        other => panic!("expected an outer `if let`, got {other:?}"),
+    }
+}

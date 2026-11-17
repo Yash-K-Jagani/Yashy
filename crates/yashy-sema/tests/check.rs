@@ -2819,3 +2819,31 @@ fn assigning_to_a_const_explains_let() {
         vec!["use `let` for a mutable binding".to_string()]
     );
 }
+
+#[test]
+fn else_if_lowers_to_a_nested_if_in_the_else_block() {
+    let (result, _, _) = check_source(
+        "fn f(bool a, bool b) -> int { \
+         if a { return 1; } else if b { return 2; } else { return 3; } \
+         }",
+    );
+    let hir = result.expect("else if must type-check");
+    let f = hir
+        .items
+        .iter()
+        .find_map(|item| match item {
+            HirItem::Fn(function) if function.name == "f" => Some(function),
+            _ => None,
+        })
+        .expect("the function");
+    let outer = f
+        .body
+        .stmts
+        .iter()
+        .find_map(|stmt| match stmt {
+            HirStmt::If { else_block, .. } => else_block.as_ref(),
+            _ => None,
+        })
+        .expect("the outer else block");
+    assert!(matches!(outer.stmts.first(), Some(HirStmt::If { .. })));
+}

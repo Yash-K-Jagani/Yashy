@@ -285,6 +285,22 @@ impl<'src> Parser<'src> {
         Ok(Stmt::Return(Some(expr), cover(kw.span, semi.span)))
     }
 
+    /// The block after `else`. `else if` is sugar: the nested `if` (or
+    /// `if let`) is wrapped in a one-statement block, so later stages see the
+    /// same tree a user-written `else { if ... }` would produce and need no
+    /// separate node. The formatter keeps the spelling the source used.
+    fn parse_else_block(&mut self) -> Result<Block, ParseError> {
+        if self.check(TokenKind::If) {
+            let nested = self.parse_if()?;
+            let span = nested.span();
+            return Ok(Block {
+                stmts: vec![nested],
+                span,
+            });
+        }
+        self.parse_block()
+    }
+
     fn parse_if(&mut self) -> Result<Stmt, ParseError> {
         let kw = self.expect(TokenKind::If)?;
         if self.check(TokenKind::Let) {
@@ -301,7 +317,7 @@ impl<'src> Parser<'src> {
         })?;
         let then_block = self.parse_block()?;
         let else_block = if self.eat(TokenKind::Else) {
-            Some(self.parse_block()?)
+            Some(self.parse_else_block()?)
         } else {
             None
         };
@@ -330,7 +346,7 @@ impl<'src> Parser<'src> {
         let value = self.without_block_arg(|p| p.parse_expr())?;
         let then_block = self.parse_block()?;
         let else_block = if self.eat(TokenKind::Else) {
-            Some(self.parse_block()?)
+            Some(self.parse_else_block()?)
         } else {
             None
         };
