@@ -21,6 +21,8 @@ pub struct Symbol {
     pub kind: SymbolKind,
     pub start: usize,
     pub end: usize,
+    /// The declaration line, used for signature help and hovers.
+    pub signature: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -114,9 +116,22 @@ fn declared_symbols(text: &str) -> Vec<Symbol> {
             kind,
             start: span.start as usize,
             end: span.end as usize,
+            signature: declaration_line(text, span.start as usize),
         });
     }
     symbols
+}
+
+fn declaration_line(text: &str, offset: usize) -> String {
+    let start = text[..offset.min(text.len())]
+        .rfind('\n')
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    let end = text[offset.min(text.len())..]
+        .find('\n')
+        .map(|index| offset.min(text.len()) + index)
+        .unwrap_or(text.len());
+    text.get(start..end).unwrap_or("").trim().to_string()
 }
 
 fn identifier_occurrences(text: &str) -> Vec<(String, usize, usize)> {

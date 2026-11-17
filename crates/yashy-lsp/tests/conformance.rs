@@ -76,7 +76,7 @@ fn run(messages: Vec<Value>) -> Vec<Value> {
     replies
 }
 
-const SOURCE: &str = "struct Point { x: int }\nfn add(int a, int b) -> int { return a + b; }\nfn main() { let p = add(1, 2); }\n";
+const SOURCE: &str = "struct Point { x: int }\nfn add(int a, int b) -> int { return a + b; }\nfn main() { let p = add(1, 2); let m = 5; }\n";
 
 #[test]
 fn every_feature_answers_with_a_stable_range() {
@@ -104,9 +104,15 @@ fn every_feature_answers_with_a_stable_range() {
         request(11, "textDocument/hover", at(&uri, 2, 32, &[])),
         request(12, "textDocument/definition", at(&uri, 2, 32, &[])),
         request(13, "textDocument/completion", at(&uri, 2, 32, &[])),
+        request(14, "textDocument/signatureHelp", at(&uri, 2, 24, &[])),
+        request(15, "textDocument/inlayHint", at(&uri, 2, 0, &[])),
+        request(16, "workspace/symbol", object([("query", string("Poi"))])),
+        request(17, "textDocument/prepareCallHierarchy", at(&uri, 2, 22, &[])),
+        request(18, "textDocument/prepareTypeHierarchy", at(&uri, 0, 8, &[])),
+        request(19, "textDocument/codeLens", at(&uri, 0, 0, &[])),
     ];
     let replies = run(messages);
-    for id in 1..=13 {
+    for id in 1..=19 {
         let reply = replies
             .iter()
             .find(|reply| reply.get("id").and_then(Value::as_i64) == Some(id))
@@ -138,6 +144,42 @@ fn every_feature_answers_with_a_stable_range() {
         .and_then(|reply| reply.get("result"))
         .expect("rename answers");
     assert!(rename.get("changes").is_some(), "{rename:?}");
+
+    // signatureHelp names the callee and its declaration line.
+    let signature = replies
+        .iter()
+        .find(|reply| reply.get("id").and_then(Value::as_i64) == Some(14))
+        .and_then(|reply| reply.get("result"))
+        .expect("signature help answers");
+    let rendered = to_string(signature);
+    assert!(rendered.contains("fn add"), "{rendered}");
+
+    // inlayHint proves the inferred binding's type from its literal.
+    let hints = replies
+        .iter()
+        .find(|reply| reply.get("id").and_then(Value::as_i64) == Some(15))
+        .and_then(|reply| reply.get("result"))
+        .expect("inlay hints answer");
+    let rendered = to_string(hints);
+    assert!(rendered.contains(": int"), "{rendered}");
+
+    // workspace/symbol filters by the query.
+    let workspace = replies
+        .iter()
+        .find(|reply| reply.get("id").and_then(Value::as_i64) == Some(16))
+        .and_then(|reply| reply.get("result"))
+        .expect("workspace symbols answer");
+    let rendered = to_string(workspace);
+    assert!(rendered.contains("Point"), "{rendered}");
+    assert!(!rendered.contains("\\\"name\\\": \\\"add\\\""), "{rendered}");
+
+    // code lenses attach a reference count to each declaration.
+    let lenses = replies
+        .iter()
+        .find(|reply| reply.get("id").and_then(Value::as_i64) == Some(19))
+        .and_then(|reply| reply.get("result"))
+        .expect("code lenses answer");
+    assert!(to_string(lenses).contains("references"));
 }
 
 #[test]

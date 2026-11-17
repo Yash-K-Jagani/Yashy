@@ -116,6 +116,16 @@ impl Server {
             }
             Some("textDocument/codeAction") => self.reply(out, id, self.code_actions(params))?,
             Some("textDocument/formatting") => self.reply(out, id, self.formatting(params))?,
+            Some("textDocument/signatureHelp") => self.reply(out, id, self.signature_help(params))?,
+            Some("textDocument/inlayHint") => self.reply(out, id, self.inlay_hints(params))?,
+            Some("workspace/symbol") => self.reply(out, id, self.workspace_symbols(params))?,
+            Some("textDocument/prepareCallHierarchy") => self.reply(out, id, self.prepare_call_hierarchy(params))?,
+            Some("callHierarchy/incomingCalls") => self.reply(out, id, Value::Arr(Vec::new()))?,
+            Some("callHierarchy/outgoingCalls") => self.reply(out, id, Value::Arr(Vec::new()))?,
+            Some("textDocument/prepareTypeHierarchy") => self.reply(out, id, self.prepare_type_hierarchy(params))?,
+            Some("typeHierarchy/supertypes") => self.reply(out, id, Value::Arr(Vec::new()))?,
+            Some("typeHierarchy/subtypes") => self.reply(out, id, Value::Arr(Vec::new()))?,
+            Some("textDocument/codeLens") => self.reply(out, id, self.code_lens(params))?,
             Some(other) => {
                 if let Some(id) = id {
                     self.reply_error(out, id, -32601, &format!("unknown method `{other}`"))?;
@@ -764,6 +774,166 @@ impl Server {
         ])])
     }
 
+    fn signature_help(&self, params: Option<&Value>) -> Value {
+        let Some((_uri, model, offset)) = self.model_for(params) else {
+            return Value::Null;
+        };
+        // Walk back to the unmatched `(` and read the callee before it, so a
+        // request anywhere inside the argument list names the same signature.
+        let bytes = model.text.as_bytes();
+        let mut at = offset.min(bytes.len());
+        let mut depth = 0usize;
+        while at > 0 {
+            at -= 1;
+            match bytes[at] {
+                b')' => depth += 1,
+                b'(' => {
+                    if depth == 0 {
+                        break;
+                    }
+                    depth -= 1;
+                }
+                _ => {}
+            }
+        }
+        let mut end = at;
+        while end > 0 && bytes[end - 1].is_ascii_whitespace() {
+            end -= 1;
+        }
+        let mut start = end;
+        while start > 0 && (bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'_') {
+            start -= 1;
+        }
+        let name = model.text.get(start..end).unwrap_or("");
+        if name.is_empty() {
+            return Value::Null;
+        }
+        let signature = model
+            .symbols
+            .iter()
+            .find(|symbol| symbol.name == name)
+            .map(|symbol| symbol.signature.clone())
+            .or_else(|| builtin_signature(name).map(str::to_string));
+        match signature {
+            Some(signature) => object([
+                ("signatures", Value::Arr(vec![object([
+                    ("label", string(signature)),
+                    ("parameters", Value::Arr(Vec::new())),
+                ])])),
+                ("activeSignature", number(0)),
+                ("activeParameter", number(0)),
+            ]),
+            None => Value::Null,
+        }
+    }
+
+    fn inlay_hints(&self, params: Option<&Value>) -> Value {
+        let Some((_uri, model, _)) = self.model_for(params) else {
+            return Value::Null;
+        };
+        // An untyped `let` infers its type from a literal initialiser. Showing
+        // that type at the binding is the one hint the checker can prove
+        // without a second inference pass.
+        Value::Arr(
+            inferred_bindings(&model.text)
+                .into_iter()
+                .map(|(end, label)| {
+                    let (line, character) = model.lines.position(&model.text, end);
+                    object([
+                        (
+                            "position",
+                            object([
+                                ("line", number(i64::from(line))),
+                                ("character", number(i64::from(character))),
+                            ]),
+                        ),
+                        ("label", string(format!(": {label}"))),
+                        ("kind", number(1)),
+                    ])
+                })
+                .collect(),
+        )
+    }
+
+    fn workspace_symbols(&self, params: Option<&Value>) -> Value {
+        let query = params
+            .and_then(|params| params.get("query"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_lowercase();
+        let mut symbols = Vec::new();
+        for (uri, text) in &self.documents {
+            let model = crate::model::LspModel::new(text);
+            for symbol in &model.symbols {
+                if !query.is_empty() && !symbol.name.to_lowercase().contains(&query) {
+                    continue;
+                }
+                let (sl, sc, el, ec) = model.range(symbol.start, symbol.end);
+                symbols.push(object([
+                    ("name", string(&symbol.name)),
+                    ("kind", number(symbol.kind.lsp())),
+                    ("location", object([
+                        ("uri", string(uri)),
+                        ("range", range(sl, sc, el, ec)),
+                    ])),
+                ]));
+            }
+        }
+        Value::Arr(symbols)
+    }
+
+    fn hierarchy_item(&self, params: Option<&Value>) -> Value {
+        let Some((uri, model, offset)) = self.model_for(params) else {
+            return Value::Null;
+        };
+        let Some(word) = word_at(&model.text, offset) else {
+            return Value::Null;
+        };
+        let Some(symbol) = model.symbols.iter().find(|symbol| symbol.name == word) else {
+            return Value::Null;
+        };
+        let (sl, sc, el, ec) = model.range(symbol.start, symbol.end);
+        object([
+            ("name", string(&symbol.name)),
+            ("kind", number(symbol.kind.lsp())),
+            ("uri", string(&uri)),
+            ("range", range(sl, sc, el, ec)),
+            ("selectionRange", range(sl, sc, el, ec)),
+        ])
+    }
+
+    fn prepare_call_hierarchy(&self, params: Option<&Value>) -> Value {
+        self.hierarchy_item(params)
+    }
+
+    fn prepare_type_hierarchy(&self, params: Option<&Value>) -> Value {
+        self.hierarchy_item(params)
+    }
+
+    fn code_lens(&self, params: Option<&Value>) -> Value {
+        let Some((uri, model, _)) = self.model_for(params) else {
+            return Value::Null;
+        };
+        Value::Arr(
+            model
+                .symbols
+                .iter()
+                .map(|symbol| {
+                    let (sl, sc, el, ec) = model.range(symbol.start, symbol.end);
+                    let count = model.occurrences.get(&symbol.name).map(Vec::len).unwrap_or(0);
+                    object([
+                        ("range", range(sl, sc, el, ec)),
+                        ("command", object([
+                            ("title", string(format!("{count} references"))),
+                            ("command", string("editor.action.findReferences")),
+                            ("arguments", Value::Arr(vec![string(uri.clone()), number(i64::from(sl))])),
+                        ])),
+                    ])
+                })
+                .collect(),
+        )
+    }
+
     fn reply<W: Write>(&self, out: &mut W, id: Option<Value>, result: Value) -> io::Result<()> {
         let Some(id) = id else {
             return Ok(());
@@ -826,6 +996,12 @@ fn initialize() -> Value {
                 ("documentHighlightProvider", Value::Bool(true)),
                 ("codeActionProvider", Value::Bool(true)),
                 ("documentFormattingProvider", Value::Bool(true)),
+                ("signatureHelpProvider", object([("triggerCharacters", Value::Arr(vec![string("("), string(",")]))])),
+                ("inlayHintProvider", Value::Bool(true)),
+                ("workspaceSymbolProvider", Value::Bool(true)),
+                ("callHierarchyProvider", Value::Bool(true)),
+                ("typeHierarchyProvider", Value::Bool(true)),
+                ("codeLensProvider", object([("resolveProvider", Value::Bool(false))])),
                 (
                     "diagnosticProvider",
                     object([
@@ -907,6 +1083,55 @@ fn range(sl: u32, sc: u32, el: u32, ec: u32) -> Value {
             ]),
         ),
     ])
+}
+
+/// One `let` binding whose initialiser is a literal, so its type is provable
+/// from the token alone. Returns the byte offset at the end of the name and the
+/// type label.
+fn inferred_bindings(text: &str) -> Vec<(usize, &'static str)> {
+    let mut sources = SourceMap::new();
+    let file = sources.add_file("model.ya".to_string(), text.to_string());
+    let Ok(tokens) = Lexer::with_file(text, file).tokenize() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let mut index = 0;
+    while index < tokens.len() {
+        if tokens[index].kind != TokenKind::Let {
+            index += 1;
+            continue;
+        }
+        let mut at = index + 1;
+        let mut names = Vec::new();
+        while at < tokens.len()
+            && !matches!(
+                tokens[at].kind,
+                TokenKind::Eq | TokenKind::Semi | TokenKind::Eof
+            )
+        {
+            if tokens[at].kind == TokenKind::Ident {
+                names.push(at);
+            }
+            at += 1;
+        }
+        // One identifier before `=` is an untyped binding; two or more mean the
+        // first one is the written type, which needs no hint.
+        if names.len() == 1 && tokens.get(at).map(|token| token.kind) == Some(TokenKind::Eq) {
+            let label = tokens.get(at + 1).and_then(|token| match token.kind {
+                TokenKind::I64 => Some("int"),
+                TokenKind::F64 => Some("float"),
+                TokenKind::Str => Some("string"),
+                TokenKind::Char => Some("char"),
+                TokenKind::True | TokenKind::False => Some("bool"),
+                _ => None,
+            });
+            if let Some(label) = label {
+                out.push((tokens[names[0]].span.end as usize, label));
+            }
+        }
+        index = at.max(index + 1);
+    }
+    out
 }
 
 /// Diagnostics for a source string, in LSP form, for pull diagnostics.
