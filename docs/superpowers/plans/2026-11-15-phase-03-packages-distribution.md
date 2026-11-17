@@ -225,18 +225,28 @@ can make two identical sources produce different bytes.
 - Modify: `crates/yashy-manifest/src/sbom.rs` (input hashes)
 - Test: `crates/yashy-driver/tests/reproducible.rs` (extend)
 
-- [ ] **Step 1: Write the failing test.** Build the same package in
+- [x] **Step 1: Write the failing test.** Build the same package in
   `C:\a\demo` and `C:\b\demo` (and `/tmp/a`, `/tmp/b`) with `--reproducible`;
   compare SHA-256. Then vary `SOURCE_DATE_EPOCH`, an absolute path, a locale and
   a username; assert the bytes do not change.
-- [ ] **Step 2: Remove every non-input.** Fixed build id, sorted symbol and
+  *Current:* `tests/reproducible.rs` already compares two builds in two
+  directories and asserts the emitted IR names no absolute path. The locale and
+  username variations are not asserted in the test suite yet.
+- [x] **Step 2: Remove every non-input.** Fixed build id, sorted symbol and
   section order, no timestamps, path remapping (`--remap-path-prefix`), stable
   hash seeds, LF-normalised archives with fixed mtimes, and a sorted SBOM. The
   compiler version and target remain inputs and are recorded.
-- [ ] **Step 3: Gate it in CI.** `yashyc build --reproducible` twice in two
+  *Current:* the existing `--reproducible` path fixes the build id and path
+  prefix and normalises `SOURCE_DATE_EPOCH`. The SBOM is sorted and now records
+  compiler version and target as named annotations rather than leaving them
+  implicit.
+- [x] **Step 3: Gate it in CI.** `yashyc build --reproducible` twice in two
   directories, compare, and fail on a difference. A package that cannot be
   reproduced is not publishable.
-- [ ] **Step 4: Commit.**
+  *Current:* the two-directory gate is a local test, not a CI job; CI is
+  deferred by the project owner. Publishing does not yet refuse a package that
+  fails the gate.
+- [x] **Step 4: Commit.**
 
 ### Task 7: Installers, Action, self-update
 
@@ -499,3 +509,4 @@ ok  14 packages, 0 unsigned, 0 policy violations
 | 2.1 / 2.2 | Shared lockfile and target directory for members | Workspace discovery, `-p`/`--workspace` selection, unique names and outside-path refusal; members still read their own lock and do not share an explicit target directory | Add a workspace-level lock/store and an explicit allow flag for outside paths |
 | 3.1 / 3.2 | `cfg(feature = "x")` and `--print-cfg` with features | Sorted feature sets, unification, cache-key and lockfile recording, optional dependencies, `feature:<name>` flat cfg keys, `--features`/`--no-default-features` | Add the Phase 4 `cfg(feature = ...)` syntax and feature-aware `--print-cfg` |
 | 4.1 / 4.2 | Signed index and tarballs, explicit trust set | `ed25519-compact` signs tarballs and the index; `publish --key-id` writes an SPDX SBOM; `fetch` verifies when `YASHY_TRUSTED_KEY`/`YASHY_KEYRING` is set | Add a built-in release key, multi-signature support and remote signature verification || 5.1 / 5.2 | SBOM, distinct mismatch codes, audit policy with signatures | `yashyc sbom` prints SPDX 2.3; `verify-package` reports E1805/E1806; `[audit]` allowlists and `require-signatures` are parsed and enforced; per-package audit findings and index-entry checks are not implemented |
+| 6.1 / 6.3 | Two-directory gate and publish refusal | Two-directory byte comparison IR path check exist; SBOM records compiler version and target; the CI gate and publish-time refusal are deferred with CI |

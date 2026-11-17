@@ -5527,7 +5527,16 @@ fn sbom_cmd(args: &[String]) -> ExitCode {
             ));
         }
     }
-    println!("{}", yashy_manifest::spdx_json(&packages).render());
+    let mut metadata = std::collections::BTreeMap::new();
+    metadata.insert(
+        "compiler_version".to_string(),
+        env!("CARGO_PKG_VERSION").to_string(),
+    );
+    metadata.insert("target".to_string(), host_target_triple().to_string());
+    println!(
+        "{}",
+        yashy_manifest::spdx_json_with_metadata(&packages, &metadata).render()
+    );
     exit_code(EXIT_OK)
 }
 

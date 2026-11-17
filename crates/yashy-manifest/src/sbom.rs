@@ -43,8 +43,17 @@ fn spdx_package(package: &SbomPackage) -> Json {
     value
 }
 
-/// Render SPDX JSON for the given packages.
+/// Render SPDX JSON for the given packages, with optional build inputs.
 pub fn spdx_json(packages: &[SbomPackage]) -> Json {
+    spdx_json_with_metadata(packages, &std::collections::BTreeMap::new())
+}
+
+/// The same document with named build inputs, such as the compiler version and
+/// target triple. A verifier can recompute these from the release.
+pub fn spdx_json_with_metadata(
+    packages: &[SbomPackage],
+    metadata: &std::collections::BTreeMap<String, String>,
+) -> Json {
     let mut sorted = packages.to_vec();
     sorted.sort_by(|left, right| left.name.cmp(&right.name));
     let mut document = Json::object();
@@ -56,6 +65,17 @@ pub fn spdx_json(packages: &[SbomPackage]) -> Json {
         "documentNamespace",
         Json::string("https://yashy.dev/spdx/package"),
     );
+    if !metadata.is_empty() {
+        let mut annotations = Vec::new();
+        for (name, value) in metadata {
+            let mut annotation = Json::object();
+            annotation.set("annotationDate", Json::string("1970-01-01T00:00:00Z"));
+            annotation.set("annotator", Json::string("Tool: yashyc"));
+            annotation.set("comment", Json::string(format!("{name}={value}")));
+            annotations.push(annotation);
+        }
+        document.set("annotations", Json::array(annotations));
+    }
     document.set(
         "packages",
         Json::array(sorted.iter().map(spdx_package).collect()),

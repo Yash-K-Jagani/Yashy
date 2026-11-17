@@ -667,7 +667,12 @@ pub fn ir_cache_key(
         options.reproducible.to_string(),
         options.target.to_string(),
         options.debug_info.to_string(),
-        options.features.iter().cloned().collect::<Vec<_>>().join(","),
+        options
+            .features
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(","),
     ]
     .join("|");
 
@@ -1057,7 +1062,8 @@ pub fn compile_to_binary(
     let mut program = Parser::new(tokens, &sources, file).parse_program()?;
     // The one-file path filters `cfg` too, or a single-file build would be the
     // one place a platform branch is resolved on the wrong platform.
-    let set = crate::cfg::CfgSet::for_target(options.target, options.release).with_features(&options.features);
+    let set = crate::cfg::CfgSet::for_target(options.target, options.release)
+        .with_features(&options.features);
     let cfg_diagnostics = crate::cfg::filter(&mut program, &set, file);
     if !cfg_diagnostics.is_empty() {
         return Err(cfg_diagnostics);

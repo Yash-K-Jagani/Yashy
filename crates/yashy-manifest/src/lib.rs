@@ -27,7 +27,7 @@ pub mod version;
 pub use lock::{hash_tree, sha256_hex, LockError, LockedPackage, Lockfile};
 pub use manifest::{AuditPolicy, Dependency, Manifest, Package, Workspace};
 pub use req::VersionReq;
-pub use sbom::{spdx_json, SbomPackage};
+pub use sbom::{spdx_json, spdx_json_with_metadata, SbomPackage};
 pub use signature::{public_key, sign, verify, Keyring, Signature, VerifyError};
 pub use toml::{ParseError, Value};
 pub use version::Version;
