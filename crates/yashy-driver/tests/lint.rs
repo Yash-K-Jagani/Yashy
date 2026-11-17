@@ -47,3 +47,46 @@ fn lint_never_fails_the_build_by_itself() {
     let output = run(&dir, &["lint", "main.ya"]);
     assert!(output.status.success());
 }
+
+#[test]
+fn deny_promotes_a_lint_to_an_error() {
+    let dir = work_dir("lint-deny");
+    write(&dir, "main.ya", "fn main() { var int x = 1; }\n");
+    let output = run(&dir, &["lint", "--deny", "LINT-VAR", "main.ya"]);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "a denied lint must fail the command:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn group_filters_the_reported_lints() {
+    let dir = work_dir("lint-group");
+    write(&dir, "main.ya", "fn main() { var int x = 1; }\n");
+    let output = run(&dir, &["lint", "--json", "--group", "style", "main.ya"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains("LINT-VAR"), "{stdout}");
+    assert!(!stdout.contains("LINT-UNUSED"), "{stdout}");
+}
+
+#[test]
+fn the_var_lint_carries_a_machine_applicable_fix() {
+    let dir = work_dir("lint-suggestion");
+    write(&dir, "main.ya", "fn main() { var int x = 1; }\n");
+    let output = run(&dir, &["lint", "--json", "main.ya"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"replacement\": \"let\""), "{stdout}");
+    assert!(stdout.contains("MachineApplicable"), "{stdout}");
+}
+
+#[test]
+fn the_committed_lint_page_is_the_rendered_registry() {
+    let rendered = yashy_driver::lint::render_docs();
+    let page = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/lints.md"),
+    )
+    .expect("docs/lints.md must exist");
+    assert_eq!(page, rendered, "run `yashyc lint --docs > docs/lints.md`");
+}

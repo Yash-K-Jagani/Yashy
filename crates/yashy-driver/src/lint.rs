@@ -4,7 +4,7 @@
 //! program builds. Each lint has a stable code, a group and a check over the
 //! text; `--list --json` is the machine form docs are rendered from.
 
-use yashy_common::{Diagnostic, FileId, Severity, Span};
+use yashy_common::{Applicability, Diagnostic, FileId, Severity, Span, Suggestion};
 
 /// The group a lint belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -12,6 +12,9 @@ pub enum LintGroup {
     Correctness,
     Style,
     Complexity,
+    Perf,
+    Security,
+    Deprecated,
 }
 
 impl LintGroup {
@@ -20,7 +23,15 @@ impl LintGroup {
             LintGroup::Correctness => "correctness",
             LintGroup::Style => "style",
             LintGroup::Complexity => "complexity",
+            LintGroup::Perf => "perf",
+            LintGroup::Security => "security",
+            LintGroup::Deprecated => "deprecated",
         }
+    }
+
+    /// Parse a group name from the command line.
+    pub fn parse(name: &str) -> Option<LintGroup> {
+        GROUPS.iter().copied().find(|group| group.as_str() == name)
     }
 }
 
@@ -28,6 +39,9 @@ pub const GROUPS: &[LintGroup] = &[
     LintGroup::Correctness,
     LintGroup::Style,
     LintGroup::Complexity,
+    LintGroup::Perf,
+    LintGroup::Security,
+    LintGroup::Deprecated,
 ];
 
 /// One registered lint.
@@ -36,6 +50,8 @@ pub struct Lint {
     pub code: &'static str,
     pub group: LintGroup,
     pub message: &'static str,
+    /// The one-line fix shown in the generated page.
+    pub hint: &'static str,
 }
 
 pub const LINTS: &[Lint] = &[
@@ -43,27 +59,44 @@ pub const LINTS: &[Lint] = &[
         code: "LINT-UNUSED",
         group: LintGroup::Correctness,
         message: "a binding is never used",
+        hint: "remove the binding, or use `_` if the value is intentionally ignored",
     },
     Lint {
         code: "LINT-SHADOW",
         group: LintGroup::Style,
         message: "a binding shadows an earlier name in the same function",
+        hint: "rename one of the bindings so both stay readable",
     },
     Lint {
         code: "LINT-VAR",
         group: LintGroup::Correctness,
         message: "`var` was removed: use `let`",
+        hint: "`let` is the only mutable binding keyword",
     },
 ];
 
-/// Run all lints over `source`, producing diagnostics at byte spans.
+/// Run every lint over `source`.
 pub fn check(source: &str, file: FileId) -> Vec<Diagnostic> {
+    check_filtered(source, file, None)
+}
+
+/// Run the lints in `group`, or every lint when `group` is `None`.
+pub fn check_filtered(source: &str, file: FileId, group: Option<LintGroup>) -> Vec<Diagnostic> {
     let mut out = Vec::new();
     for lint in LINTS {
+        if group.is_some_and(|group| group != lint.group) {
+            continue;
+        }
         match lint.code {
             "LINT-VAR" => {
                 for (start, _) in find_word(source, "var") {
-                    out.push(make(lint, file, start, start + 3));
+                    let edit = Suggestion {
+                        span: Span::new(start as u32, (start + 3) as u32),
+                        replacement: "let".to_string(),
+                        applicability: Applicability::MachineApplicable,
+                        message: "replace `var` with `let`".to_string(),
+                    };
+                    out.push(make(lint, file, start, start + 3).with_suggestions(vec![edit]));
                 }
             }
             "LINT-UNUSED" | "LINT-SHADOW" => {
@@ -87,6 +120,31 @@ pub fn check(source: &str, file: FileId) -> Vec<Diagnostic> {
         }
     }
     out.sort_by_key(|diagnostic| diagnostic.span.start);
+    out
+}
+
+/// The human page, rendered from the registry.
+///
+/// `docs/lints.md` is this string; `cargo test -p yashy-driver --test lint`
+/// compares the committed file with it, so a lint cannot exist only in code.
+pub fn render_docs() -> String {
+    let mut out = String::from("# Lints\n\n");
+    out.push_str(
+        "`yashyc lint --list --json` is the machine form of this page. A lint is\n\
+         advice: it never changes whether a program builds. A lint can be promoted\n\
+         to an error with `yashyc lint --deny <code> <file.ya>`, and filtered to one\n\
+         group with `--group <correctness|style|complexity|perf|security|deprecated>`.\n\n",
+    );
+    out.push_str("| Code | Group | Message | Fix |\n|---|---|---|---|\n");
+    for lint in LINTS {
+        out.push_str(&format!(
+            "| `{}` | {} | {} | {} |\n",
+            lint.code,
+            lint.group.as_str(),
+            lint.message,
+            lint.hint
+        ));
+    }
     out
 }
 

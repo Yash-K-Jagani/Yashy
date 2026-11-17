@@ -154,10 +154,13 @@ This phase makes both renderings of the compiler's facts.
   and a removed keyword are reported with a code and a group. `--deny`, the
   `switch`/`while`/`Result` lints and lint-supplied suggestions are not
   implemented yet; `lint.rs` tests the three lints it has.
+  *Current:* `--deny <code>`, `--group <g>`, `--docs`, the machine-applicable
+  `var`→`let` suggestion and the generated page now exist and are tested. The
+  `switch`, `while` and `Result` lints are still absent.
 - [x] **Step 2: Lints are data.** A lint is registered once with a code, a
-  group and a check. `yashyc lint --list --json` is the machine form.
-  `docs/lints.md` is not generated yet, so the human documentation page is the
-  open half of this step.
+  group and a check. `yashyc lint --list --json` is the machine form and
+  `yashyc lint --docs` renders `docs/lints.md`, which the lint test compares
+  byte for byte.
 - [ ] **Step 3: The formatter owns layout.** The formatter is total over the
   grammar, idempotent, comment-preserving and byte-stable across OSes. It never
   splits a keyword or operator token (the BPE rule), and `--check` reports
@@ -181,8 +184,11 @@ This phase makes both renderings of the compiler's facts.
 - [x] **Step 2: Make the catalog generated.** `yashyc explain --all --json` is
   the machine form; `docs/errors.md` is rendered from it plus the pages. A code
   without a page fails the build; a page without a code fails the docs test.
-- [ ] **Step 3: Rule ids.** Every code names the rule it enforces (`OWN-3`,
-  `ALIAS-2`, `DET-4`, …). Phase 9 turns this into the full traceability matrix.
+- [x] **Step 3: Rule ids.** Every code names the rule it enforces
+  (`OWN-3`, `ALIAS-2`, `DET-4`, …) through `codes::rule_for`; `explain --json`
+  and `explain --all --json` carry a `rule` field, and a unit test refuses an
+  empty or duplicate rule. Phase 9 turns this into the full traceability
+  matrix.
 - [x] **Step 4: Commit.**
 
 ### Task 5: `new`, `task`, `repl`, `doc --serve`
@@ -360,7 +366,8 @@ This phase makes both renderings of the compiler's facts.
 - [x] **Step 2: One command table.** A verb is declared once with its flags,
   defaults, examples and completion kind. Help, the man page, the shell
   completions and `index --json` render from that table; a flag added in one
-  place cannot be missing from another.
+  place cannot be missing from another. The table now names every verb in
+  `dispatch` (the previous 18-verb gap is closed).
 - [ ] **Step 3: Shell integration is generated.** `yashyc completions bash`
   (and zsh, fish, PowerShell) prints a script that completes verbs, flags and
   file arguments; the generated files under `scripts/completions/` are
@@ -454,8 +461,8 @@ still owed so a later phase does not inherit a false checklist.
 |---|---|---|---|
 | 1.1–1.3 | All LSP features answer; `LspModel` is a `yashy-query` snapshot; rename refuses macro-origin and out-of-workspace edits | All 19 features answer from a source-derived `LspModel`; rename refuses invalid names and collisions; code actions are a rename stub with an empty edit | Feed the model from the query database; apply `suggestions[]` in a code action; add project-wide rename refusals |
 | 2.1 / 2.2 / 2.4 | Name typo, missing `move`, wrong argument order, LSP-applied fix, SARIF `fixes` | Removed-keyword suggestion end to end (JSON, `fix`, dry run, stale hash); SARIF 2.1.0 rules/levels/locations; no `fixes`, no LSP application, no missing-`move` or argument-order suggestion | Add the two suggestion producers, the code-action consumer and SARIF `fixes` |
-| 3.1 / 3.2 | `--deny`, `switch`/`while`/`Result` lints, lint suggestions, generated `docs/lints.md` | Three data-driven lints (unused, shadowed, removed keyword), `lint --list --json`; no `--deny`, no suggestions, no generated page | Add the remaining rules and render the page from the registry |
-| 4.1 | Every code has a triggering test or fixture | Page, heading, catalog, `explain --json` and `--all --json` are tested; triggering fixtures are not | Add one triggering fixture per code |
+| 3.1 / 3.2 | `--deny`, `switch`/`while`/`Result` lints, lint suggestions, generated `docs/lints.md` | `--deny <code>`, `--group`, `--docs`, the machine-applicable `var`→`let` suggestion and a generated `docs/lints.md` compared by test; the three named lints are still absent | Add the `switch`/`while`/`Result` rules |
+| 4.1 / 4.3 | Every code has a triggering test or fixture; every code names its rule | Page, heading, catalog, `explain --json` and `--all --json` are tested; `codes::rule_for` gives every code a unique `FAMILY-N` id in the JSON; triggering fixtures are not | Add one triggering fixture per code |
 | 5.1 | First test under 60 s on a cold machine | `new` creates a project and its first test passes; the wall-clock bound is not asserted in the unit test | Measure in CI |
 | 5.3 / 5.4 | `repl`, `doc --serve` | Neither exists; `repl.rs` and `doc_server.rs` are not created | Build both |
 | 6 | DWARF/CodeView debugger, async task view, pretty printers | Not started; `run --debug` still writes an LLDB script | Build the debugger |

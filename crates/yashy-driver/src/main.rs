@@ -2106,6 +2106,7 @@ fn explain(args: &[String]) -> ExitCode {
                 value.set("id", Json::string(entry.id));
                 value.set("title", Json::string(entry.title));
                 value.set("summary", Json::string(entry.summary));
+                value.set("rule", Json::string(codes::rule_for(entry.id)));
                 value.set("docs_url", Json::string(codes::docs_url(entry.id)));
                 value
             })
@@ -2148,6 +2149,7 @@ fn print_explain_json(code: &codes::Code) {
     report.set("code", Json::string(code.id));
     report.set("title", Json::string(code.title));
     report.set("summary", Json::string(code.summary));
+    report.set("rule", Json::string(codes::rule_for(code.id)));
     report.set("page", Json::string(code.page));
     report.set("docs_url", Json::string(codes::docs_url(code.id)));
     println!("{}", report.render());
@@ -2990,23 +2992,50 @@ fn print_inventory(sources: &SourceMap, assumptions: &[Assumption]) {
 
 /// `yashyc lint <file.ya> [--json] [--list] [--group <g>]`.
 fn lint_cmd(args: &[String]) -> ExitCode {
-    use yashy_driver::lint::{GROUPS, LINTS};
+    use yashy_driver::lint::{self, GROUPS, LINTS, LintGroup};
     let mut json = false;
     let mut list = false;
+    let mut docs = false;
+    let mut group: Option<LintGroup> = None;
+    let mut deny: Vec<String> = Vec::new();
     let mut operands: Vec<String> = Vec::new();
     let mut iter = args.iter();
     while let Some(argument) = iter.next() {
         match argument.as_str() {
             "--json" => json = true,
             "--list" => list = true,
+            "--docs" => docs = true,
             "--group" => {
-                iter.next();
+                let Some(value) = iter.next() else {
+                    return usage_error("`--group` needs a group name");
+                };
+                let Some(parsed) = LintGroup::parse(value) else {
+                    let names: Vec<&str> = GROUPS.iter().map(|group| group.as_str()).collect();
+                    return usage_error(&format!(
+                        "unknown lint group `{value}`; expected one of {}",
+                        names.join(", ")
+                    ));
+                };
+                group = Some(parsed);
+            }
+            "--deny" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`--deny` needs a lint code");
+                };
+                if !LINTS.iter().any(|lint| lint.code == value) {
+                    return usage_error(&format!("unknown lint code `{value}` for `--deny`"));
+                }
+                deny.push(value.clone());
             }
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown option `{other}` for `lint`"));
             }
             other => operands.push(other.to_string()),
         }
+    }
+    if docs {
+        print!("{}", lint::render_docs());
+        return exit_code(EXIT_OK);
     }
     if list {
         if json {
@@ -3017,6 +3046,7 @@ fn lint_cmd(args: &[String]) -> ExitCode {
                     object.set("code", Json::string(lint.code));
                     object.set("group", Json::string(lint.group.as_str()));
                     object.set("message", Json::string(lint.message));
+                    object.set("hint", Json::string(lint.hint));
                     object
                 })
                 .collect();
@@ -3037,7 +3067,10 @@ fn lint_cmd(args: &[String]) -> ExitCode {
         Ok(source) => source,
         Err(code) => return code,
     };
-    let diagnostics = yashy_driver::lint::check(&source, FileId::from_index(0));
+    let diagnostics = lint::check_filtered(&source, FileId::from_index(0), group);
+    let denied = diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code.is_some_and(|code| deny.iter().any(|deny| deny == code)));
     if json {
         let items: Vec<Json> = diagnostics
             .iter()
@@ -3045,6 +3078,7 @@ fn lint_cmd(args: &[String]) -> ExitCode {
             .collect();
         let mut report = Json::object();
         report.set("lints", Json::array(items));
+        report.set("denied", Json::bool(denied));
         println!("{}", report.render());
     } else {
         let mut map = SourceMap::new();
@@ -3052,6 +3086,12 @@ fn lint_cmd(args: &[String]) -> ExitCode {
         for diagnostic in &diagnostics {
             eprint!("{}", map.render(diagnostic));
         }
+        if diagnostics.is_empty() {
+            println!("no lints in {file}");
+        }
+    }
+    if denied {
+        return exit_code(EXIT_COMPILE_ERROR);
     }
     exit_code(EXIT_OK)
 }

@@ -734,6 +734,103 @@ pub fn docs_url(id: &str) -> String {
     format!("https://yashy.dev/errors/{id}")
 }
 
+/// The stable rule id a code enforces.
+///
+/// A rule groups the codes that answer the same question (`TYPE`, `OWN`,
+/// `PAT`, ...) and numbers them within that family. Phase 9's traceability
+/// matrix is built from this function, so a code without a rule is a test
+/// failure rather than a silent gap.
+pub fn rule_for(id: &str) -> &'static str {
+    match id {
+        UNKNOWN_NAME => "NAME-1",
+        UNKNOWN_TYPE => "NAME-2",
+        TYPE_MISMATCH => "TYPE-1",
+        CHAINED_EQUALITY => "TYPE-2",
+        FIELD_DEFAULT_NOT_CONST => "TYPE-3",
+        BITWISE_NOT_INTEGER => "TYPE-4",
+        BITWISE_MIXED_TYPES => "TYPE-5",
+        SHIFT_OUT_OF_RANGE => "TYPE-6",
+        REPR_NOT_ALLOWED => "TYPE-7",
+        SIZE_OF_UNKNOWN => "TYPE-8",
+        OFFSET_OF_NOT_REPR_C => "TYPE-9",
+        TYPE_AFTER_NAME => "TYPE-10",
+        UNKNOWN_FIELD => "FIELD-1",
+        MISSING_FIELD => "FIELD-2",
+        DUPLICATE_FIELD => "FIELD-3",
+        MISSING_QUESTION => "TRY-1",
+        MIXED_TRY => "TRY-2",
+        CONST_REASSIGNMENT => "MUT-1",
+        MOVED_VALUE => "OWN-1",
+        LEAK => "OWN-2",
+        PARTIAL_MOVE => "OWN-3",
+        ARENA_ESCAPE => "OWN-4",
+        ARENA_FREE => "OWN-5",
+        NON_EXHAUSTIVE_MATCH => "PAT-1",
+        UNREACHABLE_ARM => "PAT-2",
+        BAD_RANGE_PATTERN => "PAT-3",
+        IRREFUTABLE_IF_LET => "PAT-4",
+        UNKNOWN_LABEL => "PAT-5",
+        DUPLICATE_LABEL => "PAT-6",
+        WRONG_ARGUMENT_COUNT => "CALL-1",
+        UNKNOWN_NAMED_ARGUMENT => "CALL-2",
+        DUPLICATE_ARGUMENT => "CALL-3",
+        PRIVATE_ITEM => "VIS-1",
+        MODULE_CYCLE => "VIS-2",
+        DUPLICATE_EXTERN_SYMBOL => "FFI-1",
+        MALFORMED_EXTERN => "FFI-2",
+        VARIADIC_MISPLACED => "FFI-3",
+        CONTRACT => "CONTRACT-1",
+        GRAPHEME_OOB => "RUNTIME-1",
+        OVERFLOW => "RUNTIME-2",
+        EFFECT => "EFFECT-1",
+        UNSAFE_CALL => "EFFECT-2",
+        DOUBLE_CLOSE => "THREAD-1",
+        USE_AFTER_CLOSE => "THREAD-2",
+        RACE => "THREAD-3",
+        UNKNOWN_TRAIT => "TRAIT-1",
+        CONFLICTING_IMPL => "TRAIT-2",
+        INCOMPLETE_IMPL => "TRAIT-3",
+        UNSATISFIED_BOUND => "TRAIT-4",
+        AMBIGUOUS_METHOD => "TRAIT-5",
+        INSTANTIATION_BUDGET => "TRAIT-6",
+        METHOD_THROUGH_TYPE => "TRAIT-7",
+        ASSOC_THROUGH_VALUE => "TRAIT-8",
+        UNKNOWN_ASSOCIATED_FN => "TRAIT-9",
+        WRONG_TYPE_ARG_COUNT => "TRAIT-10",
+        UNUSED_TYPE_PARAMETER => "TRAIT-11",
+        GENERIC_TRAIT => "TRAIT-12",
+        INHERITANCE => "TRAIT-13",
+        DROP_TRAIT => "TRAIT-14",
+        TRAIT_STATE => "TRAIT-15",
+        OPERATOR_OVERLOAD => "TRAIT-16",
+        MACRO_NO_MATCH => "MACRO-1",
+        MACRO_DEPTH => "MACRO-2",
+        MACRO_FRAGMENT => "MACRO-3",
+        MACRO_DUPLICATE => "MACRO-4",
+        AWAIT_OUTSIDE_ASYNC => "ASYNC-1",
+        TASK_ESCAPE => "ASYNC-2",
+        HOLD_ACROSS_AWAIT => "ASYNC-3",
+        ASYNC_TRAIT => "ASYNC-4",
+        MANIFEST_SYNTAX => "PKG-1",
+        DEPENDENCY_CYCLE => "PKG-2",
+        LOCKFILE_MISMATCH => "PKG-3",
+        OFFLINE_MISSING => "PKG-4",
+        AUDIT_FAILURE => "PKG-5",
+        SANDBOX_DENIED => "SANDBOX-1",
+        SANDBOX_LIMIT => "SANDBOX-2",
+        UNUSED_BINDING => "LINT-1",
+        UNUSED_IMPORT => "LINT-2",
+        UNREACHABLE_CODE => "LINT-3",
+        UNUSED_PARAMETER => "LINT-4",
+        DOC_COMMENT_MISPLACED => "DOC-1",
+        UNSUPPORTED_TARGET => "CFG-1",
+        TARGET_TOOLCHAIN_MISSING => "CFG-2",
+        UNKNOWN_CFG_KEY => "CFG-3",
+        CFG_MISPLACED => "CFG-4",
+        _ => "",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -776,6 +873,22 @@ mod tests {
         assert_eq!(find("E0100").map(|code| code.title), Some("type mismatch"));
         assert!(find("E9999").is_none());
         assert!(find("0100").is_none());
+    }
+
+    #[test]
+    fn every_code_names_a_rule() {
+        let mut seen = std::collections::HashSet::new();
+        for code in CODES {
+            let rule = rule_for(code.id);
+            assert!(!rule.is_empty(), "{} has no rule id", code.id);
+            assert!(
+                rule.contains('-'),
+                "{}'s rule `{rule}` is not FAMILY-N",
+                code.id
+            );
+            assert!(seen.insert(rule), "{} reuses rule {rule}", code.id);
+        }
+        assert_eq!(rule_for("E9999"), "");
     }
 
     #[test]

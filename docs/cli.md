@@ -452,6 +452,25 @@ errors such as a missing toolchain. `--list` and `--json` cannot be combined. A
 failing test makes the command exit `1`; a setup problem exits `2`; a directory
 that cannot be created exits `3`.
 
+## `yashyc lint [--list|--docs] [--json] [--group <g>] [--deny <code>] <file.ya>`
+
+Reports advice: a lint never changes whether a program builds. Each lint has a
+stable code, a group and a one-line fix.
+
+```text
+yashyc lint main.ya
+yashyc lint --group style --json main.ya
+yashyc lint --deny LINT-VAR main.ya
+yashyc lint --list --json
+yashyc lint --docs > docs/lints.md
+```
+
+`--group` keeps one group (`correctness`, `style`, `complexity`, `perf`,
+`security`, `deprecated`). `--deny <code>` promotes that lint to a build error
+and exits `1`; without it the command exits `0` even when it reports a lint.
+`--list --json` is the machine form and `--docs` renders [lints.md](lints.md),
+which a test compares byte for byte with the committed page.
+
 ## `yashyc explain <code> [--json]`
 
 Prints the long-form catalog page for an error code: the cause, a minimal
@@ -475,6 +494,7 @@ schema v1 envelope carrying the same facts:
   "code": "E0100",
   "title": "type mismatch",
   "summary": "An expression's type does not match its context.",
+  "rule": "TYPE-1",
   "page": "# E0100 — type mismatch\n\nAn expression's type ...",
   "docs_url": "https://yashy.dev/errors/E0100"
 }

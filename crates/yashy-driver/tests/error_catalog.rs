@@ -21,10 +21,7 @@ fn every_catalog_code_has_a_page_a_heading_and_a_docs_url() {
         assert!(!entry.summary.is_empty(), "{} has no summary", entry.id);
         assert_eq!(
             codes::docs_url(entry.id),
-            format!(
-                "https://github.com/Yash-K-Jagani/Yashy/blob/main/docs/errors/{}.md",
-                entry.id
-            ),
+            format!("https://yashy.dev/errors/{}", entry.id),
             "{} has an unexpected docs URL",
             entry.id
         );
@@ -48,6 +45,7 @@ fn explain_json_returns_the_same_fact_for_every_code() {
         for field in [
             format!("\"code\": \"{}\"", entry.id),
             format!("\"title\": \"{}\"", entry.title),
+            format!("\"rule\": \"{}\"", codes::rule_for(entry.id)),
             format!("\"docs_url\": \"{}\"", codes::docs_url(entry.id)),
         ] {
             assert!(
