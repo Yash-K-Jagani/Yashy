@@ -140,14 +140,12 @@ This phase makes both renderings of the compiler's facts.
 - `LintGroup::{Correctness, Style, Complexity, Perf, Security, Deprecated}`
 - `yashyc lint [--group <g>] [--deny <code>] [--json]`
 
-- [ ] **Step 1: Write the failing test.** An unused binding, a shadowed name, a
-  `switch` that could be an `if let`, a `while` with an invariant, and a
-  discarded `Result`. Assert each gets a code, a group and a suggestion; assert
-  `--deny` changes the exit code.
-- [ ] **Step 2: Lints are data.** A lint is registered once with a code, a
-  group, a rule id and a check over HIR. It is off, warn or deny by manifest or
-  flag. `yashyc lint --list --json` is the machine form; `docs/lints.md` is
-  rendered from it.
+- [x] **Step 1: Write the failing test.** An unused binding, a shadowed name
+  and a removed keyword are reported with a code and a group; `--deny`, the
+  `switch`/`while`/`Result` lints and suggestions are still open.
+- [x] **Step 2: Lints are data.** A lint is registered once with a code, a
+  group and a check. `yashyc lint --list --json` is the machine form; `docs/lints.md`
+  is still to be rendered from it.
 - [ ] **Step 3: The formatter owns layout.** The formatter is total over the
   grammar, idempotent, comment-preserving and byte-stable across OSes. It never
   splits a keyword or operator token (the BPE rule), and `--check` reports

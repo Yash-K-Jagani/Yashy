@@ -17,6 +17,7 @@ pub mod doc;
 pub mod fetch;
 pub mod fix;
 pub mod index;
+pub mod lint;
 pub mod mcp;
 pub mod modules;
 pub mod opt_report;

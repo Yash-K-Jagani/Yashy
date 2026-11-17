@@ -62,7 +62,8 @@ usage:
   yashyc build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--pgo] [--emit-ir] [--opt-report[=json]] [--timings] [--jobs <n>] [--no-opt=<pass>] [--opt-list] [--no-verify] [--stdlib-source] [--target <triple>] [--reproducible]
   yashyc run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--timings] [--jobs <n>] [--no-opt=<pass>] [--no-verify] [--stdlib-source] [--target <triple>] [--reproducible] [--debug] [--sandbox] [--allow-read <path>] [--allow-write <path>] [--time <ms>] [--memory <mb>] [-- <args>...]
   yashyc tasks <file.ya> [-- <args>...]
-  yashyc check <file.ya> [--json] [--timings] [--jobs <n>] [--deny warnings] [--allow warnings] [--print-cfg] [--target <triple>]
+  yashyc check <file.ya> [--json] [--timings] [--jobs <n>]
+  yashyc lint <file.ya> [--json] [--list] [--group <g>] [--deny warnings] [--allow warnings] [--print-cfg] [--target <triple>]
   yashyc verify <file.ya> [--json] [--timings] [--jobs <n>] [--inventory]
   yashyc test [path] [--filter <substring>] [--list] [--json] [--timings] [--jobs <n>]
   yashyc inspect [--json] <file.ya> [symbol]
@@ -199,6 +200,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "run" => run(rest),
         "tasks" => tasks(rest),
         "check" => check(rest),
+        "lint" => lint_cmd(rest),
         "fix" => fix_cmd(rest),
         "verify" => verify(rest),
         "test" => test(rest),
@@ -2984,6 +2986,74 @@ fn print_inventory(sources: &SourceMap, assumptions: &[Assumption]) {
             column = location.col,
         );
     }
+}
+
+/// `yashyc lint <file.ya> [--json] [--list] [--group <g>]`.
+fn lint_cmd(args: &[String]) -> ExitCode {
+    use yashy_driver::lint::{GROUPS, LINTS};
+    let mut json = false;
+    let mut list = false;
+    let mut operands: Vec<String> = Vec::new();
+    let mut iter = args.iter();
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
+            "--json" => json = true,
+            "--list" => list = true,
+            "--group" => {
+                iter.next();
+            }
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `lint`"));
+            }
+            other => operands.push(other.to_string()),
+        }
+    }
+    if list {
+        if json {
+            let entries: Vec<Json> = LINTS
+                .iter()
+                .map(|lint| {
+                    let mut object = Json::object();
+                    object.set("code", Json::string(lint.code));
+                    object.set("group", Json::string(lint.group.as_str()));
+                    object.set("message", Json::string(lint.message));
+                    object
+                })
+                .collect();
+            let mut report = Json::object();
+            report.set("lints", Json::array(entries));
+            println!("{}", report.render());
+        } else {
+            for lint in LINTS {
+                println!("{}  {:<12} {}", lint.code, lint.group.as_str(), lint.message);
+            }
+        }
+        return exit_code(EXIT_OK);
+    }
+    let Some(file) = operands.first() else {
+        return usage_error("`lint` needs a source file (or `--list`)");
+    };
+    let source = match read_source_with(&PathBuf::from(file), EXIT_USAGE) {
+        Ok(source) => source,
+        Err(code) => return code,
+    };
+    let diagnostics = yashy_driver::lint::check(&source, FileId::from_index(0));
+    if json {
+        let items: Vec<Json> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic_json(&SourceMap::new(), diagnostic))
+            .collect();
+        let mut report = Json::object();
+        report.set("lints", Json::array(items));
+        println!("{}", report.render());
+    } else {
+        let mut map = SourceMap::new();
+        map.add_file(file.clone(), source);
+        for diagnostic in &diagnostics {
+            eprint!("{}", map.render(diagnostic));
+        }
+    }
+    exit_code(EXIT_OK)
 }
 
 /// `yashyc fix <file.ya> [--dry-run]`: apply machine-applicable edits, but only
