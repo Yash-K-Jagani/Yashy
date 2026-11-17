@@ -66,20 +66,34 @@ can make two identical sources produce different bytes.
 - `resolve(manifest: &Manifest, index: &Index, opts: &ResolveOptions) -> Result<ResolveGraph, ResolveError>`
 - `ResolveOptions { locked: bool, offline: bool, features: BTreeSet<String>, target: Triple }`
 
-- [ ] **Step 1: Write the failing test.** SemVer 2.0 precedence cases
+- [x] **Step 1: Write the failing test.** SemVer 2.0 precedence cases
   (`1.0.0-alpha < 1.0.0-alpha.1 < 1.0.0`), `^1.2` selects `1.9.0` not `2.0.0`,
   `~1.2` selects `1.2.x`, `--locked` fails when the lock disagrees, and a
   yanked version is refused with a diagnostic naming it.
-- [ ] **Step 2: Resolve once, pin exactly.** The resolver walks the index with a
+  *Current:* unit tests in `version.rs` and `req.rs` pin precedence, caret,
+  tilde, wildcards and intersections; `registry.rs` tests highest-version
+  selection and yanked refusal. Lock disagreement is pinned by the existing
+  `lock --check` tests.
+- [x] **Step 2: Resolve once, pin exactly.** The resolver walks the index with a
   deterministic order (highest satisfying version, ties by name), then writes
   exact versions and checksums to `yashy.lock`. `update` is the only command
   that changes a pin; `add` resolves once and writes the range plus the pin;
   `build`, `run` and `test` never resolve without `--locked` in CI.
-- [ ] **Step 3: One diagnostic family.** A missing version, a conflict, a
+  *Current:* ranges select the highest non-yanked match with ties by name, and
+  a lock pin is validated against its range before use. `add <name>@<range>`
+  writes the range and calls `update` to pin it. `ResolveOptions` exists but
+  its `features`/`target` fields are recorded only; `resolve_with_options`
+  still uses the store's default registry rather than the passed index. The
+  CI `--locked` rule is a gate, not a compiler-enforced flag yet.
+- [x] **Step 3: One diagnostic family.** A missing version, a conflict, a
   cycle, a yanked pin and a lock mismatch each get a code, a suggestion where
   one exists, and a `--json` form. No solver backtracking loop is unbounded:
   the search is capped and reports the cap.
-- [ ] **Step 4: Commit.**
+  *Current:* the existing catalog codes are reused (`E1800` manifest, `E1801`
+  cycle, `E1802` lock, `E1803` offline); no new per-case codes were added.
+  The DFS is capped at 4096 package visits and reports the cap as a manifest
+  error. There is no solver backtracking loop to bound.
+- [x] **Step 4: Commit.**
 
 ### Task 2: Workspaces
 
@@ -442,3 +456,9 @@ ok  14 packages, 0 unsigned, 0 policy violations
 | A dependency can do more than it declares | Capabilities are declared in the manifest, intersected with the policy, checked at the call and repeated by the runtime handle |
 | Provenance is a signed claim, not a fact | The verifier optionally rebuilds from the named materials and compares the subject; a claim alone never satisfies a policy that requires provenance |
 | The package surface drifts from the resolver | Every command reads the same graph and lock; one JSON model, one human rendering; tests assert they agree |
+
+## Exceptions
+
+| Task | Claimed | Shipped | Follow-up |
+|---|---|---|---|
+| 1.1-1.3 | Semver ranges, one resolution, per-case diagnostic codes | `Version`/`VersionReq` with SemVer 2.0 precedence, range selection, v2 lock with v1 migration, yanked refusal, bounded DFS; existing E180x codes reused, `ResolveOptions` fields not yet applied to an explicit index | Add per-case codes and feed features/target into the index selection |

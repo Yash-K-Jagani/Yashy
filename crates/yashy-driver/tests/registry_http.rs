@@ -103,6 +103,7 @@ fn write_registry(registry: &Path, package: &Path) -> String {
         version: "1.0.0".to_string(),
         hash: hash.clone(),
         description: "a greeting".to_string(),
+        yanked: false,
     }];
     let mut index = yashy_common::Json::object();
     let mut array = Vec::new();
@@ -111,7 +112,10 @@ fn write_registry(registry: &Path, package: &Path) -> String {
         item.set("name", yashy_common::Json::string(&entry.name));
         item.set("version", yashy_common::Json::string(&entry.version));
         item.set("hash", yashy_common::Json::string(&entry.hash));
-        item.set("description", yashy_common::Json::string(&entry.description));
+        item.set(
+            "description",
+            yashy_common::Json::string(&entry.description),
+        );
         array.push(item);
     }
     index.set("packages", yashy_common::Json::array(array));
@@ -120,7 +124,8 @@ fn write_registry(registry: &Path, package: &Path) -> String {
 
     // The tarball is the registry's own format: the same bytes the publish
     // command writes.
-    let tarball = yashy_driver::registry::write_tarball(package).expect("the tarball must be written");
+    let tarball =
+        yashy_driver::registry::write_tarball(package).expect("the tarball must be written");
     let name = format!("{}.tar", hash.trim_start_matches("sha256:"));
     fs::write(registry.join("packages").join(name), tarball).expect("the tarball must be written");
     hash

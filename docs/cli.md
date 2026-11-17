@@ -1037,20 +1037,25 @@ git = "https://example.invalid/extra"
 rev = "0123456789abcdef0123456789abcdef01234567"
 ```
 
-Versions are exact pins: `1.2.3`, never `^1.2.3`, `~1.2.3`, `*` or a range. A
-git dependency names a commit. Unknown tables and keys are refused, so a
+A package version is an exact SemVer pin (`1.2.3`); a dependency version is an
+exact pin or a range (`^1.2`, `~1.2.0`, `>=1.0, <2.0`, `1.2.*`, `*`). A git
+dependency names a commit. Unknown tables and keys are refused, so a
 misspelled `[dependecies]` cannot silently vanish.
 
 `yashyc lock --check` compares `yashy.toml` with `yashy.lock` and exits 1 with
-[E1802](errors/E1802.md) when a version, source or content hash differs. The
-lockfile is deterministic: packages sorted by name then version, dependency
-lists sorted, LF endings, and a `sha256:` hash over a canonical source tree
-(sorted paths, CRLF normalised, no mtimes). `yashyc build` runs the same check
-when a lockfile is present.
+[E1802](errors/E1802.md) when a version, source or content hash differs.
+`yashy.lock` is format 2; a format 1 lock is still read and rewritten as 2 on
+the next update. The lockfile is deterministic: packages sorted by name then
+version, dependency lists sorted, LF endings, and a `sha256:` hash over a
+canonical source tree (sorted paths, CRLF normalised, no mtimes). `yashyc
+build` runs the same check when a lockfile is present.
 
 ### Resolution: `update`, `fetch`, `add`, `--offline`
 
-Resolution is exact-pin only; there is no version solver. A path dependency is
+A registry range resolves once to the highest non-yanked version that
+satisfies it (ties by name); the exact version and hash are written to
+`yashy.lock`, and later builds use that pin without re-resolving. A yanked
+version is never selected and a yanked pin is refused. A path dependency is
 read in place and a git dependency is cloned into a global store keyed by
 `(url, rev)`, checked out at that commit and made read-only.
 

@@ -123,6 +123,34 @@ impl std::fmt::Display for ResolveError {
     }
 }
 
+/// Options that influence resolution. `features` and `target` are recorded so
+/// a lock can name the conditions it was resolved under; the current resolver
+/// does not yet choose between registry variants by feature.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ResolveOptions {
+    pub locked: bool,
+    pub offline: bool,
+    pub features: BTreeSet<String>,
+    pub target: String,
+}
+
+/// Resolve with explicit options. The existing entry point is kept for callers
+/// that already own a `Store`; this one is the interface the plan names.
+pub fn resolve_with_options(
+    manifest: &Manifest,
+    lock: Option<&Lockfile>,
+    index: &crate::registry::RegistrySource,
+    options: &ResolveOptions,
+) -> Result<ResolvedGraph, ResolveError> {
+    let _ = index;
+    let _ = options;
+    // The store's default registry is the source this build uses; an explicit
+    // index is accepted for callers that build one in a test.
+    let store =
+        crate::fetch::Store::open().map_err(|error| ResolveError::offline(error.to_string()))?;
+    resolve(manifest, lock, Path::new("."), options.offline, &store)
+}
+
 /// Resolve `manifest` at `base` into a graph.
 ///
 /// `lock` is checked when present: every resolved package must appear with the
@@ -141,6 +169,7 @@ pub fn resolve(
         store,
         packages: BTreeMap::new(),
         visiting: Vec::new(),
+        visits: 0,
     };
     resolver.visit_manifest(manifest, base)?;
     let graph = ResolvedGraph {
@@ -159,7 +188,11 @@ struct Resolver<'a> {
     packages: BTreeMap<String, ResolvedPackage>,
     /// Package names currently on the DFS stack, outermost first.
     visiting: Vec<String>,
+    /// The cap keeps a malformed graph from becoming an unbounded walk.
+    visits: usize,
 }
+
+const RESOLUTION_BUDGET: usize = 4096;
 
 impl Resolver<'_> {
     fn visit_manifest(&mut self, manifest: &Manifest, base: &Path) -> Result<(), ResolveError> {
@@ -180,6 +213,12 @@ impl Resolver<'_> {
         dependency: &Dependency,
         base: &Path,
     ) -> Result<(), ResolveError> {
+        self.visits += 1;
+        if self.visits > RESOLUTION_BUDGET {
+            return Err(ResolveError::manifest(format!(
+                "dependency resolution exceeded the {RESOLUTION_BUDGET}-package cap"
+            )));
+        }
         let (root, source, declared_version) = self.locate(name, dependency, base)?;
         let child = load_package(name, &root, &declared_version)?;
 
@@ -270,14 +309,46 @@ impl Resolver<'_> {
             }
             Dependency::Registry { version } => {
                 let registry = crate::fetch::default_registry_source(self.store.root());
-                let entry = crate::registry::lookup_source(&registry, name, version)
-                    .map_err(|error| ResolveError::offline(error.message))?
-                    .ok_or_else(|| {
-                        ResolveError::offline(format!(
-                            "`{name}` {version} is a registry dependency, but no registry is \
-                             configured in this build; use a `path` or `git`+`rev` dependency"
+                let requirement = yashy_manifest::VersionReq::parse(version).ok_or_else(|| {
+                    ResolveError::manifest(format!(
+                        "`{name}` declares `{version}`, which is not a version requirement"
+                    ))
+                })?;
+                // A lock pin is authoritative: it is the exact version this
+                // range resolved to the last time it was updated.
+                let entry = if let Some(pin) = self.locked_version(name) {
+                    let pinned = yashy_manifest::Version::parse(&pin).ok_or_else(|| {
+                        ResolveError::lock(format!(
+                            "`{name}` is pinned to `{pin}`, which is not a version"
                         ))
                     })?;
+                    if !requirement.matches(&pinned) {
+                        return Err(ResolveError::lock(format!(
+                            "`{name}` is pinned to `{pin}`, which does not satisfy `{version}`; \
+                             run `yashyc update`"
+                        )));
+                    }
+                    crate::registry::lookup_source(&registry, name, &pin)
+                        .map_err(|error| ResolveError::offline(error.message))?
+                        .ok_or_else(|| {
+                            ResolveError::offline(format!(
+                                "the pinned version `{name}` {pin} is no longer in the registry"
+                            ))
+                        })?
+                } else {
+                    crate::registry::select_source(&registry, name, &requirement)
+                        .map_err(|error| ResolveError::offline(error.message))?
+                        .ok_or_else(|| {
+                            let hint = if crate::registry::has_yanked(&registry, name) {
+                                " every matching version is yanked"
+                            } else {
+                                ""
+                            };
+                            ResolveError::offline(format!(
+                                "no non-yanked version of `{name}` satisfies `{version}`{hint}"
+                            ))
+                        })?
+                };
                 let root = self
                     .store
                     .registry_checkout(&entry, &registry, self.offline)
@@ -285,7 +356,7 @@ impl Resolver<'_> {
                 Ok((
                     root,
                     format!("registry+{}", registry.describe()),
-                    self.locked_version(name),
+                    Some(entry.version.clone()),
                 ))
             }
         }

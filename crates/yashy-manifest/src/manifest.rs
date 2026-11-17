@@ -89,7 +89,10 @@ fn manifest_from(document: &Document) -> Result<Manifest, ParseError> {
     let error = |message: String| error_at("package", message);
 
     for key in root.keys() {
-        if !matches!(key.as_str(), "package" | "dependencies" | "dev-dependencies") {
+        if !matches!(
+            key.as_str(),
+            "package" | "dependencies" | "dev-dependencies"
+        ) {
             return Err(error_at(
                 key,
                 format!(
@@ -122,7 +125,10 @@ fn manifest_from(document: &Document) -> Result<Manifest, ParseError> {
 
     let name = required_string(package_table, "name", document)?;
     if name.is_empty() {
-        return Err(error_at("package.name", "the package name cannot be empty".to_string()));
+        return Err(error_at(
+            "package.name",
+            "the package name cannot be empty".to_string(),
+        ));
     }
     if !name
         .chars()
@@ -198,6 +204,20 @@ fn optional_string(
 }
 
 /// An exact version is `major.minor.patch`, each component digits.
+/// A dependency version may be an exact pin or a SemVer range.
+pub fn check_version_req(version: &str, location: Location) -> Result<(), ParseError> {
+    if crate::VersionReq::parse(version).is_some() {
+        return Ok(());
+    }
+    Err(ParseError {
+        line: location.line,
+        column: location.column,
+        message: format!(
+            "`{version}` is not a version requirement; write `1.2.3`, `^1.2` or `~1.2.0`"
+        ),
+    })
+}
+
 pub fn check_exact_version(version: &str, location: Location) -> Result<(), ParseError> {
     if version.contains(['^', '~', '*', '<', '>', '=']) || version.is_empty() {
         return Err(ParseError {
@@ -288,9 +308,7 @@ fn dependency_from_table(
         }
     }
     let at = |field: &str| document.location(&format!("{path}.{field}"));
-    let text = |field: &str| -> Option<&str> {
-        fields.get(field).and_then(Value::as_str)
-    };
+    let text = |field: &str| -> Option<&str> { fields.get(field).and_then(Value::as_str) };
     let sources = ["path", "git", "version"]
         .iter()
         .filter(|field| fields.contains_key(**field))
@@ -383,7 +401,7 @@ fn dependency_from_table(
         });
     }
     if let Some(version) = text("version") {
-        check_exact_version(version, at("version"))?;
+        check_version_req(version, at("version"))?;
         return Ok(Dependency::Registry {
             version: version.to_string(),
         });
@@ -471,7 +489,8 @@ assert = { }
 
     #[test]
     fn a_range_is_refused_with_the_exact_spelling() {
-        let text = "[package]\nname = \"x\"\nversion = \"1.2.3\"\n[dependencies]\nhttp = \"^1.0.0\"\n";
+        let text =
+            "[package]\nname = \"x\"\nversion = \"1.2.3\"\n[dependencies]\nhttp = \"^1.0.0\"\n";
         let error = Manifest::parse(text).expect_err("a range");
         assert!(error.message.contains("exact version"), "{}", error.message);
         assert_eq!(error.line, 5);
@@ -494,7 +513,8 @@ assert = { }
     #[test]
     fn a_misspelled_table_is_not_silently_ignored() {
         let error =
-            Manifest::parse("[package]\nname = \"x\"\nversion = \"1.0.0\"\n[dependecies]\n").unwrap_err();
+            Manifest::parse("[package]\nname = \"x\"\nversion = \"1.0.0\"\n[dependecies]\n")
+                .unwrap_err();
         assert!(error.message.contains("dependecies"), "{error}");
         assert_eq!(error.line, 4);
     }

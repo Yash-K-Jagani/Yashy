@@ -5556,16 +5556,9 @@ fn add_cmd(args: &[String]) -> ExitCode {
     };
     let (name, registry_version) = match raw_name.split_once('@') {
         Some((name, version)) => {
-            let valid_version = {
-                let parts: Vec<&str> = version.split('.').collect();
-                parts.len() == 3
-                    && parts
-                        .iter()
-                        .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
-            };
-            if !valid_version {
+            if yashy_manifest::VersionReq::parse(version).is_none() {
                 return usage_error(&format!(
-                    "`{version}` is not an exact version; write `1.2.3`"
+                    "`{version}` is not a version requirement; write `1.2.3`, `^1.2` or `~1.2.0`"
                 ));
             }
             (name.to_string(), Some(version.to_string()))

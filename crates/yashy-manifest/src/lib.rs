@@ -18,8 +18,12 @@
 
 pub mod lock;
 pub mod manifest;
+pub mod req;
 pub mod toml;
+pub mod version;
 
-pub use lock::{hash_tree, LockError, LockedPackage, Lockfile, sha256_hex};
+pub use lock::{hash_tree, sha256_hex, LockError, LockedPackage, Lockfile};
 pub use manifest::{Dependency, Manifest, Package};
+pub use req::VersionReq;
 pub use toml::{ParseError, Value};
+pub use version::Version;
