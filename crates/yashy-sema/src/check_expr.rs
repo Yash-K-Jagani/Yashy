@@ -13720,7 +13720,7 @@ fn builtin_method_name(method: &str, receiver: &TypeKind) -> Option<&'static str
             "free" => Some("map_free"),
             "keys" => Some("map_keys"),
             "values" => Some("map_values"),
-            "contains_key" => Some("map_contains_key"),
+            "contains_key" | "contains" => Some("map_contains_key"),
             _ => None,
         },
         TypeKind::Channel(_) => match method {

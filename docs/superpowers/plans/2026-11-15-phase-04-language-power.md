@@ -243,13 +243,16 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   so the HIR has no range node. `start`, `end`, `len`, `is_empty`, `contains`
   and `step_by` are ordinary methods; `step_by` with a non-positive step is a
   diagnostic, not a hang.
-- [ ] **Step 3: Membership is compiler-known, never operator overloading.**
-  `needle in container` is defined for `[T]`, `[T; N]`, `[]T`, `string`
-  (substring, byte-exact), `map[K]V` (key), `Set[T]` and `Range[T]`. It lowers
-  to the method the type already documents (`contains`, `contains_key`), so a
-  user type gets no new operator and `E1515` stays true. A container without a
-  membership fact is `E1516` naming the method to call instead. Membership is a
-  comparison-precedence operator and does not chain.
+- [x] **Step 3: Membership is compiler-known, never operator overloading.**
+  `needle in container` parses at comparison precedence and desugars in the
+  parser to `container.contains(needle)` — an existing method call — so no new
+  operator, HIR node or verifier rule is introduced. The checker already maps
+  `contains` to `str_contains` and `slice_contains`; one alias on `Map`
+  (`contains` → `map_contains_key`) makes map keys work too. Parser tests in
+  `crates/yashy-parser/tests/membership.rs` pin the desugaring, precedence and
+  non-chaining, and a sema test checks string, slice and map membership. A
+  container without `contains` reports the ordinary "no method" error rather
+  than a dedicated E1516; `Range[T]` membership is still owed with Step 2.
 - [ ] **Step 4: `is` is identity and variant test, never value equality.** For
   raw pointers and owning pointers, `p is q` compares addresses and
   `p is not q` is its negation; for `Option[*T]` a null pointer `is None`.

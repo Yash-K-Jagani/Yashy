@@ -150,15 +150,19 @@ blocks a `switch` arm cannot hold) and `HirBlock::arena` (one placement bit).
 - A const parameter (`Buffer[const N: int]`) is part of the scheme: `Buffer[16]`
   and `Buffer[64]` are distinct monomorphic types. Const evaluation is total and
   counts against the same instantiation caps (2.0, Phase 4).
-- `Iterator[T]` is the compiler-known `for` protocol. User generic traits are
-  `E1511` in 1.0 and become legal in 2.0 (Phase 4), still statically dispatched.
+- `Iterator[T]` is the compiler-known `for` protocol. User generic traits remain
+  `E1511`; a user trait that declares the name `Iterator` is refused with the
+  same code, because that name belongs to the `for` protocol.
 - There is no `dyn`, no vtable, no runtime type information, no `Drop`, no
   inheritance, no trait fields, and no operator overloading.
 
 ### 4.3 Ownership
 
 A value has one owner. `move` transfers it; the source is dead. `defer` runs at
-scope exit in reverse registration order. Owning values are released exactly
+scope exit in reverse registration order. Its block form is the canonical one;
+`defer expr;` and `defer a(), b();` are parser sugar that build the same block,
+one expression statement per release, so the verifier's rules are unchanged.
+Owning values are released exactly
 once, by their owner: `*mut T`, arrays, maps, channels, mutexes and built
 strings use `.free()`; a `string` binding releases its own reference.
 
@@ -190,7 +194,10 @@ Macros are declarative data expanded before parsing, once, with closed caps
 (`E1600`–`E1603`). `cfg` is a closed key set decided before name resolution
 (`E2202`, `E2203`); a disabled branch is never resolved, checked or emitted. One
 target triple is the whole build's fact: `cfg` keys, data layout, platform
-libraries and `clang --target` all read it.
+libraries and `clang --target` all read it. The word forms `and`, `or` and
+`not` are reserved spellings of `&&`, `||` and `!`: they lex to their own token
+kinds (so a formatter can preserve the spelling) but build the identical
+expression tree.
 
 ## 5. Memory model
 

@@ -2858,3 +2858,16 @@ fn defer_expression_and_block_forms_both_check() {
         check_source("fn f() { let p = alloc(8); let q = alloc(8); defer p.free(), q.free(); }");
     assert!(list.0.is_ok(), "{:?}", list.0.err());
 }
+
+#[test]
+fn membership_desugars_to_the_containers_own_method() {
+    // `needle in container` is a call to `container.contains(needle)`, so the
+    // checker needs no separate membership rule for these three containers.
+    let string = check_source("fn f() { const ok = \"ell\" in \"hello\"; }");
+    assert!(string.0.is_ok(), "{:?}", string.0.err());
+    let slice = check_source("fn f() { const xs = []int { 1, 2, 3 }; const ok = 2 in xs; }");
+    assert!(slice.0.is_ok(), "{:?}", slice.0.err());
+    let map =
+        check_source("fn f() { const m = map[string]int { \"k\": 1 }; const ok = \"k\" in m; }");
+    assert!(map.0.is_ok(), "{:?}", map.0.err());
+}

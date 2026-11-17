@@ -150,35 +150,50 @@ impl<'src> Parser<'src> {
                 None => break,
             }
         }
-        match ops.len() {
-            0 => Ok(operands
+        let mut value = match ops.len() {
+            0 => operands
                 .into_iter()
                 .next()
-                .expect("one operand with no operator")),
+                .expect("one operand with no operator"),
             1 => {
                 let op = ops.into_iter().next().expect("one operator");
                 let rhs = operands.pop().expect("two operands");
                 let lhs = operands.pop().expect("two operands");
                 let span = cover(expr_span(&lhs), expr_span(&rhs));
-                Ok(Expr::Binary {
+                Expr::Binary {
                     op,
                     lhs: Box::new(lhs),
                     rhs: Box::new(rhs),
                     span,
-                })
+                }
             }
             _ => {
                 let span = cover(
                     expr_span(operands.first().expect("chain operands")),
                     expr_span(operands.last().expect("chain operands")),
                 );
-                Ok(Expr::CompareChain {
+                Expr::CompareChain {
                     operands,
                     ops,
                     span,
-                })
+                }
             }
+        };
+        // `needle in container` is membership, at comparison precedence and
+        // non-chaining. It is sugar for the container's own method: the subject
+        // of the form is the receiver and the needle the single argument, so
+        // the checker needs no second membership rule and no operator overload.
+        if self.eat(TokenKind::In) {
+            let container = self.parse_shift()?;
+            let span = cover(expr_span(&value), expr_span(&container));
+            value = Expr::MethodCall {
+                receiver: Box::new(container),
+                method: "contains".to_string(),
+                args: vec![value],
+                span,
+            };
         }
+        Ok(value)
     }
 
     fn parse_cmp(&mut self) -> Result<Expr, ParseError> {
