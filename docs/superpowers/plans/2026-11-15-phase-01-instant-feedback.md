@@ -107,6 +107,9 @@ compiler grows more phases to measure.
 - [x] **Step 1: Write the failing test.** Watch a fixture, touch a file, assert
   a diagnostics event arrives in under 100 ms on the test host; then fix the
   file and assert a success event.
+  *Current:* `watch.rs` tests the diagnostics and success events and the
+  one-file filter. The 100 ms edit-to-diagnostic budget is a CI/host
+  measurement, not asserted in the unit test.
 - [x] **Step 2: Implement the loop.** Watch the project root (`yashy.toml`) or
   the named file; debounce 50 ms; send `Check`; print human diagnostics or
   `--json` events; `--run` builds and runs on success, `--test` runs the test
@@ -122,17 +125,24 @@ compiler grows more phases to measure.
 - Modify: `crates/yashy-query/src/db.rs` (module-level queries)
 - Test: `crates/yashy-driver/tests/incremental.rs`
 
-- [x] **Step 1: Write the failing test.** Build a 10-module fixture; change one
+- [ ] **Step 1: Write the failing test.** Build a 10-module fixture; change one
   function; assert only that module's object is rebuilt and the link reuses the
   rest. Build with no change; assert `cache_hits == modules` and no `clang`
   invocation for IR.
+  *Current:* `incremental.rs` proves the whole-program IR cache and the runtime
+  object cache, not per-module user objects. A one-function edit misses the
+  program key and re-emits the whole IR; only the runtime objects are reused.
 - [x] **Step 2: Extend the key.** Source bytes, flags, compiler version, target,
   runtime hash, package versions, features and the relevant environment. A
   `yashyc cache verify` recomputes and reports a mismatch.
-- [x] **Step 3: Cache per-module objects.** Emit one object per module where
+- [ ] **Step 3: Cache per-module objects.** Emit one object per module where
   the language allows it; link with the cached runtime object and the fast
   linker if present (`lld`, `mold`, `ld64.lld`, fallback to the default).
   A no-change build returns the cached binary in < 50 ms.
+  *Current:* the runtime objects are cached and the fast linker is preferred,
+  but user code is still one whole-program IR/binary cache hit. No-change
+  builds are fast; a one-function edit rebuilds the entire program IR. This is
+  an owned follow-up, not a shipped per-module object cache.
 - [x] **Step 4: Never serve a stale binary.** A stale hit is a P0. The test
   mutates every key input in turn and asserts a miss.
 - [x] **Step 5: Commit.**
@@ -147,9 +157,12 @@ compiler grows more phases to measure.
 - [x] **Step 1: Write the failing test.** Check a 20-module fixture with
   `--jobs 1` and `--jobs 4`; assert byte-identical JSON and `frontend_threads
   > 1` in the latter.
-- [x] **Step 2: Shard the query database per file.** Parse and check in
+- [ ] **Step 2: Shard the query database per file.** Parse and check in
   parallel; codegen per module in parallel; merge in source order so diagnostics
   and IR are deterministic.
+  *Current:* parsing and checking shard across threads and the output is
+  byte-deterministic (`parallel_determinism.rs`). Codegen remains one
+  whole-program `emit_program` call, so this step's second clause is not done.
 - [x] **Step 3: Commit.**
 
 ### Task 6: An honest compile-time regression row
@@ -162,9 +175,14 @@ compiler grows more phases to measure.
 - [x] **Step 1: Write the failing test.** Synthetic measurement files: a 30%
   regression fails, a 15% regression passes, a noisy pair with the same median
   passes.
-- [x] **Step 2: Normalize.** Measure a same-run reference (clang on the same
+- [ ] **Step 2: Normalize.** Measure a same-run reference (clang on the same
   program) and report the ratio; interleave A/B measurements so machine drift
   hits both. Gate compile rows at 20% on the ratio, not the raw millisecond.
+  *Current:* `benchmarks/ci.*` measure and print the ratios (`fib_wrap_ratio`,
+  `fib_compile_ratio`) and gate `fib_wrap_ratio` at 1.20. The `compare` gate
+  still uses percent thresholds, and compile rows are deliberately set to 100%
+  because shared-runner compile noise is 20-50%. The ratio is measured but not
+  wired into the compile-row gate; that wiring is the remaining work.
 - [x] **Step 3: Commit.**
 
 ### Task 7: Parser error recovery
@@ -227,6 +245,22 @@ $ yashyc test examples/hello --timings
   harness ................ 0.31 s
   run .................... 1.11 s
 ```
+
+## Exceptions
+
+These are the places where the shipped code is smaller than the task text. They
+are recorded here rather than silently ticked so the next phase does not build on
+a claim that is not true.
+
+| Task | Claimed | Shipped | Follow-up |
+|---|---|---|---|
+| 4.1 / 4.3 | A one-function edit rebuilds one module object; a no-change build hits per-module objects | Whole-program IR and binary cache plus a cached runtime object per runtime source; one-function edit re-emits the whole IR | Per-module user objects behind the existing cache key. The incremental test stays honest about what it measures |
+| 5.2 | Parse/check and codegen shard per module in parallel | Front end parses/checks in parallel and output is byte-deterministic; `emit_program` remains whole-program | Parallel per-module codegen after 4.3 lands |
+| 6.2 | Compile rows gate at 20% on the normalized ratio | Ratios are measured and printed; `fib_wrap_ratio` is gated at 1.20; compile rows deliberately use a 100% tripwire because shared-runner noise is 20-50% | Wire the compile ratio into `yashy-bench compare` when a stable same-run reference exists |
+| Gates | All acceptance commands run and pass on Windows and Linux | `cargo check --workspace --all-targets` is green locally; freshly linked binaries are blocked by Windows Application Control, so the runtime gates are CI-only | CI is deferred by the project owner; re-run the full gate set when CI is unblocked |
+
+The phase is therefore **functionally complete except CI and the per-module
+object/codegen follow-up**, not complete against every literal sentence above.
 
 ## Out of scope
 

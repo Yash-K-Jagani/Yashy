@@ -81,13 +81,17 @@ This phase makes both renderings of the compiler's facts.
   method, a generic function and an incomplete expression. Assert `references`,
   `rename` (prepare + apply), `documentSymbol`, `foldingRange`, `selectionRange`,
   `documentHighlight`, `codeAction` and `textDocument/formatting` each answer
-  with a stable span. `signatureHelp`, `inlayHint`, `workspaceSymbol`,
-  `callHierarchy`, `typeHierarchy` and `codeLens` are still open.
+  with a stable span; `signatureHelp`, `inlayHint`, `workspaceSymbol`,
+  `callHierarchy`, `typeHierarchy` and `codeLens` answer too. The conformance
+  transcript now covers all 19 features.
 - [x] **Step 2: Build one model, not fourteen queries.** `LspModel` is
-  rebuilt from the document after each edit; every feature reads it.
+  rebuilt from the document after each edit; every feature reads it. The model
+  is a source-derived symbol/occurrence table, not a snapshot from
+  `yashy-query`; that substitution is the exception recorded below.
 - [x] **Step 3: Make rename safe.** Rename refuses invalid identifiers and
-  collisions with declared names. The macro-origin and out-of-workspace
-  refusals are still open. Edits are a `WorkspaceEdit` with LSP ranges.
+  collisions with declared names. The model is one open document, so the
+  macro-origin and out-of-workspace refusals do not apply yet. Edits are a
+  `WorkspaceEdit` with LSP ranges.
 - [x] **Step 4: Pull and push diagnostics.** Keep push diagnostics for
   compatibility; add `textDocument/diagnostic`. Result ids and delta semantic
   tokens are still open.
@@ -111,20 +115,26 @@ This phase makes both renderings of the compiler's facts.
 - `apply_suggestions(source: &str, suggestions: &[Suggestion]) -> Result<String, FixError>`
 - `to_sarif(diagnostics: &[Diagnostic]) -> SarifLog`
 
-- [x] **Step 1: Write the failing test.** A program with a name typo, a missing
+- [ ] **Step 1: Write the failing test.** A program with a name typo, a missing
   `move`, and a wrong argument order. Assert `check --json` carries one
   `suggestions[]` per fixable diagnostic, `yashyc fix` rewrites the file, and a
   second `check` is clean. Assert the same suggestion applies through the LSP
   code action.
+  *Current:* `fix.rs` covers a removed-keyword suggestion, the rewrite, the
+  dry run, back-to-front application and the stale-hash refusal. The missing
+  `move` case, the wrong-argument-order case, and the LSP code-action
+  application are not implemented; the code-action response is still a rename
+  stub with an empty edit.
 - [x] **Step 2: One edit model.** A suggestion is a byte span, replacement text
-  and an applicability class. The CLI, LSP and (Phase 13) MCP apply the same
-  struct; none of them formats text on its own.
+  and an applicability class. The CLI and `check --json` use the same struct;
+  the LSP code action does not consume it yet.
 - [x] **Step 3: Apply safely.** Suggestions are applied back-to-front,
   non-overlapping, and only to a file whose content hash matches the one the
-  diagnostic was computed from. `--dry-run` prints the patch; `--json` emits
-  it. A conflicting fix is refused, never guessed.
-- [x] **Step 4: SARIF.** Emit §2.1.0 with rules, levels, physical locations and
-  fixes. CI uploads it; a schema test pins the shape.
+  diagnostic was computed from. `--dry-run` prints the patched file; `--json`
+  emits the diagnostic suggestions.
+- [x] **Step 4: SARIF.** Emit §2.1.0 with rules, levels and physical locations.
+  `fixes` objects are not emitted yet; CI upload and the schema test pin the
+  shape that does exist.
 - [x] **Step 5: Commit.**
 
 ### Task 3: Lint and formatter completeness
@@ -140,12 +150,14 @@ This phase makes both renderings of the compiler's facts.
 - `LintGroup::{Correctness, Style, Complexity, Perf, Security, Deprecated}`
 - `yashyc lint [--group <g>] [--deny <code>] [--json]`
 
-- [x] **Step 1: Write the failing test.** An unused binding, a shadowed name
-  and a removed keyword are reported with a code and a group; `--deny`, the
-  `switch`/`while`/`Result` lints and suggestions are still open.
+- [ ] **Step 1: Write the failing test.** An unused binding, a shadowed name
+  and a removed keyword are reported with a code and a group. `--deny`, the
+  `switch`/`while`/`Result` lints and lint-supplied suggestions are not
+  implemented yet; `lint.rs` tests the three lints it has.
 - [x] **Step 2: Lints are data.** A lint is registered once with a code, a
-  group and a check. `yashyc lint --list --json` is the machine form; `docs/lints.md`
-  is still to be rendered from it.
+  group and a check. `yashyc lint --list --json` is the machine form.
+  `docs/lints.md` is not generated yet, so the human documentation page is the
+  open half of this step.
 - [ ] **Step 3: The formatter owns layout.** The formatter is total over the
   grammar, idempotent, comment-preserving and byte-stable across OSes. It never
   splits a keyword or operator token (the BPE rule), and `--check` reports
@@ -163,7 +175,9 @@ This phase makes both renderings of the compiler's facts.
 - [x] **Step 1: Write the failing test.** For every code in the registry,
   assert: a page exists, the page's first heading contains the code, the
   catalog lists it, `explain --json` returns `title`/`summary`/`page`/
-  `docs_url`, and at least one test or fixture triggers it.
+  `docs_url`. The "at least one test or fixture triggers it" assertion is not
+  implemented; `error_catalog.rs` checks the page, heading, catalog entry,
+  `explain --json` record and the all-codes envelope.
 - [x] **Step 2: Make the catalog generated.** `yashyc explain --all --json` is
   the machine form; `docs/errors.md` is rendered from it plus the pages. A code
   without a page fails the build; a page without a code fails the docs test.
@@ -256,11 +270,14 @@ This phase makes both renderings of the compiler's facts.
 - Modify: `crates/yashy-driver/src/main.rs`
 - Create: `crates/yashy-driver/tests/inspect.rs`, `crates/yashy-driver/tests/trace.rs`, `crates/yashy-driver/tests/tokens.rs`
 
-- [x] **Step 1: Write the failing test.** `inspect --json` reports a symbol's
+- [ ] **Step 1: Write the failing test.** `inspect --json` reports a symbol's
   signature, effects, contracts, layout (when Phase 11A lands) and source span;
   `inspect --addr` maps an address to a span. `trace --events` emits a JSON
   event per allocation, free, task start/end and I/O with a span id, in a
-  deterministic order. `inspect --addr` and `trace` are still open.
+  deterministic order.
+  *Current:* `inspect --json` reports signature, effects, docs and source span
+  from the index. `--addr`, contracts, layout and the whole `trace` verb are
+  still open, so the step stays unchecked.
 - [ ] **Step 2: `tokens --bpe` is a measurement, not an opinion.** For a file or
   a corpus, report tokens per keyword/operator and corpus totals for `o200k`,
   `cl100k` and a Llama-family tokenizer. The tokenizer tables are vendored as
@@ -330,21 +347,28 @@ This phase makes both renderings of the compiler's facts.
 - `Style::{Auto, Always, Never}`, `Pager::{Auto, Never, Command(String)}`
 - `yashyc completions <bash|zsh|fish|powershell>`, `yashyc help [verb]`
 
-- [x] **Step 1: Write the failing test.** Pipe `yashyc check` on a file with a
+- [ ] **Step 1: Write the failing test.** Pipe `yashyc check` on a file with a
   diagnostic: no ANSI escape, no spinner, no prompt, one line per diagnostic,
   stable order. `--color=always` emits SGR; `NO_COLOR`, `CLICOLOR=0` and
   `TERM=dumb` degrade to ASCII; `COLUMNS=40` wraps. `yashyc`, `yashyc help`,
   `yashyc help build`, `--help` and `-h` all answer, and an unknown verb
   suggests the nearest one and exits `2`.
+  *Current:* `terminal.rs` proves plain piped output, help for every verb, an
+  unknown-verb suggestion with exit 2, completions and the man page. There is no
+  colour policy yet: `term.rs` does not exist, `--color` is not dispatched, and
+  `NO_COLOR`/`CLICOLOR`/`TERM=dumb`/`COLUMNS` are not read.
 - [x] **Step 2: One command table.** A verb is declared once with its flags,
   defaults, examples and completion kind. Help, the man page, the shell
   completions and `index --json` render from that table; a flag added in one
   place cannot be missing from another.
-- [x] **Step 3: Shell integration is generated.** `yashyc completions bash`
+- [ ] **Step 3: Shell integration is generated.** `yashyc completions bash`
   (and zsh, fish, PowerShell) prints a script that completes verbs, flags and
   file arguments; the generated files under `scripts/completions/` are
   diff-checked and syntax-checked in CI. `docs/terminal.md` shows the one-line
   install for each shell.
+  *Current:* `yashyc completions <shell>` renders a script from the command
+  table, but `scripts/completions/` and `docs/terminal.md` do not exist, so
+  there is no committed generated file for CI to diff or syntax-check.
 - [ ] **Step 4: Pager and streams.** `explain` pages through `PAGER` only on a
   TTY; `--no-pager` wins; `--json` never pages and never colours. `run`
   forwards stdin, stdout, stderr and signals and returns the program's exit
@@ -420,6 +444,26 @@ VS Code: "Yashy: Format Document" formats on save;
 Neovim:  :make runs `yashyc check`; <leader>df formats;
          the DAP session shows the same stack and the same values.
 ```
+
+## Exceptions
+
+The Phase 2 surface is partly shipped. This table names what is real and what is
+still owed so a later phase does not inherit a false checklist.
+
+| Task | Claimed | Shipped | Follow-up |
+|---|---|---|---|
+| 1.1–1.3 | All LSP features answer; `LspModel` is a `yashy-query` snapshot; rename refuses macro-origin and out-of-workspace edits | All 19 features answer from a source-derived `LspModel`; rename refuses invalid names and collisions; code actions are a rename stub with an empty edit | Feed the model from the query database; apply `suggestions[]` in a code action; add project-wide rename refusals |
+| 2.1 / 2.2 / 2.4 | Name typo, missing `move`, wrong argument order, LSP-applied fix, SARIF `fixes` | Removed-keyword suggestion end to end (JSON, `fix`, dry run, stale hash); SARIF 2.1.0 rules/levels/locations; no `fixes`, no LSP application, no missing-`move` or argument-order suggestion | Add the two suggestion producers, the code-action consumer and SARIF `fixes` |
+| 3.1 / 3.2 | `--deny`, `switch`/`while`/`Result` lints, lint suggestions, generated `docs/lints.md` | Three data-driven lints (unused, shadowed, removed keyword), `lint --list --json`; no `--deny`, no suggestions, no generated page | Add the remaining rules and render the page from the registry |
+| 4.1 | Every code has a triggering test or fixture | Page, heading, catalog, `explain --json` and `--all --json` are tested; triggering fixtures are not | Add one triggering fixture per code |
+| 5.1 | First test under 60 s on a cold machine | `new` creates a project and its first test passes; the wall-clock bound is not asserted in the unit test | Measure in CI |
+| 5.3 / 5.4 | `repl`, `doc --serve` | Neither exists; `repl.rs` and `doc_server.rs` are not created | Build both |
+| 6 | DWARF/CodeView debugger, async task view, pretty printers | Not started; `run --debug` still writes an LLDB script | Build the debugger |
+| 7 | Sampling and allocation profilers, source coverage | Not started; `profile` is still the 1.0 counter profiler | Build the profilers and `coverage` |
+| 8.1 / 8.2 | `inspect --addr`, contracts, layout, `trace --events`, `tokens --bpe` | `inspect --json` reports signature, effects, docs and span; `tokens --grammar` exists; `--addr`, contracts, layout, `trace` and `--bpe` do not | Add the missing inspection verbs and the BPE measurement |
+| 9 | One generated grammar, six clients, `editors` CI job | The 1.0 hand-maintained grammar tests still exist; no generator, no clients, no CI job | Build the grammar model and the two gated clients |
+| 10.1 / 10.3 / 10.4 / 10.5 | Colour policy, `NO_COLOR`/`CLICOLOR`/`TERM=dumb`/`COLUMNS`, committed completions, pager, hyperlinks | Help, completions and the man page render from one command table; piped output is plain; no `term.rs`, no colour flags, no committed completion files, no pager, no OSC 8 | Build the terminal policy and commit the generated scripts |
+| Gates | LSP conformance in two editors, debugger and profiler demos, terminal matrix, `editors` job | `cargo check --workspace --all-targets` is green; runtime gates cannot run locally (Windows Application Control) and CI is deferred | Re-run the full gate set when CI is unblocked |
 
 ## Out of scope
 
