@@ -5209,10 +5209,12 @@ fn alloc_report(input: PathBuf) -> ExitCode {
             return exit_code(EXIT_INTERNAL);
         }
     };
-    let _ = fs::remove_dir_all(&dir);
 
     let (mut events, dropped) = trace::parse_events(&text);
+    // The symbolizer reads the binary, so the scratch directory has to stay
+    // until addresses have been turned into source spans.
     trace::symbolize(&mut events, &output);
+    let _ = fs::remove_dir_all(&dir);
 
     // Walk in table order: an allocation is live if its pointer has not been
     // freed by the time the program ends. Reusing a pointer after a free is
