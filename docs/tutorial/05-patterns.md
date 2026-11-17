@@ -464,6 +464,33 @@ first name. Writing both halves shows which field binds to which local name.
    `default` prints "far". Call it with `(4, 4)`, `(3, 9)`, and `(1, 40)`.
    Hint: destructure the tuple first, then switch on one element.
 
+## Tests and membership in expressions
+
+A `switch` is the full form. For a yes/no question, `matches`, `is` and `in`
+are shorter spellings of the same facts: `matches` is a two-arm `switch`
+value, `is` tests a variant (or pointer addresses), and `in` calls the
+container's own `contains` method. None of them adds a new operator to the
+language.
+
+```yashy
+fn classify(Option[int] value) -> string {
+    if value matches Some(_) {
+        return "some";
+    }
+    return "none";
+}
+
+fn main() {
+    const xs = []int { 1, 2, 3 };
+    print(classify(Some(1)));
+    if 2 in xs {
+        print("has two");
+    }
+    // => some
+    // => has two
+}
+```
+
 ## How it works
 
 An enum is a tag plus the payload space of its largest variant. The compiler
