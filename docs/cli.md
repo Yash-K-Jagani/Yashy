@@ -397,6 +397,12 @@ The inventory never changes the exit code. A program the verifier accepted
 before the flag existed is still accepted with it; what changed is that its
 assumptions can be read instead of guessed at.
 
+A program that trusts something may be audited with `--require-inventory`: it
+warns `E1404` when an `extern` declaration, an `unsafe` call or an `unsafe`
+block exists but no inventory was requested. The warning is opt-in, so an
+ordinary `verify` keeps its previous output, and it does not change the exit
+code.
+
 ### `--certificates <file>`
 
 Writes one JSON certificate per proof obligation: the rule id that would have

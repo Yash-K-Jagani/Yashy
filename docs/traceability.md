@@ -11,6 +11,14 @@ Tests:
 
 - `crates/yashy-sema/tests/slices.rs`
 
+## `ALIAS-5`
+
+Codes: `E1404`
+
+Tests:
+
+- `crates/yashy-driver/tests/verify.rs`
+
 ## `ASYNC-1`
 
 Codes: `E1700`

@@ -163,6 +163,8 @@ usage:
                and `unsafe` block, with the reason for each; never changes the exit code
   --certificates <file>  with `verify`: write one certificate per proof obligation,
                with its rule id, fact and source span; never changes the exit code
+  --require-inventory  with `verify`: warn (E1404) when the program trusts C or
+               unsafe code but no `--inventory` was asked for
   --color <auto|always|never>  when to colour output; auto is the default and
                degrades under NO_COLOR, CLICOLOR=0, TERM=dumb and a pipe
   --pager / --no-pager  page long human output through $PAGER on a terminal;
@@ -4603,6 +4605,7 @@ fn verify(args: &[String]) -> ExitCode {
     let mut json = false;
     let mut timings_flag = false;
     let mut inventory_flag = false;
+    let mut require_inventory = false;
     let mut certificates: Option<PathBuf> = None;
     let mut deny_warnings = env::var("YASHY_DENY_WARNINGS").ok().as_deref() == Some("1");
     let mut allow_warnings = false;
@@ -4616,6 +4619,7 @@ fn verify(args: &[String]) -> ExitCode {
             "--json" => json = true,
             "--timings" => timings_flag = true,
             "--inventory" => inventory_flag = true,
+            "--require-inventory" => require_inventory = true,
             "--certificates" => {
                 if i + 1 < args.len() {
                     certificates = Some(PathBuf::from(&args[i + 1]));
@@ -4739,6 +4743,26 @@ fn verify(args: &[String]) -> ExitCode {
                     if d.severity == Severity::Warning {
                         d.severity = Severity::Error;
                     }
+                }
+            }
+            // ALIAS-5: an audit can require every trust assumption to be
+            // listed. The warning is opt-in so an ordinary `verify` keeps its
+            // existing output; it never changes the exit code.
+            if require_inventory && !inventory_flag {
+                let found = yashy_verify::inventory(&hir);
+                if !found.is_empty() {
+                    report.diagnostics.push(
+                        Diagnostic::new(
+                            Severity::Warning,
+                            FileId::from_index(0),
+                            Span::SYNTHETIC,
+                            format!(
+                                "{} assumption(s) were not reported; add `--inventory` to list them",
+                                found.len()
+                            ),
+                        )
+                        .with_code(codes::ASSUMPTION_NOT_REPORTED),
+                    );
                 }
             }
             // The inventory is computed from the checked HIR, so it exists

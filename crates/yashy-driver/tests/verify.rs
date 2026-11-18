@@ -620,6 +620,21 @@ fn inventory_lists_an_explicit_unsafe_block_with_its_reason() {
 }
 
 #[test]
+fn require_inventory_warns_when_a_program_trusts_c() {
+    let dir = work_dir("verify-require-inventory");
+    write(&dir, "trust.ya", TRUSTS_C);
+
+    let output = run(&dir, &["verify", "--json", "--require-inventory", "trust.ya"]);
+    let json = stdout(&output);
+    assert_eq!(output.status.code(), Some(0), "{json}");
+    assert!(json.contains("E1404"), "the audit warning is coded: {json}");
+    assert!(
+        !json.contains("\"assumptions\""),
+        "the inventory was not requested: {json}"
+    );
+}
+
+#[test]
 fn certificates_report_each_obligation_with_its_rule_and_span() {
     let dir = work_dir("verify-certificates");
     write(&dir, "shift.ya", "fn main() {\n    print(1 << 3);\n}\n");

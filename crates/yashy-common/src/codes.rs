@@ -148,6 +148,8 @@ pub const USE_AFTER_CLOSE: &str = "E1401";
 pub const RACE: &str = "E1402";
 /// A view was asked for a source whose storage the compiler cannot track.
 pub const UNPROVED_VIEW_SOURCE: &str = "E1403";
+/// A program with trust assumptions was verified without asking for the inventory.
+pub const ASSUMPTION_NOT_REPORTED: &str = "E1404";
 /// A `const` or `let` binding is never read.
 pub const UNUSED_BINDING: &str = "E2000";
 /// `await` or `spawn` appears outside an `async fn`.
@@ -508,6 +510,12 @@ pub const CODES: &[Code] = &[
         page: include_str!("../../../docs/errors/E1403.md"),
     },
     Code {
+        id: ASSUMPTION_NOT_REPORTED,
+        title: "assumption not reported",
+        summary: "The program trusts something the verifier cannot see, but no inventory was requested.",
+        page: include_str!("../../../docs/errors/E1404.md"),
+    },
+    Code {
         id: UNUSED_BINDING,
         title: "unused binding",
         summary: "A `const` or `let` binding is never read.",
@@ -846,7 +854,7 @@ pub fn docs_url(id: &str) -> String {
 /// names those rules so the matrix can report them as orphans instead of
 /// silently dropping them: a rule with no code is a rule nobody can check.
 pub const PLANNED_RULES: &[&str] = &[
-    "ALIAS-1", "ALIAS-2", "ALIAS-4", "ALIAS-5", "DET-2", "DET-3", "DET-4", "DET-5",
+    "ALIAS-1", "ALIAS-2", "ALIAS-4", "DET-2", "DET-3", "DET-4", "DET-5",
 ];
 
 /// The stable rule id a code enforces.
@@ -906,6 +914,7 @@ pub fn rule_for(id: &str) -> &'static str {
         USE_AFTER_CLOSE => "THREAD-2",
         RACE => "THREAD-3",
         UNPROVED_VIEW_SOURCE => "ALIAS-3",
+        ASSUMPTION_NOT_REPORTED => "ALIAS-5",
         UNKNOWN_TRAIT => "TRAIT-1",
         CONFLICTING_IMPL => "TRAIT-2",
         INCOMPLETE_IMPL => "TRAIT-3",
