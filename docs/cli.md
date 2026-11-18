@@ -1117,13 +1117,15 @@ runtime's event trace enabled and reports every allocation site with a byte
 count and a source span, plus the blocks still live at exit. See
 [profiling](profiling.md).
 
-## `yashyc coverage <file.ya> [--json] [--format lcov|json|sarif] [--fail-under <pct>]`
+## `yashyc coverage <file.ya>` / `coverage --tests [<dir>] [--json] [--format lcov|json|sarif] [--fail-under <pct>]`
 
 Builds with debug info and LLVM coverage mapping, runs the program, merges the
 raw profile and renders lcov records, a schema-v1 JSON summary of covered lines,
 or a SARIF 2.1.0 log with one `COVERAGE-1` result per never-executed line. The
 SARIF form is the artifact CI uploads. `--fail-under` exits `1` when coverage is
-below the threshold. The LLVM
+below the threshold. `--tests` instruments every test under the directory
+(default `tests/`), merges their profiles into one, and reports the suite as a
+single run; `--filter` narrows the selection. The LLVM
 helpers are found beside the clang doing the build, or through
 `YASHY_LLVM_PROFDATA` / `YASHY_LLVM_COV`; see [coverage](coverage.md).
 
@@ -1175,12 +1177,13 @@ dependency names a commit. Unknown tables and keys are refused, so a
 misspelled `[dependecies]` cannot silently vanish.
 
 `yashyc lock --check` compares `yashy.toml` with `yashy.lock` and exits 1 with
-[E1802](errors/E1802.md) when a version, source or content hash differs.
-`yashy.lock` is format 2; a format 1 lock is still read and rewritten as 2 on
-the next update. The lockfile is deterministic: packages sorted by name then
-version, dependency lists sorted, LF endings, and a `sha256:` hash over a
-canonical source tree (sorted paths, CRLF normalised, no mtimes). `yashyc
-build` runs the same check when a lockfile is present.
+[E1802](errors/E1802.md) when a version, source or content hash differs. It
+also refuses a `[stdlib]` whose version or tree hash is not the one this
+compiler reads. `yashy.lock` is format 2; a format 1 lock is still read and
+rewritten as 2 on the next update. The lockfile is deterministic: packages
+sorted by name then version, dependency lists sorted, LF endings, and a
+`sha256:` hash over a canonical source tree (sorted paths, CRLF normalised, no
+mtimes). `yashyc build` runs the same check when a lockfile is present.
 
 ### Workspaces
 
@@ -1196,7 +1199,10 @@ Members are directories with their own `[package]` manifests; their names must
 be unique. `yashyc test --workspace` runs every member's tests, `yashyc test -p
 app` runs one, and `yashyc build` with no file builds the default member. A
 member may depend on a sibling by path (`path = "../lib"`); a path dependency
-outside the workspace is refused unless explicitly allowed.
+outside the workspace is refused unless `--allow-path <path>` names it on the
+`test` command. Members share the root `yashy.lock`: a member's lock reads and
+writes the workspace root's file, so two members cannot resolve against two
+different graphs.
 
 ### Features
 

@@ -11,10 +11,22 @@ inputs:
     description: Install prefix
     required: false
     default: ${{ runner.temp }}/yashy
+  cache:
+    description: Restore and save the compiler's build cache keyed by version, OS and architecture
+    required: false
+    default: "true"
 
 runs:
   using: composite
   steps:
+    - name: Restore the build cache
+      if: inputs.cache == 'true'
+      uses: actions/cache@v4
+      with:
+        path: ~/.yashy/cache
+        key: yashy-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
+        restore-keys: yashy-${{ inputs.version }}-${{ runner.os }}-
+
     - name: Install Yashy from the signed release archive
       shell: bash
       run: |

@@ -94,10 +94,11 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "test",
         summary: "compile and run the programs under tests/",
-        usage: "yashyc test [path] [--workspace|-p <member>] [--filter <substring>] [--affected <file>] [--list] [--json] [--timings]",
+        usage: "yashyc test [path] [--workspace|-p <member>] [--allow-path <p>] [--filter <substring>] [--affected <file>] [--list] [--json] [--timings]",
         flags: &[
             "--workspace",
             "-p",
+            "--allow-path",
             "--filter",
             "--affected",
             "--list",
@@ -225,8 +226,8 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "coverage",
         summary: "measure which Yashy source lines ran",
-        usage: "yashyc coverage <file.ya> [--json] [--format lcov|json] [--fail-under <pct>] [-- args]",
-        flags: &["--json", "--format", "--fail-under"],
+        usage: "yashyc coverage <file.ya> | coverage --tests [<dir>] [--filter <s>] [--json] [--format lcov|json] [--fail-under <pct>]",
+        flags: &["--json", "--format", "--fail-under", "--tests", "--filter"],
         takes_path: true,
     },
     CommandSpec {

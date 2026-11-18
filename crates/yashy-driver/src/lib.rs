@@ -23,9 +23,9 @@ pub mod debug_info;
 pub mod doc;
 pub mod doc_server;
 pub mod features;
-pub mod fuzz;
 pub mod fetch;
 pub mod fix;
+pub mod fuzz;
 pub mod grammar;
 pub mod index;
 pub mod layout;
@@ -155,7 +155,8 @@ pub(crate) fn span_range_json(span: Span) -> Json {
 
 pub use fetch::{default_store_root, FetchError, Store};
 pub use modules::{
-    default_stdlib_root, load, load_sources, module_roots, resolve_import, Module, ModuleSource,
+    default_stdlib_root, load, load_sources, module_roots, resolve_import, stdlib_fingerprint,
+    stdlib_version, Module, ModuleSource,
 };
 pub use pipeline::{
     check_and_verify, check_and_verify_timed, check_and_verify_timed_with_features, compile_hir,

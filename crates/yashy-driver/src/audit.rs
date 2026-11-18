@@ -162,9 +162,10 @@ pub fn audit_project(directory: &Path, store: &Store) -> Result<AuditReport, Aud
         findings: Vec::new(),
     };
 
-    let lock = match Lockfile::load(&directory.join("yashy.lock")) {
+    let lock_path = crate::workspace::Workspace::shared_file(directory, "yashy.lock");
+    let lock = match Lockfile::load(&lock_path) {
         Ok(lock) => Some(lock),
-        Err(error) if directory.join("yashy.lock").is_file() => {
+        Err(error) if lock_path.is_file() => {
             findings.push(finding(
                 codes::LOCKFILE_MISMATCH,
                 &manifest.package.name,
@@ -281,7 +282,10 @@ pub fn audit_project(directory: &Path, store: &Store) -> Result<AuditReport, Aud
                     for (name, _) in capabilities.entries() {
                         if policy.deny_capabilities.iter().any(|denied| denied == name)
                             || (!policy.allow_capabilities.is_empty()
-                                && !policy.allow_capabilities.iter().any(|allowed| allowed == name))
+                                && !policy
+                                    .allow_capabilities
+                                    .iter()
+                                    .any(|allowed| allowed == name))
                         {
                             findings.push(finding(
                                 codes::POLICY_DENIED,

@@ -384,19 +384,22 @@ debug locations.
   and `sites` (blocks still live at exit), with counts, bytes and source spans
   from `llvm-symbolizer`. A verified program cannot leak, so `sites` is empty
   there by construction; the attribution is real, not invented.
-- [ ] **Step 4: Coverage is source-based.** Compile with clang's
+- [x] **Step 4: Coverage is source-based.** Compile with clang's
   `-fprofile-instr-generate -fcoverage-mapping`, run the test suite, merge
   profiles, and render per-file/per-line counts. `--fail-under` gates CI.
   *Current:* `yashyc coverage <file.ya>` builds with `--debug-info` and clang's
   `-fprofile-instr-generate -fcoverage-mapping`, runs with `LLVM_PROFILE_FILE`,
   merges with `llvm-profdata merge -sparse` and exports lcov with
-  `llvm-cov export`. `coverage.rs` parses the records into per-file, per-line
-  counts and renders either lcov or a schema-v1 JSON envelope with
+  `llvm-cov export`. `coverage --tests [<dir>] [--filter <s>]` instruments
+  every test, runs each in its own binary, merges all raw profiles into one
+  `profdata`, and exports every instrumented binary against it, so a line is
+  covered when any test reached it; a test that fails to build or exits
+  non-zero stops the run. `coverage.rs` parses the records into per-file,
+  per-line counts and renders either lcov or a schema-v1 JSON envelope with
   `covered_lines`, `total_lines` and `percent`; `--fail-under` exits `1` below
   the threshold. The helpers are found beside clang or through
   `YASHY_LLVM_PROFDATA`/`YASHY_LLVM_COV`, and a missing helper is a usage error
-  naming what to install. The command covers one program; running the whole
-  test suite under one merged profile is still a CI gate.
+  naming what to install. The CI upload of the report is deferred with CI.
 - [x] **Step 5: Commit.**
 
 ### Task 8: `inspect`, `trace`, `tokens`
@@ -603,7 +606,7 @@ scripts and the terminal tests are committed.
 | First test | `yashyc new hello && cd hello && yashyc test` | under 60 s on a cold machine, both OSes; not measurable locally |
 | Debugger | `cargo test -p yashy-driver --test debug --test debug_info` | backend selection, scripts, function-level line tables and `inspect --addr` are tested; a typed in-function stop is not implemented |
 | Profilers | `cargo test -p yashy-driver --lib` (unit tests only) | wall-clock and recorded counter reports; no sampler or allocation-site test exists |
-| Coverage | `cargo test -p yashy-driver --test coverage` (does not exist) | `yashyc coverage` is an explicit not-implemented usage error; per-instruction locations are required first |
+| Coverage | `cargo test -p yashy-driver --test coverage` | one program and a merged test suite produce lcov/JSON/SARIF with a `--fail-under` gate when the LLVM helpers are present; the test skips on a host without them |
 | Architecture | `cargo test -p yashy-driver --test architecture` | crates and verbs in the doc match the workspace |
 | No regression | `cargo test --workspace` | green on Windows and Linux |
 | No P0 | `docs/triage.md` | no P0 |
@@ -671,7 +674,7 @@ still owed so a later phase does not inherit a false checklist.
 | 5.1 | First test under 60 s on a cold machine | `new` creates a project and its first test passes; the wall-clock bound is not asserted in the unit test | Measure in CI |
 | 5.3 / 5.4 | `repl`, `doc --serve` | A compiling REPL with retained declarations, type reporting and honest refusals; a loopback read-only docs server with `/json` and `/search`; no persistent HIR interpreter | Add an HIR interpreter only if compile-per-expression is too slow |
 | 6 | DWARF/CodeView debugger, async task view, pretty printers | `yashyc debug` selects LLDB or cdb; debug builds emit `!dbg` per checked statement (a real `.debug_line` section); `inspect --addr` maps addresses to spans; no type table for typed locals or pretty printers | Emit type locations for locals and parameters, then attach pretty printers |
-| 7 | Sampling and allocation profilers, source coverage | `profile` reports wall-clock time and renders recorded counter tables; `--alloc-report` reports the runtime's live-allocation total with no site; `yashyc coverage` is an explicit not-implemented error. Debug statements have `!dbg` locations; the instrumentation and merge pipeline does not exist | Add native sampling, allocator site ids and the coverage pipeline |
+| 7 | Sampling and allocation profilers, source coverage | `profile` reports wall-clock time and renders recorded counter tables; `--alloc-report` attributes live blocks to source spans through the runtime event trace and `llvm-symbolizer`; `yashyc coverage` covers one program or, with `--tests`, a merged suite, rendering lcov/JSON/SARIF with `--fail-under`. There is still no native sampling profiler | Add native sampling, then an 80%-attribution test |
 | 8.1 / 8.2 | `inspect --addr`, contracts, layout, `trace --events`, `tokens --bpe` | `inspect --addr` maps an address via `llvm-nm` and the index; `inspect --layout` reports size/align/field offsets from the checker's layout walk; contracts and spans are in `inspect --json`; `tokens --bpe` measures Yashy's own tokenizer; `trace --json` emits the static rule matrix | Vendor three BPE vocabularies and implement runtime events |
 | 9 | One generated grammar, six clients, `editors` CI job | One model drives 11 generated files; all six clients are committed; `tests/grammar.rs` is the byte gate and the LSP conformance transcript is shared; no `editors` CI job yet, and the real-editor run is deferred with CI | Add the `editors` job when CI is unblocked |
 | 10.1 / 10.3 / 10.4 / 10.5 | Colour policy, `NO_COLOR`/`CLICOLOR`/`TERM=dumb`/`COLUMNS`, committed completions, pager, hyperlinks | `term.rs` implements the colour, width, pager and OSC 8 policies; `scripts/completions/*` are committed and diff-tested; `docs/terminal.md` documents the install; a signal-killed child reports `1` instead of re-raising the signal | Re-raise the child's signal on Unix |

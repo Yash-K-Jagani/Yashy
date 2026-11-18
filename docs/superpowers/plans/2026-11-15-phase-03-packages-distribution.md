@@ -122,10 +122,15 @@ folded into the IR cache key rather than resolver inputs.
   `yashy.lock` and the build cache; a member's package name is unique in the
   workspace; a path dependency outside the workspace is refused unless it is
   explicitly allowed.
-  *Current:* member names are checked for uniqueness and an outside path
-  dependency is refused by `workspace::validate`. There is no CLI flag yet for
-  allowing one, and members do not yet share an explicit lockfile/target
-  directory: each member still reads the lock next to its own manifest.
+  *Current:* `Workspace::shared_root` climbs to the declared workspace root and
+  every package command (`update`, `fetch`, `lock --check`, `audit`, `tree`,
+  `info`, `outdated`, `sbom`, `remove`) reads and writes `<root>/yashy.lock`;
+  `update` resolves every member and unions the graphs, refusing two members
+  that pin one name to different versions or sources. `test --allow-path <p>`
+  is the explicit outside-path grant. The build cache already lives in one
+  user-level directory; the IR key now hashes the workspace root lock, so a
+  sibling's pin change invalidates the member's cache entry. There is no
+  workspace-local `target/` directory: the cache is the compiler's.
 - [x] **Step 3: Commit.**
 
 ### Task 3: Features
@@ -255,8 +260,11 @@ folded into the IR cache key rather than resolver inputs.
   directories, compare, and fail on a difference. A package that cannot be
   reproduced is not publishable.
   *Current:* the two-directory gate is a local test, not a CI job; CI is
-  deferred by the project owner. Publishing does not yet refuse a package that
-  fails the gate.
+  deferred by the project owner. `yashyc publish` now builds the package's
+  program (`src/main.ya`, then `tests/main.ya`) twice in two copies of the
+  tree with `--reproducible` and refuses the publish when the bytes differ or
+  the program does not build. A library with no program has no image to
+  compare, so its source-tree hash is the artifact.
 - [x] **Step 4: Commit.**
 
 ### Task 7: Installers, Action, self-update
@@ -285,8 +293,11 @@ folded into the IR cache key rather than resolver inputs.
 - [x] **Step 3: The Action is thin.** `yashy/setup-yashy@v1` installs a pinned
   version, verifies it, caches `~/.yashy/cache` keyed by compiler version and
   target, and adds `yashyc` to `PATH`. No shell beyond the documented steps.
-  *Current:* the action installs a pinned version, verifies with `doctor` and
-  adds `yashyc` to `PATH`; cache-keyed restore is not in the action yet.
+  *Current:* the action installs a pinned version, verifies with `doctor`,
+  adds `yashyc` to `PATH`, and restores/saves `~/.yashy/cache` with
+  `actions/cache` keyed by `version`, `runner.os` and `runner.arch`; `cache:
+  false` opts out. The cold-install and cache-hit wall-clock bounds are CI
+  measurements.
 - [x] **Step 4: Commit.**
 
 ### Task 8: Workspace and service templates
@@ -304,10 +315,10 @@ folded into the IR cache key rather than resolver inputs.
   `-sys` package with a generated binding, a safe wrapper and a test against a
   fixture C library.
   *Current:* `tests/new.rs` checks the workspace, service and native templates'
-  files. The workspace has a shared root manifest; members still use their own
-  lockfile. The service template prints a health response (no socket until
-  Phase 6) and the native template has a C fixture plus an `extern "C"`
-  declaration, but no generated safe wrapper yet.
+  files. The workspace has a shared root manifest and the members now read and
+  write the root `yashy.lock`. The service template prints a health response
+  (no socket until Phase 6) and the native template has a C fixture plus an
+  `extern "C"` declaration, but no generated safe wrapper yet.
 - [x] **Step 2: Templates are tested programs.** Every template is built and
   tested in CI on both OSes; a template that does not pass its own test is
   removed. No placeholder that compiles but lies.
@@ -334,9 +345,12 @@ folded into the IR cache key rather than resolver inputs.
 - [x] **Step 2: The stdlib is versioned and signed like any package.** It has a
   manifest and a signature in the release, and the lockfile records its version
   and hash. A locally modified stdlib is a diagnostic, not a silent rebuild.
-  *Current:* the tree hash changes the cache key; no release signature or
-  lockfile hash check is shipped for the stdlib. It can be signed with the
-  normal `publish --key-id` path, but the release does not do so yet.
+  *Current:* `yashyc update` writes a `[stdlib]` table with the version and
+  tree hash this compiler will read; `lock --check` and the build-time lock
+  check refuse a stdlib whose version or bytes differ (E1802), while a lock
+  written before the table existed is still accepted. The stdlib still has no
+  release signature: it can be signed with the normal `publish --key-id` path,
+  but the release does not do so yet.
 - [x] **Step 3: The cache never serves a stale module.** The key includes the
   feature set and the target; a miss is a normal compile; a hit is verified
   against the key before use. A wrong hit is a P0.
@@ -441,9 +455,13 @@ folded into the IR cache key rather than resolver inputs.
   signed by the release key, and is embedded in the registry entry next to the
   SBOM. A package without provenance fails a policy that requires it; a package
   with provenance from an unknown builder fails the trust check.
-  *Current:* `attest` writes statement and signature beside the artifact; it
-  is a separate command, not part of `publish`, and the registry entry does not
-  reference it. Unknown builders are not distinguished from other signers.
+  *Current:* `publish --key-id` writes the in-toto/SLSA statement and its
+  signature beside the tarball in the same invocation, names it in the index
+  entry (`attestation`), and re-signs the index after the entry changes. The
+  statement records the tarball and package-tree digests as materials and the
+  host target as the build target. Builder trust is the same keyring as every
+  other signature; a policy that distinguishes an unknown builder is still
+  future work.
 - [x] **Step 3: Verification is a rebuild, not a claim.** `yashyc
   verify-attestation` checks the signature, the subject digest and the material
   digests, then optionally rebuilds `--reproducible` from the named materials and
@@ -508,7 +526,7 @@ folded into the IR cache key rather than resolver inputs.
 | Tamper | `cargo test -p yashy-driver --test signature --test registry` | one flipped byte, one bad index signature and one missing key each fail with a named code |
 | SBOM | `cargo test -p yashy-driver --test sbom --test audit` | the SPDX document and package/compiler entries are present with compiler version and target annotations; `verify-package` names E1805/E1806/E1809 for signature, SBOM and index mismatches; a toolchain hash is not recorded; policy violations are refused |
 | Capabilities | `cargo test -p yashy-driver --test capabilities` (a separate `policy` test does not exist) | default-deny, path globs and the call-site refusal are pinned; the runtime grant enforcement is not implemented |
-| Provenance | `cargo test -p yashy-driver --test attest` (a separate `slsa` test does not exist) | the statement names its subject, material discovery is automatic, a signed negative case fails, and `--rebuild` compares a reproducible rebuild's digest; no registry reference |
+| Provenance | `cargo test -p yashy-driver --test attest` (a separate `slsa` test does not exist) | the statement names its subject, material discovery is automatic, a signed negative case fails, `--rebuild` compares a reproducible rebuild's digest, and `publish --key-id` names the attestation in the index entry |
 | Package surface | `cargo test -p yashy-driver --test pkg_cmd` | tree marks duplicates and features, why/info/remove/outdated/vendor are pinned; `yank` is covered by `registry.rs` unit tests rather than this CLI test |
 | Reproducible | `cargo test -p yashy-driver --test reproducible` | two directories, two runs, identical SHA-256 on both OSes |
 | Stdlib package | `cargo test -p yashy-driver --test stdlib_precompiled` | unchanged stdlib is not re-typechecked; cache key verified; hash mismatch refused |
@@ -594,14 +612,14 @@ ok  14 packages, 0 unsigned, 0 policy violations
 | Task | Claimed | Shipped | Follow-up |
 |---|---|---|---|
 | 1.1-1.3 | Semver ranges, one resolution, per-case diagnostic codes | `Version`/`VersionReq` with SemVer 2.0 precedence, range selection, v2 lock with v1 migration, yanked refusal, bounded DFS; existing E180x codes reused; `ResolveOptions` honours the explicit index and `--locked` | Add per-case resolver codes and feed features/target into the index selection |
-| 2.1 / 2.2 | Shared lockfile and target directory for members | Workspace discovery, `-p`/`--workspace` selection, unique names and outside-path refusal; members still read their own lock and do not share an explicit target directory | Add a workspace-level lock/store and an explicit allow flag for outside paths |
+| 2.1 / 2.2 | Shared lockfile and target directory for members | Workspace discovery, `-p`/`--workspace` selection, unique names, outside-path refusal with the `test --allow-path` grant, and one root lock read/written by every package command; `update` unions every member's graph and refuses a version/source conflict | Add a workspace-local build directory if a shared user cache is not enough |
 | 3.1 / 3.2 | `cfg(feature = "x")` and `--print-cfg` with features | Sorted feature sets, unification, cache-key and lockfile recording, optional dependencies, `feature:<name>` flat cfg keys, `--features`/`--no-default-features` on `build`, `check`, `verify` and `--print-cfg`, applied to the `cfg` filter before resolution | Add the Phase 4 `cfg(feature = ...)` syntax |
 | 4.1 / 4.2 | Signed index and tarballs, explicit trust set | `ed25519-compact` signs tarballs and the index; `publish --key-id` writes an SPDX SBOM; `fetch` verifies when `YASHY_TRUSTED_KEY`/`YASHY_KEYRING` is set; a remote registry signature is refused rather than trusted | Add a built-in release key, multi-signature support and remote signature verification |
 | 5.1 / 5.2 | SBOM, distinct mismatch codes, audit policy with signatures | `yashyc sbom` prints SPDX 2.3; `verify-package` reports E1805/E1806 and E1809 for the index entry when a registry is named; `[audit]` allowlists and `require-signatures` are parsed and enforced | Add per-package audit findings and a registry-less index lookup |
-| 6.1 / 6.3 | Two-directory gate and publish refusal | Two-directory byte comparison and an IR path check exist; the SBOM records compiler version and target; the CI gate and publish-time refusal are deferred with CI | Gate reproducibility in CI and refuse a non-reproducible publish |
-| 7.1 / 7.3 | Cross-OS install test and a caching Action | Manifests for five channels, a thin `setup-yashy` action, a verifying self-update with rollback; the cross-OS matrix and the action's cache step are CI/release work | Ship the three-OS install archive and enable the action's cache |
-| 8.1 / 8.2 | Tested workspace, service and native templates | Three templates ship with smoke tests and README files; the shared root manifest exists, but members still use per-member locks and the native wrapper is a skeleton | Share the workspace lock and fill in the native template |
-| 9.1 / 9.3 | Signed, precompiled stdlib with a versioned cache key | The stdlib has a versioned package manifest; its canonical hash and the selected feature set are part of the IR cache key | Add a clean-checkout "no recheck" timing and a hash-disagreement refusal test |
+| 6.1 / 6.3 | Two-directory gate and publish refusal | Two-directory byte comparison and an IR path check exist; `publish` builds the package's program twice in two copied trees and refuses different bytes or a failed build; the SBOM records compiler version and target; the CI gate is deferred with CI | Gate reproducibility in CI |
+| 7.1 / 7.3 | Cross-OS install test and a caching Action | Manifests for five channels, a thin `setup-yashy` action with a version/OS/arch cache step, a verifying self-update with rollback; the cross-OS matrix and cold-install timing are CI/release work | Run the matrix when CI is unblocked |
+| 8.1 / 8.2 | Tested workspace, service and native templates | Three templates ship with smoke tests and README files; the shared root manifest exists and members read and write the root lock; the native wrapper is a skeleton | Fill in the native template |
+| 9.1 / 9.3 | Signed, precompiled stdlib with a versioned cache key | The stdlib has a versioned package manifest; its version and canonical hash are part of the IR cache key and are written to `[stdlib]` in the lock; a lock that disagrees with the tree is refused (E1802); a clean-checkout "no recheck" timing is CI work | Sign the stdlib in the release |
 | 10.1 / 10.4 | Call-site and runtime capability enforcement, policy table | `[capabilities]`, the HIR call-site check (E1808), `audit --capabilities`, `add --allow`, `--print-capabilities`, and the full `[audit]` policy fields are implemented; the runtime handle is not | Enforce the grant in the runtime handle |
-| 11.1 / 11.3 | Provenance produced by the build and verified by rebuild | In-toto/SLSA v1 statement, signed `attest` output with automatic materials, subject/material digest checks and `--rebuild` verification | Reference an attestation from the registry entry |
+| 11.1 / 11.3 | Provenance produced by the build and verified by rebuild | In-toto/SLSA v1 statement, signed by the same `publish --key-id` invocation that writes the tarball, named in the registry entry, plus subject/material digest checks and `--rebuild` verification; `attest` remains available for an artifact built elsewhere | Distinguish an unknown builder in the policy |
 | 12.1 / 12.3 | Full package surface with reversible mutations | `tree` marks duplicates and features; `vendor` supports offline fetch; `info` reports size, signature, provenance and native libraries; `outdated` classifies major/minor/patch changes; `yank` records a reason with a backup | No known gap; `yank` is covered by `registry.rs` unit tests rather than a CLI test |

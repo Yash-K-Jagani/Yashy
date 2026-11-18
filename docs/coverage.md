@@ -9,7 +9,17 @@ back as lcov records naming Yashy lines.
 yashyc coverage main.ya
 yashyc coverage --json main.ya
 yashyc coverage --format json --fail-under 80 main.ya
+yashyc coverage --tests --json --fail-under 80
+yashyc coverage --tests tests/http --filter routes
 ```
+
+`coverage --tests [<dir>]` instruments every test under the directory (the
+default is `tests/`), runs each one, merges the raw profiles with
+`llvm-profdata merge -sparse`, and exports every instrumented binary against
+that one merged profile. A line is covered when any test reached it, which is
+the number a CI gate should read. `--filter` narrows the suite the same way
+`test --filter` does. A test that fails to build or exits non-zero stops the
+run, because a partial suite would understate coverage.
 
 The command builds the file with `--debug-info` and coverage instrumentation
 in a scratch directory, runs it with `LLVM_PROFILE_FILE` set, merges the raw

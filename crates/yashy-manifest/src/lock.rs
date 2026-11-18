@@ -103,12 +103,27 @@ impl LockedPackage {
     }
 }
 
+/// The standard library a lock was resolved against.
+///
+/// The stdlib is a package like any other: its version and tree hash are
+/// inputs to the build, so a lock that does not name them cannot pin the
+/// build. A lock written before this section existed has `None` and is still
+/// accepted; the next `yashyc update` adds it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LockedStdlib {
+    pub version: String,
+    /// `sha256:<64 hex digits>` over the stdlib's canonical source tree.
+    pub hash: String,
+}
+
 /// A parsed `yashy.lock`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Lockfile {
     pub packages: Vec<LockedPackage>,
     /// The features this lock was resolved under, sorted.
     pub features: Vec<String>,
+    /// The stdlib this lock was resolved against, when it recorded one.
+    pub stdlib: Option<LockedStdlib>,
 }
 
 impl Lockfile {
@@ -122,6 +137,7 @@ impl Lockfile {
         Lockfile {
             packages,
             features: Vec::new(),
+            stdlib: None,
         }
     }
 
@@ -164,6 +180,12 @@ impl Lockfile {
                 .collect::<Vec<_>>()
                 .join(", ");
             out.push_str(&format!("features = [{rendered}]\n"));
+        }
+        if let Some(stdlib) = &self.stdlib {
+            out.push('\n');
+            out.push_str("[stdlib]\n");
+            out.push_str(&format!("version = {}\n", escape(&stdlib.version)));
+            out.push_str(&format!("hash = {}\n", escape(&stdlib.hash)));
         }
         let mut packages = self.packages.clone();
         for package in &mut packages {
@@ -289,18 +311,54 @@ impl Lockfile {
         }
         Ok(())
     }
+
+    /// Refuse a stdlib whose bytes are not the ones the lock names.
+    ///
+    /// A lock without a `[stdlib]` section predates the check and is accepted;
+    /// a lock with one is a promise, and a locally edited stdlib breaks it.
+    pub fn check_stdlib(&self, version: &str, hash: &str) -> Result<(), LockError> {
+        let Some(stdlib) = &self.stdlib else {
+            return Ok(());
+        };
+        if stdlib.version != version {
+            return Err(LockError::new(
+                1,
+                1,
+                format!(
+                    "yashy.lock pins stdlib {locked}, but this compiler ships {version}; run \
+                     `yashyc update` with a compiler that ships the pinned stdlib",
+                    locked = stdlib.version
+                ),
+            ));
+        }
+        if stdlib.hash != hash {
+            return Err(LockError::new(
+                1,
+                1,
+                format!(
+                    "the stdlib hashes to {hash}, but yashy.lock records {locked}; restore the \
+                     stdlib that the lock pins, or run `yashyc update` to record the change",
+                    locked = stdlib.hash
+                ),
+            ));
+        }
+        Ok(())
+    }
 }
 
 fn lock_from_document(document: &Document) -> Result<Lockfile, LockError> {
     let root = &document.root;
     let at = |path: &str| document.location(path);
     for key in root.keys() {
-        if !matches!(key.as_str(), "version" | "package" | "features") {
+        if !matches!(key.as_str(), "version" | "package" | "features" | "stdlib") {
             let location = at(key);
             return Err(LockError::new(
                 location.line,
                 location.column,
-                format!("`{key}` is not a lockfile key; expected `version` or `[[package]]`"),
+                format!(
+                    "`{key}` is not a lockfile key; expected `version`, `features`, `[stdlib]` \
+                     or `[[package]]`"
+                ),
             ));
         }
     }
@@ -359,9 +417,52 @@ fn lock_from_document(document: &Document) -> Result<Lockfile, LockError> {
         }
         None => Vec::new(),
     };
+    let stdlib = match root.get("stdlib") {
+        Some(Value::Table(table)) => {
+            for key in table.keys() {
+                if !matches!(key.as_str(), "version" | "hash") {
+                    let location = at(&format!("stdlib.{key}"));
+                    return Err(LockError::new(
+                        location.line,
+                        location.column,
+                        format!("`{key}` is not a stdlib field; expected `version` or `hash`"),
+                    ));
+                }
+            }
+            let version = lock_string(table, "stdlib", "version", document)?;
+            let hash = lock_string(table, "stdlib", "hash", document)?;
+            let Some(hex) = hash.strip_prefix(HASH_PREFIX) else {
+                let location = at("stdlib.hash");
+                return Err(LockError::new(
+                    location.line,
+                    location.column,
+                    format!("a stdlib hash starts with `{HASH_PREFIX}`"),
+                ));
+            };
+            if hex.len() != 64 || !hex.chars().all(|ch| ch.is_ascii_hexdigit()) {
+                let location = at("stdlib.hash");
+                return Err(LockError::new(
+                    location.line,
+                    location.column,
+                    "a `sha256:` stdlib hash is 64 hexadecimal digits".to_string(),
+                ));
+            }
+            Some(LockedStdlib { version, hash })
+        }
+        Some(_) => {
+            let location = at("stdlib");
+            return Err(LockError::new(
+                location.line,
+                location.column,
+                "`stdlib` must be a `[stdlib]` table".to_string(),
+            ));
+        }
+        None => None,
+    };
     let Some(entry) = root.get("package") else {
         let mut lock = Lockfile::new(Vec::new());
         lock.features = features;
+        lock.stdlib = stdlib;
         return Ok(lock);
     };
     let Value::Array(items) = entry else {
@@ -511,6 +612,7 @@ fn lock_from_document(document: &Document) -> Result<Lockfile, LockError> {
     }
     let mut lock = Lockfile::new(packages);
     lock.features = features;
+    lock.stdlib = stdlib;
     Ok(lock)
 }
 
@@ -879,7 +981,7 @@ mod tests {
 
     #[test]
     fn the_lockfile_round_trips_byte_identically() {
-        let lock = Lockfile::new(vec![
+        let mut lock = Lockfile::new(vec![
             LockedPackage {
                 name: "string".into(),
                 version: "1.0.0".into(),
@@ -895,13 +997,41 @@ mod tests {
                 dependencies: vec!["string 1.0.0".into(), "net 0.2.0".into()],
             },
         ]);
+        lock.stdlib = Some(LockedStdlib {
+            version: "1.0.0".into(),
+            hash: format!("{HASH_PREFIX}{}", "c".repeat(64)),
+        });
         let text = lock.render();
         let parsed = Lockfile::parse(&text).expect("the rendered lock parses");
         assert_eq!(parsed, lock);
         assert_eq!(parsed.render(), text);
+        assert!(text.contains("[stdlib]\nversion = \"1.0.0\""));
         assert!(text.contains("[[package]]\nname = \"http\""));
         assert!(text.find("\"http\"").unwrap() < text.find("\"string\"").unwrap());
         assert!(text.contains("dependencies = [\"net 0.2.0\", \"string 1.0.0\"]"));
+    }
+
+    #[test]
+    fn a_stdlib_that_does_not_match_the_lock_is_refused() {
+        let mut lock = Lockfile::new(Vec::new());
+        let hash = format!("{HASH_PREFIX}{}", "d".repeat(64));
+        lock.stdlib = Some(LockedStdlib {
+            version: "1.0.0".into(),
+            hash: hash.clone(),
+        });
+        assert!(lock.check_stdlib("1.0.0", &hash).is_ok());
+        let error = lock
+            .check_stdlib("1.0.1", &hash)
+            .expect_err("a version change must be refused");
+        assert!(error.message.contains("1.0.0"));
+        let other = format!("{HASH_PREFIX}{}", "e".repeat(64));
+        let error = lock
+            .check_stdlib("1.0.0", &other)
+            .expect_err("a byte change must be refused");
+        assert!(error.message.contains("hashes to"));
+        // A lock written before the section existed is still accepted.
+        let old = Lockfile::new(Vec::new());
+        assert!(old.check_stdlib("9.9.9", &other).is_ok());
     }
 
     #[test]

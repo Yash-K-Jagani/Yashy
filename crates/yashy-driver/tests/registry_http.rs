@@ -105,6 +105,7 @@ fn write_registry(registry: &Path, package: &Path) -> String {
         description: "a greeting".to_string(),
         yanked: false,
         yanked_reason: None,
+        attestation: None,
     }];
     let mut index = yashy_common::Json::object();
     let mut array = Vec::new();

@@ -2819,6 +2819,7 @@ fn test(args: &[String]) -> ExitCode {
     let mut jobs: usize = 0;
     let mut target: Option<&'static str> = None;
     let mut affected: Option<PathBuf> = None;
+    let mut allowed_external: Vec<String> = Vec::new();
 
     let mut iter = args.iter();
     let mut sandbox = false;
@@ -2833,6 +2834,12 @@ fn test(args: &[String]) -> ExitCode {
                 package = Some(value.clone());
             }
             "--sandbox" => sandbox = true,
+            "--allow-path" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`--allow-path` needs a path");
+                };
+                allowed_external.push(value.clone());
+            }
             "--affected" => {
                 let Some(value) = iter.next() else {
                     return usage_error("`--affected` needs a changed-files list");
@@ -2912,7 +2919,7 @@ fn test(args: &[String]) -> ExitCode {
                 return exit_code(EXIT_USAGE);
             }
         };
-        let members = match found.select(package.as_deref(), workspace, &[]) {
+        let members = match found.select(package.as_deref(), workspace, &allowed_external) {
             Ok(members) => members,
             Err(message) => {
                 eprintln!("error: {message}");
@@ -2927,6 +2934,11 @@ fn test(args: &[String]) -> ExitCode {
             match args[index].as_str() {
                 "--workspace" => {}
                 "-p" | "--package" => index += 1,
+                "--allow-path" if index + 1 < args.len() => {
+                    rest.push("--allow-path".to_string());
+                    rest.push(args[index + 1].clone());
+                    index += 1;
+                }
                 other if other.starts_with('-') => rest.push(other.to_string()),
                 _ => {}
             }
@@ -5907,11 +5919,16 @@ fn alloc_report(input: PathBuf) -> ExitCode {
     exit_code(EXIT_OK)
 }
 
-/// `yashyc coverage <file.ya> [--json] [--format lcov|json] [--fail-under <pct>] [-- args]`
+/// `yashyc coverage <file.ya>` or `yashyc coverage --tests [<dir>]`
 ///
 /// The debug info from HIR spans is what makes the result source-based: clang
 /// writes a coverage mapping into the instrumented binary and llvm-cov reads
 /// it back as lcov records naming Yashy lines, not LLVM instructions.
+///
+/// With `--tests`, every test under the directory is instrumented in its own
+/// binary; the raw profiles are merged into one `profdata` and every binary is
+/// exported together, so the report describes the suite as one run. This is
+/// the shape a CI gate needs: a line is covered when any test reached it.
 fn coverage_cmd(args: &[String]) -> ExitCode {
     use yashy_driver::coverage;
 
@@ -5921,6 +5938,8 @@ fn coverage_cmd(args: &[String]) -> ExitCode {
     let mut source: Option<PathBuf> = None;
     let mut program_args: Vec<String> = Vec::new();
     let mut after_separator = false;
+    let mut tests = false;
+    let mut filter: Option<String> = None;
     let mut i = 0;
     while i < args.len() {
         if after_separator {
@@ -5930,6 +5949,15 @@ fn coverage_cmd(args: &[String]) -> ExitCode {
         }
         match args[i].as_str() {
             "--json" => json = true,
+            "--tests" => tests = true,
+            "--filter" => {
+                if i + 1 < args.len() {
+                    filter = Some(args[i + 1].clone());
+                    i += 1;
+                } else {
+                    return usage_error("`--filter` needs a substring");
+                }
+            }
             "--format" => {
                 if i + 1 < args.len() {
                     format = Some(args[i + 1].clone());
@@ -5955,15 +5983,21 @@ fn coverage_cmd(args: &[String]) -> ExitCode {
             }
             other => {
                 if source.is_some() {
-                    return usage_error("`coverage` takes one source file");
+                    return usage_error("`coverage` takes one source file or one test directory");
                 }
                 source = Some(PathBuf::from(other));
             }
         }
         i += 1;
     }
-    let Some(source) = source else {
-        return usage_error("`coverage` needs a source file");
+    if !tests && filter.is_some() {
+        return usage_error("`--filter` needs `--tests`");
+    }
+    if tests && !program_args.is_empty() {
+        return usage_error("`--tests` runs each test without arguments; drop the `-- args`");
+    }
+    let Some(source) = source.or_else(|| tests.then(|| PathBuf::from("tests"))) else {
+        return usage_error("`coverage` needs a source file or `--tests [<dir>]`");
     };
     match format.as_deref() {
         None | Some("lcov") | Some("json") | Some("sarif") => {}
@@ -5993,51 +6027,97 @@ fn coverage_cmd(args: &[String]) -> ExitCode {
         eprintln!("error: cannot create {}: {error}", dir.display());
         return exit_code(EXIT_INTERNAL);
     }
-    let binary = dir.join(format!("coverage{}", std::env::consts::EXE_SUFFIX));
-    let raw = dir.join("coverage.profraw");
+
+    // Every instrumented binary and its raw profile. The single-file mode has
+    // one of each; `--tests` has one per test, merged below.
+    let mut binaries: Vec<PathBuf> = Vec::new();
+    let mut raws: Vec<PathBuf> = Vec::new();
+    let mut build_sources: Vec<PathBuf> = vec![source.clone()];
+    if tests {
+        build_sources.clear();
+        let mut discovered = Vec::new();
+        if let Err(error) = collect_tests(&source, &mut discovered) {
+            eprintln!("error: cannot read {}: {error}", source.display());
+            let _ = fs::remove_dir_all(&dir);
+            return exit_code(EXIT_USAGE);
+        }
+        discovered.sort();
+        if let Some(filter) = &filter {
+            discovered.retain(|path| {
+                path.to_string_lossy().contains(filter) || display_test_path(path).contains(filter)
+            });
+        }
+        if discovered.is_empty() {
+            eprintln!("error: no tests under {}", source.display());
+            let _ = fs::remove_dir_all(&dir);
+            return exit_code(EXIT_USAGE);
+        }
+        build_sources = discovered;
+    }
+
+    for (index, test) in build_sources.iter().enumerate() {
+        let binary = dir.join(format!("coverage-{index}{}", std::env::consts::EXE_SUFFIX));
+        let build_args = vec![
+            test.to_string_lossy().into_owned(),
+            "-o".to_string(),
+            binary.to_string_lossy().into_owned(),
+            "--debug-info".to_string(),
+        ];
+        env::set_var("YASHY_COVERAGE", "1");
+        let built = build(CommandKind::Run, &build_args);
+        env::remove_var("YASHY_COVERAGE");
+        if built != exit_code(EXIT_OK) {
+            let _ = fs::remove_dir_all(&dir);
+            return built;
+        }
+        let raw = dir.join(format!("coverage-{index}.profraw"));
+        let mut child = Command::new(&binary);
+        child.env("LLVM_PROFILE_FILE", &raw).stdout(Stdio::null());
+        if !tests {
+            for argument in &program_args {
+                child.arg(argument);
+            }
+        }
+        if !child.status().is_ok_and(|status| status.success()) {
+            if tests {
+                eprintln!(
+                    "error: test {} did not exit successfully",
+                    display_test_path(test)
+                );
+            } else {
+                eprintln!("error: the instrumented program did not exit successfully");
+            }
+            let _ = fs::remove_dir_all(&dir);
+            return exit_code(EXIT_COMPILE_ERROR);
+        }
+        binaries.push(binary);
+        raws.push(raw);
+    }
+
+    // One merged profile, whether the run had one binary or a hundred.
     let merged = dir.join("coverage.profdata");
-    let build_args = vec![
-        source.to_string_lossy().into_owned(),
-        "-o".to_string(),
-        binary.to_string_lossy().into_owned(),
-        "--debug-info".to_string(),
-    ];
-    env::set_var("YASHY_COVERAGE", "1");
-    let built = build(CommandKind::Run, &build_args);
-    env::remove_var("YASHY_COVERAGE");
-    if built != exit_code(EXIT_OK) {
-        let _ = fs::remove_dir_all(&dir);
-        return built;
+    let mut merge = Command::new(&profdata);
+    merge.arg("merge").arg("-sparse");
+    for raw in &raws {
+        merge.arg(raw);
     }
-    let mut child = Command::new(&binary);
-    child.env("LLVM_PROFILE_FILE", &raw).stdout(Stdio::null());
-    for argument in &program_args {
-        child.arg(argument);
-    }
-    if !child.status().is_ok_and(|status| status.success()) {
-        eprintln!("error: the instrumented program did not exit successfully");
-        let _ = fs::remove_dir_all(&dir);
-        return exit_code(EXIT_COMPILE_ERROR);
-    }
-    let merge = Command::new(&profdata)
-        .arg("merge")
-        .arg("-sparse")
-        .arg(&raw)
-        .arg("-o")
-        .arg(&merged)
-        .output();
-    if !merge.is_ok_and(|result| result.status.success()) {
+    merge.arg("-o").arg(&merged);
+    if !merge.output().is_ok_and(|result| result.status.success()) {
         eprintln!("error: `llvm-profdata merge` failed; no coverage data was produced");
         let _ = fs::remove_dir_all(&dir);
         return exit_code(EXIT_INTERNAL);
     }
-    let exported = Command::new(&llvm_cov)
-        .arg("export")
-        .arg(&binary)
+    // Every object contributes its own coverage mapping; llvm-cov exports them
+    // against the one merged profile, so a line reached by any test is covered.
+    let mut export = Command::new(&llvm_cov);
+    export.arg("export");
+    for binary in &binaries {
+        export.arg(binary);
+    }
+    export
         .arg(format!("-instr-profile={}", merged.display()))
-        .arg("-format=lcov")
-        .output();
-    let exported = match exported {
+        .arg("-format=lcov");
+    let exported = match export.output() {
         Ok(result) if result.status.success() => result,
         Ok(result) => {
             eprintln!(
@@ -6396,7 +6476,7 @@ fn check_lock(directory: &Path) -> Result<(), LockCheckError> {
             error.line, error.column, error.message
         ),
     })?;
-    let lock_path = directory.join("yashy.lock");
+    let lock_path = yashy_driver::workspace::Workspace::shared_file(directory, "yashy.lock");
     if !lock_path.is_file() {
         return Err(LockCheckError::Diagnostic {
             code: codes::LOCKFILE_MISMATCH,
@@ -6414,7 +6494,19 @@ fn check_lock(directory: &Path) -> Result<(), LockCheckError> {
         .map_err(|error| LockCheckError::Diagnostic {
             code: codes::LOCKFILE_MISMATCH,
             message: error.message,
-        })
+        })?;
+    // The stdlib is a build input, so a lock that names it must name the one
+    // this compiler will read.
+    if yashy_driver::default_stdlib_root().is_some() {
+        let version = yashy_driver::stdlib_version();
+        let hash = yashy_driver::stdlib_fingerprint();
+        lock.check_stdlib(&version, &hash)
+            .map_err(|error| LockCheckError::Diagnostic {
+                code: codes::LOCKFILE_MISMATCH,
+                message: error.message,
+            })?;
+    }
+    Ok(())
 }
 
 /// The build-time half of `yashyc lock --check`.
@@ -6433,7 +6525,7 @@ fn verify_project_lock(input: &Path) -> Option<ExitCode> {
         };
         directory = parent;
     }
-    if !directory.join("yashy.lock").is_file() {
+    if !yashy_driver::workspace::Workspace::shared_file(directory, "yashy.lock").is_file() {
         return None;
     }
     match check_lock(directory) {
@@ -6524,6 +6616,14 @@ fn publish_cmd(args: &[String]) -> ExitCode {
         }
     };
     let directory = directory.unwrap_or_else(|| PathBuf::from("."));
+    // A package that cannot be reproduced is not publishable: build its
+    // program twice in two copies of the tree and compare the bytes. A
+    // library with no program has nothing to link, so the gate has nothing to
+    // compare and the source-tree hash remains the artifact's identity.
+    if let Err(error) = reproducible_publish_gate(&directory) {
+        eprintln!("error: not publishable: {error}");
+        return exit_code(EXIT_COMPILE_ERROR);
+    }
     if let Some(key_id) = key_id {
         let seed_hex = match env::var("YASHY_SIGNING_SEED") {
             Ok(text) => text,
@@ -6578,8 +6678,115 @@ fn publish_cmd(args: &[String]) -> ExitCode {
     }
 }
 
-/// `yashyc audit [dir] [--json]`: a read-only package check.
+/// Build the package's program twice, in two copies of its tree, and require
+/// identical bytes.
+///
+/// The copies give the build two different absolute paths, which is the
+/// failure the gate exists to catch. The child compiler is this same
+/// executable, run with `--reproducible` and its working directory inside the
+/// copy, so the path-remap flag covers every source the build reads. A missing
+/// toolchain or a program that does not build is a refusal, not a skip: a
+/// package that cannot be built cannot be reproduced.
+fn reproducible_publish_gate(package_root: &Path) -> Result<(), String> {
+    let program = match package_program(package_root) {
+        Some(program) => program,
+        None => return Ok(()),
+    };
+    let relative = program
+        .strip_prefix(package_root)
+        .map_err(|_| format!("{} is outside the package", program.display()))?
+        .to_path_buf();
+    let exe = std::env::current_exe()
+        .map_err(|error| format!("cannot find this compiler's own path: {error}"))?;
+    let base = std::env::temp_dir().join(format!("yashy-publish-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&base);
 
+    let mut images: Vec<Vec<u8>> = Vec::new();
+    for label in ["a", "b"] {
+        let copy = base.join(label);
+        if let Err(error) = copy_package_tree(package_root, &copy) {
+            let _ = fs::remove_dir_all(&base);
+            return Err(format!("cannot copy the package tree: {error}"));
+        }
+        let output = Command::new(&exe)
+            .arg("build")
+            .arg(&relative)
+            .arg("--reproducible")
+            .arg("-o")
+            .arg("publish-check.bin")
+            .current_dir(&copy)
+            .output()
+            .map_err(|error| {
+                let _ = fs::remove_dir_all(&base);
+                format!("cannot run the compiler: {error}")
+            })?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let _ = fs::remove_dir_all(&base);
+            return Err(format!(
+                "the program does not build:\n{}",
+                stderr.trim_end()
+            ));
+        }
+        match fs::read(copy.join("publish-check.bin")) {
+            Ok(bytes) => images.push(bytes),
+            Err(error) => {
+                let _ = fs::remove_dir_all(&base);
+                return Err(format!("cannot read the built program: {error}"));
+            }
+        }
+    }
+    let _ = fs::remove_dir_all(&base);
+    if images.len() == 2 && images[0] != images[1] {
+        let offset = images[0]
+            .iter()
+            .zip(&images[1])
+            .position(|(left, right)| left != right)
+            .unwrap_or_else(|| images[0].len().min(images[1].len()));
+        return Err(format!(
+            "two builds of the same tree differ at byte {offset} ({} vs {} bytes); fix the non-input or omit the program",
+            images[0].len(),
+            images[1].len()
+        ));
+    }
+    Ok(())
+}
+
+/// The program the reproducibility gate builds: `src/main.ya`, then
+/// `tests/main.ya`. A package with neither is a library.
+fn package_program(root: &Path) -> Option<PathBuf> {
+    for candidate in ["src/main.ya", "tests/main.ya"] {
+        let path = root.join(candidate);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// Copy a package tree, leaving out `.git` and any previous gate output.
+fn copy_package_tree(from: &Path, to: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let text = name.to_string_lossy();
+        if text == ".git" || text == "publish-check.bin" {
+            continue;
+        }
+        let source = entry.path();
+        let target = to.join(&name);
+        let metadata = entry.metadata()?;
+        if metadata.is_dir() {
+            copy_package_tree(&source, &target)?;
+        } else if metadata.is_file() {
+            fs::copy(&source, &target)?;
+        }
+    }
+    Ok(())
+}
+
+/// `yashyc audit [dir] [--json]`: a read-only package check.
 /// `yashyc sbom [dir] [--format spdx-json]`: an SPDX document from the same
 /// facts the package audit reads.
 
@@ -6605,7 +6812,9 @@ fn outdated_cmd(args: &[String]) -> ExitCode {
                 Some(value) => registry = Some(PathBuf::from(value)),
                 None => return usage_error("`--registry` needs a directory"),
             },
-            other if other.starts_with('-') => return usage_error(&format!("unknown option `{other}` for `outdated`")),
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `outdated`"))
+            }
             other => dir = Some(PathBuf::from(other)),
         }
     }
@@ -6620,7 +6829,10 @@ fn outdated_cmd(args: &[String]) -> ExitCode {
             }
         },
     };
-    let lock = match Lockfile::load(&project.join("yashy.lock")) {
+    let lock = match Lockfile::load(&yashy_driver::workspace::Workspace::shared_file(
+        &project,
+        "yashy.lock",
+    )) {
         Ok(lock) => lock,
         Err(error) => {
             eprintln!("error: cannot read yashy.lock: {error}");
@@ -6644,7 +6856,17 @@ fn outdated_cmd(args: &[String]) -> ExitCode {
                         Some((_, Json::String(text))) => text.clone(),
                         _ => String::new(),
                     };
-                    println!("{} {} -> {}{}", get("name"), get("locked"), get("newest"), if get("yanked") == "true" { " (yanked)" } else { "" });
+                    println!(
+                        "{} {} -> {}{}",
+                        get("name"),
+                        get("locked"),
+                        get("newest"),
+                        if get("yanked") == "true" {
+                            " (yanked)"
+                        } else {
+                            ""
+                        }
+                    );
                 }
             }
         }
@@ -6663,7 +6885,9 @@ fn vendor_cmd(args: &[String]) -> ExitCode {
                 Some(value) => registry = Some(PathBuf::from(value)),
                 None => return usage_error("`--registry` needs a directory"),
             },
-            other if other.starts_with('-') => return usage_error(&format!("unknown option `{other}` for `vendor`")),
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `vendor`"))
+            }
             other => out = Some(PathBuf::from(other)),
         }
     }
@@ -6672,7 +6896,10 @@ fn vendor_cmd(args: &[String]) -> ExitCode {
     };
     match yashy_driver::pkg_cmd::vendor(&registry, &out) {
         Ok((count, bytes)) => {
-            println!("vendored {count} archives ({bytes} bytes) to {}", out.display());
+            println!(
+                "vendored {count} archives ({bytes} bytes) to {}",
+                out.display()
+            );
             exit_code(EXIT_OK)
         }
         Err(message) => {
@@ -6681,7 +6908,6 @@ fn vendor_cmd(args: &[String]) -> ExitCode {
         }
     }
 }
-
 
 /// `yashyc yank <name>@<version> --registry <dir> --reason <text>`
 fn yank_cmd(args: &[String]) -> ExitCode {
@@ -6741,7 +6967,6 @@ fn yank_cmd(args: &[String]) -> ExitCode {
     }
 }
 
-
 fn tree_cmd(args: &[String]) -> ExitCode {
     let mut depth = usize::MAX;
     let mut json = false;
@@ -6761,7 +6986,10 @@ fn tree_cmd(args: &[String]) -> ExitCode {
         }
     }
     let project = dir.unwrap_or_else(|| PathBuf::from("."));
-    let lock = match Lockfile::load(&project.join("yashy.lock")) {
+    let lock = match Lockfile::load(&yashy_driver::workspace::Workspace::shared_file(
+        &project,
+        "yashy.lock",
+    )) {
         Ok(lock) => lock,
         Err(error) => {
             eprintln!("error: cannot read yashy.lock: {error}");
@@ -6799,7 +7027,10 @@ fn why_cmd(args: &[String]) -> ExitCode {
         return usage_error("`why` needs a package name");
     };
     let project = dir.unwrap_or_else(|| PathBuf::from("."));
-    let lock = match Lockfile::load(&project.join("yashy.lock")) {
+    let lock = match Lockfile::load(&yashy_driver::workspace::Workspace::shared_file(
+        &project,
+        "yashy.lock",
+    )) {
         Ok(lock) => lock,
         Err(error) => {
             eprintln!("error: cannot read yashy.lock: {error}");
@@ -6850,7 +7081,10 @@ fn info_cmd(args: &[String]) -> ExitCode {
         return usage_error("`info` needs a package name");
     };
     let project = dir.unwrap_or_else(|| PathBuf::from("."));
-    let lock = match Lockfile::load(&project.join("yashy.lock")) {
+    let lock = match Lockfile::load(&yashy_driver::workspace::Workspace::shared_file(
+        &project,
+        "yashy.lock",
+    )) {
         Ok(lock) => lock,
         Err(error) => {
             eprintln!("error: cannot read yashy.lock: {error}");
@@ -7186,7 +7420,9 @@ fn verify_attestation_cmd(args: &[String]) -> ExitCode {
             "--reproducible".to_string(),
         ];
         let code = crate::build(CommandKind::Build, &args);
-        let rebuilt = fs::read(&out).ok().map(|bytes| yashy_manifest::sha256_hex(&bytes));
+        let rebuilt = fs::read(&out)
+            .ok()
+            .map(|bytes| yashy_manifest::sha256_hex(&bytes));
         let _ = fs::remove_dir_all(&work);
         if code != exit_code(EXIT_OK) {
             eprintln!("error: the rebuild failed");
@@ -7611,13 +7847,6 @@ fn update_cmd(args: &[String]) -> ExitCode {
         Ok(project) => project,
         Err(code) => return code,
     };
-    let manifest = match load_manifest(&project.directory) {
-        Ok(manifest) => manifest,
-        Err(error) => {
-            error.report();
-            return error.status();
-        }
-    };
     let store = match open_store() {
         Ok(store) => store,
         Err(error) => {
@@ -7627,8 +7856,34 @@ fn update_cmd(args: &[String]) -> ExitCode {
     };
     // `update` deliberately ignores the old lock: it is the command that
     // replaces it. Resolution still refuses a cycle or a missing package.
-    let graph =
-        match yashy_driver::resolve(&manifest, None, &project.directory, project.offline, &store) {
+    //
+    // A workspace has one lock, so the resolution is the union of every
+    // member's graph. Two members that ask for the same package name but
+    // different versions or sources are a conflict: one lock cannot pin both.
+    let targets = match yashy_driver::workspace::Workspace::shared_root(&project.directory) {
+        Some(root) => match yashy_driver::workspace::load(&root) {
+            Ok(Some(workspace)) => workspace
+                .members
+                .iter()
+                .map(|member| root.join(member))
+                .collect::<Vec<_>>(),
+            _ => vec![project.directory.clone()],
+        },
+        None => vec![project.directory.clone()],
+    };
+    let mut packages: Vec<yashy_driver::resolve::ResolvedPackage> = Vec::new();
+    for target in &targets {
+        if !target.join("yashy.toml").is_file() {
+            continue;
+        }
+        let manifest = match load_manifest(target) {
+            Ok(manifest) => manifest,
+            Err(error) => {
+                error.report();
+                return error.status();
+            }
+        };
+        let graph = match yashy_driver::resolve(&manifest, None, target, project.offline, &store) {
             Ok(graph) => graph,
             Err(error) => {
                 let error = LockCheckError::Diagnostic {
@@ -7639,7 +7894,32 @@ fn update_cmd(args: &[String]) -> ExitCode {
                 return error.status();
             }
         };
-    let lock = match graph.to_lock() {
+        for package in graph.packages {
+            match packages.iter().find(|known| known.name == package.name) {
+                Some(known)
+                    if known.version != package.version || known.source != package.source =>
+                {
+                    let error = LockCheckError::Diagnostic {
+                        code: codes::LOCKFILE_MISMATCH,
+                        message: format!(
+                            "workspace members resolve `{}` differently: {} {} vs {} {}",
+                            package.name,
+                            known.version,
+                            known.source,
+                            package.version,
+                            package.source
+                        ),
+                    };
+                    error.report();
+                    return error.status();
+                }
+                Some(_) => {}
+                None => packages.push(package),
+            }
+        }
+    }
+    packages.sort_by(|left, right| left.name.cmp(&right.name));
+    let lock = match (yashy_driver::resolve::ResolvedGraph { packages }).to_lock() {
         Ok(lock) => lock,
         Err(error) => {
             let error = LockCheckError::Diagnostic {
@@ -7650,7 +7930,16 @@ fn update_cmd(args: &[String]) -> ExitCode {
             return error.status();
         }
     };
-    let path = project.directory.join("yashy.lock");
+    // The stdlib is a package input; record the one this compiler will read so
+    // a later build can refuse a silently edited tree.
+    let mut lock = lock;
+    if yashy_driver::default_stdlib_root().is_some() {
+        lock.stdlib = Some(yashy_manifest::LockedStdlib {
+            version: yashy_driver::stdlib_version(),
+            hash: yashy_driver::stdlib_fingerprint(),
+        });
+    }
+    let path = yashy_driver::workspace::Workspace::shared_file(&project.directory, "yashy.lock");
     if let Err(error) = lock.save(&path) {
         eprintln!("error: cannot write {}: {error}", path.display());
         return exit_code(EXIT_COMPILE_ERROR);
@@ -7916,7 +8205,7 @@ fn load_manifest_at(path: &Path) -> Result<Manifest, LockCheckError> {
 }
 
 fn load_lock_if_present(directory: &Path) -> Result<Option<Lockfile>, LockCheckError> {
-    let path = directory.join("yashy.lock");
+    let path = yashy_driver::workspace::Workspace::shared_file(directory, "yashy.lock");
     if !path.is_file() {
         return Ok(None);
     }

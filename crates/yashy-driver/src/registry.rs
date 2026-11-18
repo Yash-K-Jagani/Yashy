@@ -29,6 +29,10 @@ pub struct RegistryEntry {
     pub yanked: bool,
     /// Why the version was yanked. Required by `yashyc yank`.
     pub yanked_reason: Option<String>,
+    /// The signed in-toto/SLSA statement published beside the tarball, named
+    /// relative to the registry root. A package can be published without one;
+    /// a policy that requires provenance refuses that package at fetch time.
+    pub attestation: Option<String>,
 }
 
 /// Where a registry lives.
@@ -130,6 +134,9 @@ fn index_json(entries: &[RegistryEntry]) -> String {
         item.set("yanked", Json::bool(entry.yanked));
         if let Some(reason) = &entry.yanked_reason {
             item.set("yanked_reason", Json::string(reason));
+        }
+        if let Some(attestation) = &entry.attestation {
+            item.set("attestation", Json::string(attestation));
         }
         array.push(item);
     }
@@ -240,7 +247,10 @@ pub fn yank(
     if entry.yanked {
         return Err(registry_error(format!(
             "`{name}` {version} is already yanked: {}",
-            entry.yanked_reason.as_deref().unwrap_or("no reason recorded")
+            entry
+                .yanked_reason
+                .as_deref()
+                .unwrap_or("no reason recorded")
         )));
     }
     entry.yanked = true;
@@ -368,6 +378,7 @@ pub fn publish(package_root: &Path, registry_root: &Path) -> Result<RegistryEntr
         description: manifest.package.description.clone().unwrap_or_default(),
         yanked: false,
         yanked_reason: None,
+        attestation: None,
     };
     let mut entries = read_index(registry_root)?;
     if let Some(existing) = entries
@@ -794,6 +805,7 @@ pub fn read_index_text(text: &str) -> Result<Vec<RegistryEntry>, RegistryError> 
                 let mut description = String::new();
                 let mut yanked = false;
                 let mut yanked_reason = None;
+                let mut attestation = None;
                 loop {
                     parser.skip_whitespace();
                     if parser.parse_char('}') {
@@ -809,6 +821,7 @@ pub fn read_index_text(text: &str) -> Result<Vec<RegistryEntry>, RegistryError> 
                         "description" => description = value,
                         "yanked" => yanked = value == "true",
                         "yanked_reason" => yanked_reason = Some(value),
+                        "attestation" => attestation = Some(value),
                         _ => {}
                     }
                     if !parser.parse_char(',') {
@@ -837,6 +850,7 @@ pub fn read_index_text(text: &str) -> Result<Vec<RegistryEntry>, RegistryError> 
                     description,
                     yanked,
                     yanked_reason,
+                    attestation,
                 });
                 if !parser.parse_char(',') {
                     parser.skip_whitespace();
@@ -945,6 +959,55 @@ pub fn publish_signed(
     )
     .map_err(|error| registry_error(format!("cannot write {}: {error}", sbom_path.display())))?;
 
+    // The statement is written by the same invocation that wrote the tarball,
+    // signed by the same key, and named by the index entry. A registry entry
+    // without one is legal; a policy that requires provenance refuses it.
+    let artifact_name = format!("{}-{}.tar.gz", entry.name, entry.version);
+    let mut materials = std::collections::BTreeMap::new();
+    materials.insert("tarball".to_string(), yashy_manifest::sha256_hex(&tarball));
+    materials.insert("package-tree".to_string(), hash.to_string());
+    let statement = yashy_manifest::provenance::for_artifact(
+        &artifact_name,
+        &tarball,
+        yashy_codegen::host_target_triple(),
+        &format!("yashyc {}", env!("CARGO_PKG_VERSION")),
+        materials,
+    );
+    let statement_bytes = statement.bytes();
+    let attestation_name = format!("packages/{hash}.attestation.json");
+    let attestation_path = registry_root.join(&attestation_name);
+    std::fs::write(&attestation_path, &statement_bytes).map_err(|error| {
+        registry_error(format!(
+            "cannot write {}: {error}",
+            attestation_path.display()
+        ))
+    })?;
+    let attestation_signature = yashy_manifest::sign(&statement_bytes, key_id, seed)
+        .map_err(|error| registry_error(format!("cannot sign the attestation: {error}")))?;
+    let attestation_sig_path = packages.join(format!("{hash}.attestation.sig"));
+    std::fs::write(
+        &attestation_sig_path,
+        format!("{}\n", signature_json(&attestation_signature).render()),
+    )
+    .map_err(|error| {
+        registry_error(format!(
+            "cannot write {}: {error}",
+            attestation_sig_path.display()
+        ))
+    })?;
+
+    let mut entry = entry;
+    entry.attestation = Some(attestation_name);
+    let mut entries = read_index(registry_root)?;
+    if let Some(slot) = entries
+        .iter_mut()
+        .find(|item| item.name == entry.name && item.version == entry.version)
+    {
+        *slot = entry.clone();
+    }
+    std::fs::write(index_path(registry_root), index_json(&entries))
+        .map_err(|error| registry_error(format!("cannot rewrite the index: {error}")))?;
+
     let index = std::fs::read(index_path(registry_root))
         .map_err(|error| registry_error(format!("cannot read the published index: {error}")))?;
     let index_signature = yashy_manifest::sign(&index, key_id, seed)
@@ -960,6 +1023,8 @@ pub fn publish_signed(
         tarball_path(registry_root, &entry),
         sig_path,
         sbom_path,
+        attestation_path,
+        attestation_sig_path,
         index_sig,
     ];
     Ok((entry, files))

@@ -185,10 +185,7 @@ pub fn info(lock: &Lockfile, name: &str, root: &Path) -> Result<Json, String> {
                 .unwrap_or_default(),
         ),
     );
-    let registry_root = package
-        .source
-        .strip_prefix("registry+")
-        .map(PathBuf::from);
+    let registry_root = package.source.strip_prefix("registry+").map(PathBuf::from);
     let tarball = registry_root.as_ref().map(|registry| {
         crate::registry::tarball_path(
             registry,
@@ -199,6 +196,7 @@ pub fn info(lock: &Lockfile, name: &str, root: &Path) -> Result<Json, String> {
                 description: String::new(),
                 yanked: false,
                 yanked_reason: None,
+                attestation: None,
             },
         )
     });
@@ -230,7 +228,12 @@ pub fn info(lock: &Lockfile, name: &str, root: &Path) -> Result<Json, String> {
     object.set("provenance", Json::bool(provenance));
     object.set(
         "native_libraries",
-        Json::array(native_libraries.iter().map(|name| Json::string(name)).collect()),
+        Json::array(
+            native_libraries
+                .iter()
+                .map(|name| Json::string(name))
+                .collect(),
+        ),
     );
     object.set(
         "reverse_dependencies",
@@ -244,13 +247,13 @@ fn source_size(root: &Path) -> u64 {
     let Ok(entries) = std::fs::read_dir(root) else {
         return 0;
     };
-    entries.flatten().fold(0u64, |total, entry| {
-        match std::fs::metadata(entry.path()) {
+    entries
+        .flatten()
+        .fold(0u64, |total, entry| match std::fs::metadata(entry.path()) {
             Ok(meta) if meta.is_file() => total.saturating_add(meta.len()),
             Ok(meta) if meta.is_dir() => total.saturating_add(source_size(&entry.path())),
             _ => total,
-        }
-    })
+        })
 }
 
 fn extern_libraries(root: &Path) -> Vec<String> {
@@ -322,17 +325,22 @@ pub fn remove(project: &Path, name: &str) -> Result<Vec<PathBuf>, String> {
     }
     std::fs::write(&manifest_path, out)
         .map_err(|error| format!("cannot write {}: {error}", manifest_path.display()))?;
-    let lock_path = project.join("yashy.lock");
+    let lock_path = crate::workspace::Workspace::shared_file(project, "yashy.lock");
     let mut files = vec![backup, manifest_path];
     if lock_path.is_file() {
         let lock = Lockfile::load(&lock_path)
             .map_err(|error| format!("cannot read the lockfile: {error}"))?;
+        let stdlib = lock.stdlib.clone();
+        let features = lock.features.clone();
         let kept: Vec<_> = lock
             .packages
             .into_iter()
             .filter(|package| package.name != name)
             .collect();
-        std::fs::write(&lock_path, Lockfile::new(kept).render())
+        let mut trimmed = Lockfile::new(kept);
+        trimmed.features = features;
+        trimmed.stdlib = stdlib;
+        std::fs::write(&lock_path, trimmed.render())
             .map_err(|error| format!("cannot write {}: {error}", lock_path.display()))?;
         files.push(lock_path);
     }
@@ -406,7 +414,10 @@ pub fn vendor(registry: &Path, out: &Path) -> Result<(usize, u64), String> {
     if sbom_dir.is_dir() {
         let target = out.join("sbom");
         std::fs::create_dir_all(&target).map_err(|error| error.to_string())?;
-        for entry in std::fs::read_dir(&sbom_dir).map_err(|error| error.to_string())?.flatten() {
+        for entry in std::fs::read_dir(&sbom_dir)
+            .map_err(|error| error.to_string())?
+            .flatten()
+        {
             if let Ok(data) = std::fs::read(entry.path()) {
                 std::fs::write(target.join(entry.file_name()), &data)
                     .map_err(|error| error.to_string())?;

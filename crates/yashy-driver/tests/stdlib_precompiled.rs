@@ -698,6 +698,45 @@ fn copy_tree(from: &Path, to: &Path) {
     }
 }
 
+#[test]
+fn a_lock_that_names_a_different_stdlib_is_refused() {
+    let dir = work_dir("stdlib-lock-check");
+    common::write(
+        &dir,
+        "yashy.toml",
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+    );
+    common::write(&dir, "main.ya", "fn main() {\n    print(1);\n}\n");
+    let version = yashy_driver::modules::stdlib_version();
+    let hash = yashy_driver::modules::stdlib_fingerprint();
+    let run = |lock: &str| {
+        common::write(&dir, "yashy.lock", lock);
+        Command::new(yashyc())
+            .args(["lock", "--check"])
+            .current_dir(&dir)
+            .output()
+            .expect("yashyc must run")
+    };
+    let agreeing = format!("version = 2\n\n[stdlib]\nversion = \"{version}\"\nhash = \"{hash}\"\n");
+    let output = run(&agreeing);
+    assert!(
+        output.status.success(),
+        "a lock that names the shipped stdlib must pass:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let edited = format!(
+        "version = 2\n\n[stdlib]\nversion = \"{version}\"\nhash = \"sha256:{}\"\n",
+        "0".repeat(64)
+    );
+    let output = run(&edited);
+    assert!(
+        !output.status.success(),
+        "a locally edited stdlib must be refused"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("E1802"), "{stderr}");
+    assert!(stderr.contains("stdlib"), "{stderr}");
+}
 
 #[test]
 fn the_stdlib_hash_changes_the_cache_key() {
@@ -705,7 +744,10 @@ fn the_stdlib_hash_changes_the_cache_key() {
     let dir = common::work_dir("stdlib-cache-key");
     common::write(&dir, "main.ya", "fn main() { print(1); }\n");
     let mut sources = yashy_common::SourceMap::new();
-    sources.add_file("main.ya".to_string(), "fn main() { print(1); }\n".to_string());
+    sources.add_file(
+        "main.ya".to_string(),
+        "fn main() { print(1); }\n".to_string(),
+    );
     let mut options = yashy_driver::BuildOptions::default();
     let first = yashy_driver::pipeline::ir_cache_key(&sources, "main.ya", &options);
     options.features = BTreeSet::from(["tls".to_string()]);

@@ -717,7 +717,7 @@ fn cache_extras(options: &BuildOptions) -> Vec<(&'static str, String)> {
     // does not. Its bytes are the fact; a missing lockfile is still a fact.
     let lock = std::env::current_dir()
         .ok()
-        .map(|dir| dir.join("yashy.lock"))
+        .map(|dir| crate::workspace::Workspace::shared_file(&dir, "yashy.lock"))
         .and_then(|path| std::fs::read(path).ok())
         .map(|bytes| {
             let mut hash = 0u64;
