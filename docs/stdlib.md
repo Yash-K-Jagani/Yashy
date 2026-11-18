@@ -916,6 +916,48 @@ struct Match
 struct Regex
 ```
 
+## `semver`
+
+### `Semver`
+
+```yashy
+struct Semver
+```
+
+A core version: major, minor and patch.
+
+### `SemverError`
+
+```yashy
+enum SemverError
+```
+
+Why a text is not a version.
+
+### `compare`
+
+```yashy
+fn compare(Semver a, Semver b) -> int
+```
+
+Compare two versions: negative when `a` is older, positive when newer.
+
+### `parse`
+
+```yashy
+fn parse(string text) -> Result[Semver, SemverError]
+```
+
+Parse `major.minor.patch`, with no signs, spaces or extra fields.
+
+### `to_string`
+
+```yashy
+fn to_string(Semver version) -> string
+```
+
+The `major.minor.patch` spelling.
+
 ## `string`
 
 ### `StringError`
@@ -1088,6 +1130,43 @@ fn now_unix_ns() -> int
 ```
 
 Nanoseconds since the Unix epoch, from the wall clock.
+
+## `url`
+
+### `Url`
+
+```yashy
+struct Url
+```
+
+A parsed URL: scheme, host, port (0 when absent) and path.
+
+### `UrlError`
+
+```yashy
+enum UrlError
+```
+
+Why a text is not an absolute hierarchical URL.
+
+### `origin`
+
+```yashy
+fn origin(Url url) -> string
+```
+
+The `scheme://host` prefix, without port or path.
+
+### `parse`
+
+```yashy
+fn parse(string text) -> Result[Url, UrlError]
+```
+
+Parse `scheme://host[:port]/path`.
+
+A missing scheme separator or an empty scheme or host is `Err(Invalid)`.
+A port that is not a decimal integer is also refused.
 
 ## `uuid`
 

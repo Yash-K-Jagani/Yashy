@@ -21,11 +21,15 @@ pub struct Mime {
 /// Both halves must be non-empty. A string with no `/`, more than one `/`, or
 /// an empty kind or subtype is `Err(Invalid)`.
 pub fn parse(string text) -> Result[Mime, MimeError] {
-    const slash = text.index_of("/");
-    const at = switch slash {
+    // `-1` is only a local "not found" marker; the function never answers with
+    // a sentinel, only `Err(Invalid)`.
+    const at = switch text.index_of("/") {
         case Some(index) { index }
-        case None { return Err(MimeError.Invalid); }
+        case None { 0 - 1 }
     };
+    if at < 0 {
+        return Err(MimeError.Invalid);
+    }
     const after = text[at + 1..text.len()];
     const semi = after.index_of(";");
     const subtype = switch semi {

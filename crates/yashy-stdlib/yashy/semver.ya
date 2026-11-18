@@ -1,0 +1,77 @@
+// Semantic version core versions.
+//
+// A version is three non-negative integers: major, minor and patch. Pre-release
+// and build metadata are deliberately outside this small surface; a program
+// that needs precedence across them compares the original text itself. A
+// malformed version answers `Err(Invalid)`, never a sentinel zero.
+
+/// Why a text is not a version.
+pub enum SemverError {
+    Invalid,
+}
+
+/// A core version: major, minor and patch.
+pub struct Semver {
+    major: int,
+    minor: int,
+    patch: int,
+}
+
+/// Parse `major.minor.patch`, with no signs, spaces or extra fields.
+pub fn parse(string text) -> Result[Semver, SemverError] {
+    const parts = text.split(".");
+    if parts.len() != 3 {
+        return Err(SemverError.Invalid);
+    }
+    const a = component(parts, 0)?;
+    const b = component(parts, 1)?;
+    const c = component(parts, 2)?;
+    return Ok(Semver { major: a, minor: b, patch: c });
+}
+
+/// One component, parsed without a sign and checked for non-negativity.
+fn component([]string parts, int index) -> Result[int, SemverError] {
+    const text = switch parts[index] {
+        case Some(part) { part }
+        case None { "" }
+    };
+    if text.len() == 0 {
+        return Err(SemverError.Invalid);
+    }
+    const parsed = switch text.parse_i64() {
+        case Some(value) { value }
+        case None { 0 - 1 }
+    };
+    if parsed < 0 {
+        return Err(SemverError.Invalid);
+    }
+    return Ok(parsed);
+}
+
+/// Compare two versions: negative when `a` is older, positive when newer.
+pub fn compare(Semver a, Semver b) -> int {
+    if a.major < b.major {
+        return 0 - 1;
+    }
+    if a.major > b.major {
+        return 1;
+    }
+    if a.minor < b.minor {
+        return 0 - 1;
+    }
+    if a.minor > b.minor {
+        return 1;
+    }
+    if a.patch < b.patch {
+        return 0 - 1;
+    }
+    if a.patch > b.patch {
+        return 1;
+    }
+    return 0;
+}
+
+/// The `major.minor.patch` spelling.
+pub fn to_string(Semver version) -> string {
+    return str_from_i64(version.major) + "." + str_from_i64(version.minor) + "." + str_from_i64(version.patch);
+}

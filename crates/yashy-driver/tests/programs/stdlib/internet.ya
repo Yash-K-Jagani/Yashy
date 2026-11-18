@@ -1,5 +1,7 @@
 import mime;
 import uuid;
+import url;
+import semver;
 import text;
 
 fn main() {
@@ -31,4 +33,24 @@ fn main() {
             print("bad hex");
         }
     };
+    switch url.parse("https://example.org:8443/docs/index.md") {
+        case Ok(u) {
+            print(url.origin(u));
+            print(u.port);
+            print(u.path);
+        }
+        case Err(e) {
+            print("bad url");
+        }
+    };
+    switch semver.parse("1.2.3") {
+        case Ok(v) {
+            print(semver.to_string(v));
+            print(semver.compare(v, v));
+        }
+        case Err(e) {
+            print("bad version");
+        }
+    };
+    print(semver.parse("1.x.3") matches Err(_));
 }

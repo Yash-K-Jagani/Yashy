@@ -1,0 +1,75 @@
+// The small, total part of RFC 3986: an absolute hierarchical URL.
+//
+// This parser handles `scheme://authority/path` with an optional port. It does
+// not decode percent-escapes, resolve relative references or parse userinfo:
+// those belong to a fuller grammar. A malformed spelling is `Err(Invalid)`,
+// never a half-filled value with a sentinel host.
+
+/// Why a text is not an absolute hierarchical URL.
+pub enum UrlError {
+    Invalid,
+}
+
+/// A parsed URL: scheme, host, port (0 when absent) and path.
+pub struct Url {
+    scheme: string,
+    host: string,
+    port: int,
+    path: string,
+}
+
+/// Parse `scheme://host[:port]/path`.
+///
+/// A missing scheme separator or an empty scheme or host is `Err(Invalid)`.
+/// A port that is not a decimal integer is also refused.
+pub fn parse(string text) -> Result[Url, UrlError] {
+    const at = switch text.index_of("://") {
+        case Some(index) { index }
+        case None { 0 - 1 }
+    };
+    if at < 0 {
+        return Err(UrlError.Invalid);
+    }
+    const scheme = text[0..at];
+    const after = text[at + 3..text.len()];
+    const slash = after.index_of("/");
+    const authority = switch slash {
+        case Some(index) { after[0..index] }
+        case None { after }
+    };
+    const path = switch slash {
+        case Some(index) { after[index..after.len()] }
+        case None { "" }
+    };
+    const colon = authority.index_of(":");
+    const host = switch colon {
+        case Some(index) { authority[0..index] }
+        case None { authority }
+    };
+    const port = switch colon {
+        case Some(index) { port_of(authority, index)? }
+        case None { 0 }
+    };
+    if scheme.len() == 0 || host.len() == 0 {
+        return Err(UrlError.Invalid);
+    }
+    return Ok(Url { scheme: scheme, host: host, port: port, path: path });
+}
+
+/// The port after a colon, parsed as a positive decimal integer.
+fn port_of(string authority, int colon) -> Result[int, UrlError] {
+    const text = authority[colon + 1..authority.len()];
+    const parsed = switch text.parse_i64() {
+        case Some(value) { value }
+        case None { 0 - 1 }
+    };
+    if parsed < 0 || parsed > 65535 {
+        return Err(UrlError.Invalid);
+    }
+    return Ok(parsed);
+}
+
+/// The `scheme://host` prefix, without port or path.
+pub fn origin(Url url) -> string {
+    return url.scheme + "://" + url.host;
+}
