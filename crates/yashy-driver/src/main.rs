@@ -224,6 +224,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "fix" => fix_cmd(rest),
         "verify" => verify(rest),
         "test" => test(rest),
+        "bench" => bench_cmd(rest),
         "cache" => cache_cmd(rest),
         "inspect" => inspect_cmd(rest),
         "tokens" => tokens(rest),
@@ -1213,6 +1214,51 @@ fn trace_events_cmd(source: &Path, program_args: &[String], json: bool) -> ExitC
     };
     let _ = fs::remove_dir_all(&scratch);
     result
+}
+
+/// `yashyc bench [--json] [--list] [file]`.
+///
+/// Reads the `key=value` rows a benchmark script wrote and renders them. It
+/// deliberately measures nothing: a claim without a row is not a claim this
+/// repository accepts (see `docs/bench-policy.md`).
+fn bench_cmd(args: &[String]) -> ExitCode {
+    use yashy_driver::bench;
+
+    let mut json = false;
+    let mut list = true;
+    let mut path: Option<PathBuf> = None;
+    for argument in args {
+        match argument.as_str() {
+            "--json" => json = true,
+            "--list" => list = true,
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `bench`"));
+            }
+            other => {
+                if path.is_some() {
+                    return usage_error("`bench` takes one row file");
+                }
+                path = Some(PathBuf::from(other));
+            }
+        }
+    }
+    let path = path.unwrap_or_else(|| PathBuf::from("benchmarks/thresholds.bench"));
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) => {
+            eprintln!("error: cannot read {}: {error}", path.display());
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    let rows = bench::parse(&text);
+    if json {
+        println!("{}", bench::to_json(&rows).render());
+    } else if list {
+        for row in &rows {
+            println!("{}={}", row.key, row.value);
+        }
+    }
+    exit_code(EXIT_OK)
 }
 
 fn trace_cmd(args: &[String]) -> ExitCode {

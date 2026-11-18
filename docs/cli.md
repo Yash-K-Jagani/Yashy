@@ -485,6 +485,18 @@ errors such as a missing toolchain. `--list` and `--json` cannot be combined. A
 failing test makes the command exit `1`; a setup problem exits `2`; a directory
 that cannot be created exits `3`.
 
+## `yashyc bench [--json] [--list] [file]`
+
+Reads the `key=value` rows a benchmark script wrote and prints them, or emits
+the same rows in a schema-v1 envelope as `rows`. The default file is
+`benchmarks/thresholds.bench`. Comments and malformed lines are skipped: a row
+that lies about its value is worse than a missing one.
+
+`bench` deliberately measures nothing. A performance claim needs a row from
+`benchmarks/run.ps1` or `benchmarks/run-features.ps1`, with the input, flags
+and target recorded; see `docs/bench-policy.md`. Measurement and baseline
+comparison in the CLI are still owed.
+
 ## `yashyc lint [--list|--docs] [--json] [--group <g>] [--deny <code>] <file.ya>`
 
 Reports advice: a lint never changes whether a program builds. Each lint has a

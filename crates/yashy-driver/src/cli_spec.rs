@@ -241,6 +241,13 @@ pub const COMMANDS: &[CommandSpec] = &[
         takes_path: false,
     },
     CommandSpec {
+        name: "bench",
+        summary: "list benchmark rows from a baseline file",
+        usage: "yashyc bench [--json] [--list] [file]",
+        flags: &["--json", "--list"],
+        takes_path: true,
+    },
+    CommandSpec {
         name: "lint",
         summary: "report style and correctness advice",
         usage: "yashyc lint [--list|--docs] [--json] [--group <g>] [--deny <code>] <file.ya>",

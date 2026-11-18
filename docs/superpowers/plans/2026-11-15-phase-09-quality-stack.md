@@ -104,6 +104,11 @@ what keeps a 138-week programme honest.
 - [ ] **Step 1: Measure honestly.** Warmup, N iterations, median and p95,
   outlier rejection, and interleaved A/B so machine drift hits both. A
   benchmark row names its input, its flags and its target.
+  *Current:* `yashyc bench [--json] [--list] [file]` reads `key=value` rows from
+  `benchmarks/thresholds.bench` and renders them for humans and JSON. It
+  deliberately measures nothing: a claim without a row is not a claim. The
+  measurement runner (warmup, N, median/p95, interleaved A/B) and the baseline
+  comparison are still owed, so the step stays open.
 - [ ] **Step 2: A baseline is a file, not a memory.** `bench --save-baseline`
   writes a JSON baseline with the compiler version, target and flags; `bench
   --check-baseline` fails on a regression beyond the row's threshold and prints
