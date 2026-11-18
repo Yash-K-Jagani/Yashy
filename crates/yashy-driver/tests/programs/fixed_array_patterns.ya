@@ -1,0 +1,66 @@
+// Fixed-array patterns.
+//
+// `[T; N]` has one shape the compiler knows, so a pattern over it names
+// positions instead of testing a tag. Elements before the `..` count up from
+// zero and elements after it count down from the end. A bare `..` elides the
+// run it covers; `..name` binds that run as a `[]T` view, which borrows the
+// array and owns nothing. Fixed arrays hold only plain scalar values, so every
+// binding is a copy and there is nothing to retain or release.
+
+fn main() {
+    // A full pattern names every element.
+    const pair = [10, 20];
+    let [a, b] = pair;
+    print(a);
+    print(b);
+
+    // The ends can be kept while the middle is elided.
+    const triple = [1, 2, 3];
+    let [first, .., last] = triple;
+    print(first);
+    print(last);
+
+    // A named rest sits wherever the writer puts it and binds a view.
+    let [head, ..middle, tail] = triple;
+    print(head);
+    print(tail);
+    print(middle.len());
+    let mid_sum = 0;
+    for value in middle {
+        mid_sum = mid_sum + value;
+    }
+    print(mid_sum);
+
+    // An `@` binding keeps the whole value alongside its parts.
+    let whole @ [left, .., right] = triple;
+    print(whole.len());
+    print(left + right);
+
+    // A rest may cover no elements at all.
+    const one = [7];
+    let [only, ..empty] = one;
+    print(only);
+    print(empty.len());
+
+    // A literal element can fail, so it belongs in a switch. A fixed array is
+    // not an enum, so a `default` is still required for coverage.
+    let grade = switch triple {
+        case [4, _, _] { 100 }
+        case [1, _, _] { 90 }
+        default { 0 }
+    };
+    print(grade);
+    // => 10
+    //    20
+    //    1
+    //    3
+    //    1
+    //    3
+    //    1
+    //    2
+    //    3
+    //    4
+    //    7
+    //    0
+    //    90
+}

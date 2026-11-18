@@ -87,3 +87,65 @@ fn an_or_pattern_that_binds_a_name_on_one_side_is_e1002() {
         "E1002",
     );
 }
+
+#[test]
+fn a_fixed_array_pattern_binds_each_element() {
+    check("fn main() { const a = [1, 2]; let [x, y] = a; print(x + y); }")
+        .expect("a full fixed-array pattern binds every element");
+}
+
+#[test]
+fn a_rest_binds_the_run_it_covers_as_a_view() {
+    check("fn main() { const a = [1, 2, 3]; let [head, ..rest] = a; print(head + rest.len()); }")
+        .expect("`..rest` binds a view over the unnamed run");
+}
+
+#[test]
+fn a_rest_may_sit_between_written_elements() {
+    check("fn main() { const a = [1, 2, 3]; let [first, .., last] = a; print(first + last); }")
+        .expect("elements after the `..` count down from the end");
+    check("fn main() { const a = [1, 2, 3]; let [.., last] = a; print(last); }")
+        .expect("a leading `..` is the same rule with nothing before it");
+}
+
+#[test]
+fn a_rest_may_cover_no_elements() {
+    check("fn main() { const a = [1]; let [x, ..rest] = a; print(x + rest.len()); }")
+        .expect("an empty run is a zero-length view, not a mistake");
+}
+
+#[test]
+fn an_at_binding_wraps_a_fixed_array_pattern() {
+    check("fn main() { const a = [1, 2]; let whole @ [x, y] = a; print(whole.len() + x + y); }")
+        .expect("`whole @ [x, y]` binds the array and its elements");
+}
+
+#[test]
+fn a_fixed_array_pattern_with_the_wrong_element_count_is_e0606() {
+    assert_error_code(
+        "fn main() { const a = [1, 2, 3]; let [x, y] = a; print(x + y); }",
+        "E0606",
+    );
+    assert_error_code(
+        "fn main() { const a = [1, 2]; let [x, y, z] = a; print(x + y + z); }",
+        "E0606",
+    );
+}
+
+#[test]
+fn a_fixed_array_pattern_against_a_slice_is_e0606() {
+    assert_error_code(
+        "fn main() { let xs = []int { 1, 2 }; let [x, y] = xs; print(x + y); }",
+        "E0606",
+    );
+}
+
+#[test]
+fn a_literal_element_makes_the_pattern_refutable() {
+    // The array has one shape, so a literal element is the only thing that can
+    // fail; binding position has no branch to take when it does.
+    assert_error_code(
+        "fn main() { const a = [1, 2]; let [1, y] = a; print(y); }",
+        "E0100",
+    );
+}

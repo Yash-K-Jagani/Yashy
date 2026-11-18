@@ -529,6 +529,19 @@ pub enum HirPattern {
         elements: Vec<HirPattern>,
         span: Span,
     },
+    /// `[a, b]` / `[first, .., last]` / `[head, ..rest]` -- positional
+    /// destructuring of a fixed array.
+    ///
+    /// A fixed array has one shape, so the checker can resolve every written
+    /// element to the index it destructures and the `..` to the exact run it
+    /// skips. The backend reads those numbers instead of re-deriving them:
+    /// `elements` is `(index, pattern)` in source order, and `rest` is the one
+    /// optional view over the unnamed run.
+    FixedArray {
+        elements: Vec<(usize, HirPattern)>,
+        rest: Option<RestBinding>,
+        span: Span,
+    },
     /// `Red | Green` -- matches when any alternative matches.
     ///
     /// Every alternative binds the same names with the same types, so the
@@ -548,6 +561,26 @@ pub enum HirPattern {
         ty: Type,
         span: Span,
     },
+}
+
+/// The `..name` half of a fixed-array pattern.
+///
+/// The checker resolved the run the name views and the `[]T` type it binds,
+/// so a backend reads `start..end` rather than recomputing a span from the
+/// written elements. `position` is how many written elements precede the
+/// `..`, which keeps [`HirPattern::bindings`] in source order.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RestBinding {
+    pub name: String,
+    /// The `[]T` view the name binds.
+    pub ty: Type,
+    /// First element of the run.
+    pub start: usize,
+    /// One past the last element of the run.
+    pub end: usize,
+    /// How many written element patterns come before the `..`.
+    pub position: usize,
+    pub span: Span,
 }
 
 impl HirPattern {
@@ -579,6 +612,22 @@ impl HirPattern {
             HirPattern::TupleVariant { args, .. } | HirPattern::Tuple { elements: args, .. } => {
                 for element in args {
                     element.collect_bindings(out);
+                }
+            }
+            HirPattern::FixedArray { elements, rest, .. } => {
+                for (position, (_, element)) in elements.iter().enumerate() {
+                    if let Some(rest) = rest {
+                        if rest.position == position {
+                            out.push((rest.name.clone(), rest.ty.clone()));
+                        }
+                    }
+                    element.collect_bindings(out);
+                }
+                // A `..rest` after every written element comes last.
+                if let Some(rest) = rest {
+                    if rest.position >= elements.len() {
+                        out.push((rest.name.clone(), rest.ty.clone()));
+                    }
                 }
             }
             HirPattern::StructVariant { fields, .. } => {

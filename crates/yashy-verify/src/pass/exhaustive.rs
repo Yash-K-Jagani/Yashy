@@ -15,7 +15,8 @@
 
 use yashy_common::{codes, Diagnostic, FileId, Severity, Span};
 use yashy_hir::exhaustive::{
-    covering_arm, missing_witnesses, reachable_arms, Pattern, TypeExpr, VariantDef, VariantField,
+    covering_arm, missing_witnesses, reachable_arms, FixedArrayElement, Pattern, TypeExpr,
+    VariantDef, VariantField,
 };
 use yashy_hir::hir::{
     expr_ty, HirBlock, HirExpr, HirFn, HirItem, HirPattern, HirProgram, HirStmt, HirSwitchArm,
@@ -379,6 +380,20 @@ fn render_pattern(pattern: &Pattern) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
+        Pattern::FixedArray { elements, .. } => format!(
+            "[{}]",
+            elements
+                .iter()
+                .map(|element| match element {
+                    FixedArrayElement::Pattern(pattern) => render_pattern(pattern),
+                    FixedArrayElement::Rest {
+                        name: Some(name), ..
+                    } => format!("..{name}"),
+                    FixedArrayElement::Rest { name: None, .. } => "..".to_string(),
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
         Pattern::Or { alternatives, .. } => alternatives
             .iter()
             .map(render_pattern)
@@ -463,6 +478,9 @@ fn type_expr_of(ty: &Type) -> TypeExpr {
         TypeKind::Tuple(elements) => {
             TypeExpr::Tuple(elements.iter().map(type_expr_of).collect(), span)
         }
+        TypeKind::FixedArray(element, length) => {
+            TypeExpr::FixedArray(Box::new(type_expr_of(element)), *length, span)
+        }
         _ => TypeExpr::Name("?".to_string(), span),
     }
 }
@@ -529,5 +547,39 @@ fn to_ast_pattern(pattern: &HirPattern) -> Pattern {
             elements: elements.iter().map(to_ast_pattern).collect(),
             span: *span,
         },
+        // A rest binding is not an element pattern, so it is reinserted at the
+        // position the checker recorded rather than at the end.
+        HirPattern::FixedArray {
+            elements,
+            rest,
+            span,
+        } => {
+            let mut out = Vec::with_capacity(elements.len() + usize::from(rest.is_some()));
+            let mut rest_written = rest.is_none();
+            for (position, (_, element)) in elements.iter().enumerate() {
+                if !rest_written {
+                    if let Some(binding) =
+                        rest.as_ref().filter(|binding| binding.position == position)
+                    {
+                        out.push(FixedArrayElement::Rest {
+                            name: Some(binding.name.clone()),
+                            span: binding.span,
+                        });
+                        rest_written = true;
+                    }
+                }
+                out.push(FixedArrayElement::Pattern(to_ast_pattern(element)));
+            }
+            if let (false, Some(binding)) = (rest_written, rest.as_ref()) {
+                out.push(FixedArrayElement::Rest {
+                    name: Some(binding.name.clone()),
+                    span: binding.span,
+                });
+            }
+            Pattern::FixedArray {
+                elements: out,
+                span: *span,
+            }
+        }
     }
 }

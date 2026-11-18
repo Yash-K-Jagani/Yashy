@@ -7,7 +7,9 @@
 
 use yashy_common::{Diagnostic, SourceMap};
 use yashy_lexer::Lexer;
-use yashy_parser::ast::{Expr, Item, Literal, Pattern, Program, Stmt, SwitchArm};
+use yashy_parser::ast::{
+    Expr, FixedArrayElement, Item, Literal, Pattern, Program, Stmt, SwitchArm,
+};
 use yashy_parser::Parser;
 
 fn parse_src(src: &str) -> Result<Program, Vec<Diagnostic>> {
@@ -139,5 +141,64 @@ fn a_float_range_is_e1518() {
             .iter()
             .any(|e| e.code == Some(yashy_common::codes::FLOAT_RANGE)),
         "E1518 expected: {errors:?}"
+    );
+}
+
+#[test]
+fn a_fixed_array_pattern_names_its_elements() {
+    let arms = arms_of("case [a, b] { 0 } default { 1 }");
+    let Pattern::FixedArray { elements, .. } = &arms[0].pattern else {
+        panic!("expected a fixed-array pattern, got {:?}", arms[0].pattern);
+    };
+    assert_eq!(elements.len(), 2);
+    for element in elements {
+        assert!(
+            matches!(element, FixedArrayElement::Pattern(Pattern::Binding { .. })),
+            "expected a binding, got {element:?}"
+        );
+    }
+}
+
+#[test]
+fn a_rest_may_be_bare_or_named_and_sit_in_the_middle() {
+    let arms = arms_of("case [first, .., last] { 0 } case [head, ..rest] { 1 } default { 2 }");
+    let Pattern::FixedArray { elements, .. } = &arms[0].pattern else {
+        panic!("expected a fixed-array pattern, got {:?}", arms[0].pattern);
+    };
+    assert_eq!(elements.len(), 3);
+    assert!(
+        matches!(&elements[1], FixedArrayElement::Rest { name: None, .. }),
+        "a bare `..` binds nothing, got {:?}",
+        elements[1]
+    );
+    let Pattern::FixedArray { elements, .. } = &arms[1].pattern else {
+        panic!("expected a fixed-array pattern, got {:?}", arms[1].pattern);
+    };
+    assert!(
+        matches!(&elements[1], FixedArrayElement::Rest { name: Some(name), .. } if name == "rest"),
+        "`..rest` keeps its name, got {:?}",
+        elements[1]
+    );
+}
+
+#[test]
+fn two_rests_in_one_fixed_array_pattern_are_e0606() {
+    let errors = parse_err("fn main() { let [a, .., ..] = xs; }");
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.code == Some(yashy_common::codes::BAD_ARRAY_PATTERN)),
+        "E0606 expected: {errors:?}"
+    );
+}
+
+#[test]
+fn an_empty_fixed_array_pattern_is_e0606() {
+    let errors = parse_err("fn main() { let [] = xs; }");
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.code == Some(yashy_common::codes::BAD_ARRAY_PATTERN)),
+        "E0606 expected: {errors:?}"
     );
 }

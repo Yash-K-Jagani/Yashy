@@ -50,6 +50,7 @@ the declaration or import involved when that is not obvious.
 | [E0603](errors/E0603.md) | `if let` pattern always matches |
 | [E0604](errors/E0604.md) | unknown loop label |
 | [E0605](errors/E0605.md) | duplicate loop label |
+| [E0606](errors/E0606.md) | invalid fixed-array pattern |
 | [E0700](errors/E0700.md) | wrong argument count |
 | [E0701](errors/E0701.md) | unknown named argument |
 | [E0702](errors/E0702.md) | duplicate argument |

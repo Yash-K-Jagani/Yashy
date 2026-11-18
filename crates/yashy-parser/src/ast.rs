@@ -1051,6 +1051,19 @@ pub enum Pattern {
     /// (`case Pair((x, y))`). The elements are checked positionally against the
     /// tuple's types.
     Tuple { elements: Vec<Pattern>, span: Span },
+    /// `[a, b]`, `[first, .., last]`, `[head, ..rest]` -- positional
+    /// destructuring of a fixed array.
+    ///
+    /// The subject is a `[T; N]`, so every position is a compile-time fact: an
+    /// element pattern tests or binds the element written at its index, and
+    /// the one allowed `..` covers the elements no written pattern names.
+    /// `..name` binds that remainder as a `[]T` view; a bare `..` only elides
+    /// it. A fixed array has a single shape, so a pattern whose written
+    /// elements are all irrefutable cannot fail.
+    FixedArray {
+        elements: Vec<FixedArrayElement>,
+        span: Span,
+    },
     /// `Red | Green` -- matches when any alternative matches.
     ///
     /// Alternatives are flattened into one node and bind the same names with
@@ -1071,6 +1084,19 @@ pub enum Pattern {
         inclusive: bool,
         span: Span,
     },
+}
+
+/// One element of a [`Pattern::FixedArray`].
+#[derive(Clone, Debug, PartialEq)]
+pub enum FixedArrayElement {
+    /// A pattern, matched against the element at the position it was written.
+    Pattern(Pattern),
+    /// `..` or `..name`: the run of elements no written pattern names.
+    ///
+    /// `name` is `None` for a bare `..`. A named rest binds a `[]T` view over
+    /// the run, so it owns nothing and obeys the same lifetime rules as any
+    /// other view.
+    Rest { name: Option<String>, span: Span },
 }
 
 /// A literal, carrying its value rather than the text it was written as.

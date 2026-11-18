@@ -1543,6 +1543,7 @@ pub(crate) fn pattern_span(p: &crate::ast::Pattern) -> Span {
         Pattern::Binding { span, .. } => *span,
         Pattern::Literal(_, s) => *s,
         Pattern::Tuple { span, .. } => *span,
+        Pattern::FixedArray { span, .. } => *span,
         Pattern::Or { span, .. } => *span,
         Pattern::Range { span, .. } => *span,
     }

@@ -8,7 +8,8 @@ use yashy_common::Span;
 use yashy_lexer::TokenKind;
 
 use crate::ast::{
-    BinOp, BindingKeyword, Block, Contract, Expr, Literal, Pattern, Stmt, SwitchArm, TypeExpr,
+    BinOp, BindingKeyword, Block, Contract, Expr, FixedArrayElement, Literal, Pattern, Stmt,
+    SwitchArm, TypeExpr,
 };
 use crate::error;
 use crate::error::ParseError;
@@ -734,6 +735,61 @@ impl<'src> Parser<'src> {
                     .ok_or_else(|| self.error(open.span, "expected a pattern".to_string()));
             }
             return Ok(Pattern::Tuple {
+                elements,
+                span: cover(open.span, close.span),
+            });
+        }
+        // Fixed-array pattern: `[a, b]`, `[first, .., last]`. The `..` may
+        // appear once and stands for the run of elements no written pattern
+        // names; `..name` also binds that run as a view.
+        if self.check(TokenKind::LBracket) {
+            let open = self.expect(TokenKind::LBracket)?;
+            let _ = self.push_open(TokenKind::LBracket, open.span)?;
+            let mut elements = Vec::new();
+            let mut rest_seen = false;
+            while !self.check(TokenKind::RBracket) && !self.at_eof() {
+                if self.check(TokenKind::DotDot) {
+                    let dot = self.advance();
+                    if rest_seen {
+                        return Err(error::invalid_array_pattern(
+                            cover(open.span, dot.span),
+                            "a fixed-array pattern has one `..`: it stands for every element no written pattern names",
+                        ));
+                    }
+                    rest_seen = true;
+                    // `.._` is a bare rest: `_` is a wildcard, not a name.
+                    let mut end = dot.span;
+                    let name = if self.check(TokenKind::Ident) {
+                        let (name, span) = self.identifier()?;
+                        end = span;
+                        if name == "_" {
+                            None
+                        } else {
+                            Some(name)
+                        }
+                    } else {
+                        None
+                    };
+                    elements.push(FixedArrayElement::Rest {
+                        name,
+                        span: cover(dot.span, end),
+                    });
+                } else {
+                    elements.push(FixedArrayElement::Pattern(self.parse_pattern()?));
+                }
+                if !self.eat(TokenKind::Comma) {
+                    break;
+                }
+            }
+            let close = self.expect(TokenKind::RBracket)?;
+            self.close_open(TokenKind::RBracket);
+            if elements.is_empty() {
+                return Err(error::invalid_array_pattern(
+                    cover(open.span, close.span),
+                    "a fixed-array pattern needs at least one element: write `[a, b]` or `[..]`",
+                ));
+            }
+            return Ok(Pattern::FixedArray {
                 elements,
                 span: cover(open.span, close.span),
             });

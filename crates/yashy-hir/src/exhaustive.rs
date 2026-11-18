@@ -27,7 +27,7 @@
 //! unchecked indexing here.
 
 use yashy_parser::ast::Literal;
-pub use yashy_parser::ast::{Pattern, TypeExpr, VariantDef, VariantField};
+pub use yashy_parser::ast::{FixedArrayElement, Pattern, TypeExpr, VariantDef, VariantField};
 
 /// The names of the enum variants no arm covers, in declaration order.
 /// Empty means the arms are exhaustive.
@@ -276,6 +276,10 @@ enum Ty {
     /// A tuple payload: one anonymous constructor of its element types,
     /// searched column by column like every other.
     Tuple(Vec<Ty>),
+    /// A fixed array: one anonymous constructor of `N` columns, the same shape
+    /// rule a tuple follows. Every element type is the same, and a pattern
+    /// writes positions rather than tags.
+    FixedArray(Box<Ty>, usize),
     Int,
     Char,
     Bool,
@@ -354,6 +358,9 @@ impl Ctx<'_> {
                     .map(|element| self.shape(element, depth + 1))
                     .collect(),
             ),
+            TypeExpr::FixedArray(element, length, _) => {
+                Ty::FixedArray(Box::new(self.shape(element, depth + 1)), *length)
+            }
             _ => Ty::Other,
         }
     }
@@ -413,6 +420,13 @@ impl Ctx<'_> {
                 name: "tuple".to_string(),
                 args: vec![Pat::Wild; elements.len()],
                 arg_tys: elements.clone(),
+            }]),
+            // A fixed array is one shape: one anonymous constructor with a
+            // column per element, all of the element type.
+            Ty::FixedArray(element, length) => Some(vec![Ctor {
+                name: "fixed-array".to_string(),
+                args: vec![Pat::Wild; *length],
+                arg_tys: vec![(**element).clone(); *length],
             }]),
             _ => None,
         }
@@ -527,6 +541,43 @@ impl Ctx<'_> {
                     .map(|alternative| self.pat_of(alternative, ty))
                     .collect(),
             ),
+            // A fixed array has one shape, so its pattern is one constructor
+            // over `N` element columns. Written elements land at the index the
+            // checker gave them; `..` leaves its run as wildcards, which is
+            // exactly what an unnamed or bound rest covers.
+            Pattern::FixedArray { elements, .. } => {
+                let (element_ty, length) = match ty {
+                    Ty::FixedArray(element, length) => ((**element).clone(), *length),
+                    _ => (Ty::Other, 0),
+                };
+                let written = elements
+                    .iter()
+                    .filter(|element| matches!(element, FixedArrayElement::Pattern(_)))
+                    .count();
+                let mut args = vec![Pat::Wild; length];
+                let mut index = 0usize;
+                let mut after_rest = false;
+                for element in elements {
+                    match element {
+                        FixedArrayElement::Rest { .. } => after_rest = true,
+                        FixedArrayElement::Pattern(sub) => {
+                            let at = if after_rest {
+                                length.saturating_sub(written - index)
+                            } else {
+                                index
+                            };
+                            if at < length {
+                                args[at] = self.pat_of(sub, &element_ty);
+                            }
+                            index += 1;
+                        }
+                    }
+                }
+                Pat::Ctor {
+                    name: "fixed-array".to_string(),
+                    args,
+                }
+            }
         }
     }
 

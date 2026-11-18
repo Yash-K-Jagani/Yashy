@@ -59,6 +59,51 @@ pub fn gen_literal(
     }
 }
 
+/// Give a value storage in the function's frame and return its address.
+///
+/// A pattern needs to address part of a subject: `[first, ..rest]` loads an
+/// element and takes a pointer to the run after it. A value in an SSA register
+/// has no address, so it is stored once in a fresh `alloca`. The slot lives as
+/// long as the frame, which is exactly as long as a `[]T` view over it may
+/// live -- the checker refuses to return a view.
+pub fn value_storage(ctx: &mut FnCtx<'_>, value: &GenValue) -> String {
+    let repr = repr_type(&value.ty);
+    let slot = ctx.alloc_slot();
+    ctx.push_alloca(format!("{slot} = alloca {repr}"));
+    ctx.push(format!("store {repr} {}, ptr {slot}", value.value));
+    slot
+}
+
+/// The address of element `index` of the fixed array stored at `slot`.
+///
+/// The two indices walk the aggregate exactly as LLVM lays it out -- into the
+/// array, then to the element -- so this needs no size arithmetic and cannot
+/// disagree with the aggregate's own spelling.
+pub fn element_address(ctx: &mut FnCtx<'_>, slot: &str, array: &str, index: usize) -> String {
+    let address = ctx.tmp();
+    ctx.push(format!(
+        "{address} = getelementptr {array}, ptr {slot}, i64 0, i64 {index}"
+    ));
+    address
+}
+
+/// The `[]T` header over `count` elements starting at `address`.
+///
+/// This is the same two-word aggregate [`gen_view`] builds, with the bounds
+/// already known: a pattern's `..` covers a compile-time run, so nothing is
+/// clamped and no length is read from another header.
+pub fn view_over(ctx: &mut FnCtx<'_>, address: &str, count: usize) -> String {
+    let with_data = ctx.tmp();
+    ctx.push(format!(
+        "{with_data} = insertvalue {{ i8*, i64 }} undef, i8* {address}, 0"
+    ));
+    let header = ctx.tmp();
+    ctx.push(format!(
+        "{header} = insertvalue {{ i8*, i64 }} {with_data}, i64 {count}, 1"
+    ));
+    header
+}
+
 /// The address of an array value's storage, and its length in elements.
 ///
 /// A binding has a slot already; a temporary is stored in a fresh one. Either

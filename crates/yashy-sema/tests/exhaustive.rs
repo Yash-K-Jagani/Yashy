@@ -5,7 +5,7 @@
 //! variant names `missing_cases` reports, and in what order.
 
 use yashy_common::Span;
-use yashy_parser::ast::{Literal, Pattern, TypeExpr, VariantDef, VariantField};
+use yashy_parser::ast::{FixedArrayElement, Literal, Pattern, TypeExpr, VariantDef, VariantField};
 use yashy_sema::exhaustive::{missing_witnesses, reachable_arms};
 use yashy_sema::{is_exhaustive, missing_cases};
 
@@ -103,6 +103,33 @@ fn struct_variant(path: &str) -> Pattern {
     }
 }
 
+/// A variant carrying a `[int; 2]`, whose payload has two element columns.
+fn fixed_array_variant(name: &str) -> VariantDef {
+    VariantDef {
+        name: name.to_string(),
+        fields: vec![VariantField::Positional {
+            ty: TypeExpr::FixedArray(
+                Box::new(TypeExpr::Name("int".to_string(), span())),
+                2,
+                span(),
+            ),
+            span: span(),
+        }],
+        span: span(),
+    }
+}
+
+fn fixed_array_pattern(elements: Vec<FixedArrayElement>) -> Pattern {
+    Pattern::FixedArray {
+        elements,
+        span: span(),
+    }
+}
+
+fn element(pattern: Pattern) -> FixedArrayElement {
+    FixedArrayElement::Pattern(pattern)
+}
+
 fn variants(names: &[&str]) -> Vec<VariantDef> {
     names.iter().map(|n| unit(n)).collect()
 }
@@ -152,6 +179,53 @@ fn binding_covers_everything_like_a_wildcard() {
     let arms = vec![binding("x")];
     assert!(missing_cases("Color", &variants, &arms, false).is_empty());
     assert!(is_exhaustive(&variants, &arms, false));
+}
+
+#[test]
+fn a_fixed_array_pattern_covers_one_payload_shape() {
+    let variants = vec![fixed_array_variant("Pair")];
+    let whole = tuple_variant_with(
+        "Pair",
+        vec![fixed_array_pattern(vec![
+            element(binding("a")),
+            element(binding("b")),
+        ])],
+    );
+    assert!(missing_cases("Shape", &variants, &[whole], false).is_empty());
+
+    // A literal element tests one value of the first column, so the variant's
+    // other payload values are still uncovered.
+    let partial = tuple_variant_with(
+        "Pair",
+        vec![fixed_array_pattern(vec![
+            element(Pattern::Literal(Literal::I64(1), span())),
+            element(binding("b")),
+        ])],
+    );
+    assert_eq!(
+        missing_cases("Shape", &variants, &[partial], false),
+        vec!["Pair".to_string()]
+    );
+}
+
+#[test]
+fn a_rest_leaves_its_columns_wild() {
+    let variants = vec![fixed_array_variant("Pair")];
+    let arms = vec![tuple_variant_with(
+        "Pair",
+        vec![fixed_array_pattern(vec![
+            element(Pattern::Literal(Literal::I64(1), span())),
+            FixedArrayElement::Rest {
+                name: Some("rest".to_string()),
+                span: span(),
+            },
+        ])],
+    )];
+    // The literal still narrows column 0; the named rest only covers column 1.
+    assert_eq!(
+        missing_cases("Shape", &variants, &arms, false),
+        vec!["Pair".to_string()]
+    );
 }
 
 #[test]

@@ -39,7 +39,7 @@
 //! so codegen can never panic.
 
 use yashy_parser::ast::Literal;
-use yashy_sema::{HirBlock, HirExpr, HirPattern, HirSwitchArm, TypeKind};
+use yashy_sema::{HirBlock, HirExpr, HirPattern, HirSwitchArm, RestBinding, Type, TypeKind};
 
 use crate::expr_gen::{
     gen_expr, gen_literal, owns_string_refs, retain_payload, retain_struct_fields, FnCtx, GenValue,
@@ -58,6 +58,10 @@ fn needs_test(pattern: &HirPattern) -> bool {
         HirPattern::Or { alternatives, .. } => alternatives.iter().all(needs_test),
         // A tuple pattern has no tag of its own; it tests its elements.
         HirPattern::Tuple { elements, .. } => elements.iter().any(needs_test),
+        // A fixed array has one shape too; `..` never tests anything.
+        HirPattern::FixedArray { elements, .. } => {
+            elements.iter().any(|(_, element)| needs_test(element))
+        }
         HirPattern::UnitVariant { .. }
         | HirPattern::TupleVariant { .. }
         | HirPattern::StructVariant { .. }
@@ -191,6 +195,81 @@ fn emit_pattern_test(
             }
             and_all(ctx, conditions)
         }
+        HirPattern::FixedArray { elements, .. } => {
+            let mut storage = None;
+            let Some((base, array, element_ty)) = fixed_array_subject(ctx, subject, &mut storage)
+            else {
+                return None;
+            };
+            let mut conditions = Vec::new();
+            for (index, element) in elements {
+                if !needs_test(element) {
+                    continue;
+                }
+                let value = load_element(ctx, &base, &array, &element_ty, *index);
+                if let Some(condition) = emit_pattern_test(ctx, element, &value) {
+                    conditions.push(condition);
+                }
+            }
+            and_all(ctx, conditions)
+        }
+    }
+}
+
+/// The subject of a fixed-array pattern, given storage once per walk.
+///
+/// A value in a register has no address, so the first element a pattern reads
+/// stores the whole array in a fresh slot and every later element loads from
+/// that same copy. A test and the bindings that follow it are two separate
+/// walks of one pattern, and each gets its own copy: reading a value twice is
+/// free, while sharing a slot between them would make correctness depend on
+/// walk order.
+fn fixed_array_subject(
+    ctx: &mut FnCtx<'_>,
+    subject: &GenValue,
+    storage: &mut Option<String>,
+) -> Option<(String, String, Type)> {
+    let TypeKind::FixedArray(element, _) = &subject.ty else {
+        return None;
+    };
+    let element = element.as_ref().clone();
+    let array = repr_type(&subject.ty);
+    let base = match storage {
+        Some(base) => base.clone(),
+        None => {
+            let base = crate::fixed::value_storage(ctx, subject);
+            *storage = Some(base.clone());
+            base
+        }
+    };
+    Some((base, array, element))
+}
+
+/// Load element `index` of the array a pattern is destructuring.
+fn load_element(
+    ctx: &mut FnCtx<'_>,
+    base: &str,
+    array: &str,
+    element: &Type,
+    index: usize,
+) -> GenValue {
+    let address = crate::fixed::element_address(ctx, base, array, index);
+    let repr = repr_type(&element.kind);
+    let value = ctx.tmp();
+    ctx.push(format!("{value} = load {repr}, ptr {address}"));
+    GenValue {
+        value,
+        ty: element.kind.clone(),
+    }
+}
+
+/// The `[]T` view a `..name` binds: the run's first element and its length.
+fn rest_view(ctx: &mut FnCtx<'_>, base: &str, array: &str, rest: &RestBinding) -> GenValue {
+    let address = crate::fixed::element_address(ctx, base, array, rest.start);
+    let count = rest.end.saturating_sub(rest.start);
+    GenValue {
+        value: crate::fixed::view_over(ctx, &address, count),
+        ty: rest.ty.kind.clone(),
     }
 }
 
@@ -558,6 +637,14 @@ fn pattern_names(pattern: &HirPattern, out: &mut Vec<String>) {
                 pattern_names(element, out);
             }
         }
+        HirPattern::FixedArray { elements, rest, .. } => {
+            for (_, element) in elements {
+                pattern_names(element, out);
+            }
+            if let Some(rest) = rest {
+                out.push(rest.name.clone());
+            }
+        }
         HirPattern::Wildcard(_)
         | HirPattern::UnitVariant { .. }
         | HirPattern::Literal(..)
@@ -745,6 +832,21 @@ pub fn bind_pattern(ctx: &mut FnCtx<'_>, subject: &GenValue, pattern: &HirPatter
             }
         }
         HirPattern::UnitVariant { .. } => {} // no payload
+        HirPattern::FixedArray { elements, rest, .. } => {
+            let mut storage = None;
+            let Some((base, array, element_ty)) = fixed_array_subject(ctx, subject, &mut storage)
+            else {
+                return;
+            };
+            for (index, element) in elements {
+                let value = load_element(ctx, &base, &array, &element_ty, *index);
+                bind_pattern(ctx, &value, element);
+            }
+            if let Some(rest) = rest {
+                let value = rest_view(ctx, &base, &array, rest);
+                bind_value(ctx, &rest.name, &value.value, &value.ty);
+            }
+        }
         HirPattern::StructVariant { fields, .. } => {
             if matches!(subject.ty, TypeKind::Struct(_)) {
                 for (field_name, subpattern, _) in fields {
@@ -866,6 +968,21 @@ pub fn bind_pattern_owned(ctx: &mut FnCtx<'_>, subject: &GenValue, pattern: &Hir
             }
         }
         HirPattern::Literal(_, _) | HirPattern::Range { .. } => {} // bind nothing
+        HirPattern::FixedArray { elements, rest, .. } => {
+            let mut storage = None;
+            let Some((base, array, element_ty)) = fixed_array_subject(ctx, subject, &mut storage)
+            else {
+                return;
+            };
+            for (index, element) in elements {
+                let value = load_element(ctx, &base, &array, &element_ty, *index);
+                bind_pattern_owned(ctx, &value, element);
+            }
+            if let Some(rest) = rest {
+                let value = rest_view(ctx, &base, &array, rest);
+                bind_value_owned(ctx, &rest.name, &value, &value.ty);
+            }
+        }
     }
 }
 

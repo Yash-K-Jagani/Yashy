@@ -1,10 +1,10 @@
 //! Pattern checking: `Option`, `Result`, and `switch` typing.
 
 use yashy_common::{codes, Span};
-use yashy_parser::ast::{Pattern, TypeExpr, VariantDef, VariantField};
+use yashy_parser::ast::{FixedArrayElement, Pattern, TypeExpr, VariantDef, VariantField};
 
 use crate::error::TypeError;
-use crate::hir::HirPattern;
+use crate::hir::{HirPattern, RestBinding};
 use crate::ty::{Mutability, Type, TypeKind};
 
 /// Check one pattern against the scrutinee type.
@@ -248,7 +248,142 @@ pub fn check_pattern(
             resolve,
             *span,
         ),
+        Pattern::FixedArray { elements, span } => check_fixed_array(
+            elements,
+            scrutinee,
+            out_bindings,
+            variants,
+            struct_fields,
+            resolve,
+            *span,
+        ),
     }
+}
+
+/// Check a `[a, b]` / `[first, .., last]` pattern against a fixed array.
+///
+/// A fixed array is one shape, so every written element has a compile-time
+/// index: the elements before the `..` count up from zero, the ones after it
+/// count down from the end. A pattern with no `..` must name every element;
+/// with one, it may name fewer. The `..` never fails and never tests anything;
+/// `..name` binds a `[]T` view over the run it skips, which is why it owns
+/// nothing and obeys the same lifetime rule as any other view.
+#[allow(clippy::too_many_arguments)]
+fn check_fixed_array(
+    elements: &[FixedArrayElement],
+    scrutinee: &Type,
+    out_bindings: &mut Vec<(String, Type, Mutability, Span)>,
+    variants: &dyn Fn(&str) -> Option<Vec<VariantDef>>,
+    struct_fields: &dyn Fn(&str) -> Option<Vec<(String, Type)>>,
+    resolve: &dyn Fn(&TypeExpr) -> Result<Type, TypeError>,
+    span: Span,
+) -> Result<HirPattern, TypeError> {
+    let TypeKind::FixedArray(element_ty, length) = &scrutinee.kind else {
+        return Err(TypeError::new(
+            span,
+            format!("a fixed-array pattern destructures a `[T; N]`, found `{scrutinee}`"),
+        )
+        .with_code(codes::BAD_ARRAY_PATTERN)
+        .with_note("a `[]T` has no compile-time length, so a pattern cannot name its elements"));
+    };
+    let length = *length;
+    let written = elements
+        .iter()
+        .filter(|element| matches!(element, FixedArrayElement::Pattern(_)))
+        .count();
+    let mut rest_seen = false;
+    // The index of the next written element, counted from the start until the
+    // `..` is reached and from the end afterwards.
+    let mut index = 0usize;
+    let mut after_rest = false;
+    let mut hir_elements = Vec::with_capacity(written);
+    let mut rest = None;
+    for element in elements {
+        match element {
+            FixedArrayElement::Rest {
+                name,
+                span: rest_span,
+            } => {
+                if rest_seen {
+                    return Err(TypeError::new(
+                        *rest_span,
+                        "a fixed-array pattern has one `..`: it stands for every element no written pattern names",
+                    )
+                    .with_code(codes::BAD_ARRAY_PATTERN));
+                }
+                rest_seen = true;
+                let start = index;
+                let end = length.saturating_sub(written - index);
+                if start > end {
+                    return Err(TypeError::new(
+                        *rest_span,
+                        format!(
+                            "this pattern names {written} elements, but the array has only {length}"
+                        ),
+                    )
+                    .with_code(codes::BAD_ARRAY_PATTERN));
+                }
+                if let Some(name) = name {
+                    let ty = Type {
+                        kind: TypeKind::View(Box::new(element_ty.as_ref().clone())),
+                        span: *rest_span,
+                    };
+                    out_bindings.push((name.clone(), ty.clone(), Mutability::Const, *rest_span));
+                    rest = Some(RestBinding {
+                        name: name.clone(),
+                        ty,
+                        start,
+                        end,
+                        position: index,
+                        span: *rest_span,
+                    });
+                }
+                after_rest = true;
+            }
+            FixedArrayElement::Pattern(subpattern) => {
+                let at = if after_rest {
+                    length.saturating_sub(written - index)
+                } else {
+                    index
+                };
+                if at >= length {
+                    return Err(TypeError::new(
+                        span,
+                        format!(
+                            "this pattern names {written} elements, but the array has only {length}"
+                        ),
+                    )
+                    .with_code(codes::BAD_ARRAY_PATTERN));
+                }
+                let checked = check_pattern(
+                    subpattern,
+                    element_ty,
+                    out_bindings,
+                    variants,
+                    struct_fields,
+                    resolve,
+                )?;
+                hir_elements.push((at, checked));
+                index += 1;
+            }
+        }
+    }
+    if !rest_seen && written != length {
+        return Err(TypeError::new(
+            span,
+            format!(
+                "this pattern names {written} element{}, but `{scrutinee}` has {length}: \
+                 write `..` to stand for the rest",
+                if written == 1 { "" } else { "s" }
+            ),
+        )
+        .with_code(codes::BAD_ARRAY_PATTERN));
+    }
+    Ok(HirPattern::FixedArray {
+        elements: hir_elements,
+        rest,
+        span,
+    })
 }
 
 /// The final path segment, which is the variant name the user sees.
@@ -532,6 +667,7 @@ pub fn hir_pattern_span(pattern: &HirPattern) -> Span {
         | HirPattern::Binding { span, .. }
         | HirPattern::BindAt { span, .. }
         | HirPattern::Tuple { span, .. }
+        | HirPattern::FixedArray { span, .. }
         | HirPattern::Or { span, .. }
         | HirPattern::Range { span, .. }
         | HirPattern::Literal(_, span) => *span,
@@ -579,6 +715,17 @@ pub fn is_irrefutable(
                 .iter()
                 .zip(element_tys.iter())
                 .all(|(sub, ty)| is_irrefutable(sub, ty, variants, struct_fields, resolve))
+        }
+        // A fixed array has one shape, so its pattern cannot miss: it is
+        // irrefutable exactly when every written element is. The `..` is a
+        // view or an elision, and neither can fail.
+        HirPattern::FixedArray { elements, .. } => {
+            let TypeKind::FixedArray(element_ty, _) = &subject.kind else {
+                return false;
+            };
+            elements
+                .iter()
+                .all(|(_, sub)| is_irrefutable(sub, element_ty, variants, struct_fields, resolve))
         }
         // An or-pattern matches everything when one alternative does: the arm
         // still has a way to accept any value.

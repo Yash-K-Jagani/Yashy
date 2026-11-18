@@ -72,6 +72,9 @@ pub const IRREFUTABLE_IF_LET: &str = "E0603";
 pub const UNKNOWN_LABEL: &str = "E0604";
 /// Two nested loops carry the same label.
 pub const DUPLICATE_LABEL: &str = "E0605";
+/// A fixed-array pattern names the wrong elements: more than the array has,
+/// fewer than it has with no `..`, or more than one `..`.
+pub const BAD_ARRAY_PATTERN: &str = "E0606";
 /// A call passes the wrong number of arguments.
 pub const WRONG_ARGUMENT_COUNT: &str = "E0700";
 /// A named argument names no parameter, or a positional argument follows a
@@ -371,6 +374,12 @@ pub const CODES: &[Code] = &[
         title: "duplicate loop label",
         summary: "Two loops nested inside each other carry the same label.",
         page: include_str!("../../../docs/errors/E0605.md"),
+    },
+    Code {
+        id: BAD_ARRAY_PATTERN,
+        title: "invalid fixed-array pattern",
+        summary: "A fixed-array pattern names the wrong number of elements, or writes `..` more than once.",
+        page: include_str!("../../../docs/errors/E0606.md"),
     },
     Code {
         id: WRONG_ARGUMENT_COUNT,
@@ -844,6 +853,7 @@ pub fn rule_for(id: &str) -> &'static str {
         IRREFUTABLE_IF_LET => "PAT-4",
         UNKNOWN_LABEL => "PAT-5",
         DUPLICATE_LABEL => "PAT-6",
+        BAD_ARRAY_PATTERN => "PAT-7",
         WRONG_ARGUMENT_COUNT => "CALL-1",
         UNKNOWN_NAMED_ARGUMENT => "CALL-2",
         DUPLICATE_ARGUMENT => "CALL-3",

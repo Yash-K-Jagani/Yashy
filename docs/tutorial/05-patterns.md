@@ -12,6 +12,8 @@
   can say, and how a pattern can bind in `let` and `for`.
 - How a tuple carries several values at once, and how destructuring unpacks
   one into separate bindings.
+- How to destructure a fixed array with `[head, ..rest]` and what the rest
+  binds.
 
 `switch` matches a value against shapes. An arm binds what it names and
 evaluates one expression. In expression position the switch *is* that
@@ -266,6 +268,40 @@ fn main() {
 }
 ```
 
+## Fixed-array patterns
+
+A fixed array's length is part of its type, so a `[T; N]` has exactly one
+shape. A pattern over one names positions rather than testing a tag:
+
+```yashy
+fn main() {
+    const values = [1, 2, 3, 4];
+    let [first, ..middle, last] = values;
+    print(first);
+    print(last);
+    print(middle.len());
+
+    let [a, b, c, d] = values;
+    print(a + b + c + d);
+    // => 1
+    //    4
+    //    2
+    //    10
+}
+```
+
+Elements written before the `..` count up from zero and those after it count
+down from the end, so `middle` above is the view over the two inner elements.
+`..name` binds that run as a `[]T` view: it borrows the array, owns nothing,
+and cannot outlive the frame the array lives in. A bare `..` just skips the
+run. With no `..` the pattern must name all `N` elements (`E0606` otherwise),
+and `..` may appear only once. `[]T` views and growable `[]T` arrays have no
+compile-time length, so neither can be destructured this way.
+
+A whole-value binding works here too: `let whole @ [head, ..] = values;`
+keeps the array in `whole` and its first element in `head`. A literal or range
+element can fail, so it belongs in a `switch`, not in `let`.
+
 ## `if let` and `while let`
 
 When only one arm of a two-variant match needs a block of statements, a
@@ -418,6 +454,7 @@ the struct whose fields it binds and must write every field or end with
 | `case Outer { inner: Inner { v: v }, .. }` | A nested struct pattern. | `v`, through the field. | A struct payload |
 | `const (a, b) = pair` | Destructuring statement. | Each name, by position; `_` skips. | A tuple value |
 | `let Point { x: x, y: y } = p` | A pattern in binding position. | `x` and `y`. | A struct value |
+| `let [head, ..rest] = a` | A fixed-array pattern. | `head` is an element; `rest` is a `[]T` view of the run. | `[T; N]` |
 
 The `field: binding` spelling is not optional shorthand. `case Rect { w, h }`
 is a parse error at the comma, because the parser is looking for `:` after the
@@ -448,6 +485,8 @@ first name. Writing both halves shows which field binds to which local name.
   tuples are for the values that are copied by their bytes.
 - **Destructuring the wrong arity.** `const (a, b) = (1, 2, 3)` reports
   ``error: this pattern binds 2 names, but the tuple has 3 elements``.
+- **Leaving out an element of a fixed array.** `let [a, b] = [1, 2, 3]`
+  reports `E0606`: write `..` for the element you do not name, or name it.
 
 ## Try it
 

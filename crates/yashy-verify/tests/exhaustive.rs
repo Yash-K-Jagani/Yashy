@@ -62,6 +62,7 @@ fn names_variant(pattern: &HirPattern, name: &str) -> bool {
         | HirPattern::Binding { .. }
         | HirPattern::BindAt { .. }
         | HirPattern::Tuple { .. }
+        | HirPattern::FixedArray { .. }
         | HirPattern::Literal(..)
         | HirPattern::Range { .. }
         | HirPattern::Or { .. } => false,

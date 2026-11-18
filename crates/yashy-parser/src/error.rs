@@ -161,6 +161,15 @@ pub fn invalid_range_pattern(span: Span, message: impl Into<String>) -> ParseErr
     ParseError::new(span, message).with_code(yashy_common::codes::BAD_RANGE_PATTERN)
 }
 
+/// A fixed-array pattern with two `..`s or with nothing in it.
+///
+/// The element count is checked later, against the array's length, because only
+/// the checker knows the subject's type; these two mistakes are visible from the
+/// token stream alone.
+pub fn invalid_array_pattern(span: Span, message: impl Into<String>) -> ParseError {
+    ParseError::new(span, message).with_code(yashy_common::codes::BAD_ARRAY_PATTERN)
+}
+
 /// A `struct` with nothing in it.
 ///
 /// Named, because the fix is to add a field to *this* struct and a reader who
