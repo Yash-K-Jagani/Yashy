@@ -120,6 +120,7 @@ fn governance_documents_are_present_and_complete() {
         "docs/rfcs/0000-template.md",
         "docs/lts.md",
         "docs/deprecation.md",
+        "docs/editions.md",
         "docs/governance.md",
     ] {
         assert_links_resolve(document);

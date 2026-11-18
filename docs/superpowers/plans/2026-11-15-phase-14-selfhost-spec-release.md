@@ -179,9 +179,16 @@ end stays the reference for the 2.0 release (design call 7).
   program that compiled stops compiling; a change that breaks one is a new
   edition with a migration. The compiler keeps reading every edition it has
   shipped.
+  *Current:* `docs/editions.md` states the promise, the closed set (`2021`
+  default, `2027`), what an edition may and may not change, and the RFC gate.
+  The manifest `edition` key and the compiler's multi-edition reader are still
+  owed, so the step stays open.
 - [ ] **Step 3: Deprecation has a path.** A deprecated item warns with a code
   and a `yashyc fix`; it is removed only in an edition, and the removal is listed
   in the migration notes. There is no silent removal.
+  *Current:* `docs/deprecation.md` gives the four-step path and the migration
+  table, and `docs/editions.md` ties removal to an edition. The `yashyc fix`
+  command is not implemented, so the step stays open.
 - [ ] **Step 4: Commit.**
 
 ### Task 6: LTS, RFC and governance in the repo
