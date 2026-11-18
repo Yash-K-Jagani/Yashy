@@ -523,6 +523,14 @@ inputs, shrinks a failing input and writes the minimal case to the corpus.
 `yashyc fuzz` does not run it yet; the CLI runner and the bounded campaign are
 still owed.
 
+## `yashyc mutate --list [--json]`
+
+Lists the AST-level mutation operators with stable names (`AOR`, `ROR`, `COR`,
+`BOOL`) and what each changes. The mutator lives in the `yashy-mutate` crate;
+this verb is its inventory. A mutation score must name the operator that
+survived, so an unnamed operator is not a score. Running a campaign and
+computing the score are still owed.
+
 ## `yashyc lint [--list|--docs] [--json] [--group <g>] [--deny <code>] <file.ya>`
 
 Reports advice: a lint never changes whether a program builds. Each lint has a

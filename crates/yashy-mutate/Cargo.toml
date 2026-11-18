@@ -1,0 +1,10 @@
+[package]
+name = "yashy-mutate"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+yashy-parser = { path = "../yashy-parser" }
+
+[dev-dependencies]
+yashy-common = { path = "../yashy-common" }

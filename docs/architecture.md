@@ -122,6 +122,7 @@ same bytes.
 | `yashy-fmt` | canonical formatter | idempotent, comment-preserving |
 | `yashy-lsp` | language server | diagnostics, hover, definition, completion, tokens |
 | `yashy-bench` | benchmark rows and comparators | no number, no claim |
+| `yashy-mutate` | AST mutation operators with stable names | a score names its operator |
 
 The workspace's own packages live under `packages/` (`net`, `http`, `cli`,
 `test`, `bench`, `fuzz`) and are ordinary Yashy source with manifests.

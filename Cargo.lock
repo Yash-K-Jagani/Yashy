@@ -72,6 +72,7 @@ dependencies = [
  "yashy-hir",
  "yashy-lexer",
  "yashy-manifest",
+ "yashy-mutate",
  "yashy-parser",
  "yashy-query",
  "yashy-runtime",
@@ -131,6 +132,14 @@ version = "1.0.0"
 dependencies = [
  "ed25519-compact",
  "yashy-common",
+]
+
+[[package]]
+name = "yashy-mutate"
+version = "1.0.0"
+dependencies = [
+ "yashy-common",
+ "yashy-parser",
 ]
 
 [[package]]

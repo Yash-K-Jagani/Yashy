@@ -271,6 +271,11 @@ what keeps a 138-week programme honest.
   comparison, boolean operators, return values, `Option`/`Result` arms, bounds
   and ownership annotations; a mutant inside a comment or string is never
   produced.
+  *Current:* `yashy-mutate` generates AST mutants for arithmetic, relational
+  and boolean operators and boolean literals, with stable names and span
+  tests. `yashyc mutate --list [--json]` exposes the operator inventory. Return
+  values, `Option`/`Result` arms, bounds and ownership mutants, the campaign
+  runner and the score are still owed, so the step stays open.
 - [ ] **Step 2: A mutation score is measured, not claimed.** `--json` reports
   killed, survived, timed out and equivalent mutants with spans; `--fail-under`
   gates a project; the compiler's own verifier corpus has a required floor. The

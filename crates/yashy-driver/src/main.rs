@@ -228,6 +228,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "test" => test(rest),
         "bench" => bench_cmd(rest),
         "fuzz" => fuzz_cmd(rest),
+        "mutate" => mutate_cmd(rest),
         "cache" => cache_cmd(rest),
         "inspect" => inspect_cmd(rest),
         "tokens" => tokens(rest),
@@ -1353,6 +1354,43 @@ fn fuzz_cmd(args: &[String]) -> ExitCode {
         }
     }
     exit_code(EXIT_OK)
+}
+
+/// `yashyc mutate --list`.
+///
+/// Lists the AST-level mutation operators with stable names. The mutator
+/// itself lives in `yashy-mutate`; this verb is the inventory, not a campaign
+/// runner. A score without a named operator is not a score.
+fn mutate_cmd(args: &[String]) -> ExitCode {
+    if args.iter().any(|arg| arg == "--json") {
+        let mut report = Json::object();
+        report.set("schema_version", Json::number(1));
+        report.set("tool", Json::string("mutate"));
+        let entries: Vec<Json> = yashy_mutate::OPERATORS
+            .iter()
+            .map(|(name, description)| {
+                let mut object = Json::object();
+                object.set("name", Json::string(*name));
+                object.set("description", Json::string(*description));
+                object
+            })
+            .collect();
+        report.set("operators", Json::array(entries));
+        println!("{}", report.render());
+        return exit_code(EXIT_OK);
+    }
+    if args.is_empty() || args.iter().any(|arg| arg == "--list") {
+        for (name, description) in yashy_mutate::OPERATORS {
+            println!("{name}: {description}");
+        }
+        return exit_code(EXIT_OK);
+    }
+    for argument in args {
+        if argument.starts_with('-') {
+            return usage_error(&format!("unknown option `{argument}` for `mutate`"));
+        }
+    }
+    usage_error("`mutate` takes `--list` or `--json`")
 }
 
 fn trace_cmd(args: &[String]) -> ExitCode {

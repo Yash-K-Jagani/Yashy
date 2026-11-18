@@ -256,6 +256,13 @@ pub const COMMANDS: &[CommandSpec] = &[
         takes_path: true,
     },
     CommandSpec {
+        name: "mutate",
+        summary: "list AST mutation operators",
+        usage: "yashyc mutate --list [--json]",
+        flags: &["--list", "--json"],
+        takes_path: false,
+    },
+    CommandSpec {
         name: "lint",
         summary: "report style and correctness advice",
         usage: "yashyc lint [--list|--docs] [--json] [--group <g>] [--deny <code>] <file.ya>",
