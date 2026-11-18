@@ -151,9 +151,9 @@ fn governance_documents_are_present_and_complete() {
 /// prints. `UPDATE_GOLDEN=1` rewrites the page instead of comparing it.
 #[test]
 fn traceability_page_is_generated_from_the_rule_matrix() {
-    let rows = yashy_driver::trace::matrix(&root())
+    let matrix = yashy_driver::trace::matrix(&root())
         .expect("the rule matrix must build from the registry and tests");
-    let text = yashy_driver::trace::to_markdown(&rows);
+    let text = yashy_driver::trace::to_markdown(&matrix.rows);
     let page = root().join("docs").join("traceability.md");
     if std::env::var("UPDATE_GOLDEN").is_ok() {
         std::fs::write(&page, &text)

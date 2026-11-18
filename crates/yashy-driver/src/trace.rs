@@ -20,6 +20,13 @@ pub struct RuleRow {
     pub tests: Vec<String>,
 }
 
+/// The whole matrix: the rows plus the codes no test file mentions.
+#[derive(Clone, Debug)]
+pub struct Matrix {
+    pub rows: Vec<RuleRow>,
+    pub orphan_codes: Vec<String>,
+}
+
 fn collect_rust_tests(root: &Path, files: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(root) else {
         return;
@@ -45,7 +52,7 @@ fn collect_rust_tests(root: &Path, files: &mut Vec<PathBuf>) {
 }
 
 /// Build the matrix for a workspace root.
-pub fn matrix(root: &Path) -> Result<Vec<RuleRow>, String> {
+pub fn matrix(root: &Path) -> Result<Matrix, String> {
     let mut files = Vec::new();
     collect_rust_tests(&root.join("crates"), &mut files);
     let mut contents = Vec::new();
@@ -68,6 +75,7 @@ pub fn matrix(root: &Path) -> Result<Vec<RuleRow>, String> {
             .push(entry.id.to_string());
     }
     let mut rows = Vec::new();
+    let mut orphan_codes = Vec::new();
     for (rule, entries) in by_rule {
         let mut tests = Vec::new();
         for (path, text) in &contents {
@@ -79,13 +87,20 @@ pub fn matrix(root: &Path) -> Result<Vec<RuleRow>, String> {
                 tests.push(relative.to_string_lossy().replace('\\', "/"));
             }
         }
+        for code in &entries {
+            // A shared test file counts for every code it mentions, so a code
+            // that appears in at least one test is not an orphan.
+            if !contents.iter().any(|(_, text)| text.contains(code)) {
+                orphan_codes.push(code.clone());
+            }
+        }
         rows.push(RuleRow {
             rule,
             codes: entries,
             tests,
         });
     }
-    Ok(rows)
+    Ok(Matrix { rows, orphan_codes })
 }
 
 /// The human page, generated from the same rows as the JSON model.
@@ -121,7 +136,8 @@ pub fn to_markdown(rows: &[RuleRow]) -> String {
     out
 }
 
-pub fn to_json(rows: &[RuleRow]) -> Json {
+pub fn to_json(matrix: &Matrix) -> Json {
+    let rows = &matrix.rows;
     let mut entries = Vec::new();
     let mut orphans = Vec::new();
     for row in rows {
@@ -151,6 +167,16 @@ pub fn to_json(rows: &[RuleRow]) -> Json {
     report.set(
         "orphan_rules",
         Json::array(orphans.iter().map(|rule| Json::string(rule)).collect()),
+    );
+    report.set(
+        "orphan_codes",
+        Json::array(
+            matrix
+                .orphan_codes
+                .iter()
+                .map(|code| Json::string(code))
+                .collect(),
+        ),
     );
     report
 }
@@ -342,7 +368,7 @@ mod tests {
                 .as_path(),
         )
         .expect("the matrix must build");
-        let rules: Vec<&str> = rows.iter().map(|row| row.rule.as_str()).collect();
+        let rules: Vec<&str> = rows.rows.iter().map(|row| row.rule.as_str()).collect();
         let expected: std::collections::BTreeSet<&str> = codes::CODES
             .iter()
             .map(|entry| codes::rule_for(entry.id))
@@ -350,8 +376,9 @@ mod tests {
         for rule in expected {
             assert!(rules.contains(&rule), "no row for rule {rule}");
         }
-        let codes_in_rows: usize = rows.iter().map(|row| row.codes.len()).sum();
+        let codes_in_rows: usize = rows.rows.iter().map(|row| row.codes.len()).sum();
         assert_eq!(codes_in_rows, codes::CODES.len());
+        assert!(to_json(&rows).render().contains("orphan_codes"));
     }
 
     #[test]

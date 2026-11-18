@@ -1254,20 +1254,22 @@ fn trace_cmd(args: &[String]) -> ExitCode {
         return trace_events_cmd(&source, &program_args, json);
     }
     let root = root.unwrap_or_else(|| PathBuf::from("."));
-    let rows = match trace::matrix(&root) {
-        Ok(rows) => rows,
+    let matrix = match trace::matrix(&root) {
+        Ok(matrix) => matrix,
         Err(message) => {
             eprintln!("error: {message}");
             return exit_code(EXIT_INTERNAL);
         }
     };
+    let rows = &matrix.rows;
     let orphans: Vec<&trace::RuleRow> = rows.iter().filter(|row| row.tests.is_empty()).collect();
+    let orphan_codes = &matrix.orphan_codes;
     if json {
-        println!("{}", trace::to_json(&rows).render());
+        println!("{}", trace::to_json(&matrix).render());
     } else if markdown {
         print!("{}", trace::to_markdown(&rows));
     } else {
-        for row in &rows {
+        for row in rows {
             println!(
                 "{:<14} {} code(s), {} test file(s)",
                 row.rule,
@@ -1276,16 +1278,25 @@ fn trace_cmd(args: &[String]) -> ExitCode {
             );
         }
     }
-    if fail_orphans && !orphans.is_empty() {
-        eprintln!(
-            "error: {} rule(s) have no test: {}",
-            orphans.len(),
-            orphans
-                .iter()
-                .map(|row| row.rule.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
+    if fail_orphans && (!orphans.is_empty() || !orphan_codes.is_empty()) {
+        if !orphans.is_empty() {
+            eprintln!(
+                "error: {} rule(s) have no test: {}",
+                orphans.len(),
+                orphans
+                    .iter()
+                    .map(|row| row.rule.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+        if !orphan_codes.is_empty() {
+            eprintln!(
+                "error: {} code(s) have no test: {}",
+                orphan_codes.len(),
+                orphan_codes.join(", ")
+            );
+        }
         return exit_code(EXIT_COMPILE_ERROR);
     }
     exit_code(EXIT_OK)
