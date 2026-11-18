@@ -102,8 +102,12 @@ what keeps a 138-week programme honest.
   *Current:* `yashy-driver::affected` selects tests from changed paths and
   `import` edges; an unknown changed file widens the selection to every test.
   `test --affected <list>` filters the suite, prints skipped reasons and emits
-  a `selection` object in `--json`. The call graph, type/`cfg` widening and the
-  `--all` CI default are still owed, so the step stays open.
+  a `selection` object in `--json`. A changed module's declared types, traits,
+  macros, aliases and `cfg` keys are now selection signals too: `declared_symbols`
+  and `cfg_keys` read them from the changed source, and any test that names one
+  is selected even without a direct import. Every selected test carries a
+  reason in `selection.reasons`. The real call graph and the `--all` CI default
+  are still owed, so the step stays open.
 - [ ] **Step 7: Commit.**
 
 ### Task 2: `yashyc bench`
