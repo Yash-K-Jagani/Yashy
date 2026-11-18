@@ -191,18 +191,29 @@ end stays the reference for the 2.0 release (design call 7).
 - Modify: `docs/superpowers/specs/2026-11-15-yashy-2.0-design.md` (record the ratified calls)
 - Test: `crates/yashy-driver/tests/docs.rs` (extend)
 
-- [ ] **Step 1: Write the failing test.** The RFC template has every field the
+- [x] **Step 1: Write the failing test.** The RFC template has every field the
   design requires (motivation, syntax, HIR, verifier rules, diagnostics,
   migration, benchmark, doc impact, decision). An RFC that changes a rule id, a
   diagnostic code or the determinism contract cannot be marked accepted without
   the conformance and migration sections filled.
-- [ ] **Step 2: LTS is a written commitment.** 1.0 receives security and
+  *Current:* `docs/rfcs/0000-template.md` carries all eleven fields, and
+  `docs/rfcs/README.md` states the acceptance rule for rule ids, codes and
+  determinism. `crates/yashy-driver/tests/docs.rs` pins the fields and the
+  local links.
+- [x] **Step 2: LTS is a written commitment.** 1.0 receives security and
   critical fixes for 18 months after 2.0; 2.0 is the new LTS baseline. The
   support matrix names versions, dates and what qualifies as a security fix.
-- [ ] **Step 3: The process is in the repo, not in a slide.** A contributing
+  *Current:* `docs/lts.md` states the 18-month window, defines what counts as a
+  security or critical correctness fix, and gives the support matrix. Exact
+  calendar dates are recorded in the release notes for each tag, as the text
+  says, so they are not guessed here.
+- [x] **Step 3: The process is in the repo, not in a slide.** A contributing
   page, a decision log, and a quarterly re-plan record whose diff shows only
-  dates and the cut list changing — never the identity, the non-goals or the
+  dates and the cut list changing - never the identity, the non-goals or the
   never-cut list.
+  *Current:* `docs/governance.md` holds the decision log, the quarterly
+  re-plan rule, and the identity/non-goals/never-cut list. The contributing
+  page is `CONTRIBUTING.md`; both are covered by the link test.
 - [ ] **Step 4: Commit.**
 
 ### Task 7: Hardening and the signed, reproducible 2.0 release

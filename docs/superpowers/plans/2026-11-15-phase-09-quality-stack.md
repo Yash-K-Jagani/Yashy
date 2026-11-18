@@ -96,8 +96,14 @@ what keeps a 138-week programme honest.
   writes a JSON baseline with the compiler version, target and flags; `bench
   --check-baseline` fails on a regression beyond the row's threshold and prints
   the ratio. CI stores the baseline per OS.
-- [ ] **Step 3: No claim without a row.** A pass in Phase 11B lands only with a
+- [x] **Step 3: No claim without a row.** A pass in Phase 11B lands only with a
   row here; a feature row that regresses blocks the phase.
+  *Current:* `docs/bench-policy.md` states the rule: a row names the command,
+  input, version, target, flags, host, date, median and p95; A/B runs are
+  interleaved and outliers follow a stated rule. It also names the blocking
+  condition for a regressing feature row and points at `benchmarks/` and the
+  slice ledger. Automated enforcement of the rule in CI is still owed with
+  Task 4.
 - [ ] **Step 4: Commit.**
 
 ### Task 3: `yashyc fuzz`

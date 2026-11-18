@@ -1,0 +1,20 @@
+import convert;
+
+fn main() {
+    print(convert.parse_bool("true") matches Ok(true));
+    print(convert.parse_bool("no") matches Err(_));
+    print(convert.parse_int("42") matches Ok(42));
+    print(convert.parse_int("x") matches Err(_));
+    print(convert.parse_float("2.5") matches Ok(2.5));
+    print(convert.parse_radix("ff", 16) matches Ok(255));
+    print(convert.parse_radix("2", 2) matches Err(_));
+    print(convert.parse_radix("ffffffffffff", 16) matches Err(_));
+    print(convert.int_to_string(42));
+    print(convert.bool_to_string(false));
+    print(convert.trunc(1.9));
+    print(convert.floor(1.9));
+    print(convert.floor(0 - 1.1));
+    print(convert.ceil(1.1));
+    print(convert.round(2.5));
+    print(convert.try_from_float(3.0) matches Ok(3));
+}

@@ -155,6 +155,117 @@ fn set_insert[T]([]T items, T value) -> []T
 fn set_remove[T]([]T items, T value) -> []T
 ```
 
+## `convert`
+
+### `ConvertError`
+
+```yashy
+enum ConvertError
+```
+
+### `bool_to_string`
+
+```yashy
+fn bool_to_string(bool value) -> string
+```
+
+A boolean as `true` or `false`, the spellings `parse_bool` accepts.
+
+### `ceil`
+
+```yashy
+fn ceil(float value) -> int
+```
+
+Round a float up. A positive non-integer moves one above the truncation.
+
+### `float_to_string`
+
+```yashy
+fn float_to_string(float value) -> string
+```
+
+A float as decimal text.
+
+### `floor`
+
+```yashy
+fn floor(float value) -> int
+```
+
+Round a float down. A negative non-integer moves one below the truncation.
+
+### `int_to_string`
+
+```yashy
+fn int_to_string(int value) -> string
+```
+
+An integer as decimal text.
+
+### `parse_bool`
+
+```yashy
+fn parse_bool(string text) -> Result[bool, ConvertError]
+```
+
+Parse `true`, `false`, `1` or `0`. Other spellings are `Invalid`.
+
+### `parse_float`
+
+```yashy
+fn parse_float(string text) -> Result[float, ConvertError]
+```
+
+Parse a decimal float. This is the `Result` spelling of `parse_f64`.
+
+### `parse_int`
+
+```yashy
+fn parse_int(string text) -> Result[int, ConvertError]
+```
+
+Parse a decimal integer. This is the `Result` spelling of `parse_i64`.
+
+### `parse_radix`
+
+```yashy
+fn parse_radix(string text, int radix) -> Result[int, ConvertError]
+```
+
+Parse an unsigned magnitude in a radix from 2 through 36.
+
+Digits are `0`..`9`, `a`..`z` and `A`..`Z`; their value must be below the
+radix. The magnitude is bounded by `2147483647` so that a non-decimal parse
+never panics on overflow: a larger value answers `Overflow` instead.
+
+### `round`
+
+```yashy
+fn round(float value) -> int
+```
+
+Round a float to the nearest integer, halves away from zero.
+
+### `trunc`
+
+```yashy
+fn trunc(float value) -> int
+```
+
+Truncate a float toward zero.
+
+### `try_from_float`
+
+```yashy
+fn try_from_float(float value) -> Result[int, ConvertError]
+```
+
+A checked float-to-int conversion with a documented range.
+
+Values outside `trunc(int)`'s decimal range answer `Overflow` rather than
+panicking or wrapping.
+
 ## `csv`
 
 ### `CsvError`

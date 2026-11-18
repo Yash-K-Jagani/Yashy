@@ -107,6 +107,43 @@ fn quickstart_and_reference_links_resolve() {
     }
 }
 
+/// The governance documents are part of the repo, not a slide deck. The RFC
+/// template must carry every field the design names, and every local link in
+/// the new pages must resolve.
+#[test]
+fn governance_documents_are_present_and_complete() {
+    for document in [
+        "docs/rfcs/README.md",
+        "docs/rfcs/0000-template.md",
+        "docs/lts.md",
+        "docs/deprecation.md",
+        "docs/governance.md",
+    ] {
+        assert_links_resolve(document);
+    }
+    let path = root().join("docs/rfcs/0000-template.md");
+    let template = std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("{} must be readable: {error}", path.display()));
+    for field in [
+        "## Motivation",
+        "## Syntax",
+        "## HIR and desugaring",
+        "## Verifier rules",
+        "## Diagnostics",
+        "## Determinism",
+        "## Migration",
+        "## Conformance",
+        "## Benchmark",
+        "## Documentation impact",
+        "## Decision",
+    ] {
+        assert!(
+            template.contains(field),
+            "the RFC template is missing `{field}`"
+        );
+    }
+}
+
 /// `docs/stdlib.md` is generated from the same documentation model `yashyc doc`
 /// renders, so the reference cannot drift from the doc blocks.
 ///

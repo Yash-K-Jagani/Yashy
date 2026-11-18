@@ -1,0 +1,142 @@
+// Total scalar conversions.
+//
+// A conversion either answers with a value or says why it could not. There is
+// no sentinel: `0` and `""` are values a program can produce legitimately, so
+// they cannot also mean "failed". `parse_bool`, `parse_int`, `parse_float` and
+// `parse_radix` answer `Result`; the builtins `parse_i64` and `parse_f64` keep
+// their `Option` spelling, which is the right shape when there is no reason to
+// report.
+//
+// Every function here is pure: no string, slice or pointer is created or
+// consumed, so a caller owns nothing after a call returns.
+
+/// Why a conversion could not produce a value.
+pub enum ConvertError {
+    /// The text does not spell a value of the target type in this radix.
+    Invalid,
+    /// The value is outside the range this conversion accepts.
+    Overflow,
+}
+
+/// Parse `true`, `false`, `1` or `0`. Other spellings are `Invalid`.
+pub fn parse_bool(string text) -> Result[bool, ConvertError] {
+    if text == "true" || text == "1" {
+        return Ok(true);
+    }
+    if text == "false" || text == "0" {
+        return Ok(false);
+    }
+    return Err(ConvertError.Invalid);
+}
+
+/// Parse a decimal integer. This is the `Result` spelling of `parse_i64`.
+pub fn parse_int(string text) -> Result[int, ConvertError] {
+    return switch parse_i64(text) {
+        case Some(value) { Ok(value) }
+        case None { Err(ConvertError.Invalid) }
+    };
+}
+
+/// Parse a decimal float. This is the `Result` spelling of `parse_f64`.
+pub fn parse_float(string text) -> Result[float, ConvertError] {
+    return switch parse_f64(text) {
+        case Some(value) { Ok(value) }
+        case None { Err(ConvertError.Invalid) }
+    };
+}
+
+/// Parse an unsigned magnitude in a radix from 2 through 36.
+///
+/// Digits are `0`..`9`, `a`..`z` and `A`..`Z`; their value must be below the
+/// radix. The magnitude is bounded by `2147483647` so that a non-decimal parse
+/// never panics on overflow: a larger value answers `Overflow` instead.
+pub fn parse_radix(string text, int radix) -> Result[int, ConvertError] {
+    if radix < 2 || radix > 36 {
+        return Err(ConvertError.Invalid);
+    }
+    const bytes = text.to_bytes();
+    if bytes.len() == 0 {
+        return Err(ConvertError.Invalid);
+    }
+    let value = 0;
+    for ch in bytes {
+        let digit = 0;
+        if ch >= '0' && ch <= '9' {
+            digit = ch.to_int() - 48;
+        } else if ch >= 'a' && ch <= 'z' {
+            digit = ch.to_int() - 87;
+        } else if ch >= 'A' && ch <= 'Z' {
+            digit = ch.to_int() - 55;
+        } else {
+            return Err(ConvertError.Invalid);
+        }
+        if digit >= radix {
+            return Err(ConvertError.Invalid);
+        }
+        if value > (2147483647 - digit) / radix {
+            return Err(ConvertError.Overflow);
+        }
+        value = value * radix + digit;
+    }
+    return Ok(value);
+}
+
+/// An integer as decimal text.
+pub fn int_to_string(int value) -> string {
+    return str_from_i64(value);
+}
+
+/// A float as decimal text.
+pub fn float_to_string(float value) -> string {
+    return str_from_f64(value);
+}
+
+/// A boolean as `true` or `false`, the spellings `parse_bool` accepts.
+pub fn bool_to_string(bool value) -> string {
+    if value {
+        return "true";
+    }
+    return "false";
+}
+
+/// Truncate a float toward zero.
+pub fn trunc(float value) -> int {
+    return value as int;
+}
+
+/// Round a float down. A negative non-integer moves one below the truncation.
+pub fn floor(float value) -> int {
+    const whole = value as int;
+    if value < 0.0 && value != (whole as float) {
+        return whole - 1;
+    }
+    return whole;
+}
+
+/// Round a float up. A positive non-integer moves one above the truncation.
+pub fn ceil(float value) -> int {
+    const whole = value as int;
+    if value > 0.0 && value != (whole as float) {
+        return whole + 1;
+    }
+    return whole;
+}
+
+/// Round a float to the nearest integer, halves away from zero.
+pub fn round(float value) -> int {
+    if value >= 0.0 {
+        return floor(value + 0.5);
+    }
+    return ceil(value - 0.5);
+}
+
+/// A checked float-to-int conversion with a documented range.
+///
+/// Values outside `trunc(int)`'s decimal range answer `Overflow` rather than
+/// panicking or wrapping.
+pub fn try_from_float(float value) -> Result[int, ConvertError] {
+    if value > 2147483647.0 || value < -2147483647.0 {
+        return Err(ConvertError.Overflow);
+    }
+    return Ok(trunc(value));
+}

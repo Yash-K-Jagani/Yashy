@@ -210,6 +210,15 @@ is a capability rather than an ambient read.
   (`int.to_float()`, `int.to_string()`) is a plain method. `parse_int` checks
   the radix (`2..=36`), leading sign and overflow, and never wraps. `try_from`
   returns a `ConvertError` that names the input and the expected form.
+  *Current:* `crates/yashy-stdlib/yashy/convert.ya` is in place with a
+  documented `ConvertError`, `Result`-returning `parse_bool`, `parse_int`,
+  `parse_float` and `parse_radix`, plain `int_to_string`/`float_to_string`/
+  `bool_to_string`, and explicit `trunc`/`floor`/`ceil`/`round`/`try_from_float`.
+  Radix parsing bounds the magnitude at 2147483647 so it never panics, and
+  reports `Overflow` instead. `stdlib/convert.ya` is the coverage program. The
+  scalar method spellings (`to_float`, `floor` as methods) and the generated
+  `docs/stdlib.md` row still need the compiler-side method work and a
+  toolchain run, so the step stays open.
 - [ ] **Step 5: Formatting consumes the same conversions.** The `format`
   engine in Task 3 formats each scalar through this matrix, so a value printed
   by `print`, `format` and `Debug` has one spelling. A `format` specifier on a
