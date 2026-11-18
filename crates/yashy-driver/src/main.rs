@@ -2748,7 +2748,7 @@ fn test_json(
     let _root_file = global_sources.add_file(root.display().to_string(), String::new());
 
     if tests.is_empty() {
-        print_test_json(&global_sources, &[], &[], 0, 0, 0, None);
+        print_test_json(&global_sources, &[], &[], &[], 0, 0, 0, None);
         return exit_code(EXIT_OK);
     }
 
@@ -2761,7 +2761,7 @@ fn test_json(
                 Span::SYNTHETIC,
                 message,
             );
-            print_test_json(&global_sources, &[diagnostic], &[], 0, 0, 0, None);
+            print_test_json(&global_sources, &[diagnostic], &[], &[], 0, 0, 0, None);
             return exit_code(EXIT_USAGE);
         }
     };
@@ -2774,7 +2774,7 @@ fn test_json(
             Span::SYNTHETIC,
             message.clone(),
         );
-        print_test_json(&global_sources, &[diagnostic], &[], 0, 0, 0, None);
+        print_test_json(&global_sources, &[diagnostic], &[], &[], 0, 0, 0, None);
         return exit_code(EXIT_INTERNAL);
     }
     let test_objects: Vec<Json> = report
@@ -2792,14 +2792,21 @@ fn test_json(
                 object.set("exit", Json::number(i64::from(exit)));
             }
             object.set("diagnostics", Json::array(result.diagnostics.clone()));
+            object.set("failure", Json::string(failure_message(result)));
             object
         })
+        .collect();
+    let events: Vec<Json> = report
+        .results
+        .iter()
+        .flat_map(|result| test_events(result))
         .collect();
 
     print_test_json(
         &global_sources,
         &[],
         &test_objects,
+        &events,
         report.passed,
         report.failed,
         report.compile_errors,
@@ -2812,10 +2819,71 @@ fn test_json(
     }
 }
 
+/// The failure message a runner reports for one test.
+///
+/// A run failure owns its exit status and stderr; a compile error owns its
+/// diagnostics. A passing test has no message, so consumers can treat an empty
+/// string as "nothing went wrong" without checking the status first.
+fn failure_message(result: &yashy_driver::test_harness::TestResult) -> String {
+    match result.status {
+        yashy_driver::test_harness::TestStatus::Passed => String::new(),
+        yashy_driver::test_harness::TestStatus::Failed => {
+            let exit = result
+                .exit
+                .map(|code| format!("exit {code}: "))
+                .unwrap_or_default();
+            let detail = if result.stderr.is_empty() {
+                result.stdout.trim().to_string()
+            } else {
+                result.stderr.trim().to_string()
+            };
+            format!("{exit}{detail}")
+        }
+        yashy_driver::test_harness::TestStatus::CompileError => result
+            .diagnostics
+            .iter()
+            .map(|diagnostic| match diagnostic {
+                Json::Object(fields) => fields
+                    .iter()
+                    .find(|(key, _)| key == "message")
+                    .and_then(|(_, value)| match value {
+                        Json::String(text) => Some(text.clone()),
+                        _ => None,
+                    })
+                    .unwrap_or_default(),
+                _ => String::new(),
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+    }
+}
+
+/// The start and end events for one test, in that order.
+fn test_events(result: &yashy_driver::test_harness::TestResult) -> [Json; 2] {
+    let mut start = Json::object();
+    start.set("event", Json::string("start"));
+    start.set("name", Json::string(&result.name));
+    start.set("file", Json::string(&result.file));
+
+    let mut end = Json::object();
+    end.set("event", Json::string("end"));
+    end.set("name", Json::string(&result.name));
+    end.set("file", Json::string(&result.file));
+    end.set("status", Json::string(result.status.as_str()));
+    end.set("duration_ms", Json::number(result.duration_ms));
+    end.set("stdout", Json::string(&result.stdout));
+    end.set("failure", Json::string(failure_message(result)));
+    if let Some(exit) = result.exit {
+        end.set("exit", Json::number(i64::from(exit)));
+    }
+    [start, end]
+}
+
 fn print_test_json(
     global_sources: &SourceMap,
     global: &[Diagnostic],
     tests: &[Json],
+    events: &[Json],
     passed: usize,
     failed: usize,
     compile_errors: usize,
@@ -2845,6 +2913,7 @@ fn print_test_json(
         ),
     );
     report.set("tests", Json::array(tests.to_vec()));
+    report.set("events", Json::array(events.to_vec()));
     report.set("summary", summary);
     set_timings(&mut report, timings);
     println!("{}", report.render());

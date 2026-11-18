@@ -760,6 +760,13 @@ stdout; `--json` implies no color and no prompt.
 }
 ```
 
+`test --json` also carries an `events` array: one `start` and one `end` event
+per test in run order. A `start` names the test; an `end` repeats the name, the
+status, `duration_ms`, the test's own `stdout`, and a `failure` string that is
+empty when it passed. A run failure's message includes its exit status, and a
+compile error's message comes from its diagnostics. Each test owns its bytes:
+another test's output is never mixed into its event.
+
 `status` is `passed`, `failed` or `compile_error`. `compile_error` means the
 test never ran: it did not type-check, the verifier refused it, or code
 generation failed. `failed` means the test ran and exited non-zero. The two are

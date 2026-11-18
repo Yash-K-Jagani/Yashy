@@ -70,9 +70,15 @@ what keeps a 138-week programme honest.
 - [ ] **Step 4: Mocks are explicit values.** A mock implements a trait and
   records calls; no global mock registry, no hidden injection. A test that uses
   a mock constructs it and passes it.
-- [ ] **Step 5: The runner protocol is stable.** `test --json` emits one event
+- [x] **Step 5: The runner protocol is stable.** `test --json` emits one event
   per test start/end with name, status, duration, stdout and a failure message;
   the harness attributes stdout and exit codes to the test that produced them.
+  *Current:* the envelope's `tests` array keeps its existing shape, and a new
+  `events` array carries a `start` and an `end` per test. Each end event names
+  the test, status, `duration_ms`, its own `stdout` and a `failure` string; a
+  run failure includes its exit status, a compile error its diagnostic messages.
+  `test_runner_v2.rs` pins the event counts and attribution, and `docs/cli.md`
+  documents the field.
 - [ ] **Step 6: Select tests by impact, conservatively.** `yashyc test --affected
   <base>` walks the call graph from changed files and selects the tests that
   reach them; a changed type, trait impl, macro expansion or `cfg` key widens the

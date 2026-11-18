@@ -40,6 +40,23 @@ fn fixture(name: &str) -> std::path::PathBuf {
 }
 
 #[test]
+fn json_reports_one_start_and_one_end_event_per_test() {
+    let dir = fixture("test-runner-v2-events");
+    let output = run_test(&dir, &["--json"]);
+    let json = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(json.matches("\"event\": \"start\"").count(), 3, "{json}");
+    assert_eq!(json.matches("\"event\": \"end\"").count(), 3, "{json}");
+    assert!(
+        json.contains("\"failure\": \"exit 3: "),
+        "a failed event names why it failed: {json}"
+    );
+    assert!(
+        json.contains("\"stdout\": \"stdout from c_prints\""),
+        "the end event owns the test's stdout: {json}"
+    );
+}
+
+#[test]
 fn builds_one_harness_binary_for_the_whole_suite() {
     // The whole point of v2: one link for the suite, not one link per test.
     // This checks the build path directly so it can run where launching fresh
