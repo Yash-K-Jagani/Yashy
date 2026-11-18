@@ -66,6 +66,11 @@ sites, stack slots, bytes per value, and cold-start milliseconds.
 - [ ] **Step 3: `size_of`/`align_of`/`offset_of` read the same table.** The
   const evaluator and the report cannot disagree; a disagreement is a compiler
   bug with a test.
+  *Current:* `crates/yashy-driver/tests/layout.rs` compares checker-folded
+  `sizeof`/`alignof`/`offsetof` constants with the HIR layout walk and with
+  `inspect --layout`'s `find`, pinning the C padding rule as an independent
+  anchor. The generated-IR half of the cross-check is still owed, so the step
+  stays open.
 - [ ] **Step 4: Commit.**
 
 ### Task 2: Alias analysis and the attribute audit
