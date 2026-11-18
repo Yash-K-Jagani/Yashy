@@ -98,6 +98,8 @@ pub const LEAK: &str = "E1000";
 pub const ARENA_ESCAPE: &str = "E1003";
 /// An arena-owned value is freed individually.
 pub const ARENA_FREE: &str = "E1004";
+/// An owning pointer was copied instead of moved.
+pub const POINTER_COPY_WITHOUT_MOVE: &str = "E1005";
 /// A value spread into a literal is used again afterwards.
 pub const PARTIAL_MOVE: &str = "E1002";
 /// A contract clause is not proved.
@@ -454,6 +456,12 @@ pub const CODES: &[Code] = &[
         title: "arena value freed individually",
         summary: "A value owned by an `arena { }` block is freed with `.free()`, but the block frees it all at exit.",
         page: include_str!("../../../docs/errors/E1004.md"),
+    },
+    Code {
+        id: POINTER_COPY_WITHOUT_MOVE,
+        title: "owning pointer copied without move",
+        summary: "An owning pointer was copied from a binding without `move`, giving two owners to one allocation.",
+        page: include_str!("../../../docs/errors/E1005.md"),
     },
     Code {
         id: CONTRACT,
@@ -854,7 +862,7 @@ pub fn docs_url(id: &str) -> String {
 /// names those rules so the matrix can report them as orphans instead of
 /// silently dropping them: a rule with no code is a rule nobody can check.
 pub const PLANNED_RULES: &[&str] = &[
-    "ALIAS-1", "ALIAS-2", "ALIAS-4", "DET-2", "DET-3", "DET-4", "DET-5",
+    "ALIAS-2", "ALIAS-4", "DET-2", "DET-3", "DET-4", "DET-5",
 ];
 
 /// The stable rule id a code enforces.
@@ -888,6 +896,7 @@ pub fn rule_for(id: &str) -> &'static str {
         PARTIAL_MOVE => "OWN-3",
         ARENA_ESCAPE => "OWN-4",
         ARENA_FREE => "OWN-5",
+        POINTER_COPY_WITHOUT_MOVE => "ALIAS-1",
         NON_EXHAUSTIVE_MATCH => "PAT-1",
         UNREACHABLE_ARM => "PAT-2",
         BAD_RANGE_PATTERN => "PAT-3",

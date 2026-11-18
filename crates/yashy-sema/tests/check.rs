@@ -81,6 +81,17 @@ fn assert_error(src: &str, needle: &str) {
 }
 
 #[test]
+fn copying_an_owning_pointer_names_the_alias_rule() {
+    let (result, _, _) =
+        check_source("fn main() { let p = alloc(8); const q = p; q.free(); p.free(); }");
+    let diagnostics = result.expect_err("a bare pointer copy must be refused");
+    assert!(
+        diagnostics.iter().any(|d| d.code == Some("E1005")),
+        "ALIAS-1 must be named: {diagnostics:?}"
+    );
+}
+
+#[test]
 fn an_unknown_function_does_not_hide_its_arguments_errors() {
     // Resolving the callee before its arguments is what lets `f(None)` infer
     // what `None` is an `Option` of. It must not also mean that an unknown

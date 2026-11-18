@@ -1748,14 +1748,18 @@ impl<'src> Checker<'src> {
                         applicability: Applicability::MachineApplicable,
                         message: format!("move `{name}` out of its binding"),
                     };
-                    self.errors.push((
-                        self.file,
-                        TypeError::new(
-                            *span,
-                            format!("cannot assign linear value `{name}` without `move`"),
-                        )
-                        .with_suggestions(vec![suggestion]),
-                    ));
+                    let mut error = TypeError::new(
+                        *span,
+                        format!("cannot assign linear value `{name}` without `move`"),
+                    )
+                    .with_suggestions(vec![suggestion]);
+                    // An owning pointer is the one linear value whose
+                    // uniqueness the backend relies on for `noalias`, so its
+                    // copy gets the alias rule's diagnostic code.
+                    if matches!(binding.ty.kind, TypeKind::Ptr(_)) {
+                        error = error.with_code(codes::POINTER_COPY_WITHOUT_MOVE);
+                    }
+                    self.errors.push((self.file, error));
                 }
             }
         }

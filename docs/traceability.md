@@ -3,6 +3,14 @@
 Generated from `codes::rule_for`, the catalog and the test files that mention each code.
 Edit the registry, never this page. `UPDATE_GOLDEN=1` regenerates it.
 
+## `ALIAS-1`
+
+Codes: `E1005`
+
+Tests:
+
+- `crates/yashy-sema/tests/check.rs`
+
 ## `ALIAS-3`
 
 Codes: `E1403`
