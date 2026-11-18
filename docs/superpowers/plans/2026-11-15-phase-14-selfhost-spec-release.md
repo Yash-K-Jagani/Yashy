@@ -126,12 +126,21 @@ end stays the reference for the 2.0 release (design call 7).
   that `yashyc conformance` parses, a rule id per normative sentence, and a
   link from the rule to its diagnostic code and its conformance case. The
   EBNF is generated from the parser's own tables and a hand edit fails the test.
+  *Current:* `docs/reference/` now holds normative memory-model, ownership,
+  aliasing, determinism, layout and effects pages, each linking rule ids to
+  diagnostic pages; `tests/docs.rs` checks every page's local links. The
+  grammar, types, items, patterns and other chapters, the generated EBNF and
+  the `yashyc conformance` parser gate are still owed, so the step stays open.
 - [ ] **Step 2: The memory model is specified, not described.** Provenance,
   the owning/FFI pointer split, the `noalias` rule, the null niche, layout and
   `repr`, zeroed allocation and the allocator interface, stack promotion and
   `stack_alloc`, and the determinism contract each get a normative section with
   its corpus. These are the sections Phase 11A fixed; the reference states what
   the optimizer is allowed to assume.
+  *Current:* zeroed allocation, the owning/FFI pointer split, no `Drop`, arenas,
+  layout and the determinism contract have normative sections. Provenance, the
+  null niche, stack promotion/`stack_alloc` and per-section corpus links are
+  still owed, so the step stays open.
 - [ ] **Step 3: Two readings agree.** The reference, `docs/architecture.md` and
   the error catalog are reconciled: a rule id appears in all three or in none.
   A drift test fails on a contradiction, not just a missing link.

@@ -88,6 +88,28 @@ fn repo_agents_links_resolve() {
     assert_links_resolve("AGENTS.md");
 }
 
+/// The normative reference is a directory, not a fixed list: a page added
+/// later must have links that resolve just like the pages here.
+#[test]
+fn reference_pages_resolve() {
+    let directory = root().join("docs/reference");
+    let mut pages: Vec<_> = std::fs::read_dir(&directory)
+        .unwrap_or_else(|error| panic!("{} must be readable: {error}", directory.display()))
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("md"))
+        .collect();
+    pages.sort();
+    assert!(!pages.is_empty(), "docs/reference must not be empty");
+    for page in pages {
+        let relative = page
+            .strip_prefix(root())
+            .unwrap_or(&page)
+            .to_string_lossy()
+            .replace('\\', "/");
+        assert_links_resolve(&relative);
+    }
+}
+
 #[test]
 fn quickstart_and_reference_links_resolve() {
     for document in [
