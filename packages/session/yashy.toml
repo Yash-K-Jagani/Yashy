@@ -1,0 +1,5 @@
+[package]
+name = "session"
+version = "1.0.0"
+license = "MIT"
+description = "Signed session tokens with constant-time verification"

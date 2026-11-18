@@ -1,0 +1,16 @@
+// Signed session tokens.
+import session;
+
+fn main() {
+    const token = session.sign("topsecret", "user=42");
+    switch session.verify("topsecret", token) {
+        case Ok(payload) { assert(payload == "user=42"); }
+        case None { assert(false); }
+    }
+    assert(session.verify("wrongkey", token) matches None);
+    assert(session.verify("topsecret", "tampered.token") matches None);
+    assert(session.constant_time_eq("abc", "abc"));
+    assert(!session.constant_time_eq("abc", "abd"));
+    assert(!session.constant_time_eq("abc", "abcd"));
+    print("session-ok");
+}

@@ -132,6 +132,11 @@ the stack is not done, no matter how many modules exist.
   is rejected after tampering; CSRF token round-trip; a JWT with a valid and an
   invalid signature; an API key compared in constant time; a cache hit, miss,
   expiry and eviction.
+  *Current:* `packages/session/src/session.ya` signs a payload with a SHA-256
+  digest over `secret.payload`, encodes it in base64url, and verifies with a
+  constant-time comparison; tampering and a wrong key are `None`. The package
+  test pins both. Argon2id, expiry, CSRF, JWT, API keys and the cache still need
+  the crypto and store work, so the step stays open.
 - [ ] **Step 2: The secure choice is the default.** Argon2id parameters are
   the current recommendation; a cookie is `HttpOnly`, `Secure` and
   `SameSite=Lax` unless explicitly changed; a session id is CSPRNG-generated;
