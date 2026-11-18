@@ -163,7 +163,7 @@ fn check_arms(
 
 fn check_expr(program: &HirProgram, expr: &HirExpr, file: FileId, out: &mut Vec<Diagnostic>) {
     match expr {
-        HirExpr::Literal(..)
+        HirExpr::Literal(..) | HirExpr::UnsafeBlock { .. }
         | HirExpr::Ident(..)
         | HirExpr::AddrOf { .. }
         | HirExpr::Capture { .. } => {}

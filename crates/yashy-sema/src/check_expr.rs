@@ -11307,6 +11307,18 @@ impl<'src> Checker<'src> {
                 );
                 None
             }
+            Expr::UnsafeBlock { body, span } => {
+                let unit = Type {
+                    kind: TypeKind::Unit,
+                    span: *span,
+                };
+                let checked = self.check_block_with_ret(body, &unit)?;
+                Some(HirExpr::UnsafeBlock {
+                    body: checked,
+                    span: *span,
+                    ty: unit,
+                })
+            }
             Expr::Is {
                 lhs,
                 pattern,

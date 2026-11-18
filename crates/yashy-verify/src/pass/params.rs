@@ -289,7 +289,7 @@ impl<'f> Scan<'f> {
 
     fn expr(&mut self, expr: &'f HirExpr) {
         match expr {
-            HirExpr::Literal(..) | HirExpr::AddrOf { .. } | HirExpr::Capture { .. } => {}
+            HirExpr::Literal(..) | HirExpr::UnsafeBlock { .. } | HirExpr::AddrOf { .. } | HirExpr::Capture { .. } => {}
             HirExpr::Ident(path, ..) => self.mark_path(path, Use::Escape),
             HirExpr::Binary { lhs, rhs, .. } => {
                 self.expr(lhs);

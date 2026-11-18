@@ -622,6 +622,12 @@ pub struct FaultSite {
 #[derive(Clone, Debug, PartialEq)]
 pub enum HirExpr {
     Literal(Literal, Span, Type),
+    /// An `unsafe { ... }` block: the checked body, carrying unit.
+    UnsafeBlock {
+        body: HirBlock,
+        span: Span,
+        ty: Type,
+    },
     Ident(Vec<String>, Span, Type),
     Binary {
         op: BinOp,
@@ -885,6 +891,7 @@ pub fn builtin_borrows_argument(callee: &[String], index: usize) -> bool {
 pub fn expr_span(expr: &HirExpr) -> Span {
     match expr {
         HirExpr::Literal(_, span, _) => *span,
+        HirExpr::UnsafeBlock { span, .. } => *span,
         HirExpr::Ident(_, span, _) => *span,
         HirExpr::Binary { span, .. } => *span,
         HirExpr::Unary { span, .. } => *span,
@@ -914,6 +921,7 @@ pub fn expr_span(expr: &HirExpr) -> Span {
 pub fn expr_ty(expr: &HirExpr) -> Type {
     match expr {
         HirExpr::Literal(_, _, ty) => ty.clone(),
+        HirExpr::UnsafeBlock { ty, .. } => ty.clone(),
         HirExpr::Ident(_, _, ty) => ty.clone(),
         HirExpr::Binary { ty, .. } => ty.clone(),
         HirExpr::Unary { ty, .. } => ty.clone(),

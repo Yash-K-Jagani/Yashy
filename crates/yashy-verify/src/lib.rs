@@ -340,7 +340,7 @@ fn collect_in_expr(expr: &HirExpr, memo: &mut BTreeMap<(String, u32), ()>) {
                 collect_in_expr(init, memo);
             }
         }
-        HirExpr::Literal(..)
+        HirExpr::Literal(..) | HirExpr::UnsafeBlock { .. }
         | HirExpr::Ident(..)
         | HirExpr::AddrOf { .. }
         | HirExpr::Capture { .. } => {}
@@ -492,7 +492,7 @@ fn expr_has_contract(expr: &HirExpr) -> bool {
                 || expr_has_contract(func)
                 || init.as_ref().is_some_and(|expr| expr_has_contract(expr))
         }
-        HirExpr::Literal(..)
+        HirExpr::Literal(..) | HirExpr::UnsafeBlock { .. }
         | HirExpr::Ident(..)
         | HirExpr::AddrOf { .. }
         | HirExpr::Capture { .. } => false,

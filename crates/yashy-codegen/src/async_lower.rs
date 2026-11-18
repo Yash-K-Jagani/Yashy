@@ -178,6 +178,7 @@ fn collect_uses(stmt: &HirStmt, out: &mut Vec<String>) {
                     out.push(name.clone());
                 }
             }
+            HirExpr::UnsafeBlock { .. } => {}
             HirExpr::Binary { lhs, rhs, .. } => {
                 expr_uses(lhs, out);
                 expr_uses(rhs, out);

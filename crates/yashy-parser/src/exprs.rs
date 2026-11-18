@@ -1050,6 +1050,14 @@ impl<'src> Parser<'src> {
                 Ok(Expr::Ident(path, span))
             }
             TokenKind::Unsafe => {
+                if self.check(TokenKind::LBrace) {
+                    let unsafe_span = self.peek_span();
+                    let body = self.parse_block()?;
+                    return Ok(Expr::UnsafeBlock {
+                        span: cover(unsafe_span, body.span),
+                        body,
+                    });
+                }
                 let unsafe_tok = self.advance();
                 let (first, start_span) = self.identifier()?;
                 let mut callee = vec![first];
@@ -1482,6 +1490,7 @@ pub fn expr_span(expr: &Expr) -> Span {
         Expr::Binary { span, .. } => *span,
         Expr::CompareChain { span, .. } => *span,
         Expr::Is { span, .. } => *span,
+        Expr::UnsafeBlock { span, .. } => *span,
         Expr::Unary { span, .. } => *span,
         Expr::Move(_, span) => *span,
         Expr::Call { span, .. } => *span,

@@ -801,6 +801,7 @@ impl<'f> Analysis<'f> {
 
         match expr {
             HirExpr::Literal(..) | HirExpr::AddrOf { .. } | HirExpr::Capture { .. } => {}
+            HirExpr::UnsafeBlock { .. } => {}
             HirExpr::Ident(path, ..) => {
                 if let [name] = path.as_slice() {
                     self.escape_name(name);

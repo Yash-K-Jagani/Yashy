@@ -472,7 +472,7 @@ impl LeakPass<'_> {
     /// so the binding that owns it stays live.
     fn walk(&mut self, expr: &HirExpr) {
         match expr {
-            HirExpr::Literal(..)
+            HirExpr::Literal(..) | HirExpr::UnsafeBlock { .. }
             | HirExpr::Ident(..)
             | HirExpr::AddrOf { .. }
             | HirExpr::Capture { .. } => {}

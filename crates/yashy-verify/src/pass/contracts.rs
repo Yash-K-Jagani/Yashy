@@ -686,6 +686,7 @@ impl<'p, 'o> ContractPass<'p, 'o> {
                 Literal::Char(b) => Value::exact(i64::from(*b)),
                 _ => Value::top(),
             },
+            HirExpr::UnsafeBlock { .. } => Value::top(),
             HirExpr::Ident(path, ..) => match path.as_slice() {
                 [name] => env.get(name),
                 _ => Value::top(),

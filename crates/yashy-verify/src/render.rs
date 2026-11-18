@@ -48,6 +48,7 @@ fn precedence(op: BinOp) -> u8 {
 fn render(node: &HirExpr, parent: u8) -> String {
     let (text, precedence) = match node {
         HirExpr::Literal(literal, ..) => (literal_text(literal), ATOM),
+        HirExpr::UnsafeBlock { .. } => ("unsafe { .. }".to_string(), ATOM),
         HirExpr::Ident(path, ..) => (path.join("."), ATOM),
         HirExpr::Binary { op, lhs, rhs, .. } => {
             let strength = precedence(*op);

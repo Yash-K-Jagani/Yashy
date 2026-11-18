@@ -628,6 +628,7 @@ fn statement_kind(statement: &Stmt) -> &'static str {
 fn expression_kind(expr: &Expr) -> &'static str {
     match expr {
         Expr::Literal(_, _) => "a literal",
+        Expr::UnsafeBlock { .. } => "an `unsafe` block",
         Expr::Ident(_, _) => "a name",
         Expr::Binary { .. } => "an arithmetic expression",
         Expr::CompareChain { .. } => "a comparison chain",
@@ -665,6 +666,7 @@ fn expr_span(expr: &Expr) -> Span {
         | Expr::Binary { span, .. }
         | Expr::CompareChain { span, .. }
         | Expr::Is { span, .. }
+        | Expr::UnsafeBlock { span, .. }
         | Expr::Unary { span, .. }
         | Expr::Move(_, span)
         | Expr::Call { span, .. }
@@ -697,6 +699,7 @@ fn expr_span(expr: &Expr) -> Span {
 pub fn mentions_const_fn(expr: &Expr, consts: &ConstFns) -> bool {
     match expr {
         Expr::Literal(_, _) | Expr::Ident(_, _) => false,
+        Expr::UnsafeBlock { .. } => false,
         Expr::Binary { lhs, rhs, .. } => {
             mentions_const_fn(lhs, consts) || mentions_const_fn(rhs, consts)
         }

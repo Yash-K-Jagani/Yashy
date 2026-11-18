@@ -83,3 +83,9 @@ fn is_and_is_not_are_their_own_nodes() {
         (a, b) => panic!("expected is nodes, got {a:?} and {b:?}"),
     }
 }
+
+#[test]
+fn unsafe_block_is_a_block_expression() {
+    let expr = expr_of(&body("fn main() { unsafe { print(\"x\"); } }"));
+    assert!(matches!(expr, Expr::UnsafeBlock { .. }), "{expr:?}");
+}

@@ -1123,6 +1123,11 @@ pub enum Expr {
     /// rather than applying an operator, so it is a distinct variant rather than
     /// an [`UnOp`].
     Move(Box<Expr>, Span),
+    /// `unsafe { ... }` -- a block in which unsafe operations are permitted.
+    UnsafeBlock {
+        body: Block,
+        span: Span,
+    },
     /// `f(1, 2)` or `unsafe f(1, 2)` -- a call by path.
     ///
     /// `unsafe_call` is true when the source wrote `unsafe` at the call site.

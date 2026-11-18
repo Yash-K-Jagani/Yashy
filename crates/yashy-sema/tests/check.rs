@@ -2938,3 +2938,9 @@ fn repr_align_and_packed_change_the_layout_table() {
     // align(A)=16, packed B has two int fields with no padding -> 16 bytes total.
     assert!(text.contains("I64(32)"), "{text}");
 }
+
+#[test]
+fn an_unsafe_block_checks_its_body() {
+    let (result, _, _) = check_source("fn f() { unsafe { let x = 1; } }");
+    assert!(result.is_ok(), "{:?}", result.err());
+}

@@ -154,6 +154,7 @@ pub fn owner(expr: &HirExpr) -> &'static str {
     match expr {
         // A literal's global is shared by the interning pass.
         HirExpr::Literal(..) => "intern",
+        HirExpr::UnsafeBlock { .. } => "intern",
         // A proven index loses its bounds check under the facts pass.
         HirExpr::Index { .. } => "facts",
         // A moved or addressed binding is what escape analysis follows.

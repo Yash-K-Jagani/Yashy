@@ -941,6 +941,13 @@ pub(crate) fn release_payload(ctx: &mut FnCtx<'_>, value: &str, ty: &TypeKind) {
 pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
     match expr {
         HirExpr::Literal(lit, _, ty) => gen_literal(ctx, lit, &ty.kind),
+        HirExpr::UnsafeBlock { body, ty, .. } => {
+            crate::stmt_gen::gen_block(ctx, body);
+            GenValue {
+                value: String::new(),
+                ty: ty.kind.clone(),
+            }
+        },
         HirExpr::AddrOf { name, ty, .. } => match ctx.locals.get(name).cloned() {
             // The local's slot *is* the storage the pointer designates, so the
             // address is the alloca's own name -- there is nothing to emit.
