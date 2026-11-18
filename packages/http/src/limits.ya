@@ -1,0 +1,113 @@
+// Bounded reads for an HTTP exchange.
+//
+// Every cap is an argument, never a global: a caller chooses the values that
+// suit its deployment. A breach is a typed error that names the limit and the
+// observed value, so a log line can say which knob to turn. A non-positive cap
+// is unbounded; `bounded` tells a caller when it is looking at one.
+
+/// Which cap was breached.
+pub enum LimitKind {
+    HeaderBytes,
+    BodyBytes,
+    Redirects,
+    ConnectDeadline,
+    ReadDeadline,
+    WriteDeadline,
+    TotalDeadline,
+}
+
+/// A breach: the cap, the observed value and the limit that was exceeded.
+pub struct LimitError {
+    kind: LimitKind,
+    limit: int,
+    observed: int,
+}
+
+/// All the caps for one request.
+pub struct Limits {
+    pub max_header_bytes: int,
+    pub max_body_bytes: int,
+    pub max_redirects: int,
+    pub connect_deadline_ms: int,
+    pub read_deadline_ms: int,
+    pub write_deadline_ms: int,
+    pub total_deadline_ms: int,
+}
+
+/// Conservative defaults: a bounded read and bounded redirects.
+pub fn strict() -> Limits {
+    return Limits {
+        max_header_bytes: 8192,
+        max_body_bytes: 1048576,
+        max_redirects: 3,
+        connect_deadline_ms: 5000,
+        read_deadline_ms: 30000,
+        write_deadline_ms: 30000,
+        total_deadline_ms: 60000,
+    };
+}
+
+/// Whether every cap is positive. A local fixture may deliberately use an
+/// unbounded value; a production caller should refuse one with this check.
+pub fn bounded(Limits limits) -> bool {
+    return limits.max_header_bytes > 0
+        && limits.max_body_bytes > 0
+        && limits.max_redirects >= 0
+        && limits.connect_deadline_ms > 0
+        && limits.read_deadline_ms > 0
+        && limits.write_deadline_ms > 0
+        && limits.total_deadline_ms > 0;
+}
+
+/// Check one observed value against one cap. A non-positive cap is unbounded
+/// and never breaches.
+pub fn check(Limits limits, LimitKind kind, int observed) -> Option[LimitError] {
+    const cap = value(limits, kind);
+    if cap > 0 && observed > cap {
+        return Some(LimitError { kind: kind, limit: cap, observed: observed });
+    }
+    return None;
+}
+
+/// The configured value of one limit.
+pub fn value(Limits limits, LimitKind kind) -> int {
+    switch kind {
+        case LimitKind.HeaderBytes { return limits.max_header_bytes; }
+        case LimitKind.BodyBytes { return limits.max_body_bytes; }
+        case LimitKind.Redirects { return limits.max_redirects; }
+        case LimitKind.ConnectDeadline { return limits.connect_deadline_ms; }
+        case LimitKind.ReadDeadline { return limits.read_deadline_ms; }
+        case LimitKind.WriteDeadline { return limits.write_deadline_ms; }
+        case LimitKind.TotalDeadline { return limits.total_deadline_ms; }
+    };
+}
+
+/// A stable name for a limit, for logs and JSON reports.
+pub fn name(LimitKind kind) -> string {
+    switch kind {
+        case LimitKind.HeaderBytes { return "max_header_bytes"; }
+        case LimitKind.BodyBytes { return "max_body_bytes"; }
+        case LimitKind.Redirects { return "max_redirects"; }
+        case LimitKind.ConnectDeadline { return "connect_deadline_ms"; }
+        case LimitKind.ReadDeadline { return "read_deadline_ms"; }
+        case LimitKind.WriteDeadline { return "write_deadline_ms"; }
+        case LimitKind.TotalDeadline { return "total_deadline_ms"; }
+    };
+}
+
+/// Render a breach with the limit, the cap and the observed value.
+pub fn describe(LimitError error) -> string {
+    return name(error.kind) + " exceeded: " + str_from_i64(error.observed)
+        + " > " + str_from_i64(error.limit);
+}
+
+/// Check a header block before parsing it. `check` with `HeaderBytes` is the
+/// same guard; this helper names the common case.
+pub fn headers(Limits limits, string block) -> Option[LimitError] {
+    return check(limits, LimitKind.HeaderBytes, block.len());
+}
+
+/// Check a body length before accepting a read.
+pub fn body(Limits limits, int length) -> Option[LimitError] {
+    return check(limits, LimitKind.BodyBytes, length);
+}

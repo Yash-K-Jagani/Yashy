@@ -1,0 +1,51 @@
+// Bounded HTTP reads.
+import limits;
+
+fn padded(int count) -> string {
+    let text = "";
+    let index = 0;
+    while index < count {
+        text = text + "x";
+        index = index + 1;
+    }
+    return text;
+}
+
+fn main() {
+    const config = limits.strict();
+    assert(limits.bounded(config));
+    assert(limits.headers(config, "Host: example.test\r\n") matches None);
+    assert(limits.body(config, 1048576) matches None);
+    assert(limits.check(config, limits.LimitKind.Redirects, 3) matches None);
+
+    const big_headers = limits.headers(config, padded(9000));
+    switch big_headers {
+        case Some(error) {
+            assert(limits.name(error.kind) == "max_header_bytes");
+            assert(limits.describe(error).contains("9000 > 8192"));
+            assert(error.observed == 9000);
+            assert(error.limit == 8192);
+        }
+        case None { assert(false); }
+    }
+    assert(limits.body(config, 2000000) matches Some(_));
+    assert(limits.check(config, limits.LimitKind.Redirects, 4) matches Some(_));
+    assert(limits.check(config, limits.LimitKind.ConnectDeadline, 5001) matches Some(_));
+    assert(limits.check(config, limits.LimitKind.ReadDeadline, 30001) matches Some(_));
+    assert(limits.check(config, limits.LimitKind.WriteDeadline, 30001) matches Some(_));
+    assert(limits.check(config, limits.LimitKind.TotalDeadline, 60001) matches Some(_));
+
+    const loose = limits.Limits {
+        max_header_bytes: 0,
+        max_body_bytes: 0,
+        max_redirects: 0 - 1,
+        connect_deadline_ms: 0,
+        read_deadline_ms: 0,
+        write_deadline_ms: 0,
+        total_deadline_ms: 0,
+    };
+    assert(!limits.bounded(loose));
+    assert(limits.headers(loose, padded(9000)) matches None);
+    assert(limits.body(loose, 2000000) matches None);
+    print("limits-ok");
+}

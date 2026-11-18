@@ -1,16 +1,13 @@
 // Parameter-bound SQL fragments.
 import query;
 
-/// Build a one-column SELECT from a caller-supplied table value. Each column
-/// value is created inside the call so no struct is used twice by mistake.
+/// Build a one-column SELECT from a caller-supplied table value.
 fn one_column_select(query.Table from) -> Result[query.Query, query.DbError] {
-    const column = query.column("name");
-    switch column {
-        case Some(c) {
-            let columns = []query.Column {};
-            columns.push(c);
+    const names = query.columns("name");
+    switch names {
+        case Some(list) {
             const params = []string {};
-            return query.select(from, move columns, "", move params, None);
+            return query.select(from, list, "", move params, None);
         }
         case None { return Err(query.DbError.InvalidIdentifier); }
     };
@@ -39,7 +36,7 @@ fn main() {
     assert(query.build("SELECT ?", move extra) matches Err(_));
 
     // The injection corpus: every shape that could carry syntax instead of an
-    // identifier must be refused by both newtypes.
+    // identifier must be refused by both newtypes and by a column list.
     const attacks = []string {
         "users; DROP TABLE x",
         "users'--",
@@ -58,6 +55,7 @@ fn main() {
         };
         assert(query.table(candidate) matches None);
         assert(query.column(candidate) matches None);
+        assert(query.columns(candidate) matches None);
         index = index + 1;
     }
     attacks.free();
@@ -80,23 +78,21 @@ fn main() {
                     switch sort_column {
                         case None { assert(false); }
                         case Some(sc) {
-                            const list_column = query.column("name");
-                            switch list_column {
+                            const names2 = query.columns("id, name");
+                            switch names2 {
                                 case None { assert(false); }
-                                case Some(lc) {
-                                    let columns = []query.Column {};
-                                    columns.push(lc);
+                                case Some(list) {
                                     const params = []string {};
                                     const sorted = query.select(
                                         t2,
-                                        move columns,
+                                        list,
                                         "",
                                         move params,
                                         Some(query.sort(sc, query.Order.Desc)),
                                     );
                                     switch sorted {
                                         case Ok(built3) {
-                                            assert(query.sql(built3) == "SELECT name FROM users ORDER BY name DESC");
+                                            assert(query.sql(built3) == "SELECT id, name FROM users ORDER BY name DESC");
                                         }
                                         case Err(_) { assert(false); }
                                     }

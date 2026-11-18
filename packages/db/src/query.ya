@@ -27,6 +27,41 @@ pub struct Column {
     name: string,
 }
 
+/// A validated comma-separated column list. Its text is built only by
+/// `columns`, which checks every name, so an injected comma cannot add an
+/// expression to a `SELECT`.
+pub struct Columns {
+    text: string,
+}
+
+/// Validate a comma-separated list of column names, or `None` when any name
+/// is not a bare identifier.
+pub fn columns(string comma_separated) -> Option[Columns] {
+    const parts = comma_separated.split(",");
+    let result = "";
+    let index = 0;
+    while index < parts.len() {
+        const part = switch parts[index] {
+            case Some(value) { value.trim() }
+            case None { "" }
+        };
+        if !identifier(part) {
+            parts.free();
+            return None;
+        }
+        if index > 0 {
+            result = result + ", ";
+        }
+        result = result + part;
+        index = index + 1;
+    }
+    parts.free();
+    if result.len() == 0 {
+        return None;
+    }
+    return Some(Columns { text: result });
+}
+
 /// The closed set of directions a dynamic `ORDER BY` can ask for.
 pub enum Order {
     Asc,
@@ -122,28 +157,15 @@ pub fn params(Query query) -> []string {
 /// column list or an unvalidated identifier is refused.
 pub fn select(
     Table from,
-    []Column columns,
+    Columns selected,
     string where_sql,
     []string params,
     Option[Sort] ordering,
 ) -> Result[Query, DbError] {
-    if columns.len() == 0 {
+    if selected.text.len() == 0 {
         return Err(DbError.Empty);
     }
-    let mut sql = "SELECT ";
-    let index = 0;
-    while index < columns.len() {
-        if index > 0 {
-            sql = sql + ", ";
-        }
-        const item = switch columns[index] {
-            case Some(value) { value }
-            case None { return Err(DbError.InvalidIdentifier); }
-        };
-        sql = sql + item.name;
-        index = index + 1;
-    }
-    sql = sql + " FROM " + from.name;
+    let mut sql = "SELECT " + selected.text + " FROM " + from.name;
     if where_sql.len() > 0 {
         sql = sql + " WHERE " + where_sql;
     }

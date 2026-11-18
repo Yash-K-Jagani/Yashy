@@ -114,9 +114,13 @@ explicit, and every operation has a deadline.
   is a typed error naming the limit and its value; there is no unbounded read.
   *Current:* `packages/http/src/headers.ya` parses a header block into its
   original lines, gives case-insensitive lookup with a `Result` for malformed
-  lines, and round-trips CRLF. It is the data half of the limits work: a byte
-  cap now has a parser to apply it to. The limit arguments and typed limit
-  errors still need the client/server pipeline, so the step stays open.
+  lines, and round-trips CRLF. `packages/http/src/limits.ya` now makes every
+  cap an argument in a `Limits` value: header and body bytes, redirects and
+  connect/read/write/total deadlines. `check` returns a `LimitError` naming
+  the limit, its cap and the observed value; `describe` renders it and
+  `bounded` reports unbounded (non-positive) caps. The package test pins a
+  header breach and a body breach. Applying these caps inside the client and
+  server read loops still needs the pipeline work, so the step stays open.
 - [ ] **Step 4: Commit.**
 
 ### Task 4: The HTTP server and framework
