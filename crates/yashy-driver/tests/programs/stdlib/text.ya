@@ -81,4 +81,15 @@ fn main() {
         case Err(_) { true }
     };
     print("bad hex rejected: ${hex_rejected}");
+
+    // URL-safe alphabet: 0xfb 0xff is `+/8=` in base64 and `-_8` in base64url.
+    let url_bytes = []char {};
+    url_bytes.push(251.to_char());
+    url_bytes.push(255.to_char());
+    const encoded_url = text.base64url_encode(url_bytes);
+    print(encoded_url);
+    switch text.base64url_decode(encoded_url) {
+        case Ok(decoded) { print(same_bytes(decoded, move url_bytes)); }
+        case Err(_) { print(false); }
+    };
 }

@@ -1129,12 +1129,6 @@ Reset, `""` when disabled.
 
 ## `text`
 
-### `StringError`
-
-```yashy
-enum StringError
-```
-
 ### `TextError`
 
 ```yashy
@@ -1156,6 +1150,22 @@ fn base64_encode([]char data) -> string
 ```
 
 Bytes to base64 text.
+
+### `base64url_decode`
+
+```yashy
+fn base64url_decode(string text) -> Result[[]char, TextError]
+```
+
+Decode unpadded or padded base64url text.
+
+### `base64url_encode`
+
+```yashy
+fn base64url_encode([]char data) -> string
+```
+
+Bytes to unpadded base64url text (RFC 4648 section 5).
 
 ### `hex_decode`
 
