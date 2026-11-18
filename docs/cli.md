@@ -471,6 +471,10 @@ cases, because nothing is wrong with the program:
 `run --no-verify` forwards the flag to `build`. The temporary binary and its
 stamp live in the run directory and are removed with it; `run` keeps no binary.
 
+`yashyc verify --sarif <file.ya>` renders the same diagnostics as a SARIF
+2.1.0 log, with rules, physical locations and machine-applicable fixes; it is
+the form CI uploads. It leaves the exit code and the verifier verdict alone.
+
 ## `yashyc test [path] [--filter <substring>] [--list] [--json] [--timings] [--jobs <n>]`
 
 Runs every `.ya` file under `tests/` (or `path`). Each file is an ordinary

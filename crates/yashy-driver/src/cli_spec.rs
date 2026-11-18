@@ -77,9 +77,10 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "verify",
         summary: "check and verify a program's proofs",
-        usage: "yashyc verify <file.ya> [--json] [--inventory] [--require-inventory] [--certificates <file>] [--features <list>]",
+        usage: "yashyc verify <file.ya> [--json] [--sarif] [--inventory] [--require-inventory] [--certificates <file>] [--features <list>]",
         flags: &[
             "--json",
+            "--sarif",
             "--timings",
             "--jobs",
             "--inventory",

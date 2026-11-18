@@ -4802,6 +4802,7 @@ fn check(args: &[String]) -> ExitCode {
 /// proof trace saying what could not be established.
 fn verify(args: &[String]) -> ExitCode {
     let mut json = false;
+    let mut sarif = false;
     let mut timings_flag = false;
     let mut inventory_flag = false;
     let mut require_inventory = false;
@@ -4816,6 +4817,7 @@ fn verify(args: &[String]) -> ExitCode {
     while i < args.len() {
         match args[i].as_str() {
             "--json" => json = true,
+            "--sarif" => sarif = true,
             "--timings" => timings_flag = true,
             "--inventory" => inventory_flag = true,
             "--require-inventory" => require_inventory = true,
@@ -4984,7 +4986,12 @@ fn verify(args: &[String]) -> ExitCode {
                 }
                 entries
             });
-            if json {
+            if sarif {
+                println!(
+                    "{}",
+                    yashy_driver::sarif::to_sarif(&sources, &report.diagnostics).render()
+                );
+            } else if json {
                 print_check_json(
                     "verify",
                     &sources,
@@ -5006,7 +5013,7 @@ fn verify(args: &[String]) -> ExitCode {
                     print_inventory(&sources, assumptions);
                 }
             }
-            if !json {
+            if !json && !sarif {
                 report_timings(&timings);
             }
             if report.error_count() > 0 {

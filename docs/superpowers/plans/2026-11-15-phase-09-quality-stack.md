@@ -177,6 +177,10 @@ what keeps a 138-week programme honest.
 - [ ] **Step 2: Coverage has a floor.** A new module without a test lowers the
   number and fails the configured floor; the report is uploaded as an artifact
   and as SARIF.
+  *Current:* `coverage --fail-under` already gates a floor, and `check --sarif`
+  and `verify --sarif` render diagnostics in the CI interchange form. The
+  coverage report itself is not yet a SARIF artifact, and the upload wiring
+  needs a CI fixture, so the step stays open.
 - [ ] **Step 3: The template is tested.** A fixture repository runs the
   template end to end in CI; a broken template is a gate failure.
 - [ ] **Step 4: Commit.**
