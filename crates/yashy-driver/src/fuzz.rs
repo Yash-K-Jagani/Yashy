@@ -66,6 +66,25 @@ pub fn list(root: &Path) -> Result<Vec<Entry>, String> {
     Ok(entries)
 }
 
+/// A findings file: the same entries with a stable `kind` for each row.
+pub fn findings_json(entries: &[Entry]) -> Json {
+    let rows: Vec<Json> = entries
+        .iter()
+        .map(|entry| {
+            let mut object = Json::object();
+            object.set("kind", Json::string("finding"));
+            object.set("path", Json::string(&entry.path));
+            object.set("bytes", Json::number(entry.bytes as i64));
+            object
+        })
+        .collect();
+    let mut report = Json::object();
+    report.set("schema_version", Json::number(1));
+    report.set("tool", Json::string("fuzz"));
+    report.set("findings", Json::array(rows));
+    report
+}
+
 /// The same entries in a schema-v1 envelope.
 pub fn to_json(entries: &[Entry]) -> Json {
     let rows: Vec<Json> = entries

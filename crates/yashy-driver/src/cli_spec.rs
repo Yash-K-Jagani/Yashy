@@ -251,8 +251,8 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "fuzz",
         summary: "list the fuzz corpus",
-        usage: "yashyc fuzz [--json] [root]",
-        flags: &["--json"],
+        usage: "yashyc fuzz [--json] [--findings <file> | --replay <file>] [root]",
+        flags: &["--json", "--findings", "--replay"],
         takes_path: true,
     },
     CommandSpec {

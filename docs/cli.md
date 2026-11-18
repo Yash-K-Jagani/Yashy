@@ -511,17 +511,21 @@ skipped: a new row is a new claim.
 and target recorded; see `docs/bench-policy.md`. Measurement and baseline
 comparison in the CLI are still owed.
 
-## `yashyc fuzz [--json] [root]`
+## `yashyc fuzz [--json] [--findings <file> | --replay <file>] [root]`
 
 Lists the files under `root` (default `fuzz/corpus`) as a stable, relative,
 forward-slash path and a byte count, or emits the same entries in a schema-v1
 envelope as `entries`. A missing corpus is an empty list, not an error.
 
+`yashyc fuzz --findings <file>` writes the same entries as a findings file with
+a stable `kind` per row; `--replay <file>` prints a finding's bytes so a
+reproduction starts from the exact input. Both leave the exit code alone.
+
 The fuzz target is a plain Yashy function in `packages/fuzz`:
 `fn(string) -> bool` returns false for a finding. `fuzz.run` generates seeded
 inputs, shrinks a failing input and writes the minimal case to the corpus.
-`yashyc fuzz` does not run it yet; the CLI runner and the bounded campaign are
-still owed.
+`yashyc fuzz` lists the corpus, writes findings and replays a file; it does not
+run a bounded campaign yet.
 
 ## `yashyc mutate --list [--json]`
 

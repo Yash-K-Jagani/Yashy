@@ -1323,10 +1323,27 @@ fn fuzz_cmd(args: &[String]) -> ExitCode {
     use yashy_driver::fuzz;
 
     let mut json = false;
+    let mut findings: Option<PathBuf> = None;
+    let mut replay: Option<PathBuf> = None;
     let mut root: Option<PathBuf> = None;
-    for argument in args {
-        match argument.as_str() {
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
             "--json" => json = true,
+            "--findings" => {
+                if i + 1 >= args.len() {
+                    return usage_error("`--findings` needs a file path");
+                }
+                findings = Some(PathBuf::from(&args[i + 1]));
+                i += 1;
+            }
+            "--replay" => {
+                if i + 1 >= args.len() {
+                    return usage_error("`--replay` needs a finding path");
+                }
+                replay = Some(PathBuf::from(&args[i + 1]));
+                i += 1;
+            }
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown option `{other}` for `fuzz`"));
             }
@@ -1335,6 +1352,19 @@ fn fuzz_cmd(args: &[String]) -> ExitCode {
                     return usage_error("`fuzz` takes one root directory");
                 }
                 root = Some(PathBuf::from(other));
+            }
+        }
+        i += 1;
+    }
+    if let Some(path) = replay {
+        match std::fs::read(&path) {
+            Ok(bytes) => {
+                println!("{}", String::from_utf8_lossy(&bytes));
+                return exit_code(EXIT_OK);
+            }
+            Err(error) => {
+                eprintln!("error: cannot read {}: {error}", path.display());
+                return exit_code(EXIT_USAGE);
             }
         }
     }
@@ -1346,6 +1376,15 @@ fn fuzz_cmd(args: &[String]) -> ExitCode {
             return exit_code(EXIT_INTERNAL);
         }
     };
+    if let Some(path) = findings {
+        match std::fs::write(&path, fuzz::findings_json(&entries).render()) {
+            Ok(()) => {}
+            Err(error) => {
+                eprintln!("error: cannot write {}: {error}", path.display());
+                return exit_code(EXIT_USAGE);
+            }
+        }
+    }
     if json {
         println!("{}", fuzz::to_json(&entries).render());
     } else {
