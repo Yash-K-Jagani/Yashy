@@ -1,0 +1,35 @@
+// Structured events with an injectable writer.
+//
+// There is no global logger and no hidden sink. A caller passes the function
+// that should receive each formatted line, so the same emitter works for a
+// terminal, a test buffer or a file. The functions here are pure string work;
+// only the writer performs I/O, which keeps the effect at the call site where
+// the reader can see it.
+
+import JSON;
+
+/// One event as a stable JSON line, with both fields quoted.
+pub fn event_json(string level, string message) -> string {
+    return "{\"level\":" + JSON.quote(level) + ",\"message\":" + JSON.quote(message) + "}";
+}
+
+/// Send an event to the caller-supplied writer.
+pub fn emit(fn(string) -> void writer, string level, string message) {
+    writer(event_json(level, message));
+}
+
+/// The three event levels as stable spellings.
+pub enum Level {
+    Info,
+    Warn,
+    Error,
+}
+
+/// The spelling a level uses in a JSON event.
+pub fn level_text(Level level) -> string {
+    return switch level {
+        case Info { "info" }
+        case Warn { "warn" }
+        case Error { "error" }
+    };
+}

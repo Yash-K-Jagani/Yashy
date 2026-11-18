@@ -670,6 +670,40 @@ Parse `type/subtype`, ignoring anything after a semicolon.
 Both halves must be non-empty. A string with no `/`, more than one `/`, or
 an empty kind or subtype is `Err(Invalid)`.
 
+## `observability`
+
+### `Level`
+
+```yashy
+enum Level
+```
+
+The three event levels as stable spellings.
+
+### `emit`
+
+```yashy
+fn emit(fn(string) -> void writer, string level, string message)
+```
+
+Send an event to the caller-supplied writer.
+
+### `event_json`
+
+```yashy
+fn event_json(string level, string message) -> string
+```
+
+One event as a stable JSON line, with both fields quoted.
+
+### `level_text`
+
+```yashy
+fn level_text(Level level) -> string
+```
+
+The spelling a level uses in a JSON event.
+
 ## `os`
 
 ### `Arch`

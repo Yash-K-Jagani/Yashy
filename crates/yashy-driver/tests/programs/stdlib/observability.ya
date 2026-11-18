@@ -1,0 +1,12 @@
+import observability;
+
+fn capture(string line) {
+    print(line);
+}
+
+fn main() {
+    print(observability.event_json("info", "hello"));
+    observability.emit(capture, "error", "bad");
+    print(observability.level_text(Level.Warn));
+    observability.emit(capture, observability.level_text(Level.Info), "done");
+}

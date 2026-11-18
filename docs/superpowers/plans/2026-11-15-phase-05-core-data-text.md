@@ -176,6 +176,12 @@ is a capability rather than an ambient read.
 - [ ] **Step 1: Write the failing test.** Convert an instant to `America/New_York` across a DST boundary, format and parse RFC 3339, add a duration across a leap day, and emit a structured log line with fields, a trace span and a counter; assert the JSON is stable and the clock is fixed under `--deterministic`.
 - [ ] **Step 2: The zone database ships with the stdlib.** A pinned tzdata release, versioned in the SBOM, with a lookup that returns `Option`, not a default zone. The clock is a capability: `now()` reads it, `--deterministic` fixes it, and a program that reads it is named in `yashyc trace`.
 - [ ] **Step 3: Observability has one sink interface.** Log, trace and metrics write through an injectable sink; the default writes to stderr; a test sink captures structured records. No global mutable logger, no hidden buffering that changes order.
+  *Current:* `observability.ya` provides `event_json`, `emit` (which takes a
+  `fn(string) -> void` writer) and stable `Level` spellings. There is no global
+  logger and no buffering: the caller owns the writer and its effects.
+  `stdlib/observability.ya` captures lines in a test function. The default
+  stderr sink and separate trace/metric record shapes are still owed, so the
+  step stays open.
 - [ ] **Step 4: Commit.**
 
 ### Task 8: Iteration adapters and the conversion matrix
