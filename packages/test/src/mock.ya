@@ -4,9 +4,23 @@
 // calls it recorded afterwards. There is no hidden injection and no ambient
 // state, so two tests in one process cannot see each other's calls.
 
+/// The requirement a code-under-test asks for when it needs to record a call.
+///
+/// The mock implements this trait, so a test can pass it to a function bounded
+/// by `Recorder` without a global registry or a hidden injection hook.
+pub trait Recorder {
+    fn record(self: *mut Self, string name, string args);
+}
+
 /// A recorded call log, one `name(args)` line per call.
 pub struct Mock {
     calls: string,
+}
+
+impl Recorder for Mock {
+    fn record(self: *mut Self, string name, string args) {
+        self[0].calls = self[0].calls + name + "(" + args + ")\n";
+    }
 }
 
 /// A fresh mock with no calls.

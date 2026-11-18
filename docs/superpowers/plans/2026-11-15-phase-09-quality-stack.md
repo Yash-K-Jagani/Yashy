@@ -88,9 +88,9 @@ what keeps a 138-week programme honest.
   a mock constructs it and passes it.
   *Current:* `packages/test/src/mock.ya` gives a value that records calls into
   its own log; `new`, `record`, `log`, `called` and `count` are plain functions,
-  so two tests cannot share state. The package test pins the call order. The
-  mock implements a trait only where the code under test asks for one; that
-  trait-shaped form is still owed.
+  so two tests cannot share state. The package test pins the call order, and
+  `Mock` now implements a `Recorder` trait so a test can hand it to code that
+  asks for that trait. A generic helper bounded by `Recorder` is still owed.
 - [x] **Step 5: The runner protocol is stable.** `test --json` emits one event
   per test start/end with name, status, duration, stdout and a failure message;
   the harness attributes stdout and exit codes to the test that produced them.

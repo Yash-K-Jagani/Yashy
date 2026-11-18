@@ -52,5 +52,13 @@ fn main() {
     assert(mock.called(calls, "open") && mock.called(calls, "close"));
     assert(mock.count(calls) == 2);
     assert(mock.log(calls).contains("open(file.txt)"));
+
+    let trait_calls = mock.new();
+    trait_calls.record("save", "x");
+    trait_calls.record("load", "y");
+    assert(mock.count(trait_calls) == 2);
+    assert(mock.log(trait_calls).contains("save(x)"));
+    assert(mock.log(trait_calls).contains("load(y)"));
+
     print("test-ok");
 }
