@@ -1215,6 +1215,7 @@ fn trace_cmd(args: &[String]) -> ExitCode {
     use yashy_driver::trace;
 
     let mut json = false;
+    let mut markdown = false;
     let mut fail_orphans = false;
     let mut events = false;
     let mut program_args: Vec<String> = Vec::new();
@@ -1227,6 +1228,7 @@ fn trace_cmd(args: &[String]) -> ExitCode {
         }
         match argument.as_str() {
             "--json" => json = true,
+            "--markdown" => markdown = true,
             "--fail-orphans" => fail_orphans = true,
             "--events" => events = true,
             "--" => after_separator = true,
@@ -1258,6 +1260,8 @@ fn trace_cmd(args: &[String]) -> ExitCode {
     let orphans: Vec<&trace::RuleRow> = rows.iter().filter(|row| row.tests.is_empty()).collect();
     if json {
         println!("{}", trace::to_json(&rows).render());
+    } else if markdown {
+        print!("{}", trace::to_markdown(&rows));
     } else {
         for row in &rows {
             println!(

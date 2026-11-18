@@ -72,7 +72,11 @@ pub fn matrix(root: &Path) -> Result<Vec<RuleRow>, String> {
         let mut tests = Vec::new();
         for (path, text) in &contents {
             if entries.iter().any(|code| text.contains(code)) {
-                tests.push(path.to_string_lossy().replace('\\', "/"));
+                // A relative, forward-slash path keeps the matrix byte-stable
+                // across machines and operating systems: an absolute path
+                // would make the generated page differ on every checkout.
+                let relative = path.strip_prefix(root).unwrap_or(path);
+                tests.push(relative.to_string_lossy().replace('\\', "/"));
             }
         }
         rows.push(RuleRow {
@@ -82,6 +86,39 @@ pub fn matrix(root: &Path) -> Result<Vec<RuleRow>, String> {
         });
     }
     Ok(rows)
+}
+
+/// The human page, generated from the same rows as the JSON model.
+///
+/// One section per rule, with the codes it names and the test files that
+/// mention them. Nothing is hand-maintained: a new code with no test shows up
+/// as `Tests: none`, which is the page's way of naming an orphan.
+pub fn to_markdown(rows: &[RuleRow]) -> String {
+    let mut out = String::new();
+    out.push_str("# Traceability matrix\n\n");
+    out.push_str(
+        "Generated from `codes::rule_for`, the catalog and the test files that mention each code.\n",
+    );
+    out.push_str("Edit the registry, never this page. `UPDATE_GOLDEN=1` regenerates it.\n\n");
+    for row in rows {
+        out.push_str(&format!("## `{}`\n\n", row.rule));
+        let codes = row
+            .codes
+            .iter()
+            .map(|code| format!("`{code}`"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!("Codes: {codes}\n\nTests:\n\n"));
+        if row.tests.is_empty() {
+            out.push_str("- none\n");
+        } else {
+            for test in &row.tests {
+                out.push_str(&format!("- `{test}`\n"));
+            }
+        }
+        out.push('\n');
+    }
+    out
 }
 
 pub fn to_json(rows: &[RuleRow]) -> Json {

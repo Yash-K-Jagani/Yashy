@@ -893,7 +893,8 @@ generic instantiations need the parser's type syntax and are not guessed.
 Prints the generated rule-to-code-to-test matrix: every rule from
 `codes::rule_for`, the catalog codes it names, and the test files that mention
 those codes. `--fail-orphans` exits `1` when a rule has no test. `--json` is a
-schema-v1 envelope with an `orphan_rules` array.
+schema-v1 envelope with an `orphan_rules` array; `--markdown` prints the same
+model as the page under `docs/traceability.md`, which is regenerated from it.
 
 `yashyc trace --events <file.ya> [--json] [-- <program args>]` builds the file
 with debug info into a scratch directory, runs it with the runtime's event

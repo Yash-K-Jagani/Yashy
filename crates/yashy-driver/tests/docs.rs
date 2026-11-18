@@ -99,6 +99,7 @@ fn quickstart_and_reference_links_resolve() {
         "docs/optimization.md",
         "docs/bench-policy.md",
         "docs/ci.md",
+        "docs/traceability.md",
         "docs/errors.md",
         "docs/release-notes-template.md",
         "docs/tutorial/00-intro.md",
@@ -144,6 +145,24 @@ fn governance_documents_are_present_and_complete() {
             "the RFC template is missing `{field}`"
         );
     }
+}
+
+/// The traceability page is rendered from the same matrix `yashyc trace`
+/// prints. `UPDATE_GOLDEN=1` rewrites the page instead of comparing it.
+#[test]
+fn traceability_page_is_generated_from_the_rule_matrix() {
+    let rows = yashy_driver::trace::matrix(&root())
+        .expect("the rule matrix must build from the registry and tests");
+    let text = yashy_driver::trace::to_markdown(&rows);
+    let page = root().join("docs").join("traceability.md");
+    if std::env::var("UPDATE_GOLDEN").is_ok() {
+        std::fs::write(&page, &text)
+            .unwrap_or_else(|error| panic!("writing {} failed: {error}", page.display()));
+        return;
+    }
+    let pinned = std::fs::read_to_string(&page)
+        .unwrap_or_else(|error| panic!("{} must be readable: {error}", page.display()));
+    assert_eq!(text, pinned, "docs/traceability.md is stale; rerun with UPDATE_GOLDEN=1");
 }
 
 /// `docs/stdlib.md` is generated from the same documentation model `yashyc doc`

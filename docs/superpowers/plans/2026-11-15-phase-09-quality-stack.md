@@ -166,9 +166,15 @@ what keeps a 138-week programme honest.
   test, a test with no rule, a conformance case with no rule and a stdlib
   function with no program are each an orphan; `trace --matrix --json` lists
   them; the test fails while one exists.
-- [ ] **Step 2: Generate, never hand-edit.** `docs/traceability.md` is rendered
+- [x] **Step 2: Generate, never hand-edit.** `docs/traceability.md` is rendered
   from the registry plus the test metadata; the JSON form is the source. A rule
   id is stable across the edition; renaming one is a migration note.
+  *Current:* `trace::to_markdown` renders the same `RuleRow` model as
+  `trace::to_json`; `yashyc trace --markdown` prints it, and
+  `crates/yashy-driver/tests/docs.rs` regenerates `docs/traceability.md` from
+  `trace::matrix` under `UPDATE_GOLDEN=1`. The page was generated from the
+  registry by the same algorithm and lists 96 rules. Test paths are relative
+  and forward-slash so the page is byte-stable across OSes.
 - [ ] **Step 3: Wire it into CI.** The orphan check is a required job; the
   matrix is an artifact so a reviewer can see coverage per rule.
 - [ ] **Step 4: A discharged obligation emits a certificate.** `verify --json`

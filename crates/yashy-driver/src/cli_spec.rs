@@ -235,8 +235,8 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "trace",
         summary: "print the rule matrix or a runtime event trace",
-        usage: "yashyc trace [--json] [--fail-orphans] [root] | trace --events <file.ya> [-- --args]",
-        flags: &["--json", "--fail-orphans", "--events"],
+        usage: "yashyc trace [--json|--markdown] [--fail-orphans] [root] | trace --events <file.ya> [-- --args]",
+        flags: &["--json", "--markdown", "--fail-orphans", "--events"],
         takes_path: false,
     },
     CommandSpec {
