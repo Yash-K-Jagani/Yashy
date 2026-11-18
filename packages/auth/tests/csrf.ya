@@ -1,0 +1,12 @@
+// CSRF token round-trip.
+import csrf;
+
+fn main() {
+    const token = csrf.token("session-secret", "form-7");
+    assert(csrf.valid("session-secret", "form-7", token));
+    assert(!csrf.valid("other-secret", "form-7", token));
+    assert(!csrf.valid("session-secret", "form-8", token));
+    assert(csrf.constant_time_eq("abc", "abc"));
+    assert(!csrf.constant_time_eq("abc", "abd"));
+    print("auth-ok");
+}

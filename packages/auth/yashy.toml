@@ -1,0 +1,5 @@
+[package]
+name = "auth"
+version = "1.0.0"
+license = "MIT"
+description = "CSRF tokens with constant-time verification"
