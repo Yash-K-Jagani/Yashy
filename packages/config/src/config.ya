@@ -62,6 +62,48 @@ pub fn resolve(
     return value_in(defaults, name);
 }
 
+/// A value that must never be rendered directly.
+///
+/// The wrapper is the redaction: there is no way to print a `Secret` by
+/// accident, because the only rendering is `show_secret`, which emits a fixed
+/// mask. Reading the value requires the explicit `reveal` call.
+pub struct Secret {
+    hidden: string,
+}
+
+/// Wrap a value as a secret.
+pub fn secret(string value) -> Secret {
+    return Secret { hidden: value };
+}
+
+/// Read the underlying value. The call site is the proof that the code needs
+/// the real value rather than a log line.
+pub fn reveal(Secret value) -> string {
+    return value.hidden;
+}
+
+/// The only rendering of a secret: the name and a fixed mask.
+pub fn show_secret(string name, Secret value) -> string {
+    const ignored = reveal(value);
+    return name + "=***";
+}
+
+/// Resolve a name whose value is secret, wrapping it before it leaves the
+/// layer walk. Callers that only log the result cannot leak it.
+pub fn resolve_secret(
+    string cli,
+    string environment_prefix,
+    string file,
+    string defaults,
+    string name,
+) -> Option[Secret] {
+    const found = resolve(cli, environment_prefix, file, defaults, name);
+    return switch found {
+        case Some(value) { Some(secret(value)) }
+        case None { None }
+    };
+}
+
 /// Whether a name marks a secret value.
 pub fn is_secret(string name) -> bool {
     const lowered = name.to_lower();

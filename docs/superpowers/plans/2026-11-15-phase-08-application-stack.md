@@ -89,8 +89,11 @@ the stack is not done, no matter how many modules exist.
   *Current:* `packages/config/src/config.ya` resolves one key through CLI,
   environment, file and default layers, answers `Option` for a missing key, and
   redacts names ending in `token`, `password` or `secret`. The package test
-  pins CLI precedence, default fallback and redaction. TOML, typed structs and
-  a distinct secret type still need the codec phase, so the step stays open.
+  pins CLI precedence, default fallback and redaction. A distinct `Secret`
+  newtype now makes redaction structural: `secret` wraps a value, `reveal` is
+  the explicit read, `show_secret` renders only a mask and `resolve_secret`
+  wraps at the layer walk. TOML and typed struct decoding still need the codec
+  phase, so the step stays open.
 - [ ] **Step 2: Typed and layered.** Config is a struct decoded through the
   Phase 7 codec; each layer records where a value came from; a secret is a
   distinct type that cannot be printed or serialised by accident.

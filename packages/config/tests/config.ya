@@ -21,5 +21,17 @@ fn main() {
     assert(shown.contains("api_token=***"));
     assert(!shown.contains("topsecret"));
     assert(config.redact("topsecret", "token=topsecret") == "token=***");
+
+    const wrapped = config.secret("topsecret");
+    assert(config.reveal(wrapped) == "topsecret");
+    const masked = config.secret("topsecret");
+    assert(config.show_secret("api_token", masked) == "api_token=***");
+    const from_layer = config.resolve_secret(cli, "YASHY_TEST_", file, defaults, "api_token");
+    switch from_layer {
+        case Some(value) {
+            assert(config.reveal(value) == "topsecret");
+        }
+        case None { assert(false); }
+    }
     print("config-ok");
 }
