@@ -6,6 +6,9 @@ fn main() {
     bytes.free();
     const value = rand.range(0, 3);
     print("range in 0..3: ${value >= 0 && value < 3}");
+    // One raw draw from the OS entropy source. Its value is deliberately not
+    // printed: a fuzzable golden must not depend on entropy.
+    rand.u64();
 
     // 1 000 000 draws. A 1% band on the expected count is about seven standard
     // deviations at this size, so the check is stable; at 100 000 draws the

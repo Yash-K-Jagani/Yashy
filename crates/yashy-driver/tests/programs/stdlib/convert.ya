@@ -17,4 +17,10 @@ fn main() {
     print(convert.ceil(1.1));
     print(convert.round(2.5));
     print(convert.try_from_float(3.0) matches Ok(3));
+    // The plain spelling is a call whose result the caller owns; exercise it
+    // without pinning the platform's float spelling in this golden.
+    const spelled = convert.float_to_string(1.5);
+    if spelled.len() == 0 {
+        print("empty");
+    }
 }

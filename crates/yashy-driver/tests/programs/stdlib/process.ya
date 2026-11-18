@@ -28,6 +28,15 @@ fn main() {
         case Ok(_) { print("unexpected ok") }
         case Err(_) { print("missing child: Err") }
     }
+    switch process.run_in([]string {}, "") {
+        case Ok(_) { print("unexpected ok") }
+        case Err(_) { print("run_in: Err") }
+    }
+    const no_env = []string {};
+    switch process.run_with([]string {}, no_env, "") {
+        case Ok(_) { print("unexpected ok") }
+        case Err(_) { print("run_with: Err") }
+    }
 
     // A child that exists: its exit code and captured stdout are the point.
     // `platform()` answers an enum, so the platform test is a `switch`; an

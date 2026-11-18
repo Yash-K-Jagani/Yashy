@@ -34,12 +34,13 @@ fn main() {
     deque = deque_push_back(deque, 3);
     const peeked = deque_front(deque);
     const peeked_items = peeked.items;
+    const back_peek = deque_back(deque);
     print("front ${unwrap(peeked.value)} len ${peeked_items.len()}");
     const front = deque_pop_front(peeked_items);
     const after_front = front.items;
     const back = deque_pop_back(after_front);
     const rest = back.items;
-    print("popped ${unwrap(front.value)} and ${unwrap(back.value)}, rest ${rest.len()}");
+    print("popped ${unwrap(front.value)} and ${unwrap(back_peek.value)}, rest ${rest.len()}");
     rest.free();
 
     // Priority queue: the smallest element under the comparator comes out
