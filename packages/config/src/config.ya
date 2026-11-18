@@ -1,0 +1,106 @@
+// Layered configuration with one precedence rule.
+//
+// A value is looked up in order: command line, environment, config file, then
+// the built-in default. Each layer is the same `name=value` text, so there is
+// one parser and no per-source special case. A missing value is `Option`,
+// never an empty string that a program could produce legitimately.
+//
+// A name whose last segment is `token`, `password` or `secret` is secret: its
+// value is redacted whenever a layer is rendered for a human.
+
+/// Look up `name` in one `name=value` layer.
+pub fn value_in(string layer, string name) -> Option[string] {
+    const lines = layer.split("\n");
+    let found = "";
+    let present = false;
+    for line in lines {
+        const at = line.index_of("=");
+        switch at {
+            case Some(equal) {
+                if line.slice(0, equal).trim() == name {
+                    const value = line.slice(equal + 1, line.len()).trim();
+                    found = value.slice(0, value.len());
+                    present = true;
+                    break;
+                }
+            }
+            case None {
+                const skipped = 0;
+            }
+        }
+    }
+    lines.free();
+    if present {
+        return Some(found);
+    }
+    return None;
+}
+
+/// Resolve one value through CLI, environment, file and default.
+pub fn resolve(
+    string cli,
+    string environment_prefix,
+    string file,
+    string defaults,
+    string name,
+) -> Option[string] {
+    const from_cli = value_in(cli, name);
+    switch from_cli {
+        case Some(value) { return Some(value); }
+        case None {}
+    }
+    const variable = getenv(environment_prefix + name.to_upper());
+    switch variable {
+        case Some(value) { return Some(value); }
+        case None {}
+    }
+    const from_file = value_in(file, name);
+    switch from_file {
+        case Some(value) { return Some(value); }
+        case None {}
+    }
+    return value_in(defaults, name);
+}
+
+/// Whether a name marks a secret value.
+pub fn is_secret(string name) -> bool {
+    const lowered = name.to_lower();
+    return lowered.ends_with("token")
+        || lowered.ends_with("password")
+        || lowered.ends_with("secret");
+}
+
+/// Replace a secret's bytes before a value is printed or logged.
+pub fn redact(string secret, string text) -> string {
+    if secret.len() == 0 {
+        return text;
+    }
+    return text.replace(secret, "***");
+}
+
+/// Render one layer for a human, hiding secret values.
+pub fn describe(string layer) -> string {
+    let out = "";
+    const lines = layer.split("\n");
+    for line in lines {
+        if line.len() == 0 {
+            continue;
+        }
+        const at = line.index_of("=");
+        switch at {
+            case Some(equal) {
+                const name = line.slice(0, equal).trim();
+                let visible = line.slice(equal + 1, line.len()).trim();
+                if is_secret(name) {
+                    visible = "***";
+                }
+                out = out + name + "=" + visible + "\n";
+            }
+            case None {
+                out = out + line + "\n";
+            }
+        }
+    }
+    lines.free();
+    return out;
+}

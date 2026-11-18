@@ -1,0 +1,25 @@
+// Layered configuration and secret redaction.
+import config;
+
+fn main() {
+    const cli = "port=8080";
+    const file = "port=9000\nhost=localhost\napi_token=topsecret";
+    const defaults = "port=80\nhost=127.0.0.1\nregion=dev";
+    const port = config.resolve(cli, "YASHY_TEST_", file, defaults, "port");
+    switch port {
+        case Some(value) { assert(value == "8080"); }
+        case None { assert(false); }
+    }
+    const region = config.resolve(cli, "YASHY_TEST_", file, defaults, "region");
+    switch region {
+        case Some(value) { assert(value == "dev"); }
+        case None { assert(false); }
+    }
+    assert(config.is_secret("api_token"));
+    assert(!config.is_secret("host"));
+    const shown = config.describe(file);
+    assert(shown.contains("api_token=***"));
+    assert(!shown.contains("topsecret"));
+    assert(config.redact("topsecret", "token=topsecret") == "token=***");
+    print("config-ok");
+}

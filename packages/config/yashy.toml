@@ -1,0 +1,5 @@
+[package]
+name = "config"
+version = "1.0.0"
+license = "MIT"
+description = "Layered configuration with one precedence rule"
