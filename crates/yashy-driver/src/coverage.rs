@@ -112,6 +112,67 @@ pub fn to_json(files: &[FileCoverage], source: &Path) -> Json {
     report
 }
 
+/// A SARIF 2.1.0 log whose results are the uncovered lines.
+///
+/// Coverage is not a diagnostic, but CI needs to upload it as an artifact the
+/// same way it uploads compiler diagnostics. Each never-executed line becomes
+/// one `COVERAGE-1` result with the line as its physical location; the rule is
+/// stable so a dashboard can count it across releases.
+pub fn to_sarif(files: &[FileCoverage]) -> Json {
+    let results: Vec<Json> = files
+        .iter()
+        .flat_map(|file| {
+            file.lines
+                .iter()
+                .filter(|(_, count)| **count == 0)
+                .map(move |(line, _)| {
+                    let mut result = Json::object();
+                    result.set("ruleId", Json::string("COVERAGE-1"));
+                    result.set("level", Json::string("warning"));
+                    let mut message = Json::object();
+                    message.set(
+                        "text",
+                        Json::string(format!("line {line} was never executed")),
+                    );
+                    result.set("message", message);
+                    let mut region = Json::object();
+                    region.set("startLine", Json::number(*line as i64));
+                    let mut artifact = Json::object();
+                    artifact.set("uri", Json::string(file.path.as_str()));
+                    let mut physical = Json::object();
+                    physical.set("artifactLocation", artifact);
+                    physical.set("region", region);
+                    let mut location = Json::object();
+                    location.set("physicalLocation", physical);
+                    result.set("locations", Json::array(vec![location]));
+                    result
+                })
+        })
+        .collect();
+
+    let mut rule = Json::object();
+    rule.set("id", Json::string("COVERAGE-1"));
+    let mut description = Json::object();
+    description.set("text", Json::string("this line was never executed"));
+    rule.set("shortDescription", description);
+    let mut tool_driver = Json::object();
+    tool_driver.set("name", Json::string("yashyc coverage"));
+    tool_driver.set("rules", Json::array(vec![rule]));
+    let mut tool = Json::object();
+    tool.set("driver", tool_driver);
+    let mut run = Json::object();
+    run.set("tool", tool);
+    run.set("results", Json::array(results));
+    let mut log = Json::object();
+    log.set("version", Json::string("2.1.0"));
+    log.set(
+        "$schema",
+        Json::string("https://json.schemastore.org/sarif-2.1.0.json"),
+    );
+    log.set("runs", Json::array(vec![run]));
+    log
+}
+
 /// Locate an LLVM helper, preferring the one beside the clang doing the build.
 pub fn find_tool(name: &str, clang: &Path, env_name: &str) -> Option<PathBuf> {
     if let Ok(path) = std::env::var(env_name) {
@@ -153,5 +214,16 @@ mod tests {
         assert_eq!(files[0].lines.get(&2), Some(&0));
         assert_eq!(files[1].lines.get(&4), Some(&1));
         assert_eq!(summary(&files), (3, 4));
+    }
+
+    #[test]
+    fn uncovered_lines_become_sarif_results() {
+        let files = parse_lcov("SF:main.ya\nDA:1,1\nDA:2,0\nDA:3,0\nend_of_record\n");
+        let rendered = to_sarif(&files).render();
+        assert!(rendered.contains("\"version\": \"2.1.0\""));
+        assert!(rendered.contains("COVERAGE-1"));
+        assert!(rendered.contains("line 2 was never executed"));
+        assert!(rendered.contains("line 3 was never executed"));
+        assert!(!rendered.contains("line 1 was never executed"));
     }
 }

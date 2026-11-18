@@ -1116,11 +1116,13 @@ runtime's event trace enabled and reports every allocation site with a byte
 count and a source span, plus the blocks still live at exit. See
 [profiling](profiling.md).
 
-## `yashyc coverage <file.ya> [--json] [--format lcov|json] [--fail-under <pct>]`
+## `yashyc coverage <file.ya> [--json] [--format lcov|json|sarif] [--fail-under <pct>]`
 
 Builds with debug info and LLVM coverage mapping, runs the program, merges the
-raw profile and renders lcov records or a schema-v1 JSON summary of covered
-lines. `--fail-under` exits `1` when coverage is below the threshold. The LLVM
+raw profile and renders lcov records, a schema-v1 JSON summary of covered lines,
+or a SARIF 2.1.0 log with one `COVERAGE-1` result per never-executed line. The
+SARIF form is the artifact CI uploads. `--fail-under` exits `1` when coverage is
+below the threshold. The LLVM
 helpers are found beside the clang doing the build, or through
 `YASHY_LLVM_PROFDATA` / `YASHY_LLVM_COV`; see [coverage](coverage.md).
 

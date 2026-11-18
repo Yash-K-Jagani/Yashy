@@ -5913,7 +5913,7 @@ fn coverage_cmd(args: &[String]) -> ExitCode {
                     format = Some(args[i + 1].clone());
                     i += 1;
                 } else {
-                    return usage_error("`--format` needs `lcov` or `json`");
+                    return usage_error("`--format` needs `lcov`, `json` or `sarif`");
                 }
             }
             "--fail-under" => {
@@ -5944,7 +5944,7 @@ fn coverage_cmd(args: &[String]) -> ExitCode {
         return usage_error("`coverage` needs a source file");
     };
     match format.as_deref() {
-        None | Some("lcov") | Some("json") => {}
+        None | Some("lcov") | Some("json") | Some("sarif") => {}
         Some(other) => return usage_error(&format!("unknown coverage format `{other}`")),
     }
 
@@ -6039,7 +6039,9 @@ fn coverage_cmd(args: &[String]) -> ExitCode {
     } else {
         covered as f64 * 100.0 / total as f64
     };
-    if json || format.as_deref() == Some("json") {
+    if format.as_deref() == Some("sarif") {
+        println!("{}", coverage::to_sarif(&files).render());
+    } else if json || format.as_deref() == Some("json") {
         println!("{}", coverage::to_json(&files, &source).render());
     } else {
         print!("{lcov}");
