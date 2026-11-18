@@ -33,10 +33,45 @@ pub fn check(program: &HirProgram, out: &mut Vec<Diagnostic>) -> BTreeMap<String
         }
     }
 
+    // DET-1: a declared pure function may not read a clock or entropy source.
+    // Those calls are also I/O, so they are removed from the E1300 pass below
+    // and reported once with the determinism rule named.
+    let mut nondeterministic_violators: BTreeSet<String> = BTreeSet::new();
+    for item in &program.items {
+        if let HirItem::Fn(function) = item {
+            if function.declared == DeclaredEffect::Pure
+                && has_nondeterministic_calls(&function.body)
+            {
+                nondeterministic_violators.insert(function.name.clone());
+            }
+        }
+    }
+    for item in &program.items {
+        if let HirItem::Fn(function) = item {
+            if nondeterministic_violators.contains(&function.name) {
+                out.push(
+                    Diagnostic::new(
+                        Severity::Error,
+                        function.file,
+                        function.span,
+                        format!(
+                            "`{}` is declared pure but reads a nondeterministic source",
+                            function.name
+                        ),
+                    )
+                    .with_label("pass the clock value in from an `io fn` caller")
+                    .with_code(codes::NONDETERMINISTIC_PURE),
+                );
+            }
+        }
+    }
+
     // Check declarations against inferred effects.
     for item in &program.items {
         if let HirItem::Fn(function) = item {
-            if unsafe_violators.contains(&function.name) {
+            if unsafe_violators.contains(&function.name)
+                || nondeterministic_violators.contains(&function.name)
+            {
                 continue;
             }
             if function.declared.to_effect().is_some() {
@@ -940,3 +975,68 @@ fn collect_callees_expr(expr: &HirExpr, callees: &mut Vec<String>) {
     }
 }
 
+/// True when the block directly calls a nondeterministic source: a clock or
+/// the OS entropy source. A call reached through another function is that
+/// function's effect and is inferred by the fixpoint below.
+fn has_nondeterministic_calls(block: &HirBlock) -> bool {
+    block.stmts.iter().any(stmt_has_nondeterministic_call)
+}
+
+fn stmt_has_nondeterministic_call(stmt: &HirStmt) -> bool {
+    match stmt {
+        HirStmt::Expr(expr, ..) => expr_has_nondeterministic_call(expr),
+        HirStmt::Const { init, .. }
+        | HirStmt::Var { init, .. }
+        | HirStmt::Destructure { init, .. }
+        | HirStmt::LetElse { init, .. } => expr_has_nondeterministic_call(init),
+        HirStmt::Assign { value, .. } => expr_has_nondeterministic_call(value),
+        HirStmt::Return(Some(expr), ..) => expr_has_nondeterministic_call(expr),
+        HirStmt::If {
+            cond,
+            then_block,
+            else_block,
+            ..
+        } => {
+            expr_has_nondeterministic_call(cond)
+                || has_nondeterministic_calls(then_block)
+                || else_block.as_ref().is_some_and(has_nondeterministic_calls)
+        }
+        HirStmt::IfLet {
+            subject,
+            then_block,
+            else_block,
+            ..
+        } => {
+            expr_has_nondeterministic_call(subject)
+                || has_nondeterministic_calls(then_block)
+                || else_block.as_ref().is_some_and(has_nondeterministic_calls)
+        }
+        HirStmt::Switch { subject, arms, .. } => {
+            expr_has_nondeterministic_call(subject)
+                || arms.iter().any(|arm| {
+                    arm.guard.as_ref().is_some_and(expr_has_nondeterministic_call)
+                        || expr_has_nondeterministic_call(&arm.body)
+                })
+        }
+        HirStmt::Defer { body, .. } => has_nondeterministic_calls(body),
+        _ => false,
+    }
+}
+
+fn expr_has_nondeterministic_call(expr: &HirExpr) -> bool {
+    match expr {
+        HirExpr::Call { callee, args, .. } => {
+            callee
+                .first()
+                .is_some_and(|name| matches!(name.as_str(), "now" | "time" | "rand"))
+                || args.iter().any(expr_has_nondeterministic_call)
+        }
+        HirExpr::Binary { lhs, rhs, .. } => {
+            expr_has_nondeterministic_call(lhs) || expr_has_nondeterministic_call(rhs)
+        }
+        HirExpr::Unary { operand, .. } | HirExpr::Move(operand, ..) => {
+            expr_has_nondeterministic_call(operand)
+        }
+        _ => false,
+    }
+}

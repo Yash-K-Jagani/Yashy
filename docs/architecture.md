@@ -247,6 +247,24 @@ The written rules are normative (2.0, Phase 4); the alias corpus and the
 `noalias` audit are the gate. A pointer whose provenance is unknown is never
 given an attribute.
 
+#### Determinism rules
+
+A pure computation is a function of its arguments. The determinism rules are:
+
+1. **DET-1 — No ambient nondeterminism in pure code.** A `pure fn` may not read
+   a clock or an entropy source (`now`, `time`, `rand`). E1302 reports it.
+2. **DET-2 — Seeds are explicit.** A seeded generator takes its seed as an
+   argument; no global mutable seed is hidden behind a call.
+3. **DET-3 — Order is insertion order.** Maps and sets iterate in insertion
+   order; removing and re-inserting moves a key to the end.
+4. **DET-4 — Output is byte-stable.** The same program, inputs and target
+   produce the same bytes, including diagnostics, docs and generated pages.
+5. **DET-5 — Layout is a compiler fact.** Sizes, alignments and offsets come
+   from one layout table shared by the checker, the verifier and the backend.
+
+DET-1 has an enforcing diagnostic; the other four are obligations on later
+phases and are reported as unenforced rules by `yashyc trace --fail-orphans`.
+
 ### 5.4 Layout
 
 `repr(C)` is a keyword form on a struct, enum or object, and the only thing that

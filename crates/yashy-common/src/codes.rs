@@ -110,6 +110,8 @@ pub const GRAPHEME_OOB: &str = "E1200";
 pub const EFFECT: &str = "E1300";
 /// An unsafe call outside an unsafe function.
 pub const UNSAFE_CALL: &str = "E1301";
+/// A `pure fn` reads a nondeterministic source such as a clock or entropy.
+pub const NONDETERMINISTIC_PURE: &str = "E1302";
 /// A resource is released twice, or released in the wrong state.
 pub const DOUBLE_CLOSE: &str = "E1400";
 /// A sandbox capability is denied: the program tried to touch a path, the
@@ -476,6 +478,12 @@ pub const CODES: &[Code] = &[
         page: include_str!("../../../docs/errors/E1301.md"),
     },
     Code {
+        id: NONDETERMINISTIC_PURE,
+        title: "nondeterministic pure function",
+        summary: "A `pure fn` reads the clock or an entropy source, so its result is not a function of its arguments.",
+        page: include_str!("../../../docs/errors/E1302.md"),
+    },
+    Code {
         id: DOUBLE_CLOSE,
         title: "double close",
         summary: "A resource is released twice, or released in the wrong state.",
@@ -838,7 +846,7 @@ pub fn docs_url(id: &str) -> String {
 /// names those rules so the matrix can report them as orphans instead of
 /// silently dropping them: a rule with no code is a rule nobody can check.
 pub const PLANNED_RULES: &[&str] = &[
-    "ALIAS-1", "ALIAS-2", "ALIAS-4", "ALIAS-5", "DET-1", "DET-2", "DET-3", "DET-4", "DET-5",
+    "ALIAS-1", "ALIAS-2", "ALIAS-4", "ALIAS-5", "DET-2", "DET-3", "DET-4", "DET-5",
 ];
 
 /// The stable rule id a code enforces.
@@ -893,6 +901,7 @@ pub fn rule_for(id: &str) -> &'static str {
         OVERFLOW => "RUNTIME-2",
         EFFECT => "EFFECT-1",
         UNSAFE_CALL => "EFFECT-2",
+        NONDETERMINISTIC_PURE => "DET-1",
         DOUBLE_CLOSE => "THREAD-1",
         USE_AFTER_CLOSE => "THREAD-2",
         RACE => "THREAD-3",

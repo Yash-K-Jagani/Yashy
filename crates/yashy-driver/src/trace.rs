@@ -532,7 +532,7 @@ mod tests {
             .contains(&"ALIAS-1".to_string()));
         assert!(rows
             .orphan_rules_without_code
-            .contains(&"DET-1".to_string()));
+            .contains(&"DET-2".to_string()));
         assert!(rows
             .orphan_stdlib_functions
             .contains(&"convert.float_to_string".to_string()));

@@ -113,6 +113,14 @@ Tests:
 - `crates/yashy-driver/tests/verify.rs`
 - `crates/yashy-verify/tests/contracts.rs`
 
+## `DET-1`
+
+Codes: `E1302`
+
+Tests:
+
+- `crates/yashy-verify/tests/effects.rs`
+
 ## `DOC-1`
 
 Codes: `E2100`

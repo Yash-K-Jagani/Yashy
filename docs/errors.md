@@ -69,6 +69,7 @@ the declaration or import involved when that is not obvious.
 | [E1201](errors/E1201.md) | provable integer overflow |
 | [E1300](errors/E1300.md) | effect exceeded |
 | [E1301](errors/E1301.md) | unsafe call in a declared function |
+| [E1302](errors/E1302.md) | nondeterministic pure function |
 | [E1400](errors/E1400.md) | double close |
 | [E1401](errors/E1401.md) | use after close |
 | [E1402](errors/E1402.md) | race |

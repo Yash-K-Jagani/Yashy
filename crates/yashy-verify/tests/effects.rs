@@ -48,6 +48,18 @@ fn a_pure_function_that_prints_is_rejected() {
 }
 
 #[test]
+fn a_pure_function_reading_the_clock_is_a_determinism_error() {
+    let source = "pure fn stamp() -> int { return now(); } fn main() { }";
+    let report = verify_source(source);
+    assert_eq!(codes(&report), vec!["E1302"]);
+    assert!(
+        report.diagnostics[0].message.contains("nondeterministic"),
+        "{:?}",
+        report.diagnostics
+    );
+}
+
+#[test]
 fn an_unannotated_caller_of_an_io_function_is_inferred_io() {
     let source = "io fn g() { print(\"x\"); } fn h() { g(); } fn main() { h(); }";
     assert!(verify_source(source).diagnostics.is_empty());
