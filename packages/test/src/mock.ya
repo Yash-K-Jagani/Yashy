@@ -1,0 +1,43 @@
+// Mocks are explicit values, not global registries.
+//
+// A test constructs a mock, passes it to the code under test and reads the
+// calls it recorded afterwards. There is no hidden injection and no ambient
+// state, so two tests in one process cannot see each other's calls.
+
+/// A recorded call log, one `name(args)` line per call.
+pub struct Mock {
+    calls: string,
+}
+
+/// A fresh mock with no calls.
+pub fn new() -> Mock {
+    return Mock { calls: "" };
+}
+
+/// Record one call, returning the updated mock.
+pub fn record(Mock mock, string name, string args) -> Mock {
+    return Mock {
+        calls: mock.calls + name + "(" + args + ")\n",
+    };
+}
+
+/// The recorded log, in call order.
+pub fn log(Mock mock) -> string {
+    return mock.calls;
+}
+
+/// Whether a call to `name` was recorded.
+pub fn called(Mock mock, string name) -> bool {
+    return mock.calls.contains(name + "(");
+}
+
+/// How many calls were recorded.
+pub fn count(Mock mock) -> int {
+    if mock.calls.len() == 0 {
+        return 0;
+    }
+    const lines = mock.calls.trim().split("\n");
+    const total = lines.len();
+    lines.free();
+    return total;
+}

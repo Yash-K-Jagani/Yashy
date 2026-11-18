@@ -76,6 +76,11 @@ what keeps a 138-week programme honest.
 - [ ] **Step 4: Mocks are explicit values.** A mock implements a trait and
   records calls; no global mock registry, no hidden injection. A test that uses
   a mock constructs it and passes it.
+  *Current:* `packages/test/src/mock.ya` gives a value that records calls into
+  its own log; `new`, `record`, `log`, `called` and `count` are plain functions,
+  so two tests cannot share state. The package test pins the call order. The
+  mock implements a trait only where the code under test asks for one; that
+  trait-shaped form is still owed.
 - [x] **Step 5: The runner protocol is stable.** `test --json` emits one event
   per test start/end with name, status, duration, stdout and a failure message;
   the harness attributes stdout and exit codes to the test that produced them.

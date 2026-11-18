@@ -3,6 +3,7 @@ import test;
 import table;
 import property;
 import snapshot;
+import mock;
 
 fn always_even(int value) -> bool {
     return value % 2 == 0;
@@ -22,5 +23,11 @@ fn main() {
     if !expect_snapshot("packages/test/tests/snapshot.txt", "one\ntwo\n") {
         test_fail("snapshot", "the snapshot must match");
     }
+    let calls = mock.new();
+    calls = mock.record(calls, "open", "file.txt");
+    calls = mock.record(calls, "close", "");
+    assert(mock.called(calls, "open") && mock.called(calls, "close"));
+    assert(mock.count(calls) == 2);
+    assert(mock.log(calls).contains("open(file.txt)"));
     print("test-ok");
 }
