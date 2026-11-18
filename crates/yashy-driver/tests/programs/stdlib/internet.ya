@@ -4,6 +4,20 @@ import url;
 import semver;
 import text;
 
+fn compare_versions(string left, string right) -> int {
+    const a = semver.parse(left);
+    const b = semver.parse(right);
+    return switch a {
+        case Some(x) {
+            switch b {
+                case Some(y) { semver.compare(x, y) }
+                case None { 99 }
+            }
+        }
+        case None { 99 }
+    };
+}
+
 fn main() {
     switch mime.parse("application/json; charset=utf-8") {
         case Ok(m) {
@@ -71,4 +85,15 @@ fn main() {
             print(false);
         }
     };
+    switch semver.parse("1.0.0-alpha.1") {
+        case Ok(v) {
+            print(semver.to_string(v));
+        }
+        case Err(_) { print("bad version"); }
+    };
+    print(compare_versions("1.0.0-alpha", "1.0.0"));
+    print(compare_versions("1.0.0-alpha.1", "1.0.0-alpha.beta"));
+    print(compare_versions("1.0.0+build", "1.0.0"));
+    print(compare_versions("1.0.0-alpha.2", "1.0.0-alpha.10"));
+    print(semver.parse("1.0.0-01") matches Err(_));
 }

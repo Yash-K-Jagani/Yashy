@@ -984,7 +984,7 @@ struct Regex
 struct Semver
 ```
 
-A core version: major, minor and patch.
+A parsed version. `pre` and `build` are empty when absent.
 
 ### `SemverError`
 
@@ -1008,7 +1008,7 @@ Compare two versions: negative when `a` is older, positive when newer.
 fn parse(string text) -> Result[Semver, SemverError]
 ```
 
-Parse `major.minor.patch`, with no signs, spaces or extra fields.
+Parse `major.minor.patch[-pre][+build]`.
 
 ### `to_string`
 
@@ -1016,7 +1016,7 @@ Parse `major.minor.patch`, with no signs, spaces or extra fields.
 fn to_string(Semver version) -> string
 ```
 
-The `major.minor.patch` spelling.
+The full spelling, with build metadata but no normalization.
 
 ## `string`
 

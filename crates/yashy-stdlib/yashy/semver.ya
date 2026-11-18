@@ -1,35 +1,77 @@
-// Semantic version core versions.
+// Semantic versions, including pre-release precedence.
 //
-// A version is three non-negative integers: major, minor and patch. Pre-release
-// and build metadata are deliberately outside this small surface; a program
-// that needs precedence across them compares the original text itself. A
-// malformed version answers `Err(Invalid)`, never a sentinel zero.
+// A version is major.minor.patch with an optional `-pre` and `+build`. Build
+// metadata is stored and rendered but ignored for precedence, as SemVer 2.0
+// requires. A malformed version answers `Err(Invalid)`, never a sentinel zero.
 
 /// Why a text is not a version.
 pub enum SemverError {
     Invalid,
 }
 
-/// A core version: major, minor and patch.
+/// A parsed version. `pre` and `build` are empty when absent.
 pub struct Semver {
     major: int,
     minor: int,
     patch: int,
+    pre: string,
+    build: string,
 }
 
-/// Parse `major.minor.patch`, with no signs, spaces or extra fields.
+/// Parse `major.minor.patch[-pre][+build]`.
 pub fn parse(string text) -> Result[Semver, SemverError] {
-    const parts = text.split(".");
-    if parts.len() != 3 {
+    const plus = find_from(text, "+", 0);
+    const with_build = if plus >= 0 { text.slice(0, plus) } else { text };
+    const build = if plus >= 0 {
+        text.slice(plus + 1, text.len())
+    } else {
+        ""
+    };
+    if plus >= 0 && !valid_identifiers(build, false) {
         return Err(SemverError.Invalid);
     }
-    const a = component(parts, 0)?;
-    const b = component(parts, 1)?;
-    const c = component(parts, 2)?;
-    return Ok(Semver { major: a, minor: b, patch: c });
+
+    const dash = find_from(with_build, "-", 0);
+    const core = if dash >= 0 {
+        with_build.slice(0, dash)
+    } else {
+        with_build
+    };
+    const pre = if dash >= 0 {
+        with_build.slice(dash + 1, with_build.len())
+    } else {
+        ""
+    };
+    if dash >= 0 && !valid_identifiers(pre, true) {
+        return Err(SemverError.Invalid);
+    }
+
+    const parts = core.split(".");
+    if parts.len() != 3 {
+        parts.free();
+        return Err(SemverError.Invalid);
+    }
+    const a = component(parts, 0);
+    const b = component(parts, 1);
+    const c = component(parts, 2);
+    if a matches None || b matches None || c matches None {
+        parts.free();
+        return Err(SemverError.Invalid);
+    }
+    const major = switch a { case Some(value) { value } case None { 0 } };
+    const minor = switch b { case Some(value) { value } case None { 0 } };
+    const patch = switch c { case Some(value) { value } case None { 0 } };
+    parts.free();
+    return Ok(Semver {
+        major: major,
+        minor: minor,
+        patch: patch,
+        pre: pre.slice(0, pre.len()),
+        build: build.slice(0, build.len()),
+    });
 }
 
-/// One component, parsed without a sign and checked for non-negativity.
+/// One numeric component, parsed without a sign and checked for non-negativity.
 fn component([]string parts, int index) -> Result[int, SemverError] {
     const text = switch parts[index] {
         case Some(part) { part }
@@ -48,30 +90,150 @@ fn component([]string parts, int index) -> Result[int, SemverError] {
     return Ok(parsed);
 }
 
-/// Compare two versions: negative when `a` is older, positive when newer.
-pub fn compare(Semver a, Semver b) -> int {
-    if a.major < b.major {
+/// The index of `needle` at or after `start`, or `-1`.
+fn find_from(string text, string needle, int start) -> int {
+    if start >= text.len() || needle.len() == 0 {
         return 0 - 1;
     }
-    if a.major > b.major {
+    const at = text.slice(start, text.len()).index_of(needle);
+    switch at {
+        case Some(index) { return start + index; }
+        case None { return 0 - 1; }
+    }
+}
+
+/// Dot-separated identifiers: letters, digits and hyphens, each non-empty.
+/// Numeric pre-release identifiers may not have a leading zero.
+fn valid_identifiers(string text, bool no_leading_zero) -> bool {
+    if text.len() == 0 {
+        return false;
+    }
+    let start = 0;
+    while start < text.len() {
+        const dot = find_from(text, ".", start);
+        const end = if dot >= 0 { dot } else { text.len() };
+        const part = text.slice(start, end);
+        if part.len() == 0 {
+            return false;
+        }
+        let numeric = true;
+        let index = 0;
+        while index < part.len() {
+            const byte = part.byte_at(index).to_int();
+            const digit = byte >= 48 && byte <= 57;
+            const letter = (byte >= 65 && byte <= 90) || (byte >= 97 && byte <= 122);
+            if !digit && !letter && byte != 45 {
+                return false;
+            }
+            if !digit {
+                numeric = false;
+            }
+            index = index + 1;
+        }
+        if no_leading_zero && numeric && part.len() > 1 && part.byte_at(0).to_int() == 48 {
+            return false;
+        }
+        if dot < 0 {
+            break;
+        }
+        start = dot + 1;
+    }
+    return true;
+}
+
+/// Compare one dot-separated identifier. Numeric identifiers sort before
+/// non-numeric ones, and numbers compare by length then bytes.
+fn compare_identifier(string a, string b) -> int {
+    const a_numeric = all_digits(a);
+    const b_numeric = all_digits(b);
+    if a_numeric && !b_numeric {
+        return 0 - 1;
+    }
+    if !a_numeric && b_numeric {
         return 1;
     }
-    if a.minor < b.minor {
+    if a_numeric && b_numeric {
+        if a.len() < b.len() {
+            return 0 - 1;
+        }
+        if a.len() > b.len() {
+            return 1;
+        }
+    }
+    if a < b {
         return 0 - 1;
     }
-    if a.minor > b.minor {
-        return 1;
-    }
-    if a.patch < b.patch {
-        return 0 - 1;
-    }
-    if a.patch > b.patch {
+    if a > b {
         return 1;
     }
     return 0;
 }
 
-/// The `major.minor.patch` spelling.
+fn all_digits(string text) -> bool {
+    if text.len() == 0 {
+        return false;
+    }
+    let index = 0;
+    while index < text.len() {
+        const byte = text.byte_at(index).to_int();
+        if byte < 48 || byte > 57 {
+            return false;
+        }
+        index = index + 1;
+    }
+    return true;
+}
+
+/// Compare two versions: negative when `a` is older, positive when newer.
+pub fn compare(Semver a, Semver b) -> int {
+    if a.major < b.major { return 0 - 1; }
+    if a.major > b.major { return 1; }
+    if a.minor < b.minor { return 0 - 1; }
+    if a.minor > b.minor { return 1; }
+    if a.patch < b.patch { return 0 - 1; }
+    if a.patch > b.patch { return 1; }
+
+    const a_empty = a.pre.len() == 0;
+    const b_empty = b.pre.len() == 0;
+    if a_empty && b_empty { return 0; }
+    if a_empty { return 1; }
+    if b_empty { return 0 - 1; }
+
+    let a_start = 0;
+    let b_start = 0;
+    while true {
+        const a_dot = find_from(a.pre, ".", a_start);
+        const b_dot = find_from(b.pre, ".", b_start);
+        const a_end = if a_dot >= 0 { a_dot } else { a.pre.len() };
+        const b_end = if b_dot >= 0 { b_dot } else { b.pre.len() };
+        const a_id = a.pre.slice(a_start, a_end);
+        const b_id = b.pre.slice(b_start, b_end);
+        const order = compare_identifier(a_id, b_id);
+        if order != 0 {
+            return order;
+        }
+        if a_dot < 0 && b_dot < 0 {
+            return 0;
+        }
+        if a_dot < 0 {
+            return 0 - 1;
+        }
+        if b_dot < 0 {
+            return 1;
+        }
+        a_start = a_dot + 1;
+        b_start = b_dot + 1;
+    }
+}
+
+/// The full spelling, with build metadata but no normalization.
 pub fn to_string(Semver version) -> string {
-    return str_from_i64(version.major) + "." + str_from_i64(version.minor) + "." + str_from_i64(version.patch);
+    let text = str_from_i64(version.major) + "." + str_from_i64(version.minor) + "." + str_from_i64(version.patch);
+    if version.pre.len() > 0 {
+        text = text + "-" + version.pre;
+    }
+    if version.build.len() > 0 {
+        text = text + "+" + version.build;
+    }
+    return text;
 }
