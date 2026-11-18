@@ -111,6 +111,11 @@ is a capability rather than an ambient read.
 
 - [ ] **Step 1: Write the failing test.** Parse a document with nested objects, escapes, surrogate pairs, big integers and duplicate keys; emit it and parse it again; assert byte-stable output with a documented key order (insertion order) and no trailing whitespace. Repeat the round-trip for TOML, YAML, CSV (quoted fields, embedded newlines) and XML (entities, namespaces).
 - [ ] **Step 2: No sentinel, ever.** `parse` returns `Result`; a missing key is `Option`; a type mismatch is an error with a byte offset and a line/column. `""` and `0` are values, never failures.
+  *Current:* `json_scan.ya` provides `minify` and `validate`, both returning
+  `Result`/`Option` with a byte offset on failure and no sentinel answer. The
+  coverage program pins whitespace inside strings and bracket balance. A
+  value tree, duplicate-key handling and line/column errors need `Map`, which
+  is a later phase, so the step stays open.
 - [ ] **Step 3: Streaming where it matters.** A JSON reader can emit tokens without building a DOM, and a writer can stream; the DOM is a convenience over the same parser. A depth limit and a size limit are explicit options, not constants hidden in the parser.
 - [ ] **Step 4: Fuzz the parsers.** Seed the corpus with the conformance files; a crash, a hang or a non-terminating parse is a P0. The fuzzer runs in CI for a bounded time and nightly for longer.
 - [ ] **Step 5: Commit.**

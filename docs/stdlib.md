@@ -530,6 +530,32 @@ Whether `next`'s answer is the end of the sequence. An implementation reads
 the protocol as "yield until `is_done`", so the test lives here rather than
 being spelled out in every implementor.
 
+## `json_scan`
+
+### `JsonError`
+
+```yashy
+enum JsonError
+```
+
+Why the text is not well-formed at the byte level.
+
+### `minify`
+
+```yashy
+fn minify(string text) -> Result[string, JsonError]
+```
+
+Remove whitespace outside strings, keeping string bytes unchanged.
+
+### `validate`
+
+```yashy
+fn validate(string text) -> Result[int, JsonError]
+```
+
+Check string closure and bracket balance; return the maximum depth.
+
 ## `log`
 
 ### `error`

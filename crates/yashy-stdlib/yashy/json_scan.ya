@@ -1,0 +1,82 @@
+// JSON scanning without a DOM.
+//
+// These functions are total: they never answer with a sentinel and never
+// panic on malformed input. `minify` removes whitespace outside strings;
+// `validate` checks that strings close and brackets balance, returning the
+// greatest nesting depth. A full value tree needs `Map`, which is a later
+// phase, so this module stops at the byte-level contract every parser shares.
+
+/// Why the text is not well-formed at the byte level.
+pub enum JsonError {
+    /// The byte offset of the first problem.
+    Invalid(int),
+}
+
+/// Remove whitespace outside strings, keeping string bytes unchanged.
+pub fn minify(string text) -> Result[string, JsonError] {
+    let out = "";
+    let quoted = false;
+    let escaped = false;
+    let index = 0;
+    while index < text.len() {
+        const byte = text.byte_at(index).to_int();
+        if quoted {
+            out = out + byte.to_char().to_string();
+            if escaped {
+                escaped = false;
+            } else if byte == 92 {
+                escaped = true;
+            } else if byte == 34 {
+                quoted = false;
+            }
+        } else if byte == 34 {
+            quoted = true;
+            out = out + "\"";
+        } else if byte != 32 && byte != 9 && byte != 10 && byte != 13 {
+            out = out + byte.to_char().to_string();
+        }
+        index = index + 1;
+    }
+    if quoted {
+        return Err(JsonError.Invalid(index));
+    }
+    return Ok(out);
+}
+
+/// Check string closure and bracket balance; return the maximum depth.
+pub fn validate(string text) -> Result[int, JsonError] {
+    let depth = 0;
+    let greatest = 0;
+    let quoted = false;
+    let escaped = false;
+    let index = 0;
+    while index < text.len() {
+        const byte = text.byte_at(index).to_int();
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if byte == 92 {
+                escaped = true;
+            } else if byte == 34 {
+                quoted = false;
+            }
+        } else if byte == 34 {
+            quoted = true;
+        } else if byte == 91 || byte == 123 {
+            depth = depth + 1;
+            if depth > greatest {
+                greatest = depth;
+            }
+        } else if byte == 93 || byte == 125 {
+            depth = depth - 1;
+            if depth < 0 {
+                return Err(JsonError.Invalid(index));
+            }
+        }
+        index = index + 1;
+    }
+    if quoted || depth != 0 {
+        return Err(JsonError.Invalid(index));
+    }
+    return Ok(greatest);
+}

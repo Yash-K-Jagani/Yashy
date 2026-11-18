@@ -1,0 +1,15 @@
+import json_scan;
+
+fn main() {
+    const text = "{ \"a\" : [ 1 , 2 ], \"b\" : \"x y\" }";
+    switch json_scan.minify(text) {
+        case Ok(compact) { print(compact); }
+        case Err(_) { print("bad json"); }
+    };
+    switch json_scan.validate(text) {
+        case Some(depth) { print(depth); }
+        case None { print("bad json"); }
+    };
+    print(json_scan.minify("\"unterminated") matches Err(_));
+    print(json_scan.validate("[1,]") matches Some(_));
+}
