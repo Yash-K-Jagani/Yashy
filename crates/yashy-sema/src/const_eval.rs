@@ -950,7 +950,8 @@ pub fn evaluate(
         return Err(ConstError::new(
             expr_span(expr),
             format!("const evaluation exceeded {MAX_CONST_STEPS} steps"),
-        ));
+        )
+        .with_code(codes::CONST_FUEL));
     }
     match expr {
         Expr::Literal(literal, _) => Ok(match literal {
@@ -964,7 +965,8 @@ pub fn evaluate(
             let name = path.last().cloned().unwrap_or_default();
             match env.iter().rev().find(|(param, _)| param == &name) {
                 Some((_, value)) => Ok(value.clone()),
-                None => Err(ConstError::new(*span, missing.message(&name))),
+                None => Err(ConstError::new(*span, missing.message(&name))
+                    .with_code(codes::CONST_NOT_CONSTANT)),
             }
         }
         Expr::Binary { op, lhs, rhs, span } => {
@@ -1059,7 +1061,8 @@ pub fn evaluate(
                 return Err(ConstError::new(
                     *span,
                     format!("`{name}` did not terminate: the evaluation is too deep"),
-                ));
+                )
+                .with_code(codes::CONST_RECURSION));
             }
             let mut values = Vec::with_capacity(args.len());
             for argument in args {
@@ -1180,7 +1183,8 @@ fn evaluate_binary(
             .ok_or_else(|| overflow(span)),
         (BinOp::Div, ConstValue::I64(a), ConstValue::I64(b)) => {
             if *b == 0 {
-                return Err(ConstError::new(span, "division by zero".to_string()));
+                return Err(ConstError::new(span, "division by zero".to_string())
+                    .with_code(codes::CONST_DIVISION_BY_ZERO));
             }
             a.checked_div(*b)
                 .map(ConstValue::I64)
@@ -1188,7 +1192,8 @@ fn evaluate_binary(
         }
         (BinOp::Rem, ConstValue::I64(a), ConstValue::I64(b)) => {
             if *b == 0 {
-                return Err(ConstError::new(span, "division by zero".to_string()));
+                return Err(ConstError::new(span, "division by zero".to_string())
+                    .with_code(codes::CONST_DIVISION_BY_ZERO));
             }
             a.checked_rem(*b)
                 .map(ConstValue::I64)
@@ -1254,7 +1259,7 @@ fn evaluate_binary(
 
 /// The message an integer operation that overflows produces.
 fn overflow(span: Span) -> ConstError {
-    ConstError::new(span, "integer overflow")
+    ConstError::new(span, "integer overflow").with_code(codes::CONST_OVERFLOW)
 }
 
 /// The message a constant shift count outside `0..64` produces.

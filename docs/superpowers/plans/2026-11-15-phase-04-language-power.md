@@ -394,8 +394,10 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   *Current:* the depth (160) and call (1M) caps existed; a 1M expression-step
   fuel was added and the failure is reported at the expression that exceeded
   it. A test drives `Work` to the cap directly. The evaluator still consumes
-  the parser AST rather than typed HIR, so loop/index construction and the
-  remaining totality cases are not yet covered.
+  the parser AST rather than typed HIR, so loop/index construction is not yet
+  covered. Overflow, division by zero, fuel, recursion depth and non-constant
+  names now carry stable codes E1520-E1524 (CONST-1..5) with catalog pages and
+  tests.
 - [ ] **Step 4: Const and run time agree.** For every `const fn`, a differential
   test evaluates it at compile time and calls it at run time on the same inputs
   and compares the values. A mismatch is a compiler bug, not a language

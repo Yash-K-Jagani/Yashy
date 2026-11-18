@@ -96,6 +96,11 @@ the declaration or import involved when that is not obvious.
 | [E1517](errors/E1517.md) | invalid `is` comparison |
 | [E1518](errors/E1518.md) | float range bound |
 | [E1519](errors/E1519.md) | recursive type alias |
+| [E1520](errors/E1520.md) | constant overflow |
+| [E1521](errors/E1521.md) | constant division by zero |
+| [E1522](errors/E1522.md) | constant evaluation out of fuel |
+| [E1523](errors/E1523.md) | constant evaluation too deep |
+| [E1524](errors/E1524.md) | not a constant |
 | [E1600](errors/E1600.md) | macro invocation matches no arm |
 | [E1601](errors/E1601.md) | macro expansion limit exceeded |
 | [E1602](errors/E1602.md) | macro metavariable kind mismatch |

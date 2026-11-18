@@ -200,6 +200,16 @@ pub const TRAIT_STATE: &str = "E1514";
 pub const OPERATOR_OVERLOAD: &str = "E1515";
 /// A type alias expands to a type that mentions the alias itself.
 pub const RECURSIVE_ALIAS: &str = "E1519";
+/// A constant expression overflowed an integer type.
+pub const CONST_OVERFLOW: &str = "E1520";
+/// A constant expression divided by zero.
+pub const CONST_DIVISION_BY_ZERO: &str = "E1521";
+/// A constant expression exceeded its step fuel.
+pub const CONST_FUEL: &str = "E1522";
+/// A constant expression recursed too deeply or called too many functions.
+pub const CONST_RECURSION: &str = "E1523";
+/// A constant expression named a run-time value.
+pub const CONST_NOT_CONSTANT: &str = "E1524";
 /// A float was used as a range bound.
 pub const FLOAT_RANGE: &str = "E1518";
 /// `in` was used with a container that has no membership method.
@@ -734,6 +744,36 @@ pub const CODES: &[Code] = &[
         page: include_str!("../../../docs/errors/E1519.md"),
     },
     Code {
+        id: CONST_OVERFLOW,
+        title: "constant overflow",
+        summary: "A constant expression overflowed an integer type.",
+        page: include_str!("../../../docs/errors/E1520.md"),
+    },
+    Code {
+        id: CONST_DIVISION_BY_ZERO,
+        title: "constant division by zero",
+        summary: "A constant expression divided an integer by zero.",
+        page: include_str!("../../../docs/errors/E1521.md"),
+    },
+    Code {
+        id: CONST_FUEL,
+        title: "constant evaluation out of fuel",
+        summary: "A constant expression exceeded the compiler's step limit.",
+        page: include_str!("../../../docs/errors/E1522.md"),
+    },
+    Code {
+        id: CONST_RECURSION,
+        title: "constant evaluation too deep",
+        summary: "A constant expression exceeded its recursion depth or call limit.",
+        page: include_str!("../../../docs/errors/E1523.md"),
+    },
+    Code {
+        id: CONST_NOT_CONSTANT,
+        title: "not a constant",
+        summary: "A constant initializer or const fn call named a run-time value.",
+        page: include_str!("../../../docs/errors/E1524.md"),
+    },
+    Code {
         id: MEMBERSHIP_UNSUPPORTED,
         title: "membership is not defined for this container",
         summary: "`in` calls the container's `contains` method; this type has none.",
@@ -942,6 +982,11 @@ pub fn rule_for(id: &str) -> &'static str {
         OPERATOR_OVERLOAD => "TRAIT-16",
         FLOAT_RANGE => "RANGE-1",
         RECURSIVE_ALIAS => "TYPE-11",
+        CONST_OVERFLOW => "CONST-1",
+        CONST_DIVISION_BY_ZERO => "CONST-2",
+        CONST_FUEL => "CONST-3",
+        CONST_RECURSION => "CONST-4",
+        CONST_NOT_CONSTANT => "CONST-5",
         MEMBERSHIP_UNSUPPORTED => "IN-1",
         INVALID_IDENTITY => "ID-1",
         MACRO_NO_MATCH => "MACRO-1",

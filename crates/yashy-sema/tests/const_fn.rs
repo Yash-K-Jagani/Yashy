@@ -121,6 +121,36 @@ fn a_const_fn_that_recurses_forever_is_reported() {
 }
 
 #[test]
+fn const_eval_failures_carry_stable_codes() {
+    let cases = [
+        (
+            "const fn f() -> int { return 9223372036854775807 + 1; }\nfn main() { const x = f(); }",
+            "E1520",
+        ),
+        (
+            "const fn f() -> int { return 8 / 0; }\nfn main() { const x = f(); }",
+            "E1521",
+        ),
+        (
+            "const fn loop(int n) -> int { return loop(n + 1); }\nfn main() { const x = loop(0); }",
+            "E1523",
+        ),
+        (
+            "fn f() { let n = 9; const x = square(n); }\nconst fn square(int n) -> int { return n * n; }",
+            "E1524",
+        ),
+    ];
+    for (source, expected) in cases {
+        let (result, _, _) = check_source(source);
+        let diagnostics = result.expect_err("the const expression must fail");
+        assert!(
+            diagnostics.iter().any(|d| d.code == Some(expected)),
+            "expected {expected}, got {diagnostics:?}"
+        );
+    }
+}
+
+#[test]
 fn evaluation_is_bounded_by_a_step_fuel() {
     use yashy_common::Span;
     use yashy_sema::const_eval::{evaluate, ConstFns, Missing, Work};
@@ -139,6 +169,7 @@ fn evaluation_is_bounded_by_a_step_fuel() {
     );
     let error = result.expect_err("the fuel must be exhausted");
     assert!(error.message.contains("steps"), "{error:?}");
+    assert_eq!(error.code, Some("E1522"));
     let _ = ConstValue::I64(1);
 }
 

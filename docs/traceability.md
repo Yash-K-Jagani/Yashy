@@ -120,6 +120,46 @@ Tests:
 
 - `crates/yashy-driver/tests/cfg.rs`
 
+## `CONST-1`
+
+Codes: `E1520`
+
+Tests:
+
+- `crates/yashy-sema/tests/const_fn.rs`
+
+## `CONST-2`
+
+Codes: `E1521`
+
+Tests:
+
+- `crates/yashy-sema/tests/const_fn.rs`
+
+## `CONST-3`
+
+Codes: `E1522`
+
+Tests:
+
+- `crates/yashy-sema/tests/const_fn.rs`
+
+## `CONST-4`
+
+Codes: `E1523`
+
+Tests:
+
+- `crates/yashy-sema/tests/const_fn.rs`
+
+## `CONST-5`
+
+Codes: `E1524`
+
+Tests:
+
+- `crates/yashy-sema/tests/const_fn.rs`
+
 ## `CONTRACT-1`
 
 Codes: `E1100`
