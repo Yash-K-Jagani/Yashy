@@ -73,3 +73,47 @@ fn port_of(string authority, int colon) -> Result[int, UrlError] {
 pub fn origin(Url url) -> string {
     return url.scheme + "://" + url.host;
 }
+
+/// Decode `%XX` escapes in a URL component.
+///
+/// A `%` not followed by two hexadecimal digits is `Err(Invalid)`; a valid
+/// escape produces exactly one byte. The `+` spelling is left alone: it is a
+/// literal plus in a path and a space only in form bodies, which this module
+/// does not parse.
+pub fn percent_decode(string text) -> Result[string, UrlError] {
+    let out = "";
+    let index = 0;
+    while index < text.len() {
+        if text.byte_at(index).to_int() == 37 {
+            if index + 2 >= text.len() {
+                return Err(UrlError.Invalid);
+            }
+            const hi = hex_value(text.byte_at(index + 1));
+            const lo = hex_value(text.byte_at(index + 2));
+            if hi < 0 || lo < 0 {
+                return Err(UrlError.Invalid);
+            }
+            out = out + (hi * 16 + lo).to_char().to_string();
+            index = index + 3;
+        } else {
+            out = out + text.byte_at(index).to_char().to_string();
+            index = index + 1;
+        }
+    }
+    return Ok(out);
+}
+
+/// The value of one hexadecimal digit, or `-1`.
+fn hex_value(char digit) -> int {
+    const value = digit.to_int();
+    if value >= 48 && value <= 57 {
+        return value - 48;
+    }
+    if value >= 65 && value <= 70 {
+        return value - 55;
+    }
+    if value >= 97 && value <= 102 {
+        return value - 87;
+    }
+    return 0 - 1;
+}

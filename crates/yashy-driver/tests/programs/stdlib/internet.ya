@@ -53,4 +53,9 @@ fn main() {
         }
     };
     print(semver.parse("1.x.3") matches Err(_));
+    switch url.percent_decode("a%20b%2Fc") {
+        case Ok(decoded) { print(decoded); }
+        case Err(_) { print("bad escapes"); }
+    };
+    print(url.percent_decode("%zz") matches Err(_));
 }

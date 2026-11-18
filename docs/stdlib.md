@@ -1238,6 +1238,19 @@ Parse `scheme://host[:port]/path`.
 A missing scheme separator or an empty scheme or host is `Err(Invalid)`.
 A port that is not a decimal integer is also refused.
 
+### `percent_decode`
+
+```yashy
+fn percent_decode(string text) -> Result[string, UrlError]
+```
+
+Decode `%XX` escapes in a URL component.
+
+A `%` not followed by two hexadecimal digits is `Err(Invalid)`; a valid
+escape produces exactly one byte. The `+` spelling is left alone: it is a
+literal plus in a path and a space only in form bodies, which this module
+does not parse.
+
 ## `uuid`
 
 ### `from_bytes`
