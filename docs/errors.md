@@ -72,6 +72,7 @@ the declaration or import involved when that is not obvious.
 | [E1400](errors/E1400.md) | double close |
 | [E1401](errors/E1401.md) | use after close |
 | [E1402](errors/E1402.md) | race |
+| [E1403](errors/E1403.md) | unproved view source |
 | [E1500](errors/E1500.md) | unknown trait |
 | [E1501](errors/E1501.md) | conflicting trait impl |
 | [E1502](errors/E1502.md) | incomplete trait impl |

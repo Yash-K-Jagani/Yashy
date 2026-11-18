@@ -30,6 +30,19 @@ fn assert_rejected(src: &str, needle: &str) {
 }
 
 #[test]
+fn a_view_needs_a_binding_the_compiler_can_keep_alive() {
+    let src = "fn make() -> []int { return []int { 1, 2 }; }\n\
+               fn main() { const v = make()[0..1]; }";
+    let diagnostics = check(src).expect_err("a view of a temporary must be refused");
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == Some("E1403")),
+        "the refusal names rule ALIAS-3: {diagnostics:?}"
+    );
+}
+
+#[test]
 fn a_slice_literal_checks_every_element_against_its_written_type() {
     check("fn main() { let xs = []int { 1, 2, 3 }; xs.push(4); xs.free(); }")
         .expect("a well-typed literal and its operations must check");

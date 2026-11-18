@@ -3,6 +3,14 @@
 Generated from `codes::rule_for`, the catalog and the test files that mention each code.
 Edit the registry, never this page. `UPDATE_GOLDEN=1` regenerates it.
 
+## `ALIAS-3`
+
+Codes: `E1403`
+
+Tests:
+
+- `crates/yashy-sema/tests/slices.rs`
+
 ## `ASYNC-1`
 
 Codes: `E1700`
@@ -229,7 +237,7 @@ Codes: `E2002`
 
 Tests:
 
-- none
+- `crates/yashy-common/tests/catalog.rs`
 
 ## `LINT-4`
 
@@ -237,7 +245,7 @@ Codes: `E2003`
 
 Tests:
 
-- none
+- `crates/yashy-common/tests/catalog.rs`
 
 ## `MACRO-1`
 
@@ -253,7 +261,7 @@ Codes: `E1601`
 
 Tests:
 
-- none
+- `crates/yashy-common/tests/catalog.rs`
 
 ## `MACRO-3`
 
@@ -261,7 +269,7 @@ Codes: `E1602`
 
 Tests:
 
-- none
+- `crates/yashy-common/tests/catalog.rs`
 
 ## `MACRO-4`
 
@@ -269,7 +277,7 @@ Codes: `E1603`
 
 Tests:
 
-- none
+- `crates/yashy-common/tests/catalog.rs`
 
 ## `MUT-1`
 
@@ -300,7 +308,7 @@ Codes: `E0002`
 
 Tests:
 
-- none
+- `crates/yashy-common/tests/catalog.rs`
 
 ## `OWN-1`
 
@@ -381,7 +389,7 @@ Codes: `E0603`
 
 Tests:
 
-- none
+- `crates/yashy-common/tests/catalog.rs`
 
 ## `PAT-5`
 
@@ -480,7 +488,7 @@ Codes: `E1807`
 
 Tests:
 
-- none
+- `crates/yashy-common/tests/catalog.rs`
 
 ## `PKG-9`
 
@@ -522,7 +530,7 @@ Codes: `E1900`
 
 Tests:
 
-- none
+- `crates/yashy-common/tests/catalog.rs`
 
 ## `SANDBOX-2`
 
@@ -633,7 +641,7 @@ Codes: `E1501`
 
 Tests:
 
-- none
+- `crates/yashy-common/tests/catalog.rs`
 
 ## `TRAIT-3`
 
@@ -657,7 +665,7 @@ Codes: `E1504`
 
 Tests:
 
-- none
+- `crates/yashy-common/tests/catalog.rs`
 
 ## `TRAIT-6`
 
@@ -673,7 +681,7 @@ Codes: `E1506`
 
 Tests:
 
-- none
+- `crates/yashy-common/tests/catalog.rs`
 
 ## `TRAIT-8`
 
@@ -681,7 +689,7 @@ Codes: `E1507`
 
 Tests:
 
-- none
+- `crates/yashy-common/tests/catalog.rs`
 
 ## `TRAIT-9`
 
@@ -689,7 +697,7 @@ Codes: `E1508`
 
 Tests:
 
-- none
+- `crates/yashy-common/tests/catalog.rs`
 
 ## `TRY-1`
 
@@ -697,7 +705,7 @@ Codes: `E0300`
 
 Tests:
 
-- none
+- `crates/yashy-common/tests/catalog.rs`
 
 ## `TRY-2`
 
@@ -803,7 +811,7 @@ Codes: `E0107`
 
 Tests:
 
-- none
+- `crates/yashy-common/tests/catalog.rs`
 
 ## `TYPE-9`
 

@@ -191,8 +191,11 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 
 - [ ] **Step 1: Write the failing test.** A safe function that dereferences a `*const T`; a `noalias` on a safe parameter; an `Option[*const T]` passed to and from C with null; a pointer offset past its allocation; an `unsafe` block that calls an `extern` function. Assert each refusal names the exact rule (`ALIAS-1`…`ALIAS-5`) and that the FFI round-trip preserves null as `None`.
 - [ ] **Step 2: Write the rules down before the code.** `docs/architecture.md` §5.3 becomes normative: owning pointers are unique by linearity; FFI pointers may alias; `noalias` is legal only on `extern` declarations and `unsafe fn` parameters; disjoint views are proved, not assumed; no assumption crosses a safe call. The five rules now carry ids ALIAS-1 through ALIAS-5 (docs/architecture.md 5.3), so later diagnostics and corpus cases can name the rule they test. Still owed: a corpus file per rule and codes that emit those ids.
-  *Current:* §5.3 is normative and the five IDs are written there. The alias
-  corpus file and diagnostics that name those IDs are still owed.
+  *Current:* §5.3 is normative and the five IDs are written there. ALIAS-3 now
+  has an enforcing diagnostic: E1403 fires when a view's source is a temporary
+  or a field the compiler cannot keep alive, with a sema test and a catalog
+  page. The other four alias rules and the DET family still need codes, so the
+  step stays open.
 - [ ] **Step 3: `unsafe` is a block, not a mode.** Dereferencing an FFI pointer, pointer arithmetic beyond a proved bound, calling an `unsafe fn`/`extern` function, and `alloc_uninit` require `unsafe { }`. A safe function cannot contain one. `verify --inventory` lists every unsafe site with its span and the reason; the count is a release number.
   *Current:* `unsafe { ... }` parses as an expression, checks its body and is
   lowered as a block by codegen; parser and sema tests pin the form. No safe

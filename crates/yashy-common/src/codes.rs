@@ -144,6 +144,8 @@ pub const REGISTRY_INDEX_MISMATCH: &str = "E1809";
 pub const USE_AFTER_CLOSE: &str = "E1401";
 /// A bare linear value is shared across a thread boundary.
 pub const RACE: &str = "E1402";
+/// A view was asked for a source whose storage the compiler cannot track.
+pub const UNPROVED_VIEW_SOURCE: &str = "E1403";
 /// A `const` or `let` binding is never read.
 pub const UNUSED_BINDING: &str = "E2000";
 /// `await` or `spawn` appears outside an `async fn`.
@@ -492,6 +494,12 @@ pub const CODES: &[Code] = &[
         page: include_str!("../../../docs/errors/E1402.md"),
     },
     Code {
+        id: UNPROVED_VIEW_SOURCE,
+        title: "unproved view source",
+        summary: "A view needs a binding the compiler can keep alive; a temporary or a field is not proved safe.",
+        page: include_str!("../../../docs/errors/E1403.md"),
+    },
+    Code {
         id: UNUSED_BINDING,
         title: "unused binding",
         summary: "A `const` or `let` binding is never read.",
@@ -830,8 +838,7 @@ pub fn docs_url(id: &str) -> String {
 /// names those rules so the matrix can report them as orphans instead of
 /// silently dropping them: a rule with no code is a rule nobody can check.
 pub const PLANNED_RULES: &[&str] = &[
-    "ALIAS-1", "ALIAS-2", "ALIAS-3", "ALIAS-4", "ALIAS-5", "DET-1", "DET-2", "DET-3", "DET-4",
-    "DET-5",
+    "ALIAS-1", "ALIAS-2", "ALIAS-4", "ALIAS-5", "DET-1", "DET-2", "DET-3", "DET-4", "DET-5",
 ];
 
 /// The stable rule id a code enforces.
@@ -889,6 +896,7 @@ pub fn rule_for(id: &str) -> &'static str {
         DOUBLE_CLOSE => "THREAD-1",
         USE_AFTER_CLOSE => "THREAD-2",
         RACE => "THREAD-3",
+        UNPROVED_VIEW_SOURCE => "ALIAS-3",
         UNKNOWN_TRAIT => "TRAIT-1",
         CONFLICTING_IMPL => "TRAIT-2",
         INCOMPLETE_IMPL => "TRAIT-3",

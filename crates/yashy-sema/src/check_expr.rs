@@ -12447,8 +12447,9 @@ impl<'src> Checker<'src> {
                     return None;
                 }
                 let HirExpr::Ident(path, _, _) = &base_checked else {
-                    self.error(
+                    self.error_code(
                         *span,
+                        codes::UNPROVED_VIEW_SOURCE,
                         "a view needs a binding as its source: a field or a temporary may not \
                          outlive the view"
                             .to_string(),
