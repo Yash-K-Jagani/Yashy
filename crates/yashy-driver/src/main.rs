@@ -1265,6 +1265,7 @@ fn trace_cmd(args: &[String]) -> ExitCode {
     let orphans: Vec<&trace::RuleRow> = rows.iter().filter(|row| row.tests.is_empty()).collect();
     let orphan_codes = &matrix.orphan_codes;
     let unenforced_rules = &matrix.orphan_rules_without_code;
+    let orphan_stdlib = &matrix.orphan_stdlib_functions;
     if json {
         println!("{}", trace::to_json(&matrix).render());
     } else if markdown {
@@ -1280,7 +1281,10 @@ fn trace_cmd(args: &[String]) -> ExitCode {
         }
     }
     if fail_orphans
-        && (!orphans.is_empty() || !orphan_codes.is_empty() || !unenforced_rules.is_empty())
+        && (!orphans.is_empty()
+            || !orphan_codes.is_empty()
+            || !unenforced_rules.is_empty()
+            || !orphan_stdlib.is_empty())
     {
         if !orphans.is_empty() {
             eprintln!(
@@ -1305,6 +1309,13 @@ fn trace_cmd(args: &[String]) -> ExitCode {
                 "error: {} rule(s) have no enforcing code: {}",
                 unenforced_rules.len(),
                 unenforced_rules.join(", ")
+            );
+        }
+        if !orphan_stdlib.is_empty() {
+            eprintln!(
+                "error: {} stdlib function(s) have no program: {}",
+                orphan_stdlib.len(),
+                orphan_stdlib.join(", ")
             );
         }
         return exit_code(EXIT_COMPILE_ERROR);

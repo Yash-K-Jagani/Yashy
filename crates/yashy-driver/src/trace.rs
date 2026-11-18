@@ -27,6 +27,8 @@ pub struct Matrix {
     pub orphan_codes: Vec<String>,
     /// Rules the design names but no catalog code yet enforces.
     pub orphan_rules_without_code: Vec<String>,
+    /// Public stdlib functions no program under `tests/programs` mentions.
+    pub orphan_stdlib_functions: Vec<String>,
 }
 
 fn collect_rust_tests(root: &Path, files: &mut Vec<PathBuf>) {
@@ -111,11 +113,78 @@ pub fn matrix(root: &Path) -> Result<Matrix, String> {
         .filter(|rule| !enforced.contains(**rule))
         .map(|rule| rule.to_string())
         .collect();
+    let orphan_stdlib_functions = stdlib_without_program(root)?;
     Ok(Matrix {
         rows,
         orphan_codes,
         orphan_rules_without_code,
+        orphan_stdlib_functions,
     })
+}
+
+/// Public stdlib functions no test program names, as `module.function`.
+///
+/// A function is covered when its bare name appears in any program under
+/// `crates/yashy-driver/tests/programs`. The module prefix is kept in the
+/// report so a reader knows which module to look at.
+pub fn stdlib_without_program(root: &Path) -> Result<Vec<String>, String> {
+    fn collect_yas(dir: &Path, files: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with('.') || name == "target" {
+                continue;
+            }
+            if path.is_dir() {
+                collect_yas(&path, files);
+            } else if name.ends_with(".ya") {
+                files.push(path);
+            }
+        }
+        files.sort();
+    }
+
+    let mut programs = Vec::new();
+    collect_yas(
+        &root.join("crates/yashy-driver/tests/programs"),
+        &mut programs,
+    );
+    let mut program_text = String::new();
+    for path in &programs {
+        program_text.push_str(
+            &std::fs::read_to_string(path)
+                .map_err(|error| format!("cannot read {}: {error}", path.display()))?,
+        );
+    }
+
+    let mut modules = Vec::new();
+    collect_yas(&root.join("crates/yashy-stdlib/yashy"), &mut modules);
+    let mut missing = Vec::new();
+    for path in &modules {
+        let module = path
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let text = std::fs::read_to_string(path)
+            .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+        for line in text.lines() {
+            let Some(rest) = line.trim().strip_prefix("pub fn ") else {
+                continue;
+            };
+            let name = rest
+                .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                .next()
+                .unwrap_or("");
+            if !name.is_empty() && !program_text.contains(name) {
+                missing.push(format!("{module}.{name}"));
+            }
+        }
+    }
+    Ok(missing)
 }
 
 /// The human page, generated from the same rows as the JSON model.
@@ -200,6 +269,16 @@ pub fn to_json(matrix: &Matrix) -> Json {
                 .orphan_rules_without_code
                 .iter()
                 .map(|rule| Json::string(rule))
+                .collect(),
+        ),
+    );
+    report.set(
+        "orphan_stdlib_functions",
+        Json::array(
+            matrix
+                .orphan_stdlib_functions
+                .iter()
+                .map(|entry| Json::string(entry))
                 .collect(),
         ),
     );
@@ -410,6 +489,9 @@ mod tests {
         assert!(rows
             .orphan_rules_without_code
             .contains(&"DET-1".to_string()));
+        assert!(rows
+            .orphan_stdlib_functions
+            .contains(&"convert.float_to_string".to_string()));
     }
 
     #[test]

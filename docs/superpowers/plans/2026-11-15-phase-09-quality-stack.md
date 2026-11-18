@@ -180,7 +180,9 @@ what keeps a 138-week programme honest.
   no test mention and ten unenforced ALIAS/DET rules, so the flag is honest
   rather than green. The remaining two kinds (conformance case with no rule,
   stdlib function with no program) still need their own indexes, so the step
-  stays open.
+  stays open. Now covered: `orphan_stdlib_functions` names a public stdlib
+  function no program mentions, and `--fail-orphans` fails on it. Only a
+  conformance case with no rule remains unindexed.
 - [x] **Step 2: Generate, never hand-edit.** `docs/traceability.md` is rendered
   from the registry plus the test metadata; the JSON form is the source. A rule
   id is stable across the edition; renaming one is a migration note.
