@@ -244,8 +244,8 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "bench",
         summary: "list benchmark rows from a baseline file",
-        usage: "yashyc bench [--json] [--list] [file]",
-        flags: &["--json", "--list"],
+        usage: "yashyc bench [--json] [--list] [--check-baseline <file>] [--thresholds <file>] [file]",
+        flags: &["--json", "--list", "--check-baseline", "--thresholds"],
         takes_path: true,
     },
     CommandSpec {

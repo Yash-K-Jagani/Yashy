@@ -1230,10 +1230,27 @@ fn bench_cmd(args: &[String]) -> ExitCode {
     let mut json = false;
     let mut list = true;
     let mut path: Option<PathBuf> = None;
-    for argument in args {
-        match argument.as_str() {
+    let mut baseline: Option<PathBuf> = None;
+    let mut thresholds: Option<PathBuf> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
             "--json" => json = true,
             "--list" => list = true,
+            "--check-baseline" => {
+                if i + 1 >= args.len() {
+                    return usage_error("`--check-baseline` needs a file path");
+                }
+                baseline = Some(PathBuf::from(&args[i + 1]));
+                i += 1;
+            }
+            "--thresholds" => {
+                if i + 1 >= args.len() {
+                    return usage_error("`--thresholds` needs a file path");
+                }
+                thresholds = Some(PathBuf::from(&args[i + 1]));
+                i += 1;
+            }
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown option `{other}` for `bench`"));
             }
@@ -1244,6 +1261,7 @@ fn bench_cmd(args: &[String]) -> ExitCode {
                 path = Some(PathBuf::from(other));
             }
         }
+        i += 1;
     }
     let path = path.unwrap_or_else(|| PathBuf::from("benchmarks/thresholds.bench"));
     let text = match std::fs::read_to_string(&path) {
@@ -1254,6 +1272,37 @@ fn bench_cmd(args: &[String]) -> ExitCode {
         }
     };
     let rows = bench::parse(&text);
+    if let Some(baseline_path) = baseline {
+        let base_text = match std::fs::read_to_string(&baseline_path) {
+            Ok(text) => text,
+            Err(error) => {
+                eprintln!("error: cannot read {}: {error}", baseline_path.display());
+                return exit_code(EXIT_USAGE);
+            }
+        };
+        let threshold_rows = match thresholds {
+            Some(path) => match std::fs::read_to_string(&path) {
+                Ok(text) => bench::parse(&text),
+                Err(error) => {
+                    eprintln!("error: cannot read {}: {error}", path.display());
+                    return exit_code(EXIT_USAGE);
+                }
+            },
+            None => bench::parse(&text),
+        };
+        let diffs = bench::compare(&rows, &bench::parse(&base_text), &threshold_rows);
+        let regressed = diffs.iter().any(|diff| diff.regressed);
+        if json {
+            println!("{}", bench::compare_json(&diffs).render());
+        } else {
+            print!("{}", bench::render_comparison(&diffs));
+        }
+        return if regressed {
+            exit_code(EXIT_COMPILE_ERROR)
+        } else {
+            exit_code(EXIT_OK)
+        };
+    }
     if json {
         println!("{}", bench::to_json(&rows).render());
     } else if list {

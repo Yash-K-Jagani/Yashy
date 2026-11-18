@@ -60,9 +60,135 @@ pub fn to_json(rows: &[Row]) -> Json {
     report
 }
 
+/// One row compared against its baseline.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Diff {
+    pub key: String,
+    pub baseline: f64,
+    pub actual: f64,
+    /// `actual / baseline`, or 0 when the baseline was zero.
+    pub ratio: f64,
+    /// Allowed movement in percent.
+    pub threshold: f64,
+    pub regressed: bool,
+}
+
+/// The threshold that applies to a row: an exact override, then its kind,
+/// then the default from a `default=` line.
+pub fn threshold_for(key: &str, thresholds: &[Row]) -> f64 {
+    let default = thresholds
+        .iter()
+        .find(|row| row.key == "default")
+        .map(|row| row.value)
+        .unwrap_or(20.0);
+    if let Some(exact) = thresholds.iter().find(|row| row.key == key) {
+        return exact.value;
+    }
+    let kind = if key.ends_with("_compile_ms") {
+        "compile"
+    } else if key.ends_with("_binary_bytes") {
+        "binary"
+    } else if key.ends_with("_run_ms") {
+        "runtime"
+    } else {
+        ""
+    };
+    thresholds
+        .iter()
+        .find(|row| row.key == kind)
+        .map(|row| row.value)
+        .unwrap_or(default)
+}
+
+/// Compare current rows with a saved baseline.
+///
+/// A key missing from the baseline is reported with a zero base and `ratio`
+/// `0` rather than skipped: a new row is a new claim and must be read. A
+/// regression beyond the row's threshold fails the check.
+pub fn compare(current: &[Row], baseline: &[Row], thresholds: &[Row]) -> Vec<Diff> {
+    current
+        .iter()
+        .map(|row| {
+            let base = baseline
+                .iter()
+                .find(|entry| entry.key == row.key)
+                .map(|entry| entry.value)
+                .unwrap_or(0.0);
+            let ratio = if base == 0.0 { 0.0 } else { row.value / base };
+            let threshold = threshold_for(&row.key, thresholds);
+            Diff {
+                key: row.key.clone(),
+                baseline: base,
+                actual: row.value,
+                ratio,
+                threshold,
+                regressed: base != 0.0 && (ratio - 1.0).abs() * 100.0 > threshold,
+            }
+        })
+        .collect()
+}
+
+/// The same comparison in the schema-v1 envelope.
+pub fn compare_json(diffs: &[Diff]) -> Json {
+    let rows: Vec<Json> = diffs
+        .iter()
+        .map(|diff| {
+            let mut object = Json::object();
+            object.set("key", Json::string(&diff.key));
+            object.set("baseline", Json::string(diff.baseline.to_string()));
+            object.set("actual", Json::string(diff.actual.to_string()));
+            object.set("ratio", Json::string(diff.ratio.to_string()));
+            object.set("threshold", Json::string(diff.threshold.to_string()));
+            object.set("regressed", Json::bool(diff.regressed));
+            object
+        })
+        .collect();
+    let mut report = Json::object();
+    report.set("schema_version", Json::number(1));
+    report.set("tool", Json::string("bench"));
+    report.set("yashy_version", Json::string(env!("CARGO_PKG_VERSION")));
+    report.set("comparison", Json::array(rows));
+    report
+}
+
+/// The human page, generated from the same rows as the JSON model.
+pub fn render_comparison(diffs: &[Diff]) -> String {
+    let mut out = String::from("key baseline actual ratio threshold\n");
+    for diff in diffs {
+        out.push_str(&format!(
+            "{} {} {} {:.3} {}%{}\n",
+            diff.key,
+            diff.baseline,
+            diff.actual,
+            diff.ratio,
+            diff.threshold,
+            if diff.regressed { " REGRESSED" } else { "" }
+        ));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_regression_beyond_the_threshold_is_flagged() {
+        let current = parse("fib_run_ms=150\nfib_compile_ms=110\n");
+        let baseline = parse("fib_run_ms=100\nfib_compile_ms=100\n");
+        let thresholds = parse("runtime=20\ncompile=100\n");
+        let diffs = compare(&current, &baseline, &thresholds);
+        assert!(diffs[0].regressed, "50% over a 20% gate: {:?}", diffs[0]);
+        assert!(!diffs[1].regressed, "10% under a 100% gate: {:?}", diffs[1]);
+    }
+
+    #[test]
+    fn an_exact_override_beats_the_kind_threshold() {
+        let thresholds = parse("runtime=20\nfib_run_ms=100\n");
+        assert_eq!(threshold_for("fib_run_ms", &thresholds), 100.0);
+        assert_eq!(threshold_for("other_run_ms", &thresholds), 20.0);
+        assert_eq!(threshold_for("unknown", &thresholds), 20.0);
+    }
 
     #[test]
     fn comments_and_malformed_lines_are_not_rows() {
