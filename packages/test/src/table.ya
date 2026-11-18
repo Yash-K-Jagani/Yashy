@@ -1,0 +1,28 @@
+// Table-driven tests.
+//
+// A table is two parallel slices: the case names and their results. The test
+// body is whatever produced a `bool` for each position, so a table stays data
+// and a case is never hidden in a macro. The return value is the number of
+// failed cases, which a caller can assert on.
+
+/// Run a table of named cases, printing one line per failure.
+pub fn run_table([]string names, []bool results) -> int {
+    const count = names.len();
+    assert(results.len() == count);
+    let failed = 0;
+    for i in 0..count {
+        const name = switch names[i] {
+            case Some(value) { value }
+            case None { "?" }
+        };
+        const passed = switch results[i] {
+            case Some(value) { value }
+            case None { false }
+        };
+        if !passed {
+            print("FAIL case ${name}");
+            failed = failed + 1;
+        }
+    }
+    return failed;
+}

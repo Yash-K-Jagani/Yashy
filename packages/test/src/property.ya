@@ -1,0 +1,33 @@
+// Seeded property tests with a small deterministic shrinker.
+//
+// A property is a function from an integer to `bool`. The generator is a
+// linear congruential generator with a fixed multiplier, so a seed reproduces
+// the whole run. A failure is halved while it still fails, which shrinks a
+// numeric counter-example without needing a domain-specific generator.
+
+/// One deterministic draw from `state`.
+fn next(int state) -> int {
+    return (state * 1664525 + 1013904223) % 2147483647;
+}
+
+/// Run a property for `iterations` seeded draws.
+///
+/// Returns the smallest failing input, or `-1` when every input passed.
+pub fn run_property(fn(int) -> bool check, int seed, int iterations) -> int {
+    assert(iterations > 0);
+    let state = seed;
+    let index = 0;
+    while index < iterations {
+        state = next(state);
+        const value = state % 100000;
+        if !check(value) {
+            let smallest = value;
+            while smallest > 0 && !check(smallest / 2) {
+                smallest = smallest / 2;
+            }
+            return smallest;
+        }
+        index = index + 1;
+    }
+    return 0 - 1;
+}
