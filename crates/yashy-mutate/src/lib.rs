@@ -57,6 +57,8 @@ pub const OPERATORS: &[(&str, &str)] = &[
     ("ROR", "replace a comparison with a neighbouring one"),
     ("COR", "replace a boolean connective with the other one"),
     ("BOOL", "negate a boolean literal"),
+    ("ZERO", "replace a non-zero integer literal with zero"),
+    ("NEXT", "replace an integer literal with the next one"),
 ];
 
 /// One AST-level mutation of one expression.
@@ -149,6 +151,22 @@ pub fn mutants(expr: &Expr) -> Vec<Mutant> {
             operator: "BOOL",
             expr: Expr::Literal(Literal::Bool(!value), *span),
         }],
+        Expr::Literal(Literal::I64(value), span) => {
+            let mut out = Vec::new();
+            if *value != 0 {
+                out.push(Mutant {
+                    operator: "ZERO",
+                    expr: Expr::Literal(Literal::I64(0), *span),
+                });
+            }
+            if *value < i64::MAX {
+                out.push(Mutant {
+                    operator: "NEXT",
+                    expr: Expr::Literal(Literal::I64(value + 1), *span),
+                });
+            }
+            out
+        }
         _ => Vec::new(),
     }
 }
@@ -187,6 +205,24 @@ mod tests {
             Expr::Literal(Literal::Bool(false), span) => assert_eq!(*span, Span::new(4, 8)),
             other => panic!("expected a false literal, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn an_integer_literal_gets_zero_and_next_without_losing_its_span() {
+        let original = Expr::Literal(Literal::I64(7), Span::new(2, 4));
+        let found = mutants(&original);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].operator, "ZERO");
+        assert_eq!(found[1].operator, "NEXT");
+        match (&found[0].expr, &found[1].expr) {
+            (Expr::Literal(Literal::I64(0), first), Expr::Literal(Literal::I64(8), second)) => {
+                assert_eq!(*first, Span::new(2, 4));
+                assert_eq!(*second, Span::new(2, 4));
+            }
+            other => panic!("expected two integer mutants, got {other:?}"),
+        }
+        let zero = Expr::Literal(Literal::I64(0), Span::new(0, 1));
+        assert_eq!(mutants(&zero).len(), 1);
     }
 
     #[test]

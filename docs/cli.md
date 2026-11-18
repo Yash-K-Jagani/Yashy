@@ -534,7 +534,7 @@ run a bounded campaign yet.
 ## `yashyc mutate --list [--json]`
 
 Lists the AST-level mutation operators with stable names (`AOR`, `ROR`, `COR`,
-`BOOL`) and what each changes. The mutator lives in the `yashy-mutate` crate;
+`BOOL`, `ZERO`, `NEXT`) and what each changes. The mutator lives in the `yashy-mutate` crate;
 this verb is its inventory. A mutation score must name the operator that
 survived, so an unnamed operator is not a score. `mutate --score
 killed:survived:timed_out:equivalent` computes a deterministic percentage from
