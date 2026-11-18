@@ -259,7 +259,7 @@ a claim that is not true.
 |---|---|---|---|
 | 4.1 / 4.3 | A one-function edit rebuilds one module object; a no-change build hits per-module objects | Whole-program IR and binary cache plus a cached runtime object per runtime source; one-function edit re-emits the whole IR | Per-module user objects behind the existing cache key. The incremental test stays honest about what it measures |
 | 5.2 | Parse/check and codegen shard per module in parallel | Front end parses/checks in parallel and output is byte-deterministic; `emit_program` remains whole-program | Parallel per-module codegen after 4.3 lands |
-| 6.2 | Compile rows gate at 20% on the normalized ratio | Ratios are measured and printed; `fib_wrap_ratio` is gated at 1.20; compile rows deliberately use a 100% tripwire because shared-runner noise is 20-50% | Wire the compile ratio into `yashy-bench compare` when a stable same-run reference exists |
+| 6.2 | Compile rows gate at 20% on the normalized ratio | `fib_compile_ratio` (Yashy's compile over clang's in the same run) is a `Kind::Ratio` row gated at 20%, and `fib_wrap_ratio` keeps its absolute 1.20 bound; raw `*_compile_ms` rows are a 100% tripwire for shared-runner noise | Nothing outstanding |
 | Gates | All acceptance commands run and pass on Windows and Linux | `cargo check --workspace --all-targets` is green locally; freshly linked binaries are blocked by Windows Application Control, so the runtime gates are CI-only | CI is deferred by the project owner; re-run the full gate set when CI is unblocked |
 
 The phase is therefore **functionally complete except CI and the per-module

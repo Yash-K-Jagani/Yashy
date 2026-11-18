@@ -16,6 +16,14 @@ invented per-function counters: a fresh run reports one row for `main` and says
 where the per-function table comes from. `--report <file>` renders a recorded
 counter table produced by a build that collected one.
 
+`--json` renders either form as the schema-v1 envelope (`program`,
+`overhead_pct`, `functions`) instead of the table.
+
+```text
+yashyc profile --json main.ya
+yashyc profile --json --report recorded.json
+```
+
 ## Allocation total
 
 ```text
@@ -36,18 +44,26 @@ The trace table is bounded at 16384 events; a run that fills it reports a
 no symbolisation itself: a program that does not ask for a trace pays one
 cached `getenv` and records nothing.
 
+## Sampler fallback
+
+```text
+yashyc profile --sample main.ya
+```
+
+`--sample` is accepted so a script can ask for it, but no native sampler is
+wired in yet. The command prints a note and measures the same wall-clock
+counter path as `profile main.ya`; it never presents counters as samples.
+
 ## What is not here
 
-- Sampling CPU profiler (`perf_event_open`, ETW, `sample`): not integrated.
-  Symbols would need per-instruction LLVM debug metadata; debug builds currently
-carry only a function-entry line table, which is not enough to attribute samples
-inside a function.
-- Allocation profiler with source spans: shipped for allocations and frees; a
-  leaking program cannot be built without `--no-verify`, so `sites` is empty on
-  a verified program by construction.
+- Native sampling CPU profiler (`perf_event_open`, ETW, `sample`): not
+  integrated. Debug builds now carry a location per checked statement, but
+  there is no per-instruction mapping and no platform sampler to walk the
+  stack. Once landed, samples would be attributed from the same debug info.
 - Flame graph: not implemented.
 
-A `--sample` flag is reserved in the command table but the measurement path is
-the counter profiler until native sampling lands. See
+A verified program cannot leak, so the allocation report's `sites` array is
+empty on one by construction; it is the trace of what the runtime recorded, not
+a guess. See
 [the phase plan](superpowers/plans/2026-11-15-phase-02-developer-surface.md)
 for the tracked gap.

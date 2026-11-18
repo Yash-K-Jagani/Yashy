@@ -115,3 +115,44 @@ fn alloc_report_names_the_site_of_every_allocation() {
         "the program frees its buffer: {stdout}"
     );
 }
+
+#[test]
+fn a_recorded_report_has_the_same_model_as_json() {
+    let dir = common::work_dir("profile-json");
+    common::write(&dir, "report.json", REPORT);
+    let (code, stdout, stderr) = run(&[
+        "profile",
+        "--json",
+        "--report",
+        dir.join("report.json").to_str().unwrap(),
+    ]);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    for field in [
+        "\"schema_version\"",
+        "\"tool\"",
+        "\"program\"",
+        "\"overhead_pct\"",
+        "\"functions\"",
+        "\"name\": \"hot\"",
+        "\"self_ns\"",
+    ] {
+        assert!(stdout.contains(field), "missing {field}: {stdout}");
+    }
+}
+
+#[test]
+fn sample_names_its_counter_fallback_instead_of_inventing_samples() {
+    let dir = common::work_dir("profile-sample-fallback");
+    common::write(&dir, "main.ya", "fn main() {\n    print(\"hi\");\n}\n");
+    let (code, stdout, stderr) =
+        run(&["profile", "--sample", dir.join("main.ya").to_str().unwrap()]);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert!(
+        stderr.contains("no native sampler"),
+        "the fallback is stated, not hidden: {stderr}"
+    );
+    assert!(
+        stdout.contains("wall clock"),
+        "the counter path is what ran: {stdout}"
+    );
+}

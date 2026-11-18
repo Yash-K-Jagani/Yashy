@@ -2143,7 +2143,31 @@ fn temp_run_dir() -> PathBuf {
 }
 
 fn exit_status_code(status: ExitStatus) -> i32 {
-    status.code().unwrap_or(EXIT_COMPILE_ERROR)
+    if let Some(code) = status.code() {
+        return code;
+    }
+    // A child killed by a signal has no exit code. A wrapper that answers 1
+    // hides *which* signal and whether the child crashed; the honest answer is
+    // to die from the same signal, so the shell sees 128+N and a runner can
+    // tell a SIGSEGV from a SIGTERM. Resetting the handler first is required:
+    // Rust may have installed one for the signal, and `raise` would then run
+    // that handler instead of terminating.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(signal) = status.signal() {
+            extern "C" {
+                fn signal(signal: i32, handler: usize) -> usize;
+                fn raise(signal: i32) -> i32;
+            }
+            // SIG_DFL is 0 on every Unix the compiler targets.
+            unsafe {
+                signal(signal, 0);
+                raise(signal);
+            }
+        }
+    }
+    EXIT_COMPILE_ERROR
 }
 
 /// Start a freshly linked binary, stepping around an Application Control /
@@ -6209,9 +6233,19 @@ fn coverage_cmd(args: &[String]) -> ExitCode {
 }
 
 fn profile_cmd(args: &[String]) -> ExitCode {
-    // `--alloc-report <file>` runs a program with the runtime's leak report
-    // armed and renders the total as a schema-v1 table. Site attribution is
-    // not available yet; the report says so rather than inventing a site.
+    // `--sample` is part of the command surface, but no native sampler is
+    // wired in yet. Accepting the flag and naming the fallback is better than
+    // rejecting a documented option: the measurement is the counter path, and
+    // the note says exactly that.
+    let sample = args.iter().any(|arg| arg == "--sample");
+    if sample {
+        eprintln!("note: no native sampler is available; measuring the counter path instead");
+    }
+    let json = args.iter().any(|arg| arg == "--json");
+    // `--alloc-report <file>` runs a program with the runtime's trace armed and
+    // renders every allocation site and the blocks still live at exit as a
+    // schema-v1 table. The site comes from the runtime's recorded caller, not
+    // from a guess.
     if let Some(position) = args.iter().position(|arg| arg == "--alloc-report") {
         let Some(path) = args.get(position + 1) else {
             return usage_error("`--alloc-report` needs a file");
@@ -6227,7 +6261,11 @@ fn profile_cmd(args: &[String]) -> ExitCode {
         match std::fs::read_to_string(path) {
             Ok(text) => match yashy_driver::profile::parse_report(&text) {
                 Ok(report) => {
-                    print!("{}", report.render());
+                    if json {
+                        println!("{}", yashy_common::json_rpc::to_string(&report.to_json()));
+                    } else {
+                        print!("{}", report.render());
+                    }
                     return exit_code(EXIT_OK);
                 }
                 Err(message) => {
@@ -6244,6 +6282,7 @@ fn profile_cmd(args: &[String]) -> ExitCode {
     let mut input: Option<PathBuf> = None;
     for arg in args {
         match arg.as_str() {
+            "--sample" | "--json" => {}
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown option `{other}` for `profile`"))
             }
@@ -6295,7 +6334,11 @@ fn profile_cmd(args: &[String]) -> ExitCode {
                     total_ns: elapsed.as_nanos() as u64,
                 }],
             };
-            print!("{}", report.render());
+            if json {
+                println!("{}", yashy_common::json_rpc::to_string(&report.to_json()));
+            } else {
+                print!("{}", report.render());
+            }
             println!(
                 "note: a fresh run carries no per-function counters; record one with instrumentation and render it with `yashyc profile --report`."
             );

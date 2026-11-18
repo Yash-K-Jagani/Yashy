@@ -446,10 +446,12 @@ folded into the IR cache key rather than resolver inputs.
   the tarball is refused with the field that disagrees.
   *Current:* `tests/attest.rs` pins the standard statement types, subject and
   material digests and a negative signature case. `attest --material` records
-  any named file; the statement parses back through `Statement::from_json_text`,
-  the verifier re-hashes every named material and checks the subject digest. The
-  compiler does not automatically name the source commit, lockfile, toolchain or
-  native libraries, and there is no rebuild-from-materials gate.
+  any named file and also picks up `yashy.toml`, `yashy.lock` and `main.ya` in
+  the working directory; the statement parses back through
+  `Statement::from_json_text`, the verifier re-hashes every named material,
+  checks the subject digest, and `verify-attestation --rebuild` rebuilds the
+  named `.ya` entry reproducibly and compares. The compiler does not name a
+  source commit, toolchain hashes or native libraries automatically.
 - [x] **Step 2: Provenance is produced by the same build that produces the
   artifact.** The statement is written in the same invocation as the package, is
   signed by the release key, and is embedded in the registry entry next to the

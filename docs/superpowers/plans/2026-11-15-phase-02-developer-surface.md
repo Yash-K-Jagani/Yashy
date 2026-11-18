@@ -353,10 +353,11 @@ IR stays byte-identical. Verified with clang and `llvm-readobj`.
 - Create: `crates/yashy-driver/tests/profile_sampling.rs`, `crates/yashy-driver/tests/coverage.rs`
 - Docs: `docs/profiling.md`, `docs/coverage.md`
 
-*Actual:* only `docs/profiling.md` and `docs/coverage.md` and
-`profile --alloc-report` landed; `coverage.rs`, `sample.rs`, `profile_sampling.rs`
-and `coverage.rs` were not created because their gates need per-instruction
-debug locations.
+*Actual:* `profile.rs`, `coverage.rs`, `tests/profile.rs`, `tests/coverage.rs`
+and both docs landed. `sample.rs` and `tests/profile_sampling.rs` were not
+created because a native sampler needs a platform stack walker and
+per-instruction locations, which neither the runtime nor the backend provides
+yet; the counter and allocation paths are the honest measurement.
 
 - [ ] **Step 1: Write the failing test.** A program with a hot loop, a cold
   function and one deliberate leak. Assert the sampler attributes ≥ 80% of
@@ -373,18 +374,23 @@ debug locations.
   profiler. Symbols come from the debug info Phase 2 already emits.
   *Current:* not integrated. Debug builds now attach `!dbg` to every checked
   statement, but no native sampler is spawned and no platform stack walker is
-  wired in. `profile --sample` is reserved in the command table and uses the
-  counter path.
-- [ ] **Step 3: Allocation profiling has no hidden hooks.** The allocator
+  wired in. `profile --sample` is accepted, prints a note that no native
+  sampler exists, and measures the same counter path; the CLI never presents
+  counters as samples.
+- [x] **Step 3: Allocation profiling has no hidden hooks.** The allocator
   interface records size, site and a bounded stack; `--alloc-report` is the
   same data in table form. Leaks are reported at exit with the allocation span.
-  *Current:* the runtime event trace now records size, address, caller and a
-  bounded three-frame stack for every allocation and free, behind
-  `YASHY_TRACE_FILE`. `profile --alloc-report` builds with debug info, runs with
-  that variable set, and renders the same events as `allocations` (every site)
-  and `sites` (blocks still live at exit), with counts, bytes and source spans
-  from `llvm-symbolizer`. A verified program cannot leak, so `sites` is empty
-  there by construction; the attribution is real, not invented.
+  *Current:* the runtime records size, address, caller and a bounded three-frame
+  stack for every allocation and free, behind `YASHY_TRACE_FILE`; a program that
+  does not ask for a trace pays one cached `getenv`. `profile --alloc-report`
+  builds with debug info, runs with that variable set, and renders the same
+  events as `allocations` (every site) and `sites` (blocks still live at exit),
+  with counts, bytes and source spans from `llvm-symbolizer`. The driver reads
+  the trace after exit, so the "at exit" snapshot is exactly the last event
+  record. `tests/profile.rs` builds a program that allocates and frees, and
+  asserts both arrays, a `main.ya` span and `live_allocations: 0`. A verified
+  program cannot leak, so `sites` is empty there by construction; the
+  attribution is real, not invented.
 - [x] **Step 4: Coverage is source-based.** Compile with clang's
   `-fprofile-instr-generate -fcoverage-mapping`, run the test suite, merge
   profiles, and render per-file/per-line counts. `--fail-under` gates CI.
@@ -671,16 +677,16 @@ still owed so a later phase does not inherit a false checklist.
 | Task | Claimed | Shipped | Follow-up |
 |---|---|---|---|
 | 1.1-1.3 | All LSP features answer; `LspModel` is a `yashy-query` snapshot; rename refuses macro-origin and out-of-workspace edits | All 19 features answer from a source-derived `LspModel`; rename refuses invalid names and collisions; code actions now apply removed-keyword and name-typo fixes as real workspace edits | Feed the model from the query database; add project-wide rename refusals |
-| 2.1 / 2.2 / 2.4 | Name typo, missing `move`, wrong argument order, LSP-applied fix, SARIF `fixes` | Name-typo and removed-keyword suggestions, LSP quick fixes with real workspace edits, SARIF `fixes` with line/column regions; no missing-`move` or argument-order producer | Add the two remaining suggestion producers |
+| 2.1 / 2.2 / 2.4 | Name typo, missing `move`, wrong argument order, LSP-applied fix, SARIF `fixes` | Name-typo and removed-keyword suggestions, a `move` insertion for a linear copy, an argument-permutation suggestion when the argument types are a permutation of the parameters, LSP quick fixes with real workspace edits, SARIF `fixes` with line/column regions | Nothing outstanding |
 | 3.1 / 3.2 | `--deny`, `switch`/`while`/`Result` lints, lint suggestions, generated `docs/lints.md` | `--deny <code>`, `--group`, `--docs`, the machine-applicable `var`→`let` suggestion, all six lints (including `switch`/`while`/`Result`) and a generated `docs/lints.md` compared by test | Lints are source-level advice; they do not use the checker's type information |
 | 4.1 / 4.3 | Every code has a triggering test or fixture; every code names its rule | Page, heading, catalog, `explain --json` and `--all --json` are tested; `codes::rule_for` gives every code a unique `FAMILY-N` id in the JSON; triggering fixtures are not | Add one triggering fixture per code |
 | 5.1 | First test under 60 s on a cold machine | `new` creates a project and its first test passes; the wall-clock bound is not asserted in the unit test | Measure in CI |
 | 5.3 / 5.4 | `repl`, `doc --serve` | A compiling REPL with retained declarations, type reporting and honest refusals; a loopback read-only docs server with `/json` and `/search`; no persistent HIR interpreter | Add an HIR interpreter only if compile-per-expression is too slow |
-| 6 | DWARF/CodeView debugger, async task view, pretty printers | `yashyc debug` selects LLDB or cdb; debug builds emit `!dbg` per checked statement (a real `.debug_line` section); `inspect --addr` maps addresses to spans; no type table for typed locals or pretty printers | Emit type locations for locals and parameters, then attach pretty printers |
+| 6 | DWARF/CodeView debugger, async task view, pretty printers | `yashyc debug` selects LLDB or cdb; debug builds emit `!dbg` per checked statement and per nested lexical block (a real `.debug_line` section), sources types for structs, enums and `Option`/`Result`, ships LLDB value printers, and `inspect --addr` maps addresses to spans; no scripted typed-value assertion | Add a scripted LLDB typed-value test |
 | 7 | Sampling and allocation profilers, source coverage | `profile` reports wall-clock time and renders recorded counter tables; `--alloc-report` attributes live blocks to source spans through the runtime event trace and `llvm-symbolizer`; `yashyc coverage` covers one program or, with `--tests`, a merged suite, rendering lcov/JSON/SARIF with `--fail-under`. There is still no native sampling profiler | Add native sampling, then an 80%-attribution test |
-| 8.1 / 8.2 | `inspect --addr`, contracts, layout, `trace --events`, `tokens --bpe` | `inspect --addr` maps an address via `llvm-nm` and the index; `inspect --layout` reports size/align/field offsets from the checker's layout walk; contracts and spans are in `inspect --json`; `tokens --bpe` measures Yashy's own tokenizer; `trace --json` emits the static rule matrix | Vendor three BPE vocabularies and implement runtime events |
+| 8.1 / 8.2 | `inspect --addr`, contracts, layout, `trace --events`, `tokens --bpe` | `inspect --addr` maps an address via `llvm-nm` and the index; `inspect --layout` reports size/align/field offsets from the checker's layout walk and `inspect --json` attaches the same layout to a type symbol; contracts and spans are in `inspect --json`; `tokens --bpe` measures Yashy's own tokenizer; `trace --json` emits the static rule matrix | Vendor three BPE vocabularies |
 | 9 | One generated grammar, six clients, `editors` CI job | One model drives 11 generated files; all six clients are committed; `tests/grammar.rs` is the byte gate and the LSP conformance transcript is shared; no `editors` CI job yet, and the real-editor run is deferred with CI | Add the `editors` job when CI is unblocked |
-| 10.1 / 10.3 / 10.4 / 10.5 | Colour policy, `NO_COLOR`/`CLICOLOR`/`TERM=dumb`/`COLUMNS`, committed completions, pager, hyperlinks | `term.rs` implements the colour, width, pager and OSC 8 policies; `scripts/completions/*` are committed and diff-tested; `docs/terminal.md` documents the install; a signal-killed child reports `1` instead of re-raising the signal | Re-raise the child's signal on Unix |
+| 10.1 / 10.3 / 10.4 / 10.5 | Colour policy, `NO_COLOR`/`CLICOLOR`/`TERM=dumb`/`COLUMNS`, committed completions, pager, hyperlinks | `term.rs` implements the colour, width, pager and OSC 8 policies; `scripts/completions/*` are committed and diff-tested; `docs/terminal.md` documents the install; a signal-killed child is re-raised so the shell sees the same signal | Nothing outstanding |
 | Gates | LSP conformance in two editors, debugger and profiler demos, terminal matrix, `editors` job | `cargo check --workspace --all-targets` is green; runtime gates cannot run locally (Windows Application Control) and CI is deferred | Re-run the full gate set when CI is unblocked |
 
 ## Out of scope
