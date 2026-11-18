@@ -58,4 +58,17 @@ fn main() {
         case Err(_) { print("bad escapes"); }
     };
     print(url.percent_decode("%zz") matches Err(_));
+    switch uuid.v4() {
+        case Ok(generated) {
+            print(uuid.is_valid(generated));
+            print(generated.byte_at(14).to_int() == 52);
+            const variant = generated.byte_at(19).to_int();
+            print(variant == 56 || variant == 57 || variant == 97 || variant == 98);
+        }
+        case Err(_) {
+            print(false);
+            print(false);
+            print(false);
+        }
+    };
 }

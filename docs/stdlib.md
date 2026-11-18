@@ -1277,3 +1277,16 @@ fn nil() -> string
 
 The nil UUID, all zeroes.
 
+### `v4`
+
+```yashy
+fn v4() -> Result[string, text.TextError]
+```
+
+Generate a version-4 UUID from sixteen OS-random bytes.
+
+The version nibble is set to `4` and the variant bits to `10`, so the text
+this produces is a valid RFC 4122 UUID. The entropy comes from `rand.fill`,
+which reads the OS source; a deterministic build fixes that source at the
+process edge.
+

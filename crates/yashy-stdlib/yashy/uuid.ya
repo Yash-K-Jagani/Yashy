@@ -6,6 +6,7 @@
 // returning `false`, never by a sentinel string.
 
 import text;
+import rand;
 
 /// The nil UUID, all zeroes.
 pub fn nil() -> string {
@@ -38,4 +39,25 @@ pub fn from_bytes([]char bytes) -> Result[string, text.TextError] {
     }
     const hex = text.hex_encode(bytes);
     return Ok(hex[0..8] + "-" + hex[8..12] + "-" + hex[12..16] + "-" + hex[16..20] + "-" + hex[20..32]);
+}
+
+/// Generate a version-4 UUID from sixteen OS-random bytes.
+///
+/// The version nibble is set to `4` and the variant bits to `10`, so the text
+/// this produces is a valid RFC 4122 UUID. The entropy comes from `rand.fill`,
+/// which reads the OS source; a deterministic build fixes that source at the
+/// process edge.
+pub fn v4() -> Result[string, text.TextError] {
+    let bytes = rand.fill(16);
+    const sixth = switch bytes[6] {
+        case Some(value) { value.to_int() }
+        case None { 0 }
+    };
+    bytes.set(6, ((sixth & 15) | 64).to_char());
+    const ninth = switch bytes[8] {
+        case Some(value) { value.to_int() }
+        case None { 0 }
+    };
+    bytes.set(8, ((ninth & 63) | 128).to_char());
+    return from_bytes(bytes);
 }
