@@ -2393,6 +2393,24 @@ fn inspect_cmd(args: &[String]) -> ExitCode {
             return exit_code(EXIT_USAGE);
         };
         let names = decls.field_names(type_name);
+        if !json {
+            let fields: Vec<String> = found
+                .offsets
+                .iter()
+                .enumerate()
+                .map(|(index, offset)| match names.get(index) {
+                    Some(label) => format!("{label}@{offset}"),
+                    None => format!("field{index}@{offset}"),
+                })
+                .collect();
+            println!(
+                "{type_name} size={} align={} fields={}",
+                found.size,
+                found.align,
+                fields.join(", ")
+            );
+            return exit_code(EXIT_OK);
+        }
         let mut report = Json::object();
         report.set("schema_version", Json::number(1));
         report.set("tool", Json::string("inspect --layout"));
