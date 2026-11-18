@@ -177,11 +177,18 @@ what keeps a 138-week programme honest.
   and forward-slash so the page is byte-stable across OSes.
 - [ ] **Step 3: Wire it into CI.** The orphan check is a required job; the
   matrix is an artifact so a reviewer can see coverage per rule.
-- [ ] **Step 4: A discharged obligation emits a certificate.** `verify --json`
+- [x] **Step 4: A discharged obligation emits a certificate.** `verify --json`
   reports, for every obligation, the rule id, the fact that discharged it and the
   span; `--certificates <file>` writes the set. A proof without a rule is an
   orphan, and a rule that never appears in a certificate has no test that
   exercises it. This is the machine-checkable form of "the verifier proved it".
+  *Current:* `verify --certificates <file>` writes one JSON certificate per
+  obligation with `rule`, `obligation`, `fact` and `span`, and `--json` carries
+  the same array as `certificates`. The rule mapping is a closed match over
+  `ObligationKind` (`RUNTIME-2` for bounds/overflow, `TYPE-6` for shifts), so an
+  obligation without a rule cannot be emitted. Both renderings are documented
+  in `docs/cli.md`. The CI orphan check that asserts every rule appears in a
+  certificate (Step 3) is still owed.
 - [ ] **Step 5: Commit.**
 
 ### Task 6: Examples and book

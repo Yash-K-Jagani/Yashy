@@ -397,6 +397,18 @@ The inventory never changes the exit code. A program the verifier accepted
 before the flag existed is still accepted with it; what changed is that its
 assumptions can be read instead of guessed at.
 
+### `--certificates <file>`
+
+Writes one JSON certificate per proof obligation: the rule id that would have
+reported a failure, the obligation kind (`Bounds`, `Overflow`, `ShiftInRange`),
+the fact (`established` or `runtime_check_required`) and the source span. A
+bounds or overflow obligation carries `RUNTIME-2`; a shift obligation carries
+`TYPE-6`. With `--json` the same array appears in the envelope as
+`certificates`. Without the flag the key is absent, which means "not computed".
+A certificate without a rule is an orphan, so the mapping is a closed match
+over the obligation kinds rather than a string guess. Like `--inventory`, this
+flag never changes the exit code.
+
 ## Warnings
 
 `yashyc` emits four coded warnings (E2000-E2003): unused binding, unused

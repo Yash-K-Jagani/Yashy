@@ -42,7 +42,9 @@ use yashy_driver::{
     TimingRow,
 };
 use yashy_manifest::{Lockfile, Manifest};
-use yashy_verify::{first_contract, Assumption, ContractMode, VerifyOptions, VerifyReport};
+use yashy_verify::{
+    first_contract, Assumption, ContractMode, ProofObligation, VerifyOptions, VerifyReport,
+};
 
 /// How every command that verifies reads the program.
 ///
@@ -159,6 +161,8 @@ usage:
   --opt-list   list the optimization passes in order with their bench rows
   --inventory  with `verify`: list every `extern` declaration, `unsafe` call,
                and `unsafe` block, with the reason for each; never changes the exit code
+  --certificates <file>  with `verify`: write one certificate per proof obligation,
+               with its rule id, fact and source span; never changes the exit code
   --color <auto|always|never>  when to colour output; auto is the default and
                degrades under NO_COLOR, CLICOLOR=0, TERM=dumb and a pipe
   --pager / --no-pager  page long human output through $PAGER on a terminal;
@@ -3826,6 +3830,7 @@ fn print_check_json(
     diagnostics: &[Diagnostic],
     timings: Option<&[TimingRow]>,
     assumptions: Option<&[Assumption]>,
+    certificates: Option<&[Json]>,
 ) {
     let errors = diagnostics
         .iter()
@@ -3867,10 +3872,42 @@ fn print_check_json(
             ),
         );
     }
+    if let Some(certificates) = certificates {
+        report.set("certificates", Json::array(certificates.to_vec()));
+    }
     println!("{}", report.render());
 }
 
-/// One assumption in the schema-v1 shape: what it is, what it names, why, where.
+/// One discharged obligation as a machine-readable certificate.
+///
+/// The rule is the one whose diagnostic would have fired had the fact not been
+/// proved: a bounds or overflow fact belongs to `RUNTIME-2`, a shift fact to
+/// `TYPE-6`. A certificate without a rule is an orphan, so this mapping is a
+/// closed match rather than a guess from a string.
+fn certificate_json(sources: &SourceMap, file: FileId, obligation: &ProofObligation) -> Json {
+    use yashy_verify::ObligationKind;
+    let rule = match obligation.kind {
+        ObligationKind::Bounds | ObligationKind::Overflow => {
+            yashy_common::codes::rule_for(yashy_common::codes::OVERFLOW)
+        }
+        ObligationKind::ShiftInRange => {
+            yashy_common::codes::rule_for(yashy_common::codes::SHIFT_OUT_OF_RANGE)
+        }
+    };
+    let mut object = Json::object();
+    object.set("rule", Json::string(rule));
+    object.set("obligation", Json::string(format!("{:?}", obligation.kind)));
+    object.set(
+        "fact",
+        Json::string(if obligation.established {
+            "established"
+        } else {
+            "runtime_check_required"
+        }),
+    );
+    object.set("span", span_json(sources, file, obligation.span));
+    object
+}
 fn assumption_json(sources: &SourceMap, assumption: &Assumption) -> Json {
     let mut object = Json::object();
     object.set("kind", Json::string(assumption.kind.as_str()));
@@ -4305,7 +4342,7 @@ fn check(args: &[String]) -> ExitCode {
                 );
             } else if json {
                 let mut all = warning_diags;
-                print_check_json("check", &sources, &all, reported, None);
+                print_check_json("check", &sources, &all, reported, None, None);
             } else {
                 for d in &warning_diags {
                     eprint!("{}", yashy_driver::term::render_diagnostic(&sources, d));
@@ -4335,7 +4372,7 @@ fn check(args: &[String]) -> ExitCode {
                     .iter()
                     .filter(|diagnostic| diagnostic.is_error())
                     .count();
-                print_check_json("check", &sources, &diagnostics, reported, None);
+                print_check_json("check", &sources, &diagnostics, reported, None, None);
                 if errors > 0 {
                     exit_code(EXIT_COMPILE_ERROR)
                 } else {
@@ -4367,6 +4404,7 @@ fn verify(args: &[String]) -> ExitCode {
     let mut json = false;
     let mut timings_flag = false;
     let mut inventory_flag = false;
+    let mut certificates: Option<PathBuf> = None;
     let mut deny_warnings = env::var("YASHY_DENY_WARNINGS").ok().as_deref() == Some("1");
     let mut allow_warnings = false;
     let mut jobs: usize = 0;
@@ -4379,6 +4417,14 @@ fn verify(args: &[String]) -> ExitCode {
             "--json" => json = true,
             "--timings" => timings_flag = true,
             "--inventory" => inventory_flag = true,
+            "--certificates" => {
+                if i + 1 < args.len() {
+                    certificates = Some(PathBuf::from(&args[i + 1]));
+                    i += 1;
+                } else {
+                    return usage_error("`--certificates` needs a file path");
+                }
+            }
             "--jobs" => {
                 if i + 1 < args.len() {
                     match args[i + 1].parse::<usize>() {
@@ -4501,6 +4547,21 @@ fn verify(args: &[String]) -> ExitCode {
             // exit code: the verifier accepted the program with these
             // assumptions before the flag existed, and it still does.
             let assumptions = inventory_flag.then(|| yashy_verify::inventory(&hir));
+            // A certificate is written for every obligation the verifier
+            // attempted, not only the established ones: a required runtime
+            // check is evidence too, and hiding it would make the page lie
+            // about what the proof discharged.
+            let certificates_json: Option<Vec<Json>> = certificates.as_ref().map(|path| {
+                let entries: Vec<Json> = report
+                    .obligations
+                    .iter()
+                    .map(|obligation| certificate_json(&sources, FileId::from_index(0), obligation))
+                    .collect();
+                if let Err(error) = std::fs::write(path, Json::array(entries.clone()).render()) {
+                    eprintln!("error: cannot write {}: {error}", path.display());
+                }
+                entries
+            });
             if json {
                 print_check_json(
                     "verify",
@@ -4508,6 +4569,7 @@ fn verify(args: &[String]) -> ExitCode {
                     &report.diagnostics,
                     reported,
                     assumptions.as_deref(),
+                    certificates_json.as_deref(),
                 );
             } else {
                 if !report.is_empty() {
@@ -4540,7 +4602,7 @@ fn verify(args: &[String]) -> ExitCode {
                     .iter()
                     .filter(|diagnostic| diagnostic.is_error())
                     .count();
-                print_check_json("verify", &sources, &diagnostics, reported, None);
+                print_check_json("verify", &sources, &diagnostics, reported, None, None);
                 if errors > 0 {
                     exit_code(EXIT_COMPILE_ERROR)
                 } else {

@@ -620,6 +620,38 @@ fn inventory_lists_an_explicit_unsafe_block_with_its_reason() {
 }
 
 #[test]
+fn certificates_report_each_obligation_with_its_rule_and_span() {
+    let dir = work_dir("verify-certificates");
+    write(&dir, "shift.ya", "fn main() {\n    print(1 << 3);\n}\n");
+
+    let output = run(
+        &dir,
+        &[
+            "verify",
+            "--json",
+            "--certificates",
+            "certs.json",
+            "shift.ya",
+        ],
+    );
+    let json = stdout(&output);
+    assert_eq!(output.status.code(), Some(0), "{json}");
+    assert!(json.contains("\"certificates\""), "{json}");
+    assert!(
+        json.contains("\"rule\": \"TYPE-6\""),
+        "a shift obligation names its rule: {json}"
+    );
+    assert!(
+        json.contains("\"fact\": \"established\""),
+        "the literal count is proved: {json}"
+    );
+
+    let written = std::fs::read_to_string(dir.join("certs.json"))
+        .expect("the certificate file must be written");
+    assert_eq!(written.matches("\"rule\"").count(), json.matches("\"rule\"").count());
+}
+
+#[test]
 fn verify_json_without_the_flag_does_not_claim_an_inventory() {
     // An absent key means "not computed". An empty array would say the program
     // trusts nothing, which is a different fact and a false one here.
