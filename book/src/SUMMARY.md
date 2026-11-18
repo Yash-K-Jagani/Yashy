@@ -46,3 +46,4 @@
 
 - [The standard library](stdlib.md)
 - [The language reference](reference.md)
+- [Migrating from 1.0](migration.md)

@@ -223,6 +223,11 @@ what keeps a 138-week programme honest.
 - [ ] **Step 2: The book is a product.** Install, first program, language tour,
   stdlib tour, testing, packages, HTTP, SQL, concurrency, performance,
   debugging, AI-native workflows, migration from 1.0.
+  *Current:* `book/` is an mdBook source with a language guide, verification
+  guide, tooling, packages, cookbook and reference, and now a migration chapter
+  linked from `SUMMARY.md`. The chapters for HTTP, SQL, AI-native workflows and
+  performance still depend on the phases that implement those features, so the
+  step stays open.
 - [ ] **Step 3: Commit.**
 
 ### Task 7: Mutation and differential testing
