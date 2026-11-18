@@ -492,6 +492,15 @@ pub struct HirSwitchArm {
 #[derive(Clone, Debug, PartialEq)]
 pub enum HirPattern {
     Wildcard(Span),
+    /// `name @ pattern`: the whole subject is bound to `name` and the nested
+    /// pattern is tested against it.
+    BindAt {
+        name: String,
+        ty: Type,
+        mutability: Mutability,
+        pattern: Box<HirPattern>,
+        span: Span,
+    },
     UnitVariant {
         path: Vec<String>,
         span: Span,
@@ -561,6 +570,15 @@ impl HirPattern {
             | HirPattern::Literal(..)
             | HirPattern::Range { .. } => {}
             HirPattern::Binding { name, ty, .. } => out.push((name.clone(), ty.clone())),
+            HirPattern::BindAt {
+                name,
+                ty,
+                pattern,
+                ..
+            } => {
+                out.push((name.clone(), ty.clone()));
+                pattern.collect_bindings(out);
+            },
             HirPattern::TupleVariant { args, .. } | HirPattern::Tuple { elements: args, .. } => {
                 for element in args {
                     element.collect_bindings(out);

@@ -1189,6 +1189,7 @@ fn free_wants_a_pointer_not_an_integer() {
     );
 }
 
+#[test]
 fn freeing_in_both_branches_of_an_if_is_legal() {
     // The branch check restores the entry ownership state before checking the
     // `else`, so a `then`-branch move does not poison the `else` branch. Freeing
@@ -2907,4 +2908,14 @@ fn let_else_requires_a_diverging_block() {
         "fn f(Option[int] o) -> int { let Some(x) = o else { print(x); }; return x; }",
     );
     assert!(result.is_err(), "a falling-through else must be refused");
+}
+
+#[test]
+fn an_at_binding_binds_the_whole_value_and_the_nested_pattern() {
+    let source = "enum Shape { Circle(int) } \
+                  fn f(Shape s) -> int { \
+                      switch s { case whole @ Circle(n) { return n; } default { return 0; } } \
+                  }";
+    let (result, _, _) = check_source(source);
+    assert!(result.is_ok(), "{:?}", result.err());
 }

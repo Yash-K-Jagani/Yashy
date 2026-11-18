@@ -1527,6 +1527,7 @@ pub(crate) fn pattern_span(p: &crate::ast::Pattern) -> Span {
     use crate::ast::Pattern;
     match p {
         Pattern::Wildcard(s) => *s,
+        Pattern::BindAt { span, .. } => *span,
         Pattern::UnitVariant { span, .. } => *span,
         Pattern::TupleVariant { span, .. } => *span,
         Pattern::StructVariant { span, .. } => *span,

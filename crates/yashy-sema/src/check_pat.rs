@@ -33,6 +33,21 @@ pub fn check_pattern(
 ) -> Result<HirPattern, TypeError> {
     match pat {
         Pattern::Wildcard(span) => Ok(HirPattern::Wildcard(*span)),
+        Pattern::BindAt {
+            name,
+            pattern,
+            span,
+        } => {
+            out_bindings.push((name.clone(), scrutinee.clone(), Mutability::Const, *span));
+            let nested = check_pattern(pattern, scrutinee, out_bindings, variants, struct_fields, resolve)?;
+            Ok(HirPattern::BindAt {
+                name: name.clone(),
+                ty: scrutinee.clone(),
+                mutability: Mutability::Const,
+                pattern: Box::new(nested),
+                span: *span,
+            })
+        }
         Pattern::Binding { name, span } => {
             out_bindings.push((name.clone(), scrutinee.clone(), Mutability::Const, *span));
             Ok(HirPattern::Binding {
@@ -508,6 +523,7 @@ pub fn hir_pattern_span(pattern: &HirPattern) -> Span {
         | HirPattern::TupleVariant { span, .. }
         | HirPattern::StructVariant { span, .. }
         | HirPattern::Binding { span, .. }
+        | HirPattern::BindAt { span, .. }
         | HirPattern::Tuple { span, .. }
         | HirPattern::Or { span, .. }
         | HirPattern::Range { span, .. }
@@ -540,6 +556,7 @@ pub fn is_irrefutable(
 ) -> bool {
     match pattern {
         HirPattern::Wildcard(_) | HirPattern::Binding { .. } => true,
+        HirPattern::BindAt { pattern, .. } => is_irrefutable(pattern, subject, variants, struct_fields, resolve),
         HirPattern::Literal(..) | HirPattern::Range { .. } => false,
         // A tuple pattern matches every tuple when every element does.
         HirPattern::Tuple { elements, .. } => {

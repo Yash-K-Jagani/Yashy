@@ -120,3 +120,12 @@ fn a_struct_pattern_may_write_the_rest_marker() {
         other => panic!("expected a struct pattern, got {other:?}"),
     }
 }
+
+#[test]
+fn at_binding_wraps_a_nested_pattern() {
+    let program = parse_ok("enum Shape { Circle(int) } fn main() { switch Shape.Circle(1) { case whole @ Circle(n) { print(n); } default { } } }");
+    assert!(
+        format!("{program:?}").contains("BindAt"),
+        "the AST must keep the @ form"
+    );
+}

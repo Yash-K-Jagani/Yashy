@@ -53,6 +53,7 @@ use crate::stmt_gen::Flow;
 fn needs_test(pattern: &HirPattern) -> bool {
     match pattern {
         HirPattern::Wildcard(_) | HirPattern::Binding { .. } => false,
+        HirPattern::BindAt { pattern, .. } => needs_test(pattern),
         // An or-pattern matches everything when one alternative does.
         HirPattern::Or { alternatives, .. } => alternatives.iter().all(needs_test),
         // A tuple pattern has no tag of its own; it tests its elements.
@@ -74,6 +75,7 @@ fn emit_pattern_test(
 ) -> Option<String> {
     match pattern {
         HirPattern::Wildcard(_) | HirPattern::Binding { .. } => None,
+        HirPattern::BindAt { pattern, .. } => emit_pattern_test(ctx, pattern, subject),
         HirPattern::Literal(literal, _) => Some(emit_literal_test(ctx, literal, subject)),
         HirPattern::Range {
             lo, hi, inclusive, ..
@@ -530,6 +532,10 @@ pub fn pattern_variant_name(pattern: &HirPattern) -> Option<&str> {
 fn pattern_names(pattern: &HirPattern, out: &mut Vec<String>) {
     match pattern {
         HirPattern::Binding { name, .. } => out.push(name.clone()),
+        HirPattern::BindAt { name, pattern, .. } => {
+            out.push(name.clone());
+            pattern_names(pattern, out);
+        },
         HirPattern::TupleVariant { args, .. } => {
             for arg in args {
                 pattern_names(arg, out);
@@ -696,6 +702,15 @@ pub fn bind_pattern(ctx: &mut FnCtx<'_>, subject: &GenValue, pattern: &HirPatter
         HirPattern::Binding { name, ty, .. } => {
             bind_value(ctx, name, &subject.value, &ty.kind);
         }
+        HirPattern::BindAt {
+            name,
+            ty,
+            pattern,
+            ..
+        } => {
+            bind_value(ctx, name, &subject.value, &ty.kind);
+            bind_pattern(ctx, subject, pattern);
+        },
         HirPattern::Or { alternatives, .. } => bind_or(ctx, subject, alternatives),
         HirPattern::TupleVariant { args, .. } => {
             let fields = payload_fields(ctx, &subject.ty, pattern);
@@ -792,6 +807,15 @@ pub fn bind_pattern_owned(ctx: &mut FnCtx<'_>, subject: &GenValue, pattern: &Hir
         HirPattern::Binding { name, ty, .. } => {
             bind_value_owned(ctx, name, subject, &ty.kind);
         }
+        HirPattern::BindAt {
+            name,
+            ty,
+            pattern,
+            ..
+        } => {
+            bind_value_owned(ctx, name, subject, &ty.kind);
+            bind_pattern_owned(ctx, subject, pattern);
+        },
         HirPattern::Or { .. } => bind_pattern(ctx, subject, pattern),
         HirPattern::Tuple { elements, .. } => {
             let TypeKind::Tuple(element_tys) = &subject.ty else {

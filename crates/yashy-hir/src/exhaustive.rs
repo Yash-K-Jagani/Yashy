@@ -427,6 +427,7 @@ impl Ctx<'_> {
     fn pat_of(&self, pattern: &Pattern, ty: &Ty) -> Pat {
         match pattern {
             Pattern::Wildcard(_) | Pattern::Binding { .. } => Pat::Wild,
+            Pattern::BindAt { pattern, .. } => self.pat_of(pattern, ty),
             Pattern::Literal(Literal::Bool(value), _) => Pat::Ctor {
                 name: if *value { "true" } else { "false" }.to_string(),
                 args: Vec::new(),

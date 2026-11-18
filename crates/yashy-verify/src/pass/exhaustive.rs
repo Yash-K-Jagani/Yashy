@@ -354,6 +354,7 @@ fn check_switch(
 fn render_pattern(pattern: &Pattern) -> String {
     match pattern {
         Pattern::Wildcard(_) => "_".to_string(),
+        Pattern::BindAt { name, pattern, .. } => format!("{name} @ {}", render_pattern(pattern)),
         Pattern::Binding { name, .. } => name.clone(),
         Pattern::Literal(literal, _) => format!("{literal:?}"),
         Pattern::UnitVariant { path, .. } => path.last().cloned().unwrap_or_default(),
@@ -469,6 +470,16 @@ fn type_expr_of(ty: &Type) -> TypeExpr {
 fn to_ast_pattern(pattern: &HirPattern) -> Pattern {
     match pattern {
         HirPattern::Wildcard(span) => Pattern::Wildcard(*span),
+        HirPattern::BindAt {
+            name,
+            pattern,
+            span,
+            ..
+        } => Pattern::BindAt {
+            name: name.clone(),
+            pattern: Box::new(to_ast_pattern(pattern)),
+            span: *span,
+        },
         HirPattern::UnitVariant { path, span } => Pattern::UnitVariant {
             path: path.clone(),
             span: *span,

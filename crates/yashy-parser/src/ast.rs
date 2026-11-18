@@ -1008,6 +1008,13 @@ pub struct SwitchArm {
 pub enum Pattern {
     /// `_` -- matches anything.
     Wildcard(Span),
+    /// `name @ pattern`: bind the whole value to `name` and also test the
+    /// nested pattern. Both names enter scope together on a match.
+    BindAt {
+        name: String,
+        pattern: Box<Pattern>,
+        span: Span,
+    },
     /// A variant with no payload: `Red`.
     UnitVariant { path: Vec<String>, span: Span },
     /// A variant with a positional payload: `RGB(1, 2, 3)`.

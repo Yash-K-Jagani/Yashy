@@ -136,6 +136,11 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   block, so bindings stay visible after the statement. Parser and sema tests pin
   both the accepted form and the non-diverging refusal.
 - [ ] **Step 4: Slice/rest and `@`.** `[first, .., last]`, `[head, ..rest]`, `x @ 0..10`, and nested combinations bind names with element types; a rest binding is a view with the source's lifetime rules; every alternative of an or-pattern binds the same names (`E1002`).
+  *Current:* the `@` half is in place: `Pattern::BindAt` and `HirPattern::BindAt`
+  carry a whole-value binding plus a nested pattern, the parser consumes the
+  previously unused `At` token, the checker binds both names with the subject
+  type, and codegen tests and binds the nested form. Parser and sema tests pin
+  it. Slice/rest bindings are still absent, so the step stays open.
 - [x] **Step 5: `matches` and if-let chains.** `x matches Some(_)` is an
   expression returning `bool`: the parser desugars it to a two-arm `switch`
   value (`case PAT => true`, `default => false`), so no HIR or verifier node is

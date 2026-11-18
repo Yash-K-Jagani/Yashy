@@ -806,6 +806,15 @@ impl<'src> Parser<'src> {
                 .next()
                 .map(|c| c.is_uppercase())
                 .unwrap_or(false);
+            if self.eat(TokenKind::At) {
+                let nested = self.parse_pattern()?;
+                let nested_span = crate::exprs::pattern_span(&nested);
+                return Ok(Pattern::BindAt {
+                    name,
+                    pattern: Box::new(nested),
+                    span: cover(span, nested_span),
+                });
+            }
             if is_variant {
                 // dotted path support
                 let mut path = vec![name];
