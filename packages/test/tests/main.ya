@@ -20,6 +20,18 @@ fn main() {
     if counterexample >= 0 && counterexample % 2 == 0 {
         test_fail("property", "a counter-example must violate the property");
     }
+    const found = find(always_even, 7, 100);
+    switch found {
+        case Some(failure) {
+            assert(describe(failure).contains("seed=7"));
+            assert(failure.value % 2 != 0);
+            assert(failure.original % 2 != 0);
+            assert(failure.index >= 0);
+        }
+        case None {
+            test_fail("property", "expected an odd counter-example");
+        }
+    };
     if !expect_snapshot("packages/test/tests/snapshot.txt", "one\ntwo\n") {
         test_fail("snapshot", "the snapshot must match");
     }

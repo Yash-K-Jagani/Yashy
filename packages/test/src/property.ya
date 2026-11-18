@@ -4,16 +4,34 @@
 // linear congruential generator with a fixed multiplier, so a seed reproduces
 // the whole run. A failure is halved while it still fails, which shrinks a
 // numeric counter-example without needing a domain-specific generator.
+//
+// A failure carries its seed and draw index as well as the shrunk input. The
+// seed replays every draw before the failure; the shrunk input is what the
+// property itself rejects, so the minimum is always a real counter-example.
 
 /// One deterministic draw from `state`.
 fn next(int state) -> int {
     return (state * 1664525 + 1013904223) % 2147483647;
 }
 
-/// Run a property for `iterations` seeded draws.
-///
-/// Returns the smallest failing input, or `-1` when every input passed.
-pub fn run_property(fn(int) -> bool check, int seed, int iterations) -> int {
+/// A minimal counter-example and the data to replay the run that found it.
+pub struct Failure {
+    seed: int,
+    index: int,
+    original: int,
+    value: int,
+}
+
+/// Render a failure as a deterministic reproduction line.
+pub fn describe(Failure failure) -> string {
+    return "seed=" + str_from_i64(failure.seed)
+        + " draw=" + str_from_i64(failure.index)
+        + " input=" + str_from_i64(failure.value)
+        + " (first=" + str_from_i64(failure.original) + ")";
+}
+
+/// Find the smallest failing draw, or `None` when every input passed.
+pub fn find(fn(int) -> bool check, int seed, int iterations) -> Option[Failure] {
     assert(iterations > 0);
     let state = seed;
     let index = 0;
@@ -25,9 +43,26 @@ pub fn run_property(fn(int) -> bool check, int seed, int iterations) -> int {
             while smallest > 0 && !check(smallest / 2) {
                 smallest = smallest / 2;
             }
-            return smallest;
+            return Some(Failure {
+                seed: seed,
+                index: index,
+                original: value,
+                value: smallest,
+            });
         }
         index = index + 1;
     }
-    return 0 - 1;
+    return None;
+}
+
+/// Run a property for `iterations` seeded draws.
+///
+/// Returns the smallest failing input, or `-1` when every input passed. Use
+/// `find` when the reproduction seed is needed.
+pub fn run_property(fn(int) -> bool check, int seed, int iterations) -> int {
+    const found = find(check, seed, iterations);
+    return switch found {
+        case Some(failure) { failure.value }
+        case None { 0 - 1 }
+    };
 }

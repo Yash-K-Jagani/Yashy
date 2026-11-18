@@ -68,8 +68,11 @@ what keeps a 138-week programme honest.
   `property.ya` generates seeded inputs and halves a failing counter-example.
   `snapshot.ya` writes a snapshot on first use, compares LF-normalised text
   afterwards, and never silently rewrites it; the package test carries a
-  committed snapshot. The seed is not printed on failure and shrinking is
-  numeric-only, so the step stays open.
+  committed snapshot. `property.ya` now returns `Option[Failure]` from `find`,
+  with the seed, draw index, first failing input and shrunk minimum, and
+  `describe` renders a reproduction line; `run_property` stays as the thin
+  wrapper. Domain-specific shrinking and the failure's file/line are still
+  owed, so the step stays open.
 - [ ] **Step 3: Snapshots.** `expect_snapshot(path, value)` writes a readable
   snapshot on first run and diffs on later runs; `--update` rewrites
   deliberately; a snapshot is LF-normalised and byte-stable across OSes.
