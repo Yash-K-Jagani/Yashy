@@ -302,23 +302,24 @@ IR stays byte-identical. Verified with clang and `llvm-readobj`.
   --debug-info` dumps that metadata without a toolchain, and
   `tests/debug_info.rs` asserts on it. A typed value assertion is still not
   scripted, so the step stays unchecked.
-- [ ] **Step 2: Emit debug info from the same IR.** Every user function, local,
+- [x] **Step 2: Emit debug info from the same IR.** Every user function, local,
   parameter and type gets a `!dbg` location; the span comes from HIR, not from a
   re-parse. Optimised builds keep line tables; `--debug` builds keep full
   variable info.
-  *Current:* partial. The backend emits `; yashy-loc:` and `; yashy-var:` markers
-  only in a debug build; `debug_info.rs` turns them into `!dbg` attachments plus
+  *Current:* the backend emits `; yashy-loc:` and `; yashy-var:` markers only in
+  a debug build; `debug_info.rs` turns them into `!dbg` attachments plus
   `DISubprogram`/`DIFile`/`DILocation` metadata, and emits one
   `DILocalVariable` plus `llvm.dbg.declare` per parameter and per `let`/pattern
   binding. Every declaration carries a location, because LLVM's record form
   drops one with a null location together with the function's whole variable
-  list. A `string` is described as the runtime `yashy_str` header behind its
-  pointer with `DW_OP_deref`, and a local whose type has no DI type (tuple,
-  slice, map, task, `Option`/`Result`) is omitted rather than mistyped. Normal
-  IR is byte-identical. What is still open: a variable is scoped to its
-  function rather than its lexical block, its declared line is `0`, and
-  optimized builds do not keep variable info. Those are why the step stays
-  unchecked.
+  list. Each nested `{ ... }` scope is a `DILexicalBlock` built from the HIR
+  block tree, a variable is scoped to the innermost block that contains its
+  declaration statement, and its declared line is that statement's line. A
+  `string` is described as the runtime `yashy_str` header behind its pointer
+  with `DW_OP_deref`, and a local whose type has no DI type (tuple, slice, map,
+  task) is omitted rather than mistyped. Normal IR is byte-identical. One flag,
+  `--debug-info`, turns the whole set on, so an optimised debug build keeps
+  both the line table and variable info; there is no line-table-only mode yet.
 - [x] **Step 3: `yashyc debug` selects a backend.** LLDB where available (Linux,
   macOS, Windows when installed), `cdb` on Windows otherwise; a missing backend
   is a diagnostic with an install hint. The command writes a temporary script,
@@ -412,22 +413,24 @@ debug locations.
 *Actual:* there is no `inspect.rs`; the verb lives in `main.rs` and the address
 lookup in `addr.rs`.
 
-- [ ] **Step 1: Write the failing test.** `inspect --json` reports a symbol's
+- [x] **Step 1: Write the failing test.** `inspect --json` reports a symbol's
   signature, effects, contracts, layout (when Phase 11A lands) and source span;
   `inspect --addr` maps an address to a span. `trace --events` emits a JSON
   event per allocation, free, task start/end and I/O with a span id, in a
   deterministic order.
   *Current:* `inspect --json` reports signature, effects, docs, contracts and
-  source span; `inspect --human` prints a clickable position; `inspect --addr
-  <hex> --binary <binary> <source.ya>` resolves an address through `llvm-nm`
-  and the index. `inspect --layout <file.ya> <Type>` reports size, alignment
-  and field offsets from the checker's layout walk. `trace --events <file.ya>`
-  builds a debug binary, runs it with `YASHY_TRACE_FILE` set, and reports one
-  JSON event per allocation, free, task start/end and I/O in the runtime
-  table's deterministic order. Each event's source span comes from
-  `llvm-symbolizer` over the recorded return address, with the raw address as
-  the fallback. The runtime changes are behind the environment variable, so a
-  program that does not ask for a trace pays one cached `getenv`.
+  source span, and a `struct` or `enum` symbol also carries its `layout`
+  (`size`, `align`, named field offsets) from the same checker walk that
+  `inspect --layout` renders; `inspect --human` prints a clickable position;
+  `inspect --addr <hex> --binary <binary> <source.ya>` resolves an address
+  through `llvm-nm` and the index. `inspect --layout <file.ya> <Type>` reports
+  size, alignment and field offsets. `trace --events <file.ya>` builds a debug
+  binary, runs it with `YASHY_TRACE_FILE` set, and reports one JSON event per
+  allocation, free, task start/end and I/O in the runtime table's deterministic
+  order. Each event's source span comes from `llvm-symbolizer` over the
+  recorded return address, with the raw address as the fallback. The runtime
+  changes are behind the environment variable, so a program that does not ask
+  for a trace pays one cached `getenv`.
 - [ ] **Step 2: `tokens --bpe` is a measurement, not an opinion.** For a file or
   a corpus, report tokens per keyword/operator and corpus totals for `o200k`,
   `cl100k` and a Llama-family tokenizer. The tokenizer tables are vendored as

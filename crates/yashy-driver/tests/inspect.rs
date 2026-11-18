@@ -102,4 +102,18 @@ fn inspect_layout_reports_size_alignment_and_fields() {
     assert!(stdout.contains("\"align\": 8"), "{stdout}");
     assert!(stdout.contains("\"field\": \"x\""), "{stdout}");
     assert!(stdout.contains("\"field\": \"y\""), "{stdout}");
+
+    // The same facts are part of the symbol itself, so one `inspect --json`
+    // call answers a function or a type.
+    let symbol = run(&dir, &["inspect", "--json", "main.ya", "Point"]);
+    assert!(
+        symbol.status.success(),
+        "{}",
+        String::from_utf8_lossy(&symbol.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&symbol.stdout);
+    assert!(stdout.contains("\"kind\": \"struct\""), "{stdout}");
+    assert!(stdout.contains("\"layout\""), "{stdout}");
+    assert!(stdout.contains("\"size\": 16"), "{stdout}");
+    assert!(stdout.contains("\"field\": \"x\""), "{stdout}");
 }

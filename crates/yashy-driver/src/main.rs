@@ -2488,6 +2488,24 @@ fn inspect_cmd(args: &[String]) -> ExitCode {
         }
         None => model.symbols.iter().collect(),
     };
+    let layout_decls = if json
+        && selected
+            .iter()
+            .any(|symbol| symbol.kind == "struct" || symbol.kind == "enum")
+    {
+        match fs::read_to_string(&path) {
+            Ok(source) => {
+                let mut sources = SourceMap::new();
+                match check_and_verify(&mut sources, &path, source, false, &OPTIONS, 0) {
+                    Ok((hir, _)) => Some(yashy_driver::layout::HirDecls::from_program(&hir)),
+                    Err(_) => None,
+                }
+            }
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
     if json {
         let symbols: Vec<Json> = selected
             .iter()
@@ -2498,6 +2516,35 @@ fn inspect_cmd(args: &[String]) -> ExitCode {
                 object.set("file", Json::string(&symbol.file));
                 object.set("signature", Json::string(&symbol.signature));
                 object.set("visibility", Json::string(&symbol.visibility));
+                // A declared type's layout belongs to the symbol's facts, not
+                // to a separate command: `inspect --json <file> Point` and
+                // `inspect --layout <file> Point` answer the same question,
+                // so a script should not have to learn a second verb.
+                if let Some(decls) = &layout_decls {
+                    if symbol.kind == "struct" || symbol.kind == "enum" {
+                        if let Some(found) = yashy_driver::layout::find(&symbol.name, decls) {
+                            let names = decls.field_names(&symbol.name);
+                            let fields: Vec<Json> = found
+                                .offsets
+                                .iter()
+                                .enumerate()
+                                .map(|(index, offset)| {
+                                    let mut field = Json::object();
+                                    field.set("offset", Json::number(*offset as i64));
+                                    if let Some(name) = names.get(index) {
+                                        field.set("field", Json::string(name));
+                                    }
+                                    field
+                                })
+                                .collect();
+                            let mut layout = Json::object();
+                            layout.set("size", Json::number(found.size as i64));
+                            layout.set("align", Json::number(found.align as i64));
+                            layout.set("fields", Json::array(fields));
+                            object.set("layout", layout);
+                        }
+                    }
+                }
                 let mut span = Json::object();
                 span.set("start", Json::number(i64::from(symbol.span.start)));
                 span.set("end", Json::number(i64::from(symbol.span.end)));

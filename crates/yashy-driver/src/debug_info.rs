@@ -12,7 +12,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use yashy_common::{FileId, SourceMap, Span};
-use yashy_hir::hir::{HirItem, HirProgram};
+use yashy_hir::hir::{HirBlock, HirExpr, HirItem, HirProgram, HirStmt, HirSwitchArm};
 use yashy_hir::ty::{Type, TypeKind};
 
 /// The source facts one `DISubprogram` needs.
@@ -29,11 +29,347 @@ struct Point {
     file: String,
     line: u32,
     column: u32,
+    start: u32,
+    end: u32,
     /// The function the marker was emitted in, as an index into
     /// [`functions`]. A `DILocation` has to name its own `DISubprogram`;
     /// scoping every location to the first function makes a debugger attribute
     /// lines to the wrong function even when the addresses are right.
     scope: usize,
+    /// The innermost lexical block containing the marker, as an index into
+    /// [`blocks`]. `None` is the function's outermost block, whose scope is the
+    /// `DISubprogram`.
+    block: Option<usize>,
+}
+
+/// One lexical block (`{ ... }`) inside a user function.
+///
+/// DWARF scopes a variable to the block it is declared in, so a debugger shows
+/// it only while that block is live. The compiler's HIR has the block tree and
+/// its spans; the IR markers carry statement spans, so a marker's innermost
+/// containing block is the scope it belongs to.
+#[derive(Clone, Debug)]
+struct Block {
+    scope: usize,
+    file: String,
+    start: u32,
+    end: u32,
+    line: u32,
+    column: u32,
+}
+
+/// Collect every block nested inside a user function, in source order.
+///
+/// The function's own body block is not one of them: its scope is the
+/// `DISubprogram` itself, which is the scope every parameter already uses.
+fn blocks(hir: &HirProgram, sources: &SourceMap, functions: &[FunctionLocation]) -> Vec<Block> {
+    let mut out = Vec::new();
+    for item in &hir.items {
+        let HirItem::Fn(function) = item else {
+            continue;
+        };
+        if function.name.contains('$') || function.is_async {
+            continue;
+        }
+        let symbol = yashy_codegen::ir::fn_symbol(&function.name);
+        let Some(scope) = functions.iter().position(|entry| entry.symbol == symbol) else {
+            continue;
+        };
+        for stmt in &function.body.stmts {
+            walk_stmt(stmt, function.file, scope, sources, &mut out);
+        }
+    }
+    out
+}
+
+fn walk_block(
+    block: &HirBlock,
+    file: FileId,
+    scope: usize,
+    sources: &SourceMap,
+    out: &mut Vec<Block>,
+) {
+    let location = sources.locate(file, block.span);
+    out.push(Block {
+        scope,
+        file: sources.path(file).to_string(),
+        start: block.span.start,
+        end: block.span.end,
+        line: location.line,
+        column: location.col,
+    });
+    for stmt in &block.stmts {
+        walk_stmt(stmt, file, scope, sources, out);
+    }
+}
+
+fn walk_stmt(
+    stmt: &HirStmt,
+    file: FileId,
+    scope: usize,
+    sources: &SourceMap,
+    out: &mut Vec<Block>,
+) {
+    match stmt {
+        HirStmt::Expr(expr, _, _) => walk_expr(expr, file, scope, sources, out),
+        HirStmt::Const { init, .. } | HirStmt::Var { init, .. } => {
+            walk_expr(init, file, scope, sources, out)
+        }
+        HirStmt::Destructure { init, .. } => walk_expr(init, file, scope, sources, out),
+        HirStmt::LetElse {
+            init, else_block, ..
+        } => {
+            walk_expr(init, file, scope, sources, out);
+            walk_block(else_block, file, scope, sources, out);
+        }
+        HirStmt::Assign { value, .. } => walk_expr(value, file, scope, sources, out),
+        HirStmt::IndexAssign {
+            base, index, value, ..
+        } => {
+            walk_expr(base, file, scope, sources, out);
+            walk_expr(index, file, scope, sources, out);
+            walk_expr(value, file, scope, sources, out);
+        }
+        HirStmt::FieldAssign { value, .. } | HirStmt::FieldPtrAssign { value, .. } => {
+            walk_expr(value, file, scope, sources, out)
+        }
+        HirStmt::Return(expr, _) => {
+            if let Some(expr) = expr {
+                walk_expr(expr, file, scope, sources, out);
+            }
+        }
+        HirStmt::If {
+            init,
+            cond,
+            then_block,
+            else_block,
+            ..
+        } => {
+            if let Some(init) = init {
+                walk_stmt(init, file, scope, sources, out);
+            }
+            walk_expr(cond, file, scope, sources, out);
+            walk_block(then_block, file, scope, sources, out);
+            if let Some(else_block) = else_block {
+                walk_block(else_block, file, scope, sources, out);
+            }
+        }
+        HirStmt::IfLet {
+            subject,
+            then_block,
+            else_block,
+            ..
+        } => {
+            walk_expr(subject, file, scope, sources, out);
+            walk_block(then_block, file, scope, sources, out);
+            if let Some(else_block) = else_block {
+                walk_block(else_block, file, scope, sources, out);
+            }
+        }
+        HirStmt::ForRange {
+            start, end, body, ..
+        } => {
+            walk_expr(start, file, scope, sources, out);
+            walk_expr(end, file, scope, sources, out);
+            walk_block(body, file, scope, sources, out);
+        }
+        HirStmt::ForIn { iterable, body, .. } => {
+            walk_expr(iterable, file, scope, sources, out);
+            walk_block(body, file, scope, sources, out);
+        }
+        HirStmt::ForC {
+            init,
+            cond,
+            update,
+            body,
+            ..
+        } => {
+            if let Some(init) = init {
+                walk_stmt(init, file, scope, sources, out);
+            }
+            if let Some(cond) = cond {
+                walk_expr(cond, file, scope, sources, out);
+            }
+            if let Some(update) = update {
+                walk_expr(update, file, scope, sources, out);
+            }
+            walk_block(body, file, scope, sources, out);
+        }
+        HirStmt::Switch { subject, arms, .. } => {
+            walk_expr(subject, file, scope, sources, out);
+            for arm in arms {
+                walk_arm(arm, file, scope, sources, out);
+            }
+        }
+        HirStmt::Defer { body, .. } | HirStmt::Scope { body, .. } => {
+            walk_block(body, file, scope, sources, out)
+        }
+        HirStmt::Break(_) | HirStmt::Continue(_) | HirStmt::LoopInvariant(_) => {}
+    }
+}
+
+fn walk_arm(
+    arm: &HirSwitchArm,
+    file: FileId,
+    scope: usize,
+    sources: &SourceMap,
+    out: &mut Vec<Block>,
+) {
+    if let Some(guard) = &arm.guard {
+        walk_expr(guard, file, scope, sources, out);
+    }
+    walk_expr(&arm.body, file, scope, sources, out);
+}
+
+fn walk_expr(
+    expr: &HirExpr,
+    file: FileId,
+    scope: usize,
+    sources: &SourceMap,
+    out: &mut Vec<Block>,
+) {
+    match expr {
+        HirExpr::UnsafeBlock { body, .. } => walk_block(body, file, scope, sources, out),
+        HirExpr::Binary { lhs, rhs, .. } => {
+            walk_expr(lhs, file, scope, sources, out);
+            walk_expr(rhs, file, scope, sources, out);
+        }
+        HirExpr::Unary { operand, .. } | HirExpr::Move(operand, _, _) => {
+            walk_expr(operand, file, scope, sources, out)
+        }
+        HirExpr::Call { args, .. } => {
+            for arg in args {
+                walk_expr(arg, file, scope, sources, out);
+            }
+        }
+        HirExpr::StructLit { fields, .. } => {
+            for (_, value, _) in fields {
+                walk_expr(value, file, scope, sources, out);
+            }
+        }
+        HirExpr::SliceLit { elements, .. } | HirExpr::FixedArrayLit { elements, .. } => {
+            for element in elements {
+                walk_expr(element, file, scope, sources, out);
+            }
+        }
+        HirExpr::FieldAccess { base, .. } | HirExpr::Cast { expr: base, .. } => {
+            walk_expr(base, file, scope, sources, out)
+        }
+        HirExpr::Index { base, index, .. } => {
+            walk_expr(base, file, scope, sources, out);
+            walk_expr(index, file, scope, sources, out);
+        }
+        HirExpr::View {
+            base, start, end, ..
+        } => {
+            walk_expr(base, file, scope, sources, out);
+            walk_expr(start, file, scope, sources, out);
+            walk_expr(end, file, scope, sources, out);
+        }
+        HirExpr::TupleLit { elements, .. } => {
+            for element in elements {
+                walk_expr(element, file, scope, sources, out);
+            }
+        }
+        HirExpr::Try { expr, .. } | HirExpr::Await { expr, .. } => {
+            walk_expr(expr, file, scope, sources, out)
+        }
+        HirExpr::Spawn { callee, args, .. } => {
+            walk_expr(callee, file, scope, sources, out);
+            for arg in args {
+                walk_expr(arg, file, scope, sources, out);
+            }
+        }
+        HirExpr::SwitchExpr { subject, arms, .. } => {
+            walk_expr(subject, file, scope, sources, out);
+            for arm in arms {
+                walk_arm(arm, file, scope, sources, out);
+            }
+        }
+        // A lambda is emitted as its own function, so its body's blocks belong
+        // to a different `DISubprogram` than the one being walked.
+        HirExpr::Lambda { .. } => {}
+        HirExpr::CallCapture { args, .. } => {
+            for arg in args {
+                walk_expr(arg, file, scope, sources, out);
+            }
+        }
+        HirExpr::HigherOrder {
+            receiver,
+            func,
+            init,
+            ..
+        } => {
+            walk_expr(receiver, file, scope, sources, out);
+            walk_expr(func, file, scope, sources, out);
+            if let Some(init) = init {
+                walk_expr(init, file, scope, sources, out);
+            }
+        }
+        HirExpr::Literal(..)
+        | HirExpr::Ident(..)
+        | HirExpr::AddrOf { .. }
+        | HirExpr::Capture { .. } => {}
+    }
+}
+
+/// The innermost block that contains `[start, end)` in one function.
+fn innermost_block(
+    blocks: &[Block],
+    scope: usize,
+    file: &str,
+    start: u32,
+    end: u32,
+) -> Option<usize> {
+    let mut best: Option<usize> = None;
+    for (index, block) in blocks.iter().enumerate() {
+        if block.scope != scope || block.file != file {
+            continue;
+        }
+        if block.start <= start && end <= block.end {
+            let better = match best {
+                None => true,
+                Some(current) => {
+                    (block.end - block.start) < (blocks[current].end - blocks[current].start)
+                }
+            };
+            if better {
+                best = Some(index);
+            }
+        }
+    }
+    best
+}
+
+/// The block that contains `blocks[index]`, or `None` when the function body
+/// is the parent.
+fn parent_block(blocks: &[Block], index: usize) -> Option<usize> {
+    let child = &blocks[index];
+    let mut best: Option<usize> = None;
+    for (candidate, block) in blocks.iter().enumerate() {
+        if candidate == index
+            || block.scope != child.scope
+            || block.file != child.file
+            || block.start > child.start
+            || child.end > block.end
+        {
+            continue;
+        }
+        let larger = block.end - block.start > child.end - child.start;
+        if !larger {
+            continue;
+        }
+        let better = match best {
+            None => true,
+            Some(current) => {
+                (block.end - block.start) < (blocks[current].end - blocks[current].start)
+            }
+        };
+        if better {
+            best = Some(candidate);
+        }
+    }
+    best
 }
 
 /// Collect one location per named user function in source order.
@@ -271,7 +607,10 @@ fn parse_marker(line: &str, sources: &SourceMap, scope: usize) -> Option<Point> 
         file: sources.path(id).to_string(),
         line: at.line,
         column: at.col,
+        start,
+        end,
         scope,
+        block: None,
     })
 }
 
@@ -294,6 +633,16 @@ struct Variable {
     name: String,
     slot: String,
     tag: String,
+    /// The source line of the binding, taken from the statement marker that
+    /// preceded it. `0` only when nothing preceded the marker (a parameter).
+    line: u32,
+    /// The lexical block the binding is declared in, or `None` for the
+    /// function's own scope (every parameter, and a binding at the top level).
+    block: Option<usize>,
+    /// The statement marker the binding followed, so the `llvm.dbg.declare`
+    /// call carries that statement's own location rather than the function's
+    /// first line.
+    decl: Option<Point>,
 }
 
 fn parse_variable(line: &str) -> Option<(Option<usize>, String, String, String)> {
@@ -322,12 +671,15 @@ pub fn annotate(ir: &str, hir: &HirProgram, sources: &SourceMap) -> String {
     // belongs to the function whose `define` precedes it; that is what gives a
     // location the right scope and keeps a trailing marker from attaching to
     // the next function.
+    let blocks = blocks(hir, sources, &functions);
     let mut points: Vec<Point> = Vec::new();
     let mut variables: Vec<Variable> = Vec::new();
     let mut scope: Option<usize> = None;
+    let mut last_point: Option<Point> = None;
     for line in ir.lines() {
         if let Some(rest) = line.strip_prefix("define ") {
             scope = definition_symbol(rest).and_then(|symbol| scopes.get(symbol).copied());
+            last_point = None;
         }
         // A synthesized function -- a lambda body, a task resume, a thread
         // entry -- has no `DISubprogram`, so its lines are left without source
@@ -335,18 +687,28 @@ pub fn annotate(ir: &str, hir: &HirProgram, sources: &SourceMap) -> String {
         let Some(enclosing) = scope else {
             continue;
         };
-        if let Some(point) = parse_marker(line, sources, enclosing) {
+        if let Some(mut point) = parse_marker(line, sources, enclosing) {
+            point.block = innermost_block(&blocks, enclosing, &point.file, point.start, point.end);
             if !points.contains(&point) {
-                points.push(point);
+                points.push(point.clone());
             }
+            last_point = Some(point);
         }
         if let Some((arg, name, slot, tag)) = parse_variable(line) {
+            let block = last_point.as_ref().and_then(|point| point.block);
+            let declared_line = last_point
+                .as_ref()
+                .map(|point| point.line)
+                .unwrap_or_else(|| functions[enclosing].line);
             let variable = Variable {
                 scope: enclosing,
                 arg,
                 name,
                 slot,
                 tag,
+                line: declared_line,
+                block,
+                decl: last_point.clone(),
             };
             if !variables.contains(&variable) {
                 variables.push(variable);
@@ -366,15 +728,17 @@ pub fn annotate(ir: &str, hir: &HirProgram, sources: &SourceMap) -> String {
     let subprogram_base = 4 + files.len();
     let location_base = subprogram_base + functions.len();
 
-    // The type table continues after the locations, so adding it does not
-    // renumber any metadata an existing debug build already emitted.
+    // The type table continues after the locations and the lexical blocks, so
+    // adding blocks does not renumber any metadata an existing debug build
+    // already emitted past them.
     let decls = crate::layout::HirDecls::from_program(hir);
     let tags: Vec<String> = variables
         .iter()
         .map(|variable| variable.tag.clone())
         .collect();
     let type_entries = types(hir, sources, &tags);
-    let basic_base = location_base + points.len();
+    let block_base = location_base + points.len();
+    let basic_base = block_base + blocks.len();
     let element_base = basic_base + BASIC_TYPES.len();
     let element_count: usize = type_entries
         .iter()
@@ -447,12 +811,17 @@ pub fn annotate(ir: &str, hir: &HirProgram, sources: &SourceMap) -> String {
                 } else {
                     empty_expression
                 };
+                let location = variable
+                    .decl
+                    .as_ref()
+                    .map(|point| point_id(point, &points, location_base))
+                    .unwrap_or(scope_location + variable.scope);
                 out.push(format!(
                     "call void @llvm.dbg.declare(metadata ptr {}, metadata !{}, metadata !{}), !dbg !{}",
                     variable.slot,
                     var_base + index,
                     expression,
-                    scope_location + variable.scope
+                    location
                 ));
             }
             continue;
@@ -515,12 +884,29 @@ pub fn annotate(ir: &str, hir: &HirProgram, sources: &SourceMap) -> String {
         ));
     }
     for (index, point) in points.iter().enumerate() {
+        let scope = point
+            .block
+            .map(|block| block_base + block)
+            .unwrap_or(subprogram_base + point.scope);
         out.push(format!(
             "!{} = !DILocation(line: {}, column: {}, scope: !{})",
             location_base + index,
             point.line,
             point.column,
-            subprogram_base + point.scope
+            scope
+        ));
+    }
+    for (index, block) in blocks.iter().enumerate() {
+        let parent = parent_block(&blocks, index)
+            .map(|parent| block_base + parent)
+            .unwrap_or(subprogram_base + block.scope);
+        out.push(format!(
+            "!{} = distinct !DILexicalBlock(scope: !{}, file: !{}, line: {}, column: {})",
+            block_base + index,
+            parent,
+            file_id(&block.file),
+            block.line,
+            block.column
         ));
     }
     for (index, (name, size, encoding)) in BASIC_TYPES.iter().enumerate() {
@@ -655,12 +1041,17 @@ pub fn annotate(ir: &str, hir: &HirProgram, sources: &SourceMap) -> String {
             .arg
             .map(|index| format!("arg: {index}, "))
             .unwrap_or_default();
+        let scope = variable
+            .block
+            .map(|block| block_base + block)
+            .unwrap_or(subprogram_base + variable.scope);
         out.push(format!(
-            "!{} = !DILocalVariable(name: {}, {}scope: !{}, file: !4, line: 0, type: !{})",
+            "!{} = !DILocalVariable(name: {}, {}scope: !{}, file: !4, line: {}, type: !{})",
             var_base + index,
             llvm_string(&variable.name),
             arg,
-            subprogram_base + variable.scope,
+            scope,
+            variable.line,
             ty
         ));
     }

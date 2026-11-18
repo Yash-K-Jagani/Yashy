@@ -25,11 +25,13 @@ stderr, so stdout stays available to the program being debugged.
   `--break`, the entry point `main` is used.
 - A debug build (`yashyc run --debug` or `yashyc debug`) emits LLVM debug
   metadata from HIR spans: one `DISubprogram` per function, one `DILocation`
-  per checked statement scoped to its own function, and one `DILocalVariable`
-  plus `llvm.dbg.declare` per parameter and `let` binding. The linked object
-  has a real `.debug_line` section, so a debugger can break at a source line
-  inside a function and `yashyc inspect --addr` can map an address back to the
-  declaration's source span.
+  per checked statement scoped to its own function, one `DILexicalBlock` per
+  nested `{ ... }` scope, and one `DILocalVariable` plus `llvm.dbg.declare`
+  per parameter and `let` binding. A binding is scoped to the lexical block it
+  is declared in and carries that statement's line, so a debugger shows it only
+  while the block is live. The linked object has a real `.debug_line` section,
+  so a debugger can break at a source line inside a function and `yashyc
+  inspect --addr` can map an address back to the declaration's source span.
 - `frame variable` shows a local as a typed value. `int`, `float`, `bool`,
   `char`, `string`, `*T`, user structs and user enums carry a DI type; a
   `string` is described as the runtime's `yashy_str` header reached through its
@@ -47,11 +49,9 @@ stderr, so stdout stays available to the program being debugged.
 
 ## What is not there yet
 
-- A local's `DILocalVariable` is scoped to its function, not to a lexical
-  block, and its declared line is `0`: the value and its type are right, the
-  exact declaration point is not shown.
-- `Option[T]` and `Result[T, E]` locals have no DI type yet, so they are left
-  out; their summary providers are ready for the type table.
+- `Option[T]` and `Result[T, E]` locals are described by the synthetic structs
+  their summary providers read, not by the checker's exact tag/payload layout;
+  a scripted session that asserts a printed value is still missing.
 - A scripted debugger session that asserts a typed value prints a particular
   string is not part of the test suite; LLDB is not required to build or test
   the compiler.

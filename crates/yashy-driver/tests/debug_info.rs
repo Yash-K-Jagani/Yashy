@@ -78,6 +78,10 @@ const DEBUG_PROGRAM: &str = concat!(
     "fn total(int n) -> int {\n",
     "    let name = \"ada\";\n",
     "    let p = Point { x: n };\n",
+    "    if n > 0 {\n",
+    "        let inner = n + 1;\n",
+    "        print(inner);\n",
+    "    }\n",
     "    p.x + n\n",
     "}\n",
     "\n",
@@ -155,4 +159,35 @@ fn a_debug_ir_dump_carries_locals_and_types_without_a_toolchain() {
 
     // Both functions get a subprogram.
     assert_eq!(ir.matches("= distinct !DISubprogram(").count(), 2, "{ir}");
+
+    // A `let` inside `if { ... }` is scoped to that lexical block, carries the
+    // line it is declared on, and its `declare` sits at that line's location.
+    let block_ids: Vec<&str> = ir
+        .lines()
+        .filter(|line| line.contains("= distinct !DILexicalBlock("))
+        .map(|line| line.trim_start_matches('!').split(' ').next().unwrap())
+        .collect();
+    assert!(!block_ids.is_empty(), "no lexical block was emitted:\n{ir}");
+    let inner = ir
+        .lines()
+        .find(|line| line.contains("!DILocalVariable(name: \"inner\""))
+        .expect("the nested binding must have a variable");
+    let scope = inner
+        .split("scope: !")
+        .nth(1)
+        .and_then(|rest| rest.split(|c: char| !c.is_ascii_digit()).next())
+        .expect("the variable names a scope");
+    assert!(
+        block_ids.contains(&scope),
+        "the nested binding is scoped to its block, not the function: {inner}"
+    );
+    assert!(
+        !inner.contains("line: 0"),
+        "a declared line is known: {inner}"
+    );
+    assert!(
+        ir.lines().any(|line| line.contains("!DILocation(")
+            && line.contains(&format!("scope: !{scope}"))),
+        "the block owns at least one location:\n{ir}"
+    );
 }

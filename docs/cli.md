@@ -970,6 +970,11 @@ alignment and field offsets from the same layout walk the checker uses for
 `sizeof`/`offsetof`. Primitives and declared structs/enums are supported;
 generic instantiations need the parser's type syntax and are not guessed.
 
+`yashyc inspect --json <file.ya> <Name>` reports the symbol's facts. A `struct`
+or `enum` symbol also carries a `layout` object (`size`, `align`, `fields`)
+with the same numbers as `inspect --layout`, so a script that inspects a type
+does not have to call a second verb.
+
 `yashyc inspect --layout <type> <file.ya>` reports one type from the compiler's
 layout table. `--layout --all <file.ya>` reports every declared type, sorted by
 name, with size, alignment and field offsets; both read the same table a
