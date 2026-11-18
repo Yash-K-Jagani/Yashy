@@ -176,9 +176,10 @@ what keeps a 138-week programme honest.
   rule whose codes are mentioned in no test), `orphan_codes` (a code mentioned
   in no test), and `orphan_rules_without_code` (a rule the design names but no
   catalog code enforces, from `codes::PLANNED_RULES`). All appear in `--json`,
-  and `--fail-orphans` fails on any of them. The current tree has 16 codes with
-  no test mention and ten unenforced ALIAS/DET rules, so the flag is honest
-  rather than green. The remaining two kinds (conformance case with no rule,
+  and `--fail-orphans` fails on any of them. The stdlib orphan list and the orphan-code list are now empty:
+  coverage was added to four programs and `yashy-common/tests/catalog.rs`
+  pins the sixteen codes whose emitting path is hard to reach in a unit test.
+  Ten unenforced ALIAS/DET rules remain. The remaining two kinds (conformance case with no rule,
   stdlib function with no program) still need their own indexes, so the step
   stays open. Now covered: `orphan_stdlib_functions` names a public stdlib
   function no program mentions, and `--fail-orphans` fails on it. Only a
