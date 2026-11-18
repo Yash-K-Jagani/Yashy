@@ -8,6 +8,20 @@
 
 import JSON;
 
+/// The default sink: one structured line to stderr.
+///
+/// It exists so a caller that has no writer can still use the same record
+/// shapes. There is no global logger: the function is passed explicitly, and a
+/// test can pass its own writer instead.
+pub fn stderr_sink(string line) {
+    eprint(line + "\n");
+}
+
+/// Emit an event to the default stderr sink.
+pub fn emit_stderr(string level, string message) {
+    emit(stderr_sink, level, message);
+}
+
 /// One event as a stable JSON line, with both fields quoted.
 pub fn event_json(string level, string message) -> string {
     return "{\"level\":" + JSON.quote(level) + ",\"message\":" + JSON.quote(message) + "}";

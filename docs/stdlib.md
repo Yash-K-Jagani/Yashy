@@ -764,6 +764,14 @@ fn emit(fn(string) -> void writer, string level, string message)
 
 Send an event to the caller-supplied writer.
 
+### `emit_stderr`
+
+```yashy
+fn emit_stderr(string level, string message)
+```
+
+Emit an event to the default stderr sink.
+
 ### `event_json`
 
 ```yashy
@@ -796,6 +804,18 @@ fn metric_json(string name, string kind, string value, string labels) -> string
 
 A metric sample as a stable JSON line. `value` and `labels` are text so the
 shape works for counters, gauges and histograms without a numeric surprise.
+
+### `stderr_sink`
+
+```yashy
+fn stderr_sink(string line)
+```
+
+The default sink: one structured line to stderr.
+
+It exists so a caller that has no writer can still use the same record
+shapes. There is no global logger: the function is passed explicitly, and a
+test can pass its own writer instead.
 
 ### `trace`
 

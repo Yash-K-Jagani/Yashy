@@ -11,4 +11,5 @@ fn main() {
     observability.emit(capture, observability.level_text(Level.Info), "done");
     observability.trace(capture, "t1", "s1", "", "parse", 42);
     observability.metric(capture, "requests", "counter", "3", "route=/health");
+    observability.emit_stderr("info", "default sink");
 }
