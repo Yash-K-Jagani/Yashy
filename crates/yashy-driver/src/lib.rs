@@ -8,6 +8,7 @@
 //! can call with plain values.
 
 pub mod addr;
+pub mod affected;
 pub mod audit;
 pub mod bench;
 pub mod capability_check;

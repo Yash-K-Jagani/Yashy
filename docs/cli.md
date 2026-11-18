@@ -535,6 +535,12 @@ this verb is its inventory. A mutation score must name the operator that
 survived, so an unnamed operator is not a score. Running a campaign and
 computing the score are still owed.
 
+`--affected <file>` reads a newline-separated list of changed paths and runs
+only the tests that changed or import a module whose file changed. The selector
+is conservative: a changed file that is not a `.ya` selects every test with a
+stated reason. The human output prints each skipped test and why; `--json`
+carries the same `selection` object.
+
 ## `yashyc lint [--list|--docs] [--json] [--group <g>] [--deny <code>] <file.ya>`
 
 Reports advice: a lint never changes whether a program builds. Each lint has a

@@ -93,11 +93,12 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "test",
         summary: "compile and run the programs under tests/",
-        usage: "yashyc test [path] [--workspace|-p <member>] [--filter <substring>] [--list] [--json] [--timings]",
+        usage: "yashyc test [path] [--workspace|-p <member>] [--filter <substring>] [--affected <file>] [--list] [--json] [--timings]",
         flags: &[
             "--workspace",
             "-p",
             "--filter",
+            "--affected",
             "--list",
             "--json",
             "--timings",

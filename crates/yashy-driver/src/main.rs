@@ -2729,6 +2729,7 @@ fn test(args: &[String]) -> ExitCode {
     let mut timings_flag = false;
     let mut jobs: usize = 0;
     let mut target: Option<&'static str> = None;
+    let mut affected: Option<PathBuf> = None;
 
     let mut iter = args.iter();
     let mut sandbox = false;
@@ -2743,6 +2744,12 @@ fn test(args: &[String]) -> ExitCode {
                 package = Some(value.clone());
             }
             "--sandbox" => sandbox = true,
+            "--affected" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`--affected` needs a changed-files list");
+                };
+                affected = Some(PathBuf::from(value));
+            }
             "--json" => json = true,
             "--timings" => timings_flag = true,
             "--target" => {
@@ -2896,6 +2903,34 @@ fn test(args: &[String]) -> ExitCode {
         });
     }
 
+    let affected_selection = if let Some(list_path) = &affected {
+        let text = match fs::read_to_string(list_path) {
+            Ok(text) => text,
+            Err(error) => {
+                eprintln!("error: cannot read {}: {error}", list_path.display());
+                return exit_code(EXIT_USAGE);
+            }
+        };
+        let changed: Vec<PathBuf> = text
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .map(PathBuf::from)
+            .collect();
+        let selection = yashy_driver::affected::select(&root, &tests, &changed);
+        tests.retain(|path| {
+            let name = path
+                .strip_prefix(&root)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            selection.selected.contains(&name)
+        });
+        Some(selection)
+    } else {
+        None
+    };
+
     if json {
         return test_json(
             &root,
@@ -2904,7 +2939,19 @@ fn test(args: &[String]) -> ExitCode {
             jobs,
             target.unwrap_or_else(host_target_triple),
             &sandbox_env_refs,
+            affected_selection.as_ref(),
         );
+    }
+
+    if let Some(selection) = &affected_selection {
+        println!(
+            "selected {} of {} tests",
+            selection.selected.len(),
+            selection.selected.len() + selection.skipped.len()
+        );
+        for (name, reason) in &selection.skipped {
+            println!("skip {name}: {reason}");
+        }
     }
 
     if list {
@@ -3001,12 +3048,13 @@ fn test_json(
     jobs: usize,
     target: &'static str,
     sandbox_env: &[(&str, &str)],
+    selection: Option<&yashy_driver::affected::Selection>,
 ) -> ExitCode {
     let mut global_sources = SourceMap::new();
     let _root_file = global_sources.add_file(root.display().to_string(), String::new());
 
     if tests.is_empty() {
-        print_test_json(&global_sources, &[], &[], &[], 0, 0, 0, None);
+        print_test_json(&global_sources, &[], &[], &[], 0, 0, 0, None, None);
         return exit_code(EXIT_OK);
     }
 
@@ -3019,7 +3067,17 @@ fn test_json(
                 Span::SYNTHETIC,
                 message,
             );
-            print_test_json(&global_sources, &[diagnostic], &[], &[], 0, 0, 0, None);
+            print_test_json(
+                &global_sources,
+                &[diagnostic],
+                &[],
+                &[],
+                0,
+                0,
+                0,
+                None,
+                None,
+            );
             return exit_code(EXIT_USAGE);
         }
     };
@@ -3032,7 +3090,17 @@ fn test_json(
             Span::SYNTHETIC,
             message.clone(),
         );
-        print_test_json(&global_sources, &[diagnostic], &[], &[], 0, 0, 0, None);
+        print_test_json(
+            &global_sources,
+            &[diagnostic],
+            &[],
+            &[],
+            0,
+            0,
+            0,
+            None,
+            None,
+        );
         return exit_code(EXIT_INTERNAL);
     }
     let test_objects: Vec<Json> = report
@@ -3069,6 +3137,7 @@ fn test_json(
         report.failed,
         report.compile_errors,
         timings_flag.then_some(report.timings.as_slice()),
+        selection.map(yashy_driver::affected::to_json),
     );
     if report.failed == 0 && report.compile_errors == 0 {
         exit_code(EXIT_OK)
@@ -3146,6 +3215,7 @@ fn print_test_json(
     failed: usize,
     compile_errors: usize,
     timings: Option<&[TimingRow]>,
+    selection: Option<Json>,
 ) {
     let mut summary = Json::object();
     summary.set("passed", Json::number(passed as i64));
@@ -3172,6 +3242,9 @@ fn print_test_json(
     );
     report.set("tests", Json::array(tests.to_vec()));
     report.set("events", Json::array(events.to_vec()));
+    if let Some(selection) = selection {
+        report.set("selection", selection);
+    }
     report.set("summary", summary);
     set_timings(&mut report, timings);
     println!("{}", report.render());

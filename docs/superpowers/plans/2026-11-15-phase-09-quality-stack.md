@@ -91,6 +91,11 @@ what keeps a 138-week programme honest.
   selection rather than missing a test. `--json` names every selected and skipped
   test with the reason, and `--all` is the default in CI. A selection that would
   skip a test whose dependency the graph cannot see is a bug, not a speed win.
+  *Current:* `yashy-driver::affected` selects tests from changed paths and
+  `import` edges; an unknown changed file widens the selection to every test.
+  `test --affected <list>` filters the suite, prints skipped reasons and emits
+  a `selection` object in `--json`. The call graph, type/`cfg` widening and the
+  `--all` CI default are still owed, so the step stays open.
 - [ ] **Step 7: Commit.**
 
 ### Task 2: `yashyc bench`
