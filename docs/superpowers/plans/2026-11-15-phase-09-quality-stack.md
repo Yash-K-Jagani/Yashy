@@ -132,9 +132,16 @@ what keeps a 138-week programme honest.
 - Create: `docs/ci.md`
 - Test: `crates/yashy-driver/tests/coverage.rs` (extend), a CI dry run
 
-- [ ] **Step 1: One template, both OSes.** Check, verify, build, test, fmt
+- [x] **Step 1: One template, both OSes.** Check, verify, build, test, fmt
   check, lint, coverage, benchmark gate and fuzz smoke; Windows and Linux
   matrices; a cache keyed by compiler version and target; `--locked` everywhere.
+  *Current:* `ci/generic.sh` is the shared shell entry point, `ci/gitlab-ci.yml`
+  has separate Linux and Windows jobs with a compiler-version/target cache key,
+  and `.github/workflows/ci.yml` remains the GitHub matrix. Every Cargo call is
+  `--locked`; a stage whose tool is absent prints `SKIP` with the reason.
+  `docs/ci.md` names the stages and artifacts. The fixture repository that runs
+  the template end to end (Step 3) is still owed, so CI itself is not yet
+  proven from a clean machine.
 - [ ] **Step 2: Coverage has a floor.** A new module without a test lowers the
   number and fails the configured floor; the report is uploaded as an artifact
   and as SARIF.

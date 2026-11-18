@@ -1,0 +1,77 @@
+# GitLab CI template for Yashy.
+#
+# Two matrices: linux (shared runners) and windows (a runner tagged `windows`).
+# The cache key is the compiler version plus the target, so a Rust upgrade
+# cannot reuse objects built by the old compiler. Every command is --locked.
+
+stages: [check, build, test, report]
+
+variables:
+  CARGO_TERM_COLOR: always
+  CARGO_TARGET_DIR: target
+
+.template:linux:
+  tags: [linux]
+  cache:
+    key: "$CI_JOB_NAME-rust-stable-x86_64-unknown-linux-gnu"
+    paths: [target/, ~/.cargo/registry/]
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq clang llvm
+
+.template:windows:
+  tags: [windows]
+  cache:
+    key: "$CI_JOB_NAME-rust-stable-x86_64-pc-windows-msvc"
+    paths: [target/, %USERPROFILE%/.cargo/registry/]
+
+check:linux:
+  extends: .template:linux
+  stage: check
+  script:
+    - cargo check --workspace --all-targets --locked
+    - cargo fmt --all -- --check
+
+check:windows:
+  extends: .template:windows
+  stage: check
+  script:
+    - cargo check --workspace --all-targets --locked
+    - cargo fmt --all -- --check
+
+build:linux:
+  extends: .template:linux
+  stage: build
+  script:
+    - cargo build --release --workspace --locked
+    - cargo run --locked -p yashy-driver --bin yashyc -- verify --json examples/hello/main.ya
+
+build:windows:
+  extends: .template:windows
+  stage: build
+  script:
+    - cargo build --release --workspace --locked
+    - cargo run --locked -p yashy-driver --bin yashyc -- verify --json examples/hello/main.ya
+
+test:linux:
+  extends: .template:linux
+  stage: test
+  script:
+    - cargo test --workspace --locked
+  artifacts:
+    reports:
+      junit: target/junit.xml
+
+test:windows:
+  extends: .template:windows
+  stage: test
+  script:
+    - cargo test --workspace --locked
+
+report:linux:
+  extends: .template:linux
+  stage: report
+  script:
+    - cargo run --locked -p yashy-driver --bin yashyc -- coverage --json --fail-under 70 examples/hello
+  artifacts:
+    paths: [coverage.json, sarif.json]
+    when: always

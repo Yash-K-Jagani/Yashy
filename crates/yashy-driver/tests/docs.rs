@@ -97,6 +97,8 @@ fn quickstart_and_reference_links_resolve() {
         "docs/packages.md",
         "docs/stdlib.md",
         "docs/optimization.md",
+        "docs/bench-policy.md",
+        "docs/ci.md",
         "docs/errors.md",
         "docs/release-notes-template.md",
         "docs/tutorial/00-intro.md",
