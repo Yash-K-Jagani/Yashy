@@ -53,6 +53,7 @@ impl Decls for HirDecls {
                     .iter()
                     .map(|field| field.ty.kind.clone())
                     .collect(),
+                repr: structure.repr,
             });
         }
         let enumeration = self.enums.iter().find(|entry| entry.name == name)?;

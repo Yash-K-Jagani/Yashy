@@ -74,6 +74,8 @@ struct StructSig {
     /// accepts only a `repr(C)` struct, and that rule is about what the
     /// declaration promised, not about the bytes.
     repr_c: bool,
+    /// The exact representation clause written on the struct.
+    repr: Option<yashy_parser::ast::ReprKind>,
     /// Where the type came from, and whether another module may name it.
     origin: ItemOrigin,
 }
@@ -135,6 +137,7 @@ struct StructScheme {
     type_params: Vec<TypeParam>,
     fields: Vec<yashy_parser::ast::FieldDef>,
     repr_c: bool,
+    repr: Option<yashy_parser::ast::ReprKind>,
     origin: ItemOrigin,
     span: Span,
 }
@@ -164,6 +167,7 @@ impl Decls for CheckerDecls<'_> {
         if let Some(sig) = self.structs.get(name) {
             return Some(NamedType::Struct {
                 fields: sig.fields.iter().map(|(_, ty)| ty.kind.clone()).collect(),
+                repr: sig.repr,
             });
         }
         let sig = self.enums.get(name)?;
@@ -2353,6 +2357,7 @@ impl<'src> Checker<'src> {
                     field_public,
                     defaults,
                     repr_c: scheme.repr_c,
+                    repr: scheme.repr,
                     origin: scheme.origin,
                 },
             );
@@ -3182,6 +3187,7 @@ impl<'src> Checker<'src> {
                         field_public,
                         defaults,
                         repr_c: repr.is_some(),
+                        repr: *repr,
                         origin: self.origin(public),
                     },
                 );
@@ -3279,6 +3285,7 @@ impl<'src> Checker<'src> {
                             type_params: type_params.clone(),
                             fields: fields.clone(),
                             repr_c: repr.is_some(),
+                            repr: *repr,
                             origin: self.origin(public),
                             span: *span,
                         },
@@ -3320,6 +3327,7 @@ impl<'src> Checker<'src> {
                         field_public,
                         defaults,
                         repr_c: repr.is_some(),
+                        repr: *repr,
                         origin: self.origin(public),
                     },
                 );

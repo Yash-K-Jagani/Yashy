@@ -208,12 +208,38 @@ impl<'src> Parser<'src> {
         let keyword = self.expect(TokenKind::Repr)?;
         self.expect(TokenKind::LParen)?;
         let (name, name_span) = self.identifier()?;
-        self.expect(TokenKind::RParen)?;
-        if name != "C" {
-            return Err(error::unknown_repr(name_span, &name));
-        }
+        let repr = match name.as_str() {
+            "C" => {
+                self.expect(TokenKind::RParen)?;
+                ReprKind::C
+            }
+            "packed" => {
+                self.expect(TokenKind::RParen)?;
+                ReprKind::Packed
+            }
+            "transparent" => {
+                self.expect(TokenKind::RParen)?;
+                ReprKind::Transparent
+            }
+            "align" => {
+                self.expect(TokenKind::LParen)?;
+                let token = self.expect(TokenKind::I64)?;
+                let value = self.integer_literal(token.span)?;
+                self.expect(TokenKind::RParen)?;
+                self.expect(TokenKind::RParen)?;
+                let aligned = u32::try_from(value).unwrap_or(0);
+                if aligned == 0 || !aligned.is_power_of_two() {
+                    return Err(self.error(
+                        name_span,
+                        "repr(align(N)) needs a positive power of two".to_string(),
+                    ));
+                }
+                ReprKind::Align(aligned)
+            }
+            _ => return Err(error::unknown_repr(name_span, &name)),
+        };
         let item = self.parse_item()?;
-        self.attach_repr(item, keyword.span)
+        Ok(self.attach_repr_kind(item, repr, keyword.span)?)
     }
 
     /// Attach `repr(C)` to the type `item`, or report that it has no layout.
@@ -221,6 +247,15 @@ impl<'src> Parser<'src> {
     /// `pub` is a wrapper rather than a field, so it is looked through: the
     /// representation belongs to the type, not to the modifier in front of it.
     fn attach_repr(&mut self, item: Item, repr_span: Span) -> Result<Item, ParseError> {
+        self.attach_repr_kind(item, ReprKind::C, repr_span)
+    }
+
+    fn attach_repr_kind(
+        &mut self,
+        item: Item,
+        repr: ReprKind,
+        repr_span: Span,
+    ) -> Result<Item, ParseError> {
         match item {
             Item::Struct {
                 name,
@@ -232,7 +267,7 @@ impl<'src> Parser<'src> {
                 name,
                 type_params,
                 fields,
-                repr: Some(ReprKind::C),
+                repr: Some(repr),
                 span: cover(repr_span, span),
             }),
             Item::Enum {
@@ -245,7 +280,7 @@ impl<'src> Parser<'src> {
                 name,
                 type_params,
                 variants,
-                repr: Some(ReprKind::C),
+                repr: Some(repr),
                 span: cover(repr_span, span),
             }),
             Item::Object {
@@ -258,7 +293,7 @@ impl<'src> Parser<'src> {
                 name,
                 fields,
                 methods,
-                repr: Some(ReprKind::C),
+                repr: Some(repr),
                 span: cover(repr_span, span),
             }),
             Item::Public { item, span, .. } => {

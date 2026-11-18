@@ -52,7 +52,10 @@ pub enum NamedType {
     /// The representation is not part of this shape: Yashy has no bit-fields,
     /// unions or packed fields, so C's rules and Yashy's own are the same walk
     /// for every struct the language can declare.
-    Struct { fields: Vec<TypeKind> },
+    Struct {
+        fields: Vec<TypeKind>,
+        repr: Option<yashy_parser::ast::ReprKind>,
+    },
     /// An `enum`'s payloads, one list per variant, in declaration order.
     ///
     /// `repr_c` is the one thing about a representation that changes a layout:
@@ -81,10 +84,26 @@ impl Decls for NoDecls {
 pub fn layout(ty: &TypeKind, decls: &dyn Decls) -> Option<Layout> {
     Some(match ty {
         TypeKind::Struct(name) => {
-            let NamedType::Struct { fields } = decls.named(name)? else {
+            let NamedType::Struct { fields, repr } = decls.named(name)? else {
                 return None;
             };
-            fields_layout(&fields, decls)?
+            let fields_layout_value = fields_layout(&fields, decls)?;
+            return match repr {
+                Some(yashy_parser::ast::ReprKind::Packed) => Some(Layout {
+                    size: fields
+                        .iter()
+                        .map(|field| layout(field, decls).map(|l| l.size).unwrap_or(0))
+                        .sum(),
+                    align: 1,
+                    offsets: fields_layout_value.offsets,
+                }),
+                Some(yashy_parser::ast::ReprKind::Align(align)) => Some(Layout {
+                    size: align_up(fields_layout_value.size, align as usize),
+                    align: align as usize,
+                    offsets: fields_layout_value.offsets,
+                }),
+                _ => Some(fields_layout_value),
+            };
         }
         TypeKind::Enum(name) => {
             let NamedType::Enum { payloads, repr_c } = decls.named(name)? else {

@@ -214,6 +214,12 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   verifier inventory counts only the sites that exist today.
 - [ ] **Step 3: Every allocation is visible.** The allocator interface is static-dispatch only; collections take an allocator or use the global one; `--alloc-report` (Phase 11A) reads the same hooks. No runtime path allocates behind the language's back.
 - [ ] **Step 4: `repr` stays a keyword form.** `repr(C)`, `repr(packed)`, `repr(align(N))`, `repr(transparent)` and an integer enum repr are clauses, not attributes; `repr(C)` is never reordered; a packed field that would be misaligned is a diagnostic at the field, not a silent unaligned load.
+  *Current:* `repr(C)`, `repr(packed)`, `repr(align(N))` and
+  `repr(transparent)` parse as clauses; a non-power-of-two align is refused.
+  The layout walk uses packed (alignment 1, summed sizes) and align(N)
+  (rounded size, raised alignment), and a sema test folds `alignof`/`sizeof`
+  for both. Integer enum repr and a field-level packed-misalignment
+  diagnostic are still owed, so the step stays open.
 - [ ] **Step 5: Layout is a compiler fact with a surface.** `size_of`, `align_of` and `offset_of` are const-evaluable and agree with the IR; a mismatch is a compiler bug caught by the layout test. `inspect --layout` (Phase 11A) renders the same table.
   *Current:* the checker folds `sizeof(T)`, `alignof(T)` and `offsetof(T, f)` from the shared HIR layout walk, and `inspect --layout` reads that table. The underscore spellings `size_of(T)`, `align_of(T)` and `offset_of(T, f)` are now accepted as aliases, pinned by a sema test. The bracket spelling `size_of[T]()` still needs const generics (Task 7), and the layout-vs-IR agreement test is owed.
 - [ ] **Step 6: Commit.**

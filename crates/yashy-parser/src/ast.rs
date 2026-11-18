@@ -76,6 +76,12 @@ pub enum ReprKind {
     /// `repr(C)` -- the fields are laid out by C's rules, in declaration order,
     /// and the fields may be spelled with C's type names.
     C,
+    /// `repr(packed)` -- fields are placed with alignment 1.
+    Packed,
+    /// `repr(align(N))` -- the type's alignment is at least `N`.
+    Align(u32),
+    /// `repr(transparent)` -- one non-zero-sized field defines the layout.
+    Transparent,
 }
 
 /// A top-level declaration.

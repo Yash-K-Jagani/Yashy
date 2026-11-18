@@ -2038,3 +2038,12 @@ fn pub_crate_is_a_scoped_visibility_form() {
     ));
     assert!(parse_src("pub(super) fn f() { }").is_err());
 }
+
+#[test]
+fn repr_align_and_packed_parse_as_clauses() {
+    let program = parse_src("repr(align(16)) struct A { x: int } repr(packed) struct B { x: int }")
+        .expect("both repr clauses must parse");
+    assert!(format!("{program:?}").contains("Align(16)"));
+    assert!(format!("{program:?}").contains("Packed"));
+    assert!(parse_src("repr(align(3)) struct A { x: int }").is_err());
+}

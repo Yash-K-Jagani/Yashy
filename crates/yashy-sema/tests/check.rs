@@ -2919,3 +2919,22 @@ fn an_at_binding_binds_the_whole_value_and_the_nested_pattern() {
     let (result, _, _) = check_source(source);
     assert!(result.is_ok(), "{:?}", result.err());
 }
+
+#[test]
+fn repr_align_and_packed_change_the_layout_table() {
+    let source = "repr(align(16)) struct A { x: int } repr(packed) struct B { x: int, y: int } \
+                  fn f() -> int { return alignof(A) + sizeof(B); }";
+    let (result, _, _) = check_source(source);
+    let hir = result.expect("the layout queries must fold");
+    let f = hir
+        .items
+        .iter()
+        .find_map(|item| match item {
+            HirItem::Fn(function) if function.name == "f" => Some(function),
+            _ => None,
+        })
+        .expect("the function");
+    let text = format!("{:?}", f.body);
+    // align(A)=16, packed B has two int fields with no padding -> 16 bytes total.
+    assert!(text.contains("I64(32)"), "{text}");
+}
