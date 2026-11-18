@@ -497,6 +497,18 @@ that lies about its value is worse than a missing one.
 and target recorded; see `docs/bench-policy.md`. Measurement and baseline
 comparison in the CLI are still owed.
 
+## `yashyc fuzz [--json] [root]`
+
+Lists the files under `root` (default `fuzz/corpus`) as a stable, relative,
+forward-slash path and a byte count, or emits the same entries in a schema-v1
+envelope as `entries`. A missing corpus is an empty list, not an error.
+
+The fuzz target is a plain Yashy function in `packages/fuzz`:
+`fn(string) -> bool` returns false for a finding. `fuzz.run` generates seeded
+inputs, shrinks a failing input and writes the minimal case to the corpus.
+`yashyc fuzz` does not run it yet; the CLI runner and the bounded campaign are
+still owed.
+
 ## `yashyc lint [--list|--docs] [--json] [--group <g>] [--deny <code>] <file.ya>`
 
 Reports advice: a lint never changes whether a program builds. Each lint has a

@@ -133,6 +133,11 @@ what keeps a 138-week programme honest.
 - [ ] **Step 1: A target is a function.** `fn target(input: []u8) -> void`
   is called with mutated inputs; a crash, a hang or an assertion failure is a
   finding. No attributes, no macros, no separate build system.
+  *Current:* `packages/fuzz` already takes a plain `fn(string) -> bool` target,
+  generates seeded inputs, shrinks a failure and writes the minimal case to a
+  corpus file. `yashyc fuzz [--json] [root]` lists that corpus without running
+  it. The exact `[]u8 -> void` signature, the CLI runner and the bounded
+  campaign are still owed, so the step stays open.
 - [ ] **Step 2: Shrink and reproduce.** A finding is written to
   `fuzz/findings/<hash>.bin` with the seed, the input and the run command;
   `fuzz --replay <file>` reproduces it; the shrinker minimises it before it is

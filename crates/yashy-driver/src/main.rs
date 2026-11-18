@@ -225,6 +225,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "verify" => verify(rest),
         "test" => test(rest),
         "bench" => bench_cmd(rest),
+        "fuzz" => fuzz_cmd(rest),
         "cache" => cache_cmd(rest),
         "inspect" => inspect_cmd(rest),
         "tokens" => tokens(rest),
@@ -1256,6 +1257,48 @@ fn bench_cmd(args: &[String]) -> ExitCode {
     } else if list {
         for row in &rows {
             println!("{}={}", row.key, row.value);
+        }
+    }
+    exit_code(EXIT_OK)
+}
+
+/// `yashyc fuzz [--json] [root]`.
+///
+/// Lists the corpus entries the repository keeps. It does not run the fuzzer:
+/// that target is a plain function in `packages/fuzz`, and a finding is a file
+/// whose bytes can be replayed. An empty corpus is an honest answer.
+fn fuzz_cmd(args: &[String]) -> ExitCode {
+    use yashy_driver::fuzz;
+
+    let mut json = false;
+    let mut root: Option<PathBuf> = None;
+    for argument in args {
+        match argument.as_str() {
+            "--json" => json = true,
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `fuzz`"));
+            }
+            other => {
+                if root.is_some() {
+                    return usage_error("`fuzz` takes one root directory");
+                }
+                root = Some(PathBuf::from(other));
+            }
+        }
+    }
+    let root = root.unwrap_or_else(|| PathBuf::from("fuzz/corpus"));
+    let entries = match fuzz::list(&root) {
+        Ok(entries) => entries,
+        Err(message) => {
+            eprintln!("error: {message}");
+            return exit_code(EXIT_INTERNAL);
+        }
+    };
+    if json {
+        println!("{}", fuzz::to_json(&entries).render());
+    } else {
+        for entry in &entries {
+            println!("{} {}", entry.bytes, entry.path);
         }
     }
     exit_code(EXIT_OK)

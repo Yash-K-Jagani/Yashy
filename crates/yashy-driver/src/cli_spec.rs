@@ -248,6 +248,13 @@ pub const COMMANDS: &[CommandSpec] = &[
         takes_path: true,
     },
     CommandSpec {
+        name: "fuzz",
+        summary: "list the fuzz corpus",
+        usage: "yashyc fuzz [--json] [root]",
+        flags: &["--json"],
+        takes_path: true,
+    },
+    CommandSpec {
         name: "lint",
         summary: "report style and correctness advice",
         usage: "yashyc lint [--list|--docs] [--json] [--group <g>] [--deny <code>] <file.ya>",
