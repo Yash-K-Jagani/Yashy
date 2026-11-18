@@ -42,6 +42,13 @@
 
 - [Cookbook](cookbook.md)
 
+# Application guides
+
+- [HTTP](http.md)
+- [SQL](sql.md)
+- [Performance](performance.md)
+- [AI-native workflows](ai-workflows.md)
+
 # Reference
 
 - [The standard library](stdlib.md)
