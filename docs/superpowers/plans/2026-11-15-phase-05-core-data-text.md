@@ -113,9 +113,13 @@ is a capability rather than an ambient read.
 - [ ] **Step 2: No sentinel, ever.** `parse` returns `Result`; a missing key is `Option`; a type mismatch is an error with a byte offset and a line/column. `""` and `0` are values, never failures.
   *Current:* `json_scan.ya` provides `minify` and `validate`, both returning
   `Result`/`Option` with a byte offset on failure and no sentinel answer. The
-  coverage program pins whitespace inside strings and bracket balance. A
-  value tree, duplicate-key handling and line/column errors need `Map`, which
-  is a later phase, so the step stays open.
+  coverage program pins whitespace inside strings and bracket balance.
+  `tokens(text, Limits)` now streams the same grammar into a flat token list
+  with byte spans, explicit `max_depth`/`max_bytes` and typed `TooDeep`/
+  `TooLarge` errors; no value tree is built. The coverage program pins a
+  thirteen-token document and both limit breaches. A value tree,
+  duplicate-key handling and line/column errors need `Map`, which is a later
+  phase, so the step stays open.
 - [ ] **Step 3: Streaming where it matters.** A JSON reader can emit tokens without building a DOM, and a writer can stream; the DOM is a convenience over the same parser. A depth limit and a size limit are explicit options, not constants hidden in the parser.
 - [ ] **Step 4: Fuzz the parsers.** Seed the corpus with the conformance files; a crash, a hang or a non-terminating parse is a P0. The fuzzer runs in CI for a bounded time and nightly for longer.
 - [ ] **Step 5: Commit.**

@@ -3,13 +3,51 @@
 // These functions are total: they never answer with a sentinel and never
 // panic on malformed input. `minify` removes whitespace outside strings;
 // `validate` checks that strings close and brackets balance, returning the
-// greatest nesting depth. A full value tree needs `Map`, which is a later
-// phase, so this module stops at the byte-level contract every parser shares.
+// greatest nesting depth. `tokens` streams the same byte grammar into a flat
+// token list with explicit depth and size limits. No value tree is built, so
+// a large document can be scanned before a caller decides what to keep.
 
 /// Why the text is not well-formed at the byte level.
 pub enum JsonError {
     /// The byte offset of the first problem.
     Invalid(int),
+}
+
+/// A token kind in the streaming reader.
+pub enum Token {
+    LeftBrace,
+    RightBrace,
+    LeftBracket,
+    RightBracket,
+    Colon,
+    Comma,
+    String,
+    Number,
+    True,
+    False,
+    Null,
+}
+
+/// One token and the byte range it covers.
+pub struct Event {
+    pub kind: Token,
+    pub start: int,
+    pub end: int,
+}
+
+/// Explicit caps for a streaming read. A non-positive value is unbounded.
+pub struct Limits {
+    pub max_depth: int,
+    pub max_bytes: int,
+}
+
+/// Why a streaming read could not finish.
+pub enum StreamError {
+    Invalid(int),
+    /// The configured depth cap and the depth that breached it.
+    TooDeep(int, int),
+    /// The configured byte cap and the size that breached it.
+    TooLarge(int, int),
 }
 
 /// Remove whitespace outside strings, keeping string bytes unchanged.
@@ -79,4 +117,151 @@ pub fn validate(string text) -> Result[int, JsonError] {
         return Err(JsonError.Invalid(index));
     }
     return Ok(greatest);
+}
+
+/// The end of the string starting at `start`, or `-1` when it never closes.
+fn scan_string(string text, int start) -> int {
+    let index = start + 1;
+    let escaped = false;
+    while index < text.len() {
+        const byte = text.byte_at(index).to_int();
+        if escaped {
+            escaped = false;
+        } else if byte == 92 {
+            escaped = true;
+        } else if byte == 34 {
+            return index + 1;
+        }
+        index = index + 1;
+    }
+    return 0 - 1;
+}
+
+/// The end of a JSON number starting at `start`.
+fn scan_number(string text, int start) -> int {
+    let index = start;
+    if index < text.len() && text.byte_at(index).to_int() == 45 {
+        index = index + 1;
+    }
+    while index < text.len() {
+        const byte = text.byte_at(index).to_int();
+        const digit = byte >= 48 && byte <= 57;
+        if !digit && byte != 46 && byte != 101 && byte != 69 && byte != 43 && byte != 45 {
+            break;
+        }
+        index = index + 1;
+    }
+    return index;
+}
+
+/// Whether `word` occurs at `start` without running past the end.
+fn at_word(string text, int start, string word) -> bool {
+    if start + word.len() > text.len() {
+        return false;
+    }
+    return text.slice(start, start + word.len()) == word;
+}
+
+/// Stream a document into tokens. The token list is flat: no object or array
+/// value is built, and the caller sees each token with its byte span.
+pub fn tokens(string text, Limits limits) -> Result[[]Event, StreamError] {
+    if limits.max_bytes > 0 && text.len() > limits.max_bytes {
+        return Err(StreamError.TooLarge(limits.max_bytes, text.len()));
+    }
+    let events = []Event {};
+    let depth = 0;
+    let index = 0;
+    while index < text.len() {
+        const byte = text.byte_at(index).to_int();
+        if byte == 32 || byte == 9 || byte == 10 || byte == 13 {
+            index = index + 1;
+            continue;
+        }
+        if byte == 91 || byte == 123 {
+            depth = depth + 1;
+            if limits.max_depth > 0 && depth > limits.max_depth {
+                events.free();
+                return Err(StreamError.TooDeep(limits.max_depth, depth));
+            }
+            if byte == 91 {
+                events.push(Event { kind: Token.LeftBracket, start: index, end: index + 1 });
+            } else {
+                events.push(Event { kind: Token.LeftBrace, start: index, end: index + 1 });
+            }
+            index = index + 1;
+            continue;
+        }
+        if byte == 93 || byte == 125 {
+            depth = depth - 1;
+            if depth < 0 {
+                events.free();
+                return Err(StreamError.Invalid(index));
+            }
+            if byte == 93 {
+                events.push(Event { kind: Token.RightBracket, start: index, end: index + 1 });
+            } else {
+                events.push(Event { kind: Token.RightBrace, start: index, end: index + 1 });
+            }
+            index = index + 1;
+            continue;
+        }
+        if byte == 58 {
+            events.push(Event { kind: Token.Colon, start: index, end: index + 1 });
+            index = index + 1;
+            continue;
+        }
+        if byte == 44 {
+            events.push(Event { kind: Token.Comma, start: index, end: index + 1 });
+            index = index + 1;
+            continue;
+        }
+        if byte == 34 {
+            const end = scan_string(text, index);
+            if end < 0 {
+                events.free();
+                return Err(StreamError.Invalid(index));
+            }
+            events.push(Event { kind: Token.String, start: index, end: end });
+            index = end;
+            continue;
+        }
+        if at_word(text, index, "true") {
+            events.push(Event { kind: Token.True, start: index, end: index + 4 });
+            index = index + 4;
+            continue;
+        }
+        if at_word(text, index, "false") {
+            events.push(Event { kind: Token.False, start: index, end: index + 5 });
+            index = index + 5;
+            continue;
+        }
+        if at_word(text, index, "null") {
+            events.push(Event { kind: Token.Null, start: index, end: index + 4 });
+            index = index + 4;
+            continue;
+        }
+        if byte == 45 || (byte >= 48 && byte <= 57) {
+            const end = scan_number(text, index);
+            events.push(Event { kind: Token.Number, start: index, end: end });
+            index = end;
+            continue;
+        }
+        events.free();
+        return Err(StreamError.Invalid(index));
+    }
+    if depth != 0 {
+        events.free();
+        return Err(StreamError.Invalid(text.len()));
+    }
+    return Ok(events);
+}
+
+/// The token at `index`, or `None` past the end. The event is copied out so
+/// the caller does not have to retain the token slice.
+pub fn at([]Event events, int index) -> Option[Event] {
+    const found = switch events[index] {
+        case Some(event) { event }
+        case None { return None; }
+    };
+    return Some(Event { kind: found.kind, start: found.start, end: found.end });
 }

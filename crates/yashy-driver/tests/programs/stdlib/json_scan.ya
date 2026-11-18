@@ -12,4 +12,25 @@ fn main() {
     };
     print(json_scan.minify("\"unterminated") matches Err(_));
     print(json_scan.validate("[1,]") matches Some(_));
+
+    const limits = json_scan.Limits { max_depth: 8, max_bytes: 1024 };
+    switch json_scan.tokens(text, limits) {
+        case Ok(events) {
+            print(events.len());
+            const first = json_scan.at(events, 0);
+            switch first {
+                case Some(event) {
+                    print(event.start);
+                    print(event.end);
+                }
+                case None { print("no token"); }
+            };
+            events.free();
+        }
+        case Err(_) { print("bad tokens"); }
+    };
+    const deep = json_scan.Limits { max_depth: 2, max_bytes: 100 };
+    print(json_scan.tokens("[[[[[]]]]]", deep) matches Err(_));
+    const small = json_scan.Limits { max_depth: 8, max_bytes: 2 };
+    print(json_scan.tokens("{\"a\":1}", small) matches Err(_));
 }

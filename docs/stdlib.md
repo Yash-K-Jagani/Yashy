@@ -532,6 +532,14 @@ being spelled out in every implementor.
 
 ## `json_scan`
 
+### `Event`
+
+```yashy
+struct Event
+```
+
+One token and the byte range it covers.
+
 ### `JsonError`
 
 ```yashy
@@ -540,6 +548,39 @@ enum JsonError
 
 Why the text is not well-formed at the byte level.
 
+### `Limits`
+
+```yashy
+struct Limits
+```
+
+Explicit caps for a streaming read. A non-positive value is unbounded.
+
+### `StreamError`
+
+```yashy
+enum StreamError
+```
+
+Why a streaming read could not finish.
+
+### `Token`
+
+```yashy
+enum Token
+```
+
+A token kind in the streaming reader.
+
+### `at`
+
+```yashy
+fn at([]Event events, int index) -> Option[Event]
+```
+
+The token at `index`, or `None` past the end. The event is copied out so
+the caller does not have to retain the token slice.
+
 ### `minify`
 
 ```yashy
@@ -547,6 +588,15 @@ fn minify(string text) -> Result[string, JsonError]
 ```
 
 Remove whitespace outside strings, keeping string bytes unchanged.
+
+### `tokens`
+
+```yashy
+fn tokens(string text, Limits limits) -> Result[[]Event, StreamError]
+```
+
+Stream a document into tokens. The token list is flat: no object or array
+value is built, and the caller sees each token with its byte span.
 
 ### `validate`
 
