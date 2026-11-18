@@ -1,0 +1,5 @@
+[package]
+name = "template"
+version = "1.0.0"
+license = "MIT"
+description = "Small string templates with contextual escaping"

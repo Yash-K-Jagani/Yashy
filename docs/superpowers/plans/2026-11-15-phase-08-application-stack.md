@@ -103,6 +103,12 @@ the stack is not done, no matter how many modules exist.
 - [ ] **Step 2: Escaping is contextual.** HTML, attribute, URL and JS contexts
   escape differently; the context is derived from the template, not guessed at
   run time. `raw` is explicit and documented as trusted input.
+  *Current:* `packages/template/src/template.ya` exposes four explicit escape
+  helpers (`escape_html`, `escape_attr`, `escape_url`, `escape_js`), auto-escapes
+  `{{name}}`, and requires `{{!name}}` for raw text. The package test pins all
+  four spellings. A template-derived context (rather than a caller-chosen
+  helper), loops and missing-field errors are still owed, so the step stays
+  open.
 - [ ] **Step 3: Compile once, render many.** A template parses to an AST at
   startup; a parse error is a startup diagnostic with a line and column; a
   render error names the field and the template line.

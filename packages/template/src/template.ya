@@ -1,0 +1,135 @@
+// A small template renderer.
+//
+// A template is a string with `{{name}}` placeholders and `{% if name %}...{%
+// endif %}` blocks. Variables are one `name=value` line each. Values are HTML
+// escaped by default; `{{!name}}` is the explicit raw spelling. Contextual
+// escape helpers are separate functions so a caller chooses the escaping a
+// position needs instead of relying on a global mode.
+
+/// Replace the four characters that change HTML's structure.
+pub fn escape_html(string text) -> string {
+    let out = text.replace("&", "&amp;");
+    out = out.replace("<", "&lt;");
+    out = out.replace(">", "&gt;");
+    out = out.replace("\"", "&quot;");
+    return out;
+}
+
+/// Escape a quoted attribute value, including apostrophes.
+pub fn escape_attr(string text) -> string {
+    return escape_html(text).replace("'", "&#39;");
+}
+
+/// Percent-encode the characters that change a URL component.
+pub fn escape_url(string text) -> string {
+    let out = text.replace("%", "%25");
+    out = out.replace(" ", "%20");
+    out = out.replace("&", "%26");
+    out = out.replace("=", "%3D");
+    return out;
+}
+
+/// Escape a value embedded in a JavaScript string literal.
+pub fn escape_js(string text) -> string {
+    let out = text.replace("\\", "\\\\");
+    out = out.replace("'", "\\'");
+    out = out.replace("\"", "\\\"");
+    return out.replace("\n", "\\n");
+}
+
+/// `index_of` from an offset, as an absolute index or `-1`.
+fn find_from(string text, string needle, int start) -> int {
+    if start >= text.len() || needle.len() == 0 {
+        return 0 - 1;
+    }
+    const at = text.slice(start, text.len()).index_of(needle);
+    switch at {
+        case Some(index) { return start + index; }
+        case None { return 0 - 1; }
+    }
+}
+
+/// Read a variable. A missing name is the empty string, never a sentinel.
+pub fn lookup(string variables, string name) -> string {
+    const lines = variables.split("\n");
+    let found = "";
+    for line in lines {
+        const at = line.index_of("=");
+        switch at {
+            case Some(split) {
+                if line.slice(0, split) == name {
+                    const value = line.slice(split + 1, line.len());
+                    found = value.slice(0, value.len());
+                    break;
+                }
+            }
+            case None {
+                const absent = 0;
+            }
+        }
+    }
+    lines.free();
+    return found;
+}
+
+/// Expand the conditional blocks before the placeholders.
+fn expand_ifs(string source, string variables) -> string {
+    let text = source;
+    while true {
+        const at = find_from(text, "{% if ", 0);
+        if at < 0 {
+            break;
+        }
+        const after = at + 6;
+        const stop = find_from(text, " %}", after);
+        if stop < 0 {
+            break;
+        }
+        const name = text.slice(after, stop);
+        const end_at = find_from(text, "{% endif %}", stop + 3);
+        if end_at < 0 {
+            break;
+        }
+        const body = text.slice(stop + 3, end_at);
+        const value = lookup(variables, name.slice(0, name.len()));
+        let replacement = "";
+        if !(value.len() == 0 || value == "false" || value == "0") {
+            replacement = body.slice(0, body.len());
+        }
+        text = text.slice(0, at) + replacement + text.slice(end_at + 11, text.len());
+    }
+    return text;
+}
+
+/// Replace `{{name}}` with the escaped value, or `{{!name}}` with the raw one.
+fn expand_values(string source, string variables) -> string {
+    let text = source;
+    while true {
+        const at = find_from(text, "{{", 0);
+        if at < 0 {
+            break;
+        }
+        const stop = find_from(text, "}}", at + 2);
+        if stop < 0 {
+            break;
+        }
+        const inner = text.slice(at + 2, stop);
+        const raw = inner.starts_with("!");
+        let name = inner;
+        if raw {
+            name = inner.slice(1, inner.len());
+        }
+        const value = lookup(variables, name.slice(0, name.len()));
+        let rendered = escape_html(value);
+        if raw {
+            rendered = value.slice(0, value.len());
+        }
+        text = text.slice(0, at) + rendered + text.slice(stop + 2, text.len());
+    }
+    return text;
+}
+
+/// Render a template with one `name=value` variable per line.
+pub fn render(string source, string variables) -> string {
+    return expand_values(expand_ifs(source, variables), variables);
+}

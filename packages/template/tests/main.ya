@@ -1,0 +1,15 @@
+// The template package: placeholders, conditional blocks and escaping.
+import template;
+
+fn main() {
+    const variables = "name=<Ada>\nshow=true\nhidden=false\n";
+    const source = "Hello {{name}}!{% if show %} Visible.{% endif %}{% if hidden %} Hidden.{% endif %}";
+    const rendered = template.render(source, variables);
+    assert(rendered == "Hello &lt;Ada&gt;! Visible.");
+    assert(template.render("{{!name}}", variables) == "<Ada>");
+    assert(template.escape_html("<a & b>") == "&lt;a &amp; b&gt;");
+    assert(template.escape_attr("'x'") == "&#39;x&#39;");
+    assert(template.escape_url("a b&c") == "a%20b%26c");
+    assert(template.escape_js("a\nb") == "a\\nb");
+    print("template-ok");
+}
