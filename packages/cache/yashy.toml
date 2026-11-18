@@ -1,0 +1,5 @@
+[package]
+name = "cache"
+version = "1.0.0"
+license = "MIT"
+description = "Time-to-live helpers for cache entries"

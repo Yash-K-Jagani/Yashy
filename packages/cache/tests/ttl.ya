@@ -1,0 +1,15 @@
+// TTL helpers.
+import ttl;
+
+fn main() {
+    assert(ttl.expires_at(1000, 500) == 1500);
+    assert(ttl.is_expired(1499, 1000, 500) == false);
+    assert(ttl.is_expired(1500, 1000, 500));
+    assert(ttl.remaining(1200, 1000, 500) == 300);
+    assert(ttl.remaining(2000, 1000, 500) == 0);
+    assert(ttl.fresh(1200, 1000, 500));
+    assert(!ttl.fresh(2000, 1000, 500));
+    assert(ttl.expires_at(1000, 0) == 1000);
+    assert(ttl.expires_at(1000, 0 - 5) == 1000);
+    print("cache-ok");
+}

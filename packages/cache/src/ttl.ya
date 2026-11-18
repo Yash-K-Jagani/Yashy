@@ -1,0 +1,41 @@
+// Time-to-live helpers for cache entries.
+//
+// A cache entry stores the instant it was issued and a lifetime. These are
+// pure functions over those numbers: no clock read, no hidden state, and no
+// sentinel meaning "already expired". A caller supplies the current instant,
+// which is what makes a deterministic build able to fix time at the edge.
+
+/// The instant at which an entry stops being valid.
+///
+/// A negative lifetime is treated as zero: an entry cannot expire before it is
+/// issued. `9223372036854775807` is the largest `int`, so the addition is
+/// guarded rather than allowed to wrap.
+pub fn expires_at(int issued, int lifetime) -> int {
+    if lifetime <= 0 {
+        return issued;
+    }
+    const largest = 9223372036854775807;
+    if issued > largest - lifetime {
+        return largest;
+    }
+    return issued + lifetime;
+}
+
+/// Whether an entry is expired at `now`.
+pub fn is_expired(int now, int issued, int lifetime) -> bool {
+    return now >= expires_at(issued, lifetime);
+}
+
+/// Milliseconds left before expiry, clamped at zero.
+pub fn remaining(int now, int issued, int lifetime) -> int {
+    const left = expires_at(issued, lifetime) - now;
+    if left < 0 {
+        return 0;
+    }
+    return left;
+}
+
+/// Whether `lifetime` is still valid when inserted at `issued`.
+pub fn fresh(int now, int issued, int lifetime) -> bool {
+    return !is_expired(now, issued, lifetime);
+}
