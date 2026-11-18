@@ -29,6 +29,10 @@ pub fn debug_tag(kind: &TypeKind) -> Option<String> {
         TypeKind::Ptr(_) | TypeKind::CPtr(_) => "ptr".to_string(),
         TypeKind::Struct(name) => format!("struct {name}"),
         TypeKind::Enum(name) => format!("enum {name}"),
+        TypeKind::Option(inner) => format!("option<{}>", debug_tag(&inner.kind)?),
+        TypeKind::Result(ok, err) => {
+            format!("result<{},{}>", debug_tag(&ok.kind)?, debug_tag(&err.kind)?)
+        }
         _ => return None,
     };
     Some(tag)

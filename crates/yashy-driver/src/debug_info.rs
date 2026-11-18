@@ -9,11 +9,11 @@
 //! needs for a line table. Normal builds emit no markers, so their IR stays
 //! byte-identical.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use yashy_common::{FileId, SourceMap, Span};
 use yashy_hir::hir::{HirItem, HirProgram};
-use yashy_hir::ty::TypeKind;
+use yashy_hir::ty::{Type, TypeKind};
 
 /// The source facts one `DISubprogram` needs.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -74,7 +74,7 @@ struct TypeEntry {
 /// Collect declared types and their layout from the same tables the checker
 /// and `inspect --layout` use. A type the checker cannot lay out is skipped:
 /// emitting a wrong size would be worse than leaving it out of the table.
-fn types(hir: &HirProgram, sources: &SourceMap) -> Vec<TypeEntry> {
+fn types(hir: &HirProgram, sources: &SourceMap, tags: &[String]) -> Vec<TypeEntry> {
     let decls = crate::layout::HirDecls::from_program(hir);
     let entry = FileId::from_index(0);
     let mut out = Vec::new();
@@ -120,7 +120,109 @@ fn types(hir: &HirProgram, sources: &SourceMap) -> Vec<TypeEntry> {
             variants,
         });
     }
+    // `Option` and `Result` are compiler-known: no HIR item declares them, so
+    // the walk above never sees them. Synthesize a structure entry for each
+    // spelling a variable actually uses, with the field names the shipped LLDB
+    // summaries read. The tag is the first byte and the payloads follow, which
+    // is the layout the backend emits.
+    let span = Span::new(0, 0);
+    let mut seen = BTreeSet::new();
+    for tag in tags {
+        let (name, field_names): (&str, &[&str]) = if tag.starts_with("option<") {
+            ("Option", &["tag", "payload"])
+        } else if tag.starts_with("result<") {
+            ("Result", &["tag", "ok", "err"])
+        } else {
+            continue;
+        };
+        if !seen.insert((name.to_string(), tag.clone())) || out.iter().any(|e| e.name == name) {
+            continue;
+        }
+        let Some(kind) = kind_from_tag(tag, span) else {
+            continue;
+        };
+        let Some(layout) = yashy_hir::layout::layout(&kind, &decls) else {
+            continue;
+        };
+        let field_kinds: Vec<TypeKind> = match &kind {
+            TypeKind::Option(inner) => vec![TypeKind::CInt(8), inner.kind.clone()],
+            TypeKind::Result(ok, err) => {
+                vec![TypeKind::CInt(8), ok.kind.clone(), err.kind.clone()]
+            }
+            _ => Vec::new(),
+        };
+        let fields = field_names
+            .iter()
+            .zip(field_kinds)
+            .enumerate()
+            .map(|(index, (field, kind))| {
+                (
+                    field.to_string(),
+                    kind,
+                    layout.offsets.get(index).copied().unwrap_or(0),
+                )
+            })
+            .collect();
+        out.push(TypeEntry {
+            name: name.to_string(),
+            line: 0,
+            tag: "DW_TAG_structure_type",
+            layout,
+            fields,
+            variants: Vec::new(),
+        });
+    }
     out
+}
+
+/// The inverse of `yashy_codegen::module::debug_tag`, for synthetic DI entries.
+fn kind_from_tag(tag: &str, span: Span) -> Option<TypeKind> {
+    if let Some(inner) = tag
+        .strip_prefix("option<")
+        .and_then(|s| s.strip_suffix('>'))
+    {
+        return Some(TypeKind::Option(Box::new(Type {
+            kind: kind_from_tag(inner, span)?,
+            span,
+        })));
+    }
+    if let Some(inner) = tag
+        .strip_prefix("result<")
+        .and_then(|s| s.strip_suffix('>'))
+    {
+        let (ok, err) = inner.split_once(',')?;
+        return Some(TypeKind::Result(
+            Box::new(Type {
+                kind: kind_from_tag(ok, span)?,
+                span,
+            }),
+            Box::new(Type {
+                kind: kind_from_tag(err, span)?,
+                span,
+            }),
+        ));
+    }
+    let kind = match tag {
+        "int" => TypeKind::I64,
+        "float" => TypeKind::F64,
+        "bool" => TypeKind::Bool,
+        "char" => TypeKind::Char,
+        "string" => TypeKind::Str,
+        "ptr" => TypeKind::Ptr(Box::new(Type {
+            kind: TypeKind::Unit,
+            span,
+        })),
+        other => {
+            if let Some(name) = other.strip_prefix("struct ") {
+                TypeKind::Struct(name.to_string())
+            } else if let Some(name) = other.strip_prefix("enum ") {
+                TypeKind::Enum(name.to_string())
+            } else {
+                return None;
+            }
+        }
+    };
+    Some(kind)
 }
 
 fn item_span(item: &HirItem) -> Span {
@@ -267,7 +369,11 @@ pub fn annotate(ir: &str, hir: &HirProgram, sources: &SourceMap) -> String {
     // The type table continues after the locations, so adding it does not
     // renumber any metadata an existing debug build already emitted.
     let decls = crate::layout::HirDecls::from_program(hir);
-    let type_entries = types(hir, sources);
+    let tags: Vec<String> = variables
+        .iter()
+        .map(|variable| variable.tag.clone())
+        .collect();
+    let type_entries = types(hir, sources, &tags);
     let basic_base = location_base + points.len();
     let element_base = basic_base + BASIC_TYPES.len();
     let element_count: usize = type_entries
@@ -306,6 +412,8 @@ pub fn annotate(ir: &str, hir: &HirProgram, sources: &SourceMap) -> String {
             "char" => Some(basic_base + 3),
             "ptr" => Some(basic_base + 4),
             "string" => Some(string_type),
+            other if other.starts_with("option<") => composites.get("Option").copied(),
+            other if other.starts_with("result<") => composites.get("Result").copied(),
             other => other
                 .strip_prefix("struct ")
                 .or_else(|| other.strip_prefix("enum "))
@@ -791,6 +899,37 @@ mod tests {
             .find(|line| line.contains("llvm.dbg.declare(metadata ptr %slot0"))
             .expect("the declare call");
         assert!(declare.contains(&format!("metadata !{id})")), "{annotated}");
+    }
+
+    #[test]
+    fn option_and_result_variables_get_the_printer_structs() {
+        let mut sources = SourceMap::new();
+        sources.add_file(
+            "main.ya".to_string(),
+            "fn show() {\n  let a = Some(1);\n  let b = Ok(2);\n}\n".to_string(),
+        );
+        let hir = program(vec![function("show", Span::new(0, 41))]);
+        let ir = "define void @yashy_fn_show() {\nentry:\n  %slot0 = alloca { i8*, i64 }\n; yashy-var:local:a:%slot0:option<int>\n  %slot1 = alloca { i8*, i64, i64 }\n; yashy-var:local:b:%slot1:result<int,string>\n  ret void\n}\n";
+        let annotated = annotate(ir, &hir, &sources);
+        assert!(
+            annotated.contains("name: \"Option\""),
+            "the printer registers `Option`: {annotated}"
+        );
+        assert!(
+            annotated.contains("name: \"Result\""),
+            "the printer registers `Result`: {annotated}"
+        );
+        for field in ["tag", "payload", "ok", "err"] {
+            assert!(
+                annotated.contains(&format!("name: \"{field}\"")),
+                "the printer reads `{field}`: {annotated}"
+            );
+        }
+        assert!(
+            annotated.contains("llvm.dbg.declare(metadata ptr %slot0")
+                && annotated.contains("llvm.dbg.declare(metadata ptr %slot1"),
+            "both variables have a declared type: {annotated}"
+        );
     }
 
     #[test]

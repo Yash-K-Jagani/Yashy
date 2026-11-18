@@ -337,10 +337,11 @@ IR stays byte-identical. Verified with clang and `llvm-readobj`.
   cover `string`, arrays/slices, maps, `Option` and `Result`.
   `yashyc debug` now embeds that file in the compiler binary, writes it beside
   the generated script and `command script import`s it before the first
-  breakpoint, so the providers are registered for every session. Still open: no
-  scripted assertion that a typed value prints a particular string, and
-  `Option`/`Result` locals are omitted from the variable list because their
-  generated composite names do not yet match the providers' type names.
+  breakpoint, so the providers are registered for every session.
+  `Option`/`Result` locals now carry synthetic `DICompositeType` entries named
+  after the providers' type names, with `tag`/`payload` and `tag`/`ok`/`err`
+  members, and a unit test pins the metadata. Still open: a scripted assertion
+  that a typed value prints a particular string, which needs a debugger session.
 - [x] **Step 5: Commit.**
 
 ### Task 7: Profilers and coverage
