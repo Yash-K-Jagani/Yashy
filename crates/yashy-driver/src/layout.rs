@@ -42,6 +42,29 @@ impl HirDecls {
             })
             .unwrap_or_default()
     }
+    /// Every declared type's name, in declaration order.
+    pub fn type_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .structs
+            .iter()
+            .map(|structure| structure.name.clone())
+            .chain(self.enums.iter().map(|entry| entry.name.clone()))
+            .collect();
+        names.sort();
+        names
+    }
+}
+
+/// The layout of every declared type, sorted by name.
+pub fn all(decls: &HirDecls) -> Vec<(String, Layout, Vec<String>)> {
+    decls
+        .type_names()
+        .into_iter()
+        .filter_map(|name| {
+            let names = decls.field_names(&name);
+            find(&name, decls).map(|layout| (name, layout, names))
+        })
+        .collect()
 }
 
 impl Decls for HirDecls {

@@ -970,6 +970,11 @@ alignment and field offsets from the same layout walk the checker uses for
 `sizeof`/`offsetof`. Primitives and declared structs/enums are supported;
 generic instantiations need the parser's type syntax and are not guessed.
 
+`yashyc inspect --layout <type> <file.ya>` reports one type from the compiler's
+layout table. `--layout --all <file.ya>` reports every declared type, sorted by
+name, with size, alignment and field offsets; both renderings read the same
+table a `sizeof` query uses, so they cannot disagree.
+
 ## `yashyc trace [--json] [--fail-orphans] [root]`
 
 Prints the generated rule-to-code-to-test matrix: every rule from

@@ -55,6 +55,10 @@ sites, stack slots, bytes per value, and cold-start milliseconds.
 - [ ] **Step 1: Write the failing test.** For every corpus type, `inspect
   --layout --json` reports size, alignment, field offsets, padding and the niche
   (if any); the same numbers are read from the generated IR; a mismatch fails.
+  *Current:* `inspect --layout <type>` reports one type and
+  `inspect --layout --all` now reports every declared type from the same
+  `yashy-hir` layout table a `sizeof` query uses. Padding, niche facts and the
+  IR cross-check are still owed, so the step stays open.
 - [ ] **Step 2: Reorder only what is free.** A non-`repr(C)` struct's fields may
   be reordered to reduce padding; the report shows the chosen order and the
   bytes saved. A `repr(C)`, `repr(transparent)` or `repr(packed)` type is never

@@ -282,7 +282,7 @@ pub const COMMANDS: &[CommandSpec] = &[
         name: "inspect",
         summary: "report a symbol's facts from the index",
         usage: "yashyc inspect [--human] <file.ya>",
-        flags: &["--json", "--human", "--addr", "--binary", "--layout"],
+        flags: &["--json", "--human", "--addr", "--binary", "--layout", "--all"],
         takes_path: true,
     },
     CommandSpec {
