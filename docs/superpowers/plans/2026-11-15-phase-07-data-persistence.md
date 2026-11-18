@@ -130,8 +130,13 @@ used that way.
   *Current:* `packages/db/src/query.ya` builds a `Query` only from SQL with `?`
   placeholders and a matching parameter list; values stay in a separate slice,
   so a semicolon or quote in a value is data. The package test includes an
-  injection-shaped value and an arity mismatch. A real driver, identifier
-  newtypes and the committed corpus are still owed, so the step stays open.
+  injection-shaped value and an arity mismatch. Identifiers are now newtypes:
+  `query.table` and `query.column` validate a bare ASCII name and refuse a
+  quote, semicolon, dot, space or leading digit; `query.Order` is a closed
+  enum and `query.select` composes SQL only from validated names plus a
+  caller-written placeholder `WHERE`. The package test carries an injection
+  corpus of refused names and pins the generated SQL. A real driver is still
+  owed, so the step stays open.
 - [ ] **Step 3: Codecs are deterministic and versioned.** The wire form has a
   version byte; a decoder rejects an unknown version; a struct field order is
   declaration order; an unknown field in a map-like codec is an error unless the

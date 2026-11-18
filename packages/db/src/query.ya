@@ -11,6 +11,80 @@ pub enum DbError {
     Arity(int, int),
     /// The SQL text was empty.
     Empty,
+    /// An identifier contained a character outside its closed grammar.
+    InvalidIdentifier,
+}
+
+/// A validated table identifier. Its name is ASCII letters, digits and
+/// underscores, starting with a letter, and at most 64 bytes. A quote, a
+/// semicolon, a space or a dot cannot be represented here.
+pub struct Table {
+    name: string,
+}
+
+/// A validated column identifier, with the same grammar as a table.
+pub struct Column {
+    name: string,
+}
+
+/// The closed set of directions a dynamic `ORDER BY` can ask for.
+pub enum Order {
+    Asc,
+    Desc,
+}
+
+/// A sort request. The column is a validated identifier and the direction is
+/// a closed enum, so no caller-supplied text reaches the SQL.
+pub struct Sort {
+    column: Column,
+    direction: Order,
+}
+
+/// Validate a table name, or `None` when it is not a bare identifier.
+pub fn table(string name) -> Option[Table] {
+    if !identifier(name) {
+        return None;
+    }
+    return Some(Table { name: name });
+}
+
+/// Validate a column name, or `None` when it is not a bare identifier.
+pub fn column(string name) -> Option[Column] {
+    if !identifier(name) {
+        return None;
+    }
+    return Some(Column { name: name });
+}
+
+/// Make a sort request from a validated column and a closed direction.
+pub fn sort(Column by, Order direction) -> Sort {
+    return Sort { column: by, direction: direction };
+}
+
+/// The shared identifier grammar. A bare name starts with a letter and then
+/// uses letters, digits or underscores; a dot is refused so a caller cannot
+/// smuggle a qualified name through either newtype.
+fn identifier(string text) -> bool {
+    if text.len() == 0 || text.len() > 64 {
+        return false;
+    }
+    const first = text.byte_at(0).to_int();
+    if !letter(first) {
+        return false;
+    }
+    let index = 1;
+    while index < text.len() {
+        const byte = text.byte_at(index).to_int();
+        if !letter(byte) && !(byte >= 48 && byte <= 57) && byte != 95 {
+            return false;
+        }
+        index = index + 1;
+    }
+    return true;
+}
+
+fn letter(int byte) -> bool {
+    return (byte >= 65 && byte <= 90) || (byte >= 97 && byte <= 122);
 }
 
 /// A checked query: SQL with placeholders, and the bound values in order.
@@ -39,6 +113,56 @@ pub fn sql(Query query) -> string {
 /// The bound values, in placeholder order.
 pub fn params(Query query) -> []string {
     return query.params;
+}
+
+/// Build a `SELECT` from validated identifiers and a caller-written `WHERE`.
+///
+/// `where_sql` is SQL with `?` placeholders, never a place for a value; values
+/// belong in `params` and stay bound. Pass `""` for no `WHERE` clause. An empty
+/// column list or an unvalidated identifier is refused.
+pub fn select(
+    Table from,
+    []Column columns,
+    string where_sql,
+    []string params,
+    Option[Sort] ordering,
+) -> Result[Query, DbError] {
+    if columns.len() == 0 {
+        return Err(DbError.Empty);
+    }
+    let mut sql = "SELECT ";
+    let index = 0;
+    while index < columns.len() {
+        if index > 0 {
+            sql = sql + ", ";
+        }
+        const item = switch columns[index] {
+            case Some(value) { value }
+            case None { return Err(DbError.InvalidIdentifier); }
+        };
+        sql = sql + item.name;
+        index = index + 1;
+    }
+    sql = sql + " FROM " + from.name;
+    if where_sql.len() > 0 {
+        sql = sql + " WHERE " + where_sql;
+    }
+    sql = sql + order_clause(ordering);
+    return build(sql, params);
+}
+
+/// The dynamic tail of a `SELECT`, built only from a closed enum.
+fn order_clause(Option[Sort] ordering) -> string {
+    switch ordering {
+        case Some(request) {
+            const direction = switch request.direction {
+                case Order.Asc { " ASC" }
+                case Order.Desc { " DESC" }
+            };
+            return " ORDER BY " + request.column.name + direction;
+        }
+        case None { return ""; }
+    };
 }
 
 /// Count a byte in a string.
