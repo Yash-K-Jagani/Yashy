@@ -2,6 +2,7 @@
 import test;
 import table;
 import property;
+import snapshot;
 
 fn always_even(int value) -> bool {
     return value % 2 == 0;
@@ -17,6 +18,9 @@ fn main() {
     const counterexample = run_property(always_even, 7, 100);
     if counterexample >= 0 && counterexample % 2 == 0 {
         test_fail("property", "a counter-example must violate the property");
+    }
+    if !expect_snapshot("packages/test/tests/snapshot.txt", "one\ntwo\n") {
+        test_fail("snapshot", "the snapshot must match");
     }
     print("test-ok");
 }

@@ -64,11 +64,12 @@ what keeps a 138-week programme honest.
   list of cases and reports the failing case by name; `property` generates
   inputs from a seed, shrinks a failure to a minimal case, and prints the seed
   for reproduction. No macros: a test is a function and a table is a value.
-  *Current:* `packages/test/src/table.ya` runs named cases from two parallel
-  slices and counts failures; `property.ya` generates seeded inputs, halves a
-  failing counter-example, and returns `-1` when none fails. Both are plain
-  functions and the package test calls them. The seed is not yet printed on
-  failure and shrinking is numeric-only, so the step stays open.
+  *Current:* `table.ya` runs named cases from two parallel slices;
+  `property.ya` generates seeded inputs and halves a failing counter-example.
+  `snapshot.ya` writes a snapshot on first use, compares LF-normalised text
+  afterwards, and never silently rewrites it; the package test carries a
+  committed snapshot. The seed is not printed on failure and shrinking is
+  numeric-only, so the step stays open.
 - [ ] **Step 3: Snapshots.** `expect_snapshot(path, value)` writes a readable
   snapshot on first run and diffs on later runs; `--update` rewrites
   deliberately; a snapshot is LF-normalised and byte-stable across OSes.

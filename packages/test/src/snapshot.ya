@@ -1,0 +1,47 @@
+// Readable snapshots for test programs.
+//
+// The first run writes the snapshot; later runs compare against it. Both sides
+// are normalised to LF, so a snapshot is byte-stable across operating systems.
+// A mismatch is reported with both texts and never silently rewrites the file:
+// updating a snapshot is a deliberate edit (or a `write_snapshot` call).
+
+import fs;
+
+/// Replace CRLF with LF so a snapshot is byte-stable across OSes.
+pub fn normalise(string text) -> string {
+    return text.replace("\r\n", "\n");
+}
+
+/// Write (or deliberately overwrite) a normalised snapshot.
+pub fn write_snapshot(string path, string value) -> bool {
+    const written = write_file(path, normalise(value));
+    if written matches Err(_) {
+        print("FAIL snapshot write ${path}");
+        return false;
+    }
+    return true;
+}
+
+/// Compare `value` with the snapshot at `path`, writing it on first use.
+pub fn expect_snapshot(string path, string value) -> bool {
+    const text = normalise(value);
+    if !fs.exists(path) {
+        return write_snapshot(path, text);
+    }
+    const saved = read_file(path);
+    switch saved {
+        case Ok(old) {
+            if normalise(old) == text {
+                return true;
+            }
+            print("FAIL snapshot ${path}");
+            print("  expected: ${old}");
+            print("  actual:   ${text}");
+            return false;
+        }
+        case Err(_) {
+            print("FAIL snapshot read ${path}");
+            return false;
+        }
+    }
+}
