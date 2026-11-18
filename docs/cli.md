@@ -1251,10 +1251,12 @@ A reader's trust set is explicit. `YASHY_TRUSTED_KEY=id:hex_public_key` names
 one key; `YASHY_KEYRING` names a text file with `id=hex_public_key` per line.
 An empty trust set trusts nothing and leaves the existing checksum check in
 place. When a key is trusted, `fetch` verifies the tarball's signature before
-extracting it, so a flipped byte is a fetch error. The primitive is the
-single pinned dependency `ed25519-compact`; no curve arithmetic is written
-here. Remote signature verification is not implemented — mirror the registry
-locally to verify it.
+extracting it, so a flipped byte is a fetch error, and the index must verify
+before any entry is selected. Signatures are read from a local registry's
+`packages/` directory or fetched from `<url>/packages/<hash>.sig` and
+`<url>/index.sig` over the same TLS transport as the tarball. The primitive is
+the single pinned dependency `ed25519-compact`; no curve arithmetic is written
+here.
 
 ### Project templates
 

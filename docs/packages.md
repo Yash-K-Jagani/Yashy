@@ -211,7 +211,9 @@ $ YASHY_REGISTRY=https://packages.example.com/ yashyc build main.ya
 The package's tree hash is the integrity check: the tarball is unpacked into
 the store, the tree is hashed, and the hash must be the one the index names. A
 tarball that was changed on the way is refused, and the build stops with the
-two hashes in the message.
+two hashes in the message. With an explicit keyring, the tarball signature and
+the index signature are fetched from the same URL and verified before anything
+is unpacked.
 
 An `https://` registry is fetched over TLS, and the fetch fails rather than
 falling back to plaintext. The compiler ships no TLS stack of its own, so the
@@ -236,7 +238,8 @@ published 6 package(s) into registry
 - There is no version solver. Every dependency is an exact pin.
 - `--registry` takes an absolute path, a `file://` URL, or an `http(s)://` URL
   to read from. Publishing needs a directory it can write to.
-- A registry entry carries no signature beyond its content hash, so trust is
-  the decision to point `YASHY_REGISTRY` at that registry.
+- A registry entry carries a signature only when the publisher signed it; with
+  an explicit keyring both the tarball and the index are verified, including
+  over HTTP(S).
 - `yashyc publish` writes the tree as it is; it does not run the package's
   tests first. Run `yashyc test` before publishing.

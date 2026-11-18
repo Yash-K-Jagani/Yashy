@@ -159,7 +159,16 @@ pub fn search(root: &Path, query: Option<&str>) -> Result<Vec<RegistryEntry>, Re
 }
 
 /// The index of a registry, wherever it lives.
+///
+/// When an explicit trust set is configured, the index must verify before any
+/// entry is selected: the index is what names the hashes a fetch is checked
+/// against. An empty trust set leaves the existing checksum check alone; it is
+/// not an implicit trust of an unauthenticated index.
 pub fn fetch_index(source: &RegistrySource) -> Result<Vec<RegistryEntry>, RegistryError> {
+    let keys = load_keyring()?;
+    if !keys.is_empty() {
+        verify_index(source, &keys)?;
+    }
     match source {
         RegistrySource::Local(root) => read_index(root),
         RegistrySource::Remote(url) => {
@@ -1054,10 +1063,12 @@ pub fn verify_index(
             })?;
             (index, signature_from_text(&text)?)
         }
-        RegistrySource::Remote(_) => {
-            return Err(registry_error(
-                "a remote registry signature is not implemented; use a local mirror",
-            ))
+        RegistrySource::Remote(url) => {
+            let base = url.trim_end_matches('/');
+            let index = fetch_url(&format!("{base}/index.json"))?;
+            let text =
+                String::from_utf8_lossy(&fetch_url(&format!("{base}/index.sig"))?).into_owned();
+            (index, signature_from_text(&text)?)
         }
     };
     verify_tarball(&index, &signature, keys)
@@ -1117,17 +1128,24 @@ pub fn tarball_signature(
     source: &RegistrySource,
     entry: &RegistryEntry,
 ) -> Result<yashy_manifest::Signature, RegistryError> {
-    let RegistrySource::Local(root) = source else {
-        return Err(registry_error(
-            "a remote tarball signature is not implemented; use a local mirror",
-        ));
-    };
     let hash = entry.hash.trim_start_matches("sha256:");
-    let path = root.join("packages").join(format!("{hash}.sig"));
-    let text = std::fs::read_to_string(&path)
-        .map_err(|error| registry_error(format!("cannot read {}: {error}", path.display())))?;
-    signature_from_text(&text)
-        .map_err(|error| registry_error(format!("bad signature at {}: {error}", path.display())))
+    match source {
+        RegistrySource::Local(root) => {
+            let path = root.join("packages").join(format!("{hash}.sig"));
+            let text = std::fs::read_to_string(&path).map_err(|error| {
+                registry_error(format!("cannot read {}: {error}", path.display()))
+            })?;
+            signature_from_text(&text).map_err(|error| {
+                registry_error(format!("bad signature at {}: {error}", path.display()))
+            })
+        }
+        RegistrySource::Remote(url) => {
+            let sig_url = format!("{}/packages/{hash}.sig", url.trim_end_matches('/'));
+            let text = String::from_utf8_lossy(&fetch_url(&sig_url)?).into_owned();
+            signature_from_text(&text)
+                .map_err(|error| registry_error(format!("bad signature at {sig_url}: {error}")))
+        }
+    }
 }
 
 #[cfg(test)]

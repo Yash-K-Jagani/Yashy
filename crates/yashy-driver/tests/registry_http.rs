@@ -186,6 +186,42 @@ fn a_package_is_fetched_from_an_http_registry_and_built() {
 }
 
 #[test]
+fn a_remote_signature_and_index_are_fetched_and_verified() {
+    let dir = common::work_dir("registry-http-signed");
+    let package = dir.join("package");
+    let registry = dir.join("registry");
+    write_package(&package);
+    let seed = [9u8; 32];
+    let (entry, _files) =
+        yashy_driver::registry::publish_signed(&package, &registry, "release", &seed)
+            .expect("the package must publish");
+    let server = Server::start(registry);
+    let source = yashy_driver::registry::RegistrySource::Remote(server.url());
+
+    let signature = yashy_driver::registry::tarball_signature(&source, &entry)
+        .expect("the signature must be fetched over HTTP");
+    let bytes = yashy_driver::registry::fetch_tarball(&source, &entry)
+        .expect("the tarball must be fetched over HTTP");
+    let mut keys = yashy_manifest::Keyring::default();
+    keys.insert("release", &yashy_manifest::public_key(&seed).unwrap())
+        .unwrap();
+    assert!(
+        yashy_driver::registry::verify_tarball(&bytes, &signature, &keys).is_ok(),
+        "a signed remote tarball must verify against the explicit key"
+    );
+    assert!(
+        yashy_driver::registry::verify_index(&source, &keys).is_ok(),
+        "the remote index signature must verify too"
+    );
+    let mut flipped = bytes.clone();
+    flipped[0] ^= 0xff;
+    assert!(
+        yashy_driver::registry::verify_tarball(&flipped, &signature, &keys).is_err(),
+        "a changed byte must not verify"
+    );
+}
+
+#[test]
 fn a_tampered_tarball_fails_the_hash_check() {
     let dir = common::work_dir("registry-tampered");
     let package = dir.join("package");

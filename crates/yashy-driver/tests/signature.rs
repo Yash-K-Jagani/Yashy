@@ -40,7 +40,22 @@ fn publishing_writes_a_tarball_signature_and_sbom() {
         yashy_driver::registry::publish_signed(&package_dir, &registry_dir, "release", &SEED)
             .expect("signed publish");
     assert_eq!(entry.name, "demo");
-    assert_eq!(files.len(), 4);
+    for expected in ["demo-1.0.0.tar.gz", "index.sig"] {
+        assert!(
+            files.iter().any(|file| file
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name == expected)),
+            "{expected} must be published: {files:?}"
+        );
+    }
+    assert!(
+        files.iter().any(|file| file
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with(".attestation.json"))),
+        "the publish must write its attestation: {files:?}"
+    );
     for file in &files {
         assert!(file.is_file(), "{} must exist", file.display());
     }
@@ -82,17 +97,25 @@ fn yanking_a_version_requires_a_reason_and_is_reversible_from_the_backup() {
     let registry = dir.join("registry");
     std::fs::create_dir_all(&package).unwrap();
     std::fs::create_dir_all(&registry).unwrap();
-    common::write(&package, "yashy.toml", "[package]\nname = \"demo\"\nversion = \"1.0.0\"\n");
+    common::write(
+        &package,
+        "yashy.toml",
+        "[package]\nname = \"demo\"\nversion = \"1.0.0\"\n",
+    );
     common::write(&package, "main.ya", "fn main() {}\n");
     yashy_driver::registry::publish(&package, &registry).unwrap();
     assert!(yashy_driver::registry::yank(&registry, "demo", "1.0.0", "").is_err());
     let files = yashy_driver::registry::yank(&registry, "demo", "1.0.0", "broken build").unwrap();
-    assert!(files.iter().any(|path| path.to_string_lossy().ends_with("index.json.bak")));
+    assert!(files
+        .iter()
+        .any(|path| path.to_string_lossy().ends_with("index.json.bak")));
     let entries = yashy_driver::registry::read_index(&registry).unwrap();
     let entry = entries.iter().find(|entry| entry.name == "demo").unwrap();
     assert!(entry.yanked);
     assert_eq!(entry.yanked_reason.as_deref(), Some("broken build"));
     let source = yashy_driver::registry::RegistrySource::Local(registry);
     let req = yashy_manifest::VersionReq::parse("^1.0").unwrap();
-    assert!(yashy_driver::registry::select_source(&source, "demo", &req).unwrap().is_none());
+    assert!(yashy_driver::registry::select_source(&source, "demo", &req)
+        .unwrap()
+        .is_none());
 }
