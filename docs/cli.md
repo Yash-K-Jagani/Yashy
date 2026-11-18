@@ -938,7 +938,8 @@ Prints the generated rule-to-code-to-test matrix: every rule from
 those codes. `--fail-orphans` exits `1` when a rule has no test or a code is
 mentioned in no test file. `--json` is a schema-v1 envelope with `orphan_rules`, `orphan_codes` and
 `orphan_rules_without_code` and
-`orphan_stdlib_functions` arrays; `--markdown` prints the same
+`orphan_stdlib_functions` and
+`orphan_conformance_cases` arrays; `--markdown` prints the same
 model as the page under `docs/traceability.md`, which is regenerated from it.
 
 `yashyc trace --events <file.ya> [--json] [-- <program args>]` builds the file

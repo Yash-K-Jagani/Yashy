@@ -29,6 +29,8 @@ pub struct Matrix {
     pub orphan_rules_without_code: Vec<String>,
     /// Public stdlib functions no program under `tests/programs` mentions.
     pub orphan_stdlib_functions: Vec<String>,
+    /// Conformance cases whose rule id no diagnostic code enforces.
+    pub orphan_conformance_cases: Vec<String>,
 }
 
 fn collect_rust_tests(root: &Path, files: &mut Vec<PathBuf>) {
@@ -114,12 +116,44 @@ pub fn matrix(root: &Path) -> Result<Matrix, String> {
         .map(|rule| rule.to_string())
         .collect();
     let orphan_stdlib_functions = stdlib_without_program(root)?;
+    let orphan_conformance_cases = conformance_without_rule(root, &enforced)?;
     Ok(Matrix {
         rows,
         orphan_codes,
         orphan_rules_without_code,
         orphan_stdlib_functions,
+        orphan_conformance_cases,
     })
+}
+
+/// Conformance cases whose rule id is not enforced by any catalog code.
+///
+/// The registry is `docs/conformance.md`, a Markdown table with `| case |
+/// rule | test |` rows. A case that names an unknown rule is a gap in the
+/// traceability chain: it points at a rule no diagnostic can report.
+pub fn conformance_without_rule(
+    root: &Path,
+    enforced: &std::collections::BTreeSet<&str>,
+) -> Result<Vec<String>, String> {
+    let path = root.join("docs/conformance.md");
+    let text = std::fs::read_to_string(&path)
+        .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+    let mut missing = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if !line.starts_with('|') {
+            continue;
+        }
+        let fields: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
+        if fields.len() < 2 || fields[0] == "Case" || fields[0].starts_with('-') {
+            continue;
+        }
+        let rule = fields[1].trim_matches('`');
+        if !enforced.contains(rule) {
+            missing.push(format!("{} ({rule})", fields[0]));
+        }
+    }
+    Ok(missing)
 }
 
 /// Public stdlib functions no test program names, as `module.function`.
@@ -277,6 +311,16 @@ pub fn to_json(matrix: &Matrix) -> Json {
         Json::array(
             matrix
                 .orphan_stdlib_functions
+                .iter()
+                .map(|entry| Json::string(entry))
+                .collect(),
+        ),
+    );
+    report.set(
+        "orphan_conformance_cases",
+        Json::array(
+            matrix
+                .orphan_conformance_cases
                 .iter()
                 .map(|entry| Json::string(entry))
                 .collect(),
@@ -492,6 +536,7 @@ mod tests {
         assert!(rows
             .orphan_stdlib_functions
             .contains(&"convert.float_to_string".to_string()));
+        assert!(rows.orphan_conformance_cases.is_empty());
     }
 
     #[test]

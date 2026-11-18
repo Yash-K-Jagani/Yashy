@@ -195,11 +195,11 @@ what keeps a 138-week programme honest.
   and `--fail-orphans` fails on any of them. The stdlib orphan list and the orphan-code list are now empty:
   coverage was added to four programs and `yashy-common/tests/catalog.rs`
   pins the sixteen codes whose emitting path is hard to reach in a unit test.
-  Ten unenforced ALIAS/DET rules remain. The remaining two kinds (conformance case with no rule,
-  stdlib function with no program) still need their own indexes, so the step
-  stays open. Now covered: `orphan_stdlib_functions` names a public stdlib
-  function no program mentions, and `--fail-orphans` fails on it. Only a
-  conformance case with no rule remains unindexed.
+  Ten unenforced ALIAS/DET rules remain. Every orphan kind now has an
+  index: `orphan_stdlib_functions` names a public stdlib function no program
+  mentions, and `docs/conformance.md` is the case registry whose rule ids are
+  checked by `orphan_conformance_cases`. `--fail-orphans` fails on all of them,
+  so the flag stays honest while the rules have no diagnostics.
 - [x] **Step 2: Generate, never hand-edit.** `docs/traceability.md` is rendered
   from the registry plus the test metadata; the JSON form is the source. A rule
   id is stable across the edition; renaming one is a migration note.

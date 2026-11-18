@@ -1355,6 +1355,7 @@ fn trace_cmd(args: &[String]) -> ExitCode {
     let orphan_codes = &matrix.orphan_codes;
     let unenforced_rules = &matrix.orphan_rules_without_code;
     let orphan_stdlib = &matrix.orphan_stdlib_functions;
+    let orphan_cases = &matrix.orphan_conformance_cases;
     if json {
         println!("{}", trace::to_json(&matrix).render());
     } else if markdown {
@@ -1373,7 +1374,8 @@ fn trace_cmd(args: &[String]) -> ExitCode {
         && (!orphans.is_empty()
             || !orphan_codes.is_empty()
             || !unenforced_rules.is_empty()
-            || !orphan_stdlib.is_empty())
+            || !orphan_stdlib.is_empty()
+            || !orphan_cases.is_empty())
     {
         if !orphans.is_empty() {
             eprintln!(
@@ -1405,6 +1407,13 @@ fn trace_cmd(args: &[String]) -> ExitCode {
                 "error: {} stdlib function(s) have no program: {}",
                 orphan_stdlib.len(),
                 orphan_stdlib.join(", ")
+            );
+        }
+        if !orphan_cases.is_empty() {
+            eprintln!(
+                "error: {} conformance case(s) name an unenforced rule: {}",
+                orphan_cases.len(),
+                orphan_cases.join(", ")
             );
         }
         return exit_code(EXIT_COMPILE_ERROR);
