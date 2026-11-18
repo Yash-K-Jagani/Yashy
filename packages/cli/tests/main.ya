@@ -5,6 +5,8 @@
 // generated usage on stderr; the main happy path is asserted here.
 
 import cli;
+import help;
+import complete;
 
 fn declarations() -> string {
     return "quiet|run quietly|flag\noutput|write to this file|value";
@@ -48,5 +50,14 @@ fn main() {
     };
     assert(input == "input.txt");
     assert(!has_help);
+
+    const long_help = help.help("example", declarations());
+    assert(long_help.contains("example") && long_help.contains("--quiet"));
+    const man = help.man_page("example", declarations());
+    assert(man.contains(".TH example 1") && man.contains(".B --quiet"));
+    const bash = complete.script("example", "bash", declarations());
+    assert(bash.contains("--quiet") && bash.contains("--output"));
+    const fish = complete.script("example", "fish", declarations());
+    assert(fish.contains("--quiet"));
     print("cli-ok");
 }

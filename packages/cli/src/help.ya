@@ -1,0 +1,65 @@
+// Help and a man page rendered from the same declaration table as `usage`.
+//
+// A declaration stays one `name|description|kind` line. There is no second
+// list to keep in sync: the renderer reads the same text `cli.parse_arguments`
+// reads, so a new option appears in help, the man page and the usage string at
+// once.
+
+import cli;
+
+/// The long-form help: `usage` under a heading.
+pub fn help(string program, string declarations) -> string {
+    return "${program}\n\n" + cli.usage(program, declarations);
+}
+
+/// One roff man page. The name and every option come from the declarations.
+pub fn man_page(string program, string declarations) -> string {
+    let text = ".TH ${program} 1\n.SH NAME\n${program}\n.SH OPTIONS\n";
+    let start = 0;
+    while start < declarations.len() {
+        const end = next_line(declarations, start);
+        if end < 0 {
+            break;
+        }
+        const line = declarations.slice(start, end);
+        if !line.is_empty() {
+            const name = field(line, 0);
+            const description = field(line, 1);
+            const kind = field(line, 2);
+            if kind == "value" {
+                text = text + ".B --${name} <value>\n${description}\n";
+            } else {
+                text = text + ".B --${name}\n${description}\n";
+            }
+        }
+        start = end + 1;
+    }
+    text = text + ".B --help\nshow this help\n";
+    return text;
+}
+
+/// The index of the next newline, or `-1` after the last line.
+fn next_line(string text, int start) -> int {
+    let index = start;
+    while index < text.len() {
+        if text.byte_at(index).to_int() == 10 {
+            return index;
+        }
+        index = index + 1;
+    }
+    if start < text.len() {
+        return text.len();
+    }
+    return -1;
+}
+
+/// One `|`-separated field, copied so it outlives the split slice.
+fn field(string declaration, int index) -> string {
+    const parts = declaration.split("|");
+    const value = switch parts[index] {
+        case Some(part) { part.slice(0, part.len()) }
+        case None { "" }
+    };
+    parts.free();
+    return value;
+}

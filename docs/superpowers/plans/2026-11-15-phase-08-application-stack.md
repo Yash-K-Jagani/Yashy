@@ -69,6 +69,11 @@ the stack is not done, no matter how many modules exist.
 - [ ] **Step 3: Help is generated from the model.** The same model renders
   `--help`, the docs page and the completion script; no hand-written help
   drifts from the parser.
+  *Current:* `packages/cli` renders `usage`, long-form `help`, a roff man page
+  and bash/zsh/fish/powershell completions from one declaration string. The
+  package test asserts every surface contains the declared options. Subcommand
+  models and the parser's own precedence table are still owed, so the step
+  stays open.
 - [ ] **Step 4: Commit.**
 
 ### Task 2: `config`

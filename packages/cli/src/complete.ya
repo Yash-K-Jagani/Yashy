@@ -1,0 +1,79 @@
+// Shell completions rendered from the same declaration table as `usage`.
+//
+// The supported shells are `bash`, `zsh`, `fish` and `powershell`, matching
+// the compiler's own completion scripts. Each script lists only the options
+// the declarations name, plus `--help` which every parser accepts.
+
+import cli;
+
+/// The option words a completion script offers.
+fn options(string declarations) -> []string {
+    let words = []string {};
+    words.push("--help");
+    let start = 0;
+    while start < declarations.len() {
+        const end = next_line(declarations, start);
+        if end < 0 {
+            break;
+        }
+        const line = declarations.slice(start, end);
+        if !line.is_empty() {
+            const parts = line.split("|");
+            const name = switch parts[0] {
+                case Some(part) { part.slice(0, part.len()) }
+                case None { "" }
+            };
+            parts.free();
+            words.push("--" + name);
+        }
+        start = end + 1;
+    }
+    return words;
+}
+
+/// Render one shell's completion script.
+pub fn script(string program, string shell, string declarations) -> string {
+    const words = options(declarations);
+    let text = "";
+    if shell == "bash" {
+        text = "_${program}() {\n  local cur=\${COMP_WORDS[COMP_CWORD]}\n  local flags='";
+        for word in words {
+            text = text + word + " ";
+        }
+        text = text + "'\n  COMPREPLY=( $(compgen -W \"$flags\" -- \"$cur\") )\n}\ncomplete -F _${program} ${program}\n";
+    } else if shell == "fish" {
+        for word in words {
+            text = text + "complete -c ${program} -l '" + word.slice(2, word.len()) + "' -d 'option'\n";
+        }
+    } else if shell == "zsh" {
+        text = "#compdef ${program}\n_${program}() {\n  local -a flags\n  flags=(";
+        for word in words {
+            text = text + "'" + word + "' ";
+        }
+        text = text + ")\n  _describe 'flag' flags\n}\ncompdef _${program} ${program}\n";
+    } else if shell == "powershell" {
+        text = "Register-ArgumentCompleter -Native -CommandName '${program}' -ScriptBlock {\n  param($wordToComplete)\n  @(";
+        for word in words {
+            text = text + "'" + word + "', ";
+        }
+        text = text + ") | Where-Object { $_ -like \"$wordToComplete*\" }\n}\n";
+    } else {
+        text = "";
+    }
+    words.free();
+    return text;
+}
+
+fn next_line(string text, int start) -> int {
+    let index = start;
+    while index < text.len() {
+        if text.byte_at(index).to_int() == 10 {
+            return index;
+        }
+        index = index + 1;
+    }
+    if start < text.len() {
+        return text.len();
+    }
+    return -1;
+}
