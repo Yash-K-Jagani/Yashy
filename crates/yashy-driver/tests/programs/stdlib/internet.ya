@@ -1,0 +1,34 @@
+import mime;
+import uuid;
+import text;
+
+fn main() {
+    switch mime.parse("application/json; charset=utf-8") {
+        case Ok(m) {
+            print(mime.essence(m));
+            print(mime.is_json(m));
+            print(mime.is_text(m));
+        }
+        case Err(e) {
+            print("bad media type");
+        }
+    };
+    switch mime.parse("noslash") {
+        case Ok(m) {
+            print("accepted");
+        }
+        case Err(e) {
+            print("rejected");
+        }
+    };
+    print(uuid.is_valid(uuid.nil()));
+    print(uuid.is_valid("not-a-uuid"));
+    switch text.hex_decode("00112233445566778899aabbccddeeff") {
+        case Ok(bytes) {
+            print(uuid.from_bytes(bytes) matches Ok("00112233-4455-6677-8899-aabbccddeeff"));
+        }
+        case Err(e) {
+            print("bad hex");
+        }
+    };
+}

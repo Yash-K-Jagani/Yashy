@@ -1,0 +1,67 @@
+// Media types: the small, total part of MIME parsing.
+//
+// A media type is a top-level kind and a subtype, `type/subtype`. Parameters
+// after `;` are deliberately ignored: a parser that needs them can split the
+// original text itself. Nothing here answers with a sentinel: a malformed
+// spelling is `Err(Invalid)`.
+
+/// Why a text is not a media type.
+pub enum MimeError {
+    Invalid,
+}
+
+/// A parsed media type, without parameters.
+pub struct Mime {
+    kind: string,
+    subtype: string,
+}
+
+/// Parse `type/subtype`, ignoring anything after a semicolon.
+///
+/// Both halves must be non-empty. A string with no `/`, more than one `/`, or
+/// an empty kind or subtype is `Err(Invalid)`.
+pub fn parse(string text) -> Result[Mime, MimeError] {
+    const slash = text.index_of("/");
+    const at = switch slash {
+        case Some(index) { index }
+        case None { return Err(MimeError.Invalid); }
+    };
+    const after = text[at + 1..text.len()];
+    const semi = after.index_of(";");
+    const subtype = switch semi {
+        case Some(index) { after[0..index] }
+        case None { after }
+    };
+    const kind = text[0..at];
+    if kind.len() == 0 || subtype.len() == 0 || subtype.index_of("/") matches Some(_) {
+        return Err(MimeError.Invalid);
+    }
+    return Ok(Mime { kind: kind, subtype: subtype });
+}
+
+/// The `type/subtype` spelling, without parameters.
+pub fn essence(Mime mime) -> string {
+    return mime.kind + "/" + mime.subtype;
+}
+
+/// Whether the type is textual: `text/*`, or one of the text-like applications.
+pub fn is_text(Mime mime) -> bool {
+    if mime.kind == "text" {
+        return true;
+    }
+    if mime.kind == "application" {
+        return mime.subtype == "json"
+            || mime.subtype == "xml"
+            || mime.subtype == "javascript"
+            || mime.subtype == "x-www-form-urlencoded";
+    }
+    return false;
+}
+
+/// Whether the media type is `application/json` or `+json` suffixed.
+pub fn is_json(Mime mime) -> bool {
+    if mime.kind == "application" && mime.subtype == "json" {
+        return true;
+    }
+    return mime.subtype.ends_with("+json");
+}

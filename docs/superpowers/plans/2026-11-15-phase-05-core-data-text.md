@@ -122,6 +122,12 @@ is a capability rather than an ambient read.
 - Test: `crates/yashy-driver/tests/programs/stdlib/internet/`
 
 - [ ] **Step 1: Write the failing test.** Parse and re-emit RFC 3986 URLs (userinfo, IPv6 host, percent-encoding, relative references), match MIME types with parameters, generate and parse UUID v4/v7, compare SemVer 2.0 precedence, and round-trip base64/base64url/hex with padding rules.
+  *Current:* `mime.ya` parses `type/subtype` with a `Result` and exposes
+  `essence`, `is_text` and `is_json`; `uuid.ya` has `nil`, lowercase canonical
+  `is_valid` and `from_bytes` over `text.hex_encode`. The coverage program is
+  `stdlib/internet.ya`, and the generated `docs/stdlib.md` has both modules.
+  URLs, UUID v4/v7 generation, SemVer precedence and base64url are still owed
+  (base64 and hex already live in `text.ya`), so the step stays open.
 - [ ] **Step 2: One parser per grammar.** No regex-based URL parsing; each format has a grammar, a table-driven test and a fuzz corpus. A malformed input returns `Result` with the byte offset.
 - [ ] **Step 3: Commit.**
 

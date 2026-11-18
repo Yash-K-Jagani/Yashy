@@ -1,0 +1,41 @@
+// UUID text forms.
+//
+// A UUID is sixteen bytes; its canonical text is eight, four, four, four and
+// twelve lowercase hex digits separated by dashes. Parsing is total: a wrong
+// length, a misplaced dash or a non-hex digit is answered by `is_valid`
+// returning `false`, never by a sentinel string.
+
+import text;
+
+/// The nil UUID, all zeroes.
+pub fn nil() -> string {
+    return "00000000-0000-0000-0000-000000000000";
+}
+
+/// Whether `value` is a canonical lowercase UUID text.
+pub fn is_valid(string value) -> bool {
+    if value.len() != 36 {
+        return false;
+    }
+    for i in 0..36 {
+        const byte = value.byte_at(i).to_int();
+        if i == 8 || i == 13 || i == 18 || i == 23 {
+            if byte != 45 {
+                return false;
+            }
+        } else if !((byte >= 48 && byte <= 57) || (byte >= 97 && byte <= 102)) {
+            // Every other position must be a lowercase hex digit.
+            return false;
+        }
+    }
+    return true;
+}
+
+/// Format sixteen bytes as canonical lowercase UUID text.
+pub fn from_bytes([]char bytes) -> Result[string, text.TextError] {
+    if bytes.len() != 16 {
+        return Err(text.TextError.Invalid);
+    }
+    const hex = text.hex_encode(bytes);
+    return Ok(hex[0..8] + "-" + hex[8..12] + "-" + hex[12..16] + "-" + hex[16..20] + "-" + hex[20..32]);
+}

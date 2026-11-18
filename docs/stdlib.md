@@ -617,6 +617,59 @@ fn gauge_set(string name, int value) -> void
 
 Set the gauge named `name` to `value`.
 
+## `mime`
+
+### `Mime`
+
+```yashy
+struct Mime
+```
+
+A parsed media type, without parameters.
+
+### `MimeError`
+
+```yashy
+enum MimeError
+```
+
+Why a text is not a media type.
+
+### `essence`
+
+```yashy
+fn essence(Mime mime) -> string
+```
+
+The `type/subtype` spelling, without parameters.
+
+### `is_json`
+
+```yashy
+fn is_json(Mime mime) -> bool
+```
+
+Whether the media type is `application/json` or `+json` suffixed.
+
+### `is_text`
+
+```yashy
+fn is_text(Mime mime) -> bool
+```
+
+Whether the type is textual: `text/*`, or one of the text-like applications.
+
+### `parse`
+
+```yashy
+fn parse(string text) -> Result[Mime, MimeError]
+```
+
+Parse `type/subtype`, ignoring anything after a semicolon.
+
+Both halves must be non-empty. A string with no `/`, more than one `/`, or
+an empty kind or subtype is `Err(Invalid)`.
+
 ## `os`
 
 ### `Arch`
@@ -1035,3 +1088,30 @@ fn now_unix_ns() -> int
 ```
 
 Nanoseconds since the Unix epoch, from the wall clock.
+
+## `uuid`
+
+### `from_bytes`
+
+```yashy
+fn from_bytes([]char bytes) -> Result[string, text.TextError]
+```
+
+Format sixteen bytes as canonical lowercase UUID text.
+
+### `is_valid`
+
+```yashy
+fn is_valid(string value) -> bool
+```
+
+Whether `value` is a canonical lowercase UUID text.
+
+### `nil`
+
+```yashy
+fn nil() -> string
+```
+
+The nil UUID, all zeroes.
+
