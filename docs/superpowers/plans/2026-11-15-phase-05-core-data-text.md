@@ -189,8 +189,9 @@ is a capability rather than an ambient read.
   `fn(string) -> void` writer) and stable `Level` spellings. There is no global
   logger and no buffering: the caller owns the writer and its effects.
   `stdlib/observability.ya` captures lines in a test function. The default
-  stderr sink and separate trace/metric record shapes are still owed, so the
-  step stays open.
+  `trace_json`/`metric_json` and their `trace`/`metric` emitters now give spans
+  and samples their own stable JSON shapes, pinned by the coverage program. A
+  default stderr sink is still owed, so the step stays open.
 - [ ] **Step 4: Commit.**
 
 ### Task 8: Iteration adapters and the conversion matrix

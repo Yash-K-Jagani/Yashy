@@ -2,3 +2,5 @@
 {"level":"error","message":"bad"}
 warn
 {"level":"info","message":"done"}
+{"kind":"trace","trace_id":"t1","span_id":"s1","parent_id":"","operation":"parse","duration_us":42}
+{"kind":"metric","name":"requests","metric_kind":"counter","value":"3","labels":"route=/health"}

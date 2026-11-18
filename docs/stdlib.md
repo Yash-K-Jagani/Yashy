@@ -780,6 +780,41 @@ fn level_text(Level level) -> string
 
 The spelling a level uses in a JSON event.
 
+### `metric`
+
+```yashy
+fn metric(fn(string) -> void writer, string name, string kind, string value, string labels)
+```
+
+Send one metric sample to the caller-supplied writer.
+
+### `metric_json`
+
+```yashy
+fn metric_json(string name, string kind, string value, string labels) -> string
+```
+
+A metric sample as a stable JSON line. `value` and `labels` are text so the
+shape works for counters, gauges and histograms without a numeric surprise.
+
+### `trace`
+
+```yashy
+fn trace(fn(string) -> void writer, string trace_id, string span_id, string parent_id, string operation, int duration_us)
+```
+
+Send one trace span to the caller-supplied writer.
+
+### `trace_json`
+
+```yashy
+fn trace_json(string trace_id, string span_id, string parent_id, string operation, int duration_us) -> string
+```
+
+A trace span as a stable JSON line. `parent_id` is empty for a root span.
+The duration is microseconds; the shape is fixed so a sink does not have to
+guess which field is which.
+
 ## `os`
 
 ### `Arch`
