@@ -88,6 +88,7 @@ the declaration or import involved when that is not obvious.
 | [E1515](errors/E1515.md) | operators cannot be overloaded |
 | [E1516](errors/E1516.md) | membership is not defined for this container |
 | [E1517](errors/E1517.md) | invalid `is` comparison |
+| [E1518](errors/E1518.md) | float range bound |
 | [E1519](errors/E1519.md) | recursive type alias |
 | [E1600](errors/E1600.md) | macro invocation matches no arm |
 | [E1601](errors/E1601.md) | macro expansion limit exceeded |

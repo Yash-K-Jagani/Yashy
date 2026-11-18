@@ -845,10 +845,7 @@ impl<'src> Parser<'src> {
             // for the arm body and report a puzzling token.
             if self.check(TokenKind::DotDot) {
                 let end = self.advance();
-                return Err(crate::error::invalid_range_pattern(
-                    cover(tok.span, end.span),
-                    "a range pattern needs two `int` bounds or two `char` bounds, not floats",
-                ));
+                return Err(crate::error::float_range(cover(tok.span, end.span)));
             }
             return Ok(Pattern::Literal(Literal::F64(val), tok.span));
         }

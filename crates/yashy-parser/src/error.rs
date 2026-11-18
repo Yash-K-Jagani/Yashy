@@ -75,7 +75,8 @@ impl ParseError {
     /// understood the source or it did not, and a warning about a source that
     /// did not parse would be a warning about a file nobody will compile.
     pub fn to_diagnostic(&self, file: FileId) -> Diagnostic {
-        let mut diagnostic = Diagnostic::new(Severity::Error, file, self.span, self.message.clone());
+        let mut diagnostic =
+            Diagnostic::new(Severity::Error, file, self.span, self.message.clone());
         let replacement = if self.message.starts_with("`var` was removed") {
             Some(("let", 3))
         } else if self.message.starts_with("`println` was removed") {
@@ -147,6 +148,15 @@ pub fn import_needs_a_path(span: Span) -> ParseError {
 /// A range is a total test, so it needs an ordered domain with exact
 /// membership: integers and characters, never floats. The message names the
 /// rule rather than the token, because the reader wrote a range on purpose.
+/// A float was used as a range bound: there is no total half-open float range.
+pub fn float_range(span: Span) -> ParseError {
+    ParseError::new(
+        span,
+        "a range needs two `int` bounds or two `char` bounds, not floats".to_string(),
+    )
+    .with_code(yashy_common::codes::FLOAT_RANGE)
+}
+
 pub fn invalid_range_pattern(span: Span, message: impl Into<String>) -> ParseError {
     ParseError::new(span, message).with_code(yashy_common::codes::BAD_RANGE_PATTERN)
 }

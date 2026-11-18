@@ -286,6 +286,9 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   so the HIR has no range node. `start`, `end`, `len`, `is_empty`, `contains`
   and `step_by` are ordinary methods; `step_by` with a non-positive step is a
   diagnostic, not a hang.
+  *Current:* a float bound on `..` now reports E1518 with a catalog page and
+  RANGE-1 rule, pinned by a parser test. There is still no `Range[T]` value type
+  or `for`-loop method surface, so Step 2 stays open.
 - [x] **Step 3: Membership is compiler-known, never operator overloading.**
   `needle in container` parses at comparison precedence and desugars in the
   parser to `container.contains(needle)` — an existing method call — so no new

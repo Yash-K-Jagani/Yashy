@@ -129,3 +129,15 @@ fn at_binding_wraps_a_nested_pattern() {
         "the AST must keep the @ form"
     );
 }
+
+#[test]
+fn a_float_range_is_e1518() {
+    let errors =
+        parse_err("fn main() { switch 1.5 { case 1.0..2.0 { print(\"x\"); } default { } } }");
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.code == Some(yashy_common::codes::FLOAT_RANGE)),
+        "E1518 expected: {errors:?}"
+    );
+}

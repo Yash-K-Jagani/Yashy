@@ -187,6 +187,8 @@ pub const TRAIT_STATE: &str = "E1514";
 pub const OPERATOR_OVERLOAD: &str = "E1515";
 /// A type alias expands to a type that mentions the alias itself.
 pub const RECURSIVE_ALIAS: &str = "E1519";
+/// A float was used as a range bound.
+pub const FLOAT_RANGE: &str = "E1518";
 /// `in` was used with a container that has no membership method.
 pub const MEMBERSHIP_UNSUPPORTED: &str = "E1516";
 /// `is` is pointer identity or a variant test, never value equality.
@@ -671,6 +673,12 @@ pub const CODES: &[Code] = &[
         page: include_str!("../../../docs/errors/E1515.md"),
     },
     Code {
+        id: FLOAT_RANGE,
+        title: "a range needs integer or character bounds",
+        summary: "A half-open float range has no total length, so float bounds are not ranges.",
+        page: include_str!("../../../docs/errors/E1518.md"),
+    },
+    Code {
         id: RECURSIVE_ALIAS,
         title: "recursive type alias",
         summary: "A type alias cannot expand to a type that mentions itself.",
@@ -868,6 +876,7 @@ pub fn rule_for(id: &str) -> &'static str {
         DROP_TRAIT => "TRAIT-14",
         TRAIT_STATE => "TRAIT-15",
         OPERATOR_OVERLOAD => "TRAIT-16",
+        FLOAT_RANGE => "RANGE-1",
         RECURSIVE_ALIAS => "TYPE-11",
         MEMBERSHIP_UNSUPPORTED => "IN-1",
         INVALID_IDENTITY => "ID-1",
