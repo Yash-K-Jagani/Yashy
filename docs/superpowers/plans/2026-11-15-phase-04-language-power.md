@@ -223,8 +223,9 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   `repr(transparent)` parse as clauses; a non-power-of-two align is refused.
   The layout walk uses packed (alignment 1, summed sizes) and align(N)
   (rounded size, raised alignment), and a sema test folds `alignof`/`sizeof`
-  for both. Integer enum repr and a field-level packed-misalignment
-  diagnostic are still owed, so the step stays open.
+  for both. `repr(u8)` and friends parse and set the enum tag width in the
+  layout walk, pinned by a parser test. A field-level packed-misalignment
+  diagnostic is still owed, so the step stays open.
 - [ ] **Step 5: Layout is a compiler fact with a surface.** `size_of`, `align_of` and `offset_of` are const-evaluable and agree with the IR; a mismatch is a compiler bug caught by the layout test. `inspect --layout` (Phase 11A) renders the same table.
   *Current:* the checker folds `sizeof(T)`, `alignof(T)` and `offsetof(T, f)` from the shared HIR layout walk, and `inspect --layout` reads that table. The underscore spellings `size_of(T)`, `align_of(T)` and `offset_of(T, f)` are now accepted as aliases, pinned by a sema test. The bracket spelling `size_of[T]()` still needs const generics (Task 7), and the layout-vs-IR agreement test is owed.
 - [ ] **Step 6: Commit.**

@@ -221,6 +221,11 @@ impl<'src> Parser<'src> {
                 self.expect(TokenKind::RParen)?;
                 ReprKind::Transparent
             }
+            "u8" | "u16" | "u32" | "i8" | "i16" | "i32" => {
+                let width = name[1..].parse::<u32>().unwrap_or(0);
+                self.expect(TokenKind::RParen)?;
+                ReprKind::Int(width)
+            }
             "align" => {
                 self.expect(TokenKind::LParen)?;
                 let token = self.expect(TokenKind::I64)?;

@@ -2047,3 +2047,10 @@ fn repr_align_and_packed_parse_as_clauses() {
     assert!(format!("{program:?}").contains("Packed"));
     assert!(parse_src("repr(align(3)) struct A { x: int }").is_err());
 }
+
+#[test]
+fn an_integer_enum_repr_parses_as_a_clause() {
+    let program =
+        parse_src("repr(u8) enum Color { Red, Green }").expect("an integer enum repr must parse");
+    assert!(format!("{program:?}").contains("Int(8)"));
+}

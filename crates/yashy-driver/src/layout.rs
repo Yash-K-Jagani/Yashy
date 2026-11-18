@@ -70,6 +70,10 @@ impl Decls for HirDecls {
                 })
                 .collect(),
             repr_c: matches!(enumeration.repr, Some(yashy_hir::hir::ReprKind::C)),
+            tag_bytes: enumeration.repr.and_then(|repr| match repr {
+                yashy_hir::hir::ReprKind::Int(bits) => Some(bits as usize),
+                _ => None,
+            }),
         })
     }
 }

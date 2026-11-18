@@ -82,6 +82,8 @@ pub enum ReprKind {
     Align(u32),
     /// `repr(transparent)` -- one non-zero-sized field defines the layout.
     Transparent,
+    /// `repr(u8)` and friends -- an integer enum tag width.
+    Int(u32),
 }
 
 /// A top-level declaration.

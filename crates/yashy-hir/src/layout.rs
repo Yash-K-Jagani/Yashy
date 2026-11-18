@@ -63,6 +63,7 @@ pub enum NamedType {
     Enum {
         payloads: Vec<Vec<TypeKind>>,
         repr_c: bool,
+        tag_bytes: Option<usize>,
     },
 }
 
@@ -106,16 +107,21 @@ pub fn layout(ty: &TypeKind, decls: &dyn Decls) -> Option<Layout> {
             };
         }
         TypeKind::Enum(name) => {
-            let NamedType::Enum { payloads, repr_c } = decls.named(name)? else {
+            let NamedType::Enum {
+                payloads,
+                repr_c,
+                tag_bytes,
+            } = decls.named(name)?
+            else {
                 return None;
             };
             // The tag is a C `int` under `repr(C)` and one byte otherwise, and
             // every payload is appended in declaration order, which is exactly
             // the aggregate the backend defines for the type.
-            let mut fields = vec![if repr_c {
-                TypeKind::CInt(32)
-            } else {
-                TypeKind::CInt(8)
+            let mut fields = vec![match tag_bytes {
+                Some(bits) => TypeKind::CUInt(bits as u32),
+                None if repr_c => TypeKind::CInt(32),
+                None => TypeKind::CInt(8),
             }];
             for payload in &payloads {
                 fields.extend(payload.iter().cloned());

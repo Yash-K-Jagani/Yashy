@@ -174,6 +174,7 @@ impl Decls for CheckerDecls<'_> {
         Some(NamedType::Enum {
             payloads: sig.payloads.clone(),
             repr_c: sig.repr_c,
+            tag_bytes: None,
         })
     }
 }
