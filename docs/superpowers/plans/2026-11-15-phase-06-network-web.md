@@ -112,6 +112,11 @@ explicit, and every operation has a deadline.
 - [ ] **Step 3: Limits are arguments.** Max header bytes, max body bytes, max
   redirects, connect/read/write deadlines and a total deadline. A limit breach
   is a typed error naming the limit and its value; there is no unbounded read.
+  *Current:* `packages/http/src/headers.ya` parses a header block into its
+  original lines, gives case-insensitive lookup with a `Result` for malformed
+  lines, and round-trips CRLF. It is the data half of the limits work: a byte
+  cap now has a parser to apply it to. The limit arguments and typed limit
+  errors still need the client/server pipeline, so the step stays open.
 - [ ] **Step 4: Commit.**
 
 ### Task 4: The HTTP server and framework

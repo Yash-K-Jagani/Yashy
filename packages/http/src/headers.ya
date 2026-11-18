@@ -1,0 +1,79 @@
+// HTTP header fields.
+//
+// A header set is kept as its original `Name: value` lines so casing and order
+// survive a round trip. Lookups are case-insensitive as RFC 9110 requires. A
+// malformed line is an error with its line number, never a silently dropped
+// field.
+
+/// Why a header block could not be parsed.
+pub enum HttpError {
+    /// A line had no colon, or the name was empty.
+    Malformed(int),
+}
+
+/// A parsed header block, preserving the original lines.
+pub struct Headers {
+    lines: []string,
+}
+
+/// Parse a block of `Name: value` lines separated by CRLF or LF.
+pub fn parse(string text) -> Result[Headers, HttpError] {
+    let lines = []string {};
+    const blocks = text.replace("\r\n", "\n").split("\n");
+    let number = 1;
+    for block in blocks {
+        if block.len() > 0 {
+            const at = block.index_of(":");
+            switch at {
+                case Some(colon) {
+                    if colon == 0 {
+                        lines.free();
+                        return Err(HttpError.Malformed(number));
+                    }
+                    lines.push(block.slice(0, block.len()));
+                }
+                case None {
+                    lines.free();
+                    return Err(HttpError.Malformed(number));
+                }
+            }
+        }
+        number = number + 1;
+    }
+    blocks.free();
+    return Ok(Headers { lines: lines });
+}
+
+/// The first value for `name`, case-insensitively.
+pub fn get(Headers headers, string name) -> Option[string] {
+    const wanted = name.to_lower();
+    for line in headers.lines {
+        const at = line.index_of(":");
+        switch at {
+            case Some(colon) {
+                if line.slice(0, colon).trim().to_lower() == wanted {
+                    const value = line.slice(colon + 1, line.len()).trim();
+                    return Some(value.slice(0, value.len()));
+                }
+            }
+            case None {
+                const absent = 0;
+            }
+        }
+    }
+    return None;
+}
+
+/// The `Content-Type` value, when the block has one.
+pub fn content_type(Headers headers) -> Option[string> {
+    return get(headers, "content-type");
+}
+
+/// The original block, with one CRLF-terminated line per field.
+pub fn to_string(Headers headers) -> string {
+    let text = "";
+    for line in headers.lines {
+        text = text + line + "\r\n";
+    }
+    return text;
+}

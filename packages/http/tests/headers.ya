@@ -1,0 +1,21 @@
+// Header parsing and case-insensitive lookup.
+import headers;
+
+fn main() {
+    const block = "Host: example.org\r\nContent-Type: application/json\r\n";
+    const parsed = headers.parse(block);
+    const found = switch parsed {
+        case Ok(set) {
+            assert(headers.get(set, "host") matches Some("example.org"));
+            assert(headers.content_type(set) matches Some("application/json"));
+            assert(headers.to_string(set) == block);
+            true
+        }
+        case Err(_) {
+            false
+        }
+    };
+    assert(found);
+    assert(headers.parse("NoColon\r\n") matches Err(_));
+    print("headers-ok");
+}
