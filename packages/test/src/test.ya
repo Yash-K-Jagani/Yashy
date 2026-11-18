@@ -28,3 +28,76 @@ pub fn test_fail(string label, string detail) {
     print("  ${detail}");
     exit(1);
 }
+
+// Typed assertion helpers. Each one names the check and renders the expected
+// and actual values in the failure, so a log says what was wrong rather than
+// only that something was. The concrete spellings are deliberate: there is no
+// `Debug` trait in the language yet, so a generic `expect_eq[T]` cannot render
+// an arbitrary value without a display bound.
+
+/// Expect two integers to match.
+pub fn expect_eq_int(int actual, int expected, string label) {
+    if actual != expected {
+        print("FAIL ${label}");
+        print("  expected: ${expected}");
+        print("  actual:   ${actual}");
+        exit(1);
+    }
+}
+
+/// Expect two booleans to match.
+pub fn expect_eq_bool(bool actual, bool expected, string label) {
+    if actual != expected {
+        print("FAIL ${label}");
+        print("  expected: ${expected}");
+        print("  actual:   ${actual}");
+        exit(1);
+    }
+}
+
+/// Expect two floats to match within a tolerance.
+pub fn expect_approx(float actual, float expected, float tolerance, string label) {
+    const delta = actual - expected;
+    if delta < (0.0 - tolerance) || delta > tolerance {
+        print("FAIL ${label}");
+        print("  expected: ${expected} +/- ${tolerance}");
+        print("  actual:   ${actual}");
+        exit(1);
+    }
+}
+
+/// Expect an integer `Option` to hold a value; return it.
+pub fn expect_some_int(Option[int] actual, string label) -> int {
+    switch actual {
+        case Some(value) { return value; }
+        case None { test_fail(label, "expected Some(int), found None"); }
+    };
+    return 0;
+}
+
+/// Expect an integer `Option` to be empty.
+pub fn expect_none_int(Option[int] actual, string label) {
+    switch actual {
+        case Some(value) {
+            print("FAIL ${label}");
+            print("  expected: None");
+            print("  actual:   Some(${value})");
+            exit(1);
+        }
+        case None {}
+    };
+}
+
+/// Expect a `Result[int, string]` to be an error; return the message.
+pub fn expect_err(Result[int, string] actual, string label) -> string {
+    switch actual {
+        case Err(message) { return message; }
+        case Ok(value) {
+            print("FAIL ${label}");
+            print("  expected: Err(_)");
+            print("  actual:   Ok(${value})");
+            exit(1);
+        }
+    };
+    return "";
+}

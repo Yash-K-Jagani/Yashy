@@ -60,6 +60,13 @@ what keeps a 138-week programme honest.
   both values with `Debug`; `expect_err`, `expect_some`, `expect_none`,
   `expect_contains`, `expect_approx` and `expect_panics`. A failure names the
   file, line, expected and actual.
+  *Current:* `packages/test/src/test.ya` has `test_assert_eq`,
+  `test_assert_contains` and `test_fail`, now joined by `expect_eq_int`,
+  `expect_eq_bool`, `expect_approx`, `expect_some_int`, `expect_none_int` and
+  `expect_err`; each failure names the label and renders expected and actual.
+  A generic `expect_eq[T]` needs a `Debug`/display bound the language does not
+  have, the file/line of the call is not reported, and `expect_panics` needs
+  the runtime's fault handling, so the step stays open.
 - [ ] **Step 2: Table and property tests.** `table` runs the same body over a
   list of cases and reports the failing case by name; `property` generates
   inputs from a seed, shrinks a failure to a minimal case, and prints the seed

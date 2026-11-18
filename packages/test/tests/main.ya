@@ -9,9 +9,20 @@ fn always_even(int value) -> bool {
     return value % 2 == 0;
 }
 
+fn bad_result() -> Result[int, string] {
+    return Err("bad input");
+}
+
 fn main() {
     test_assert_eq("hello", "hello", "same-value");
     test_assert_contains("hello world", "world", "substring");
+    expect_eq_int(2 + 2, 4, "integer assertion");
+    expect_eq_bool(true, true, "boolean assertion");
+    expect_approx(1.0, 1.0000001, 0.0001, "approximate assertion");
+    expect_eq_int(expect_some_int(Some(7), "some assertion"), 7, "unwrapped value");
+    expect_none_int(None, "none assertion");
+    const error = expect_err(bad_result(), "error assertion");
+    assert(error == "bad input");
     const cases = []string { "one", "two" };
     const results = []bool { true, false };
     const failed = run_table(cases, results);
