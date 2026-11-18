@@ -67,6 +67,50 @@ pub fn all(decls: &HirDecls) -> Vec<(String, Layout, Vec<String>)> {
         .collect()
 }
 
+/// A stable, human-readable form of the whole layout table.
+///
+/// One line per type, with fields in declaration order and their byte offsets.
+/// The widths are fixed so a reader can scan the table and a golden comparison
+/// does not depend on terminal width.
+pub fn render_human(decls: &HirDecls) -> String {
+    let rows = all(decls);
+    let Some((_, _, _)) = rows.first() else {
+        return "no declared types\n".to_string();
+    };
+    let width = rows
+        .iter()
+        .map(|(name, _, _)| name.len())
+        .max()
+        .unwrap_or(4);
+    let mut out = format!(
+        "{:<width$}  {:>4}  {:>5}  fields\n",
+        "type",
+        "size",
+        "align",
+        width = width
+    );
+    for (name, found, names) in &rows {
+        let fields: Vec<String> = found
+            .offsets
+            .iter()
+            .enumerate()
+            .map(|(index, offset)| match names.get(index) {
+                Some(label) => format!("{label}@{offset}"),
+                None => format!("field{index}@{offset}"),
+            })
+            .collect();
+        out.push_str(&format!(
+            "{:<width$}  {:>4}  {:>5}  {}\n",
+            name,
+            found.size,
+            found.align,
+            fields.join(", "),
+            width = width
+        ));
+    }
+    out
+}
+
 impl Decls for HirDecls {
     fn named(&self, name: &str) -> Option<NamedType> {
         if let Some(structure) = self.structs.iter().find(|entry| entry.name == name) {

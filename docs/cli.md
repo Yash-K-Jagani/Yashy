@@ -972,8 +972,9 @@ generic instantiations need the parser's type syntax and are not guessed.
 
 `yashyc inspect --layout <type> <file.ya>` reports one type from the compiler's
 layout table. `--layout --all <file.ya>` reports every declared type, sorted by
-name, with size, alignment and field offsets; both renderings read the same
-table a `sizeof` query uses, so they cannot disagree.
+name, with size, alignment and field offsets; both read the same table a
+`sizeof` query uses, so they cannot disagree. Add `--human` to print the whole
+table as aligned text with `field@offset` entries instead of JSON.
 
 ## `yashyc trace [--json] [--fail-orphans] [root]`
 

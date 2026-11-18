@@ -73,6 +73,18 @@ fn folded_queries_agree_with_the_layout_table() {
 }
 
 #[test]
+fn the_human_report_lists_every_type_with_field_offsets() {
+    let src = "struct Alpha { x: int, y: char }\nstruct Beta { z: int }\nfn main() {}";
+    let program = check(src);
+    let decls = yashy_driver::layout::HirDecls::from_program(&program);
+    let rendered = yashy_driver::layout::render_human(&decls);
+    assert!(rendered.contains("type"), "{rendered}");
+    assert!(rendered.contains("Alpha"), "{rendered}");
+    assert!(rendered.contains("Beta"), "{rendered}");
+    assert!(rendered.contains("x@0"), "{rendered}");
+}
+
+#[test]
 fn the_report_and_the_queries_name_every_field_offset() {
     let src = "struct Triple { a: int, b: char, c: int }\n\
                fn main() {\n\

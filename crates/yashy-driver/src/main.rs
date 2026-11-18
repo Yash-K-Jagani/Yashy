@@ -2349,6 +2349,10 @@ fn inspect_cmd(args: &[String]) -> ExitCode {
             return exit_code(EXIT_COMPILE_ERROR);
         };
         let decls = yashy_driver::layout::HirDecls::from_program(&hir);
+        if !json && layout_all {
+            print!("{}", yashy_driver::layout::render_human(&decls));
+            return exit_code(EXIT_OK);
+        }
         if layout_all {
             let rows: Vec<Json> = yashy_driver::layout::all(&decls)
                 .into_iter()
