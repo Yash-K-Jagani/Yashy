@@ -947,7 +947,7 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
                 value: String::new(),
                 ty: ty.kind.clone(),
             }
-        },
+        }
         HirExpr::AddrOf { name, ty, .. } => match ctx.locals.get(name).cloned() {
             // The local's slot *is* the storage the pointer designates, so the
             // address is the alloca's own name -- there is nothing to emit.
