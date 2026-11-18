@@ -140,6 +140,13 @@ const MAX_CONST_DEPTH: usize = 160;
 /// bound, and it is what a runaway program hits first.
 const MAX_CONST_CALLS: usize = 1_000_000;
 
+/// How many expression evaluations one `const fn` call may perform.
+///
+/// Calls bound recursion depth, but a loop-free body can still do a lot of
+/// work in one expression tree; this counter bounds that work as well and
+/// reports the expression that exceeded it.
+const MAX_CONST_STEPS: usize = 1_000_000;
+
 /// The state that bounds one evaluation.
 ///
 /// A `const fn` runs on the compiler's own stack, so an evaluation that never
@@ -152,6 +159,8 @@ pub struct Work {
     pub depth: usize,
     /// How many calls the evaluation has made in total.
     pub calls: usize,
+    /// How many expressions the evaluation has visited.
+    pub steps: usize,
     /// The `const fn`s the evaluation called, with the span of each call.
     ///
     /// A `const fn` belongs to the module that declares it, so a call to
@@ -799,6 +808,13 @@ pub fn evaluate(
     work: &mut Work,
     missing: Missing,
 ) -> Result<ConstValue, ConstError> {
+    work.steps = work.steps.saturating_add(1);
+    if work.steps > MAX_CONST_STEPS {
+        return Err(ConstError::new(
+            expr_span(expr),
+            format!("const evaluation exceeded {MAX_CONST_STEPS} steps"),
+        ));
+    }
     match expr {
         Expr::Literal(literal, _) => Ok(match literal {
             Literal::I64(value) => ConstValue::I64(*value),

@@ -119,3 +119,25 @@ fn a_const_fn_that_recurses_forever_is_reported() {
         "did not terminate",
     );
 }
+
+#[test]
+fn evaluation_is_bounded_by_a_step_fuel() {
+    use yashy_common::Span;
+    use yashy_sema::const_eval::{evaluate, ConstFns, Missing, Work};
+    use yashy_sema::ConstValue;
+
+    let mut work = Work::default();
+    work.steps = 1_000_000;
+    let expression =
+        yashy_parser::ast::Expr::Literal(yashy_parser::ast::Literal::I64(1), Span::new(0, 1));
+    let result = evaluate(
+        &expression,
+        &[],
+        &ConstFns::new(),
+        &mut work,
+        Missing::NotFound,
+    );
+    let error = result.expect_err("the fuel must be exhausted");
+    assert!(error.message.contains("steps"), "{error:?}");
+    let _ = ConstValue::I64(1);
+}

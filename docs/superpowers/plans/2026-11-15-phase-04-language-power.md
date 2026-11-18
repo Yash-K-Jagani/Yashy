@@ -355,6 +355,11 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   a diagnostic with the expression span. A `const fn` that does not terminate
   is an error, never a compiler hang. Evaluation is deterministic and produces
   the same bytes on both OSes.
+  *Current:* the depth (160) and call (1M) caps existed; a 1M expression-step
+  fuel was added and the failure is reported at the expression that exceeded
+  it. A test drives `Work` to the cap directly. The evaluator still consumes
+  the parser AST rather than typed HIR, so loop/index construction and the
+  remaining totality cases are not yet covered.
 - [ ] **Step 4: Const and run time agree.** For every `const fn`, a differential
   test evaluates it at compile time and calls it at run time on the same inputs
   and compares the values. A mismatch is a compiler bug, not a language
