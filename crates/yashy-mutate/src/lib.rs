@@ -8,6 +8,46 @@
 
 use yashy_parser::ast::{BinOp, Expr, Literal};
 
+/// The outcome counts of one campaign.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MutationReport {
+    pub killed: usize,
+    pub survived: usize,
+    pub timed_out: usize,
+    pub equivalent: usize,
+}
+
+impl MutationReport {
+    /// Killed mutants over all non-equivalent mutants, as a percentage.
+    ///
+    /// Equivalent mutants are excluded from the denominator: they are the same
+    /// program written differently, so counting them as survivors would punish
+    /// a suite for a fact it cannot observe. A time-out counts as killed only
+    /// when the target's own budget says so, so it is reported separately and
+    /// excluded here as well.
+    pub fn score(self) -> f64 {
+        let relevant = self.killed + self.survived;
+        if relevant == 0 {
+            return 0.0;
+        }
+        self.killed as f64 * 100.0 / relevant as f64
+    }
+
+    /// The schema-v1 report a CI job can read and gate.
+    pub fn to_json(self) -> yashy_common::Json {
+        use yashy_common::Json;
+        let mut report = Json::object();
+        report.set("schema_version", Json::number(1));
+        report.set("tool", Json::string("mutate"));
+        report.set("killed", Json::number(self.killed as i64));
+        report.set("survived", Json::number(self.survived as i64));
+        report.set("timed_out", Json::number(self.timed_out as i64));
+        report.set("equivalent", Json::number(self.equivalent as i64));
+        report.set("score", Json::string(self.score().to_string()));
+        report
+    }
+}
+
 /// An operator family and what it changes. The name is stable across releases.
 pub const OPERATORS: &[(&str, &str)] = &[
     (
@@ -147,6 +187,29 @@ mod tests {
             Expr::Literal(Literal::Bool(false), span) => assert_eq!(*span, Span::new(4, 8)),
             other => panic!("expected a false literal, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_score_excludes_equivalent_and_timed_out_mutants() {
+        let report = MutationReport {
+            killed: 8,
+            survived: 2,
+            timed_out: 3,
+            equivalent: 5,
+        };
+        assert_eq!(report.score(), 80.0);
+        assert!(report.to_json().render().contains("\"score\": \"80\""));
+    }
+
+    #[test]
+    fn an_empty_campaign_scores_zero() {
+        let report = MutationReport {
+            killed: 0,
+            survived: 0,
+            timed_out: 0,
+            equivalent: 0,
+        };
+        assert_eq!(report.score(), 0.0);
     }
 
     #[test]

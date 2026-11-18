@@ -1401,6 +1401,39 @@ fn fuzz_cmd(args: &[String]) -> ExitCode {
 /// itself lives in `yashy-mutate`; this verb is the inventory, not a campaign
 /// runner. A score without a named operator is not a score.
 fn mutate_cmd(args: &[String]) -> ExitCode {
+    if let Some(at) = args.iter().position(|arg| arg == "--score") {
+        let Some(value) = args.get(at + 1) else {
+            return usage_error("`--score` needs killed:survived:timed_out:equivalent");
+        };
+        let parts: Vec<&str> = value.split(':').collect();
+        if parts.len() != 4 || parts.iter().any(|part| part.parse::<usize>().is_err()) {
+            return usage_error("`--score` needs four whole numbers separated by `:`");
+        }
+        let count = |index: usize| parts[index].parse::<usize>().unwrap_or(0);
+        let report = yashy_mutate::MutationReport {
+            killed: count(0),
+            survived: count(1),
+            timed_out: count(2),
+            equivalent: count(3),
+        };
+        let score = report.score();
+        if args.iter().any(|arg| arg == "--json") || !args.iter().any(|arg| arg == "--fail-under") {
+            println!("{}", report.to_json().render());
+        } else {
+            println!("mutation score: {score:.2}%");
+        }
+        if let Some(at) = args.iter().position(|arg| arg == "--fail-under") {
+            let Some(value) = args.get(at + 1) else {
+                return usage_error("`--fail-under` needs a percentage");
+            };
+            match value.parse::<f64>() {
+                Ok(floor) if score >= floor => return exit_code(EXIT_OK),
+                Ok(_) => return exit_code(EXIT_COMPILE_ERROR),
+                Err(_) => return usage_error("`--fail-under` needs a percentage"),
+            }
+        }
+        return exit_code(EXIT_OK);
+    }
     if args.iter().any(|arg| arg == "--json") {
         let mut report = Json::object();
         report.set("schema_version", Json::number(1));

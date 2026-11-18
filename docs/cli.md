@@ -536,8 +536,11 @@ run a bounded campaign yet.
 Lists the AST-level mutation operators with stable names (`AOR`, `ROR`, `COR`,
 `BOOL`) and what each changes. The mutator lives in the `yashy-mutate` crate;
 this verb is its inventory. A mutation score must name the operator that
-survived, so an unnamed operator is not a score. Running a campaign and
-computing the score are still owed.
+survived, so an unnamed operator is not a score. `mutate --score
+killed:survived:timed_out:equivalent` computes a deterministic percentage from
+campaign counts (equivalent and timed-out mutants are outside the denominator)
+and prints a schema-v1 report; `--fail-under <pct>` gates a project on it. The
+campaign runner itself is still owed.
 
 `--affected <file>` reads a newline-separated list of changed paths and runs
 only the tests that changed or import a module whose file changed. The selector

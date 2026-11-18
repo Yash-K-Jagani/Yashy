@@ -260,8 +260,8 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "mutate",
         summary: "list AST mutation operators",
-        usage: "yashyc mutate --list [--json]",
-        flags: &["--list", "--json"],
+        usage: "yashyc mutate --list [--json] | mutate --score <k>:<s>:<t>:<e> [--fail-under <pct>] [--json]",
+        flags: &["--list", "--json", "--score", "--fail-under"],
         takes_path: false,
     },
     CommandSpec {
