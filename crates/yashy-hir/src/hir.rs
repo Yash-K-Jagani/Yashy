@@ -571,14 +571,11 @@ impl HirPattern {
             | HirPattern::Range { .. } => {}
             HirPattern::Binding { name, ty, .. } => out.push((name.clone(), ty.clone())),
             HirPattern::BindAt {
-                name,
-                ty,
-                pattern,
-                ..
+                name, ty, pattern, ..
             } => {
                 out.push((name.clone(), ty.clone()));
                 pattern.collect_bindings(out);
-            },
+            }
             HirPattern::TupleVariant { args, .. } | HirPattern::Tuple { elements: args, .. } => {
                 for element in args {
                     element.collect_bindings(out);

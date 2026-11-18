@@ -535,7 +535,7 @@ fn pattern_names(pattern: &HirPattern, out: &mut Vec<String>) {
         HirPattern::BindAt { name, pattern, .. } => {
             out.push(name.clone());
             pattern_names(pattern, out);
-        },
+        }
         HirPattern::TupleVariant { args, .. } => {
             for arg in args {
                 pattern_names(arg, out);
@@ -703,14 +703,11 @@ pub fn bind_pattern(ctx: &mut FnCtx<'_>, subject: &GenValue, pattern: &HirPatter
             bind_value(ctx, name, &subject.value, &ty.kind);
         }
         HirPattern::BindAt {
-            name,
-            ty,
-            pattern,
-            ..
+            name, ty, pattern, ..
         } => {
             bind_value(ctx, name, &subject.value, &ty.kind);
             bind_pattern(ctx, subject, pattern);
-        },
+        }
         HirPattern::Or { alternatives, .. } => bind_or(ctx, subject, alternatives),
         HirPattern::TupleVariant { args, .. } => {
             let fields = payload_fields(ctx, &subject.ty, pattern);
@@ -808,14 +805,11 @@ pub fn bind_pattern_owned(ctx: &mut FnCtx<'_>, subject: &GenValue, pattern: &Hir
             bind_value_owned(ctx, name, subject, &ty.kind);
         }
         HirPattern::BindAt {
-            name,
-            ty,
-            pattern,
-            ..
+            name, ty, pattern, ..
         } => {
             bind_value_owned(ctx, name, subject, &ty.kind);
             bind_pattern_owned(ctx, subject, pattern);
-        },
+        }
         HirPattern::Or { .. } => bind_pattern(ctx, subject, pattern),
         HirPattern::Tuple { elements, .. } => {
             let TypeKind::Tuple(element_tys) = &subject.ty else {
