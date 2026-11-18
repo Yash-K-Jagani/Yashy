@@ -24,7 +24,7 @@ fn both_backends_get_a_runnable_script() {
     let lldb = Backend::Lldb(Path::new("lldb").to_path_buf());
     let cdb = Backend::Cdb(Path::new("cdb.exe").to_path_buf());
     for backend in [&lldb, &cdb] {
-        let text = script(backend, Path::new("app"), &["main".to_string()], &[]);
+        let text = script(backend, Path::new("app"), &["main".to_string()], &[], None);
         assert!(
             text.ends_with('\n'),
             "a script ends with a newline: {text:?}"

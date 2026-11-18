@@ -1,13 +1,26 @@
 //! `yashyc debug`: choose a native debugger, write its script, and run it.
 //!
 //! The script is generated from the same compiler facts the build used. It
-//! sets `YASHY_DEBUG=1` so the runtime's task-aware stop handler is active and
-//! breaks on named functions. Source-line breakpoints need LLVM debug metadata,
-//! which the backend does not emit yet; this command does not pretend they
-//! work. See `docs/debugging.md` for the honest limit.
+//! sets `YASHY_DEBUG=1` so the runtime's task-aware stop handler is active,
+//! breaks on named functions, and imports the LLDB summary providers that
+//! render `string`, arrays, maps, `Option` and `Result` as values. Source-line
+//! breakpoints work in a `--debug` build because every checked statement
+//! carries a `!dbg` location. See `docs/debugging.md` for the surface.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
+
+/// The LLDB summary providers, embedded so a shipped compiler carries them.
+///
+/// The file is written beside the debugger script at run time; the module name
+/// LLDB assigns is the file stem, which is why the file is always written as
+/// `pretty_printers.py`. Keeping the source in `yashy-runtime` means the
+/// printers and the layouts they read are reviewed together.
+pub const PRETTY_PRINTERS: &str = include_str!("../../yashy-runtime/debug/pretty_printers.py");
+
+/// The file name the printers must be written under for their
+/// `pretty_printers.<summary>` function references to resolve.
+pub const PRETTY_PRINTERS_FILE: &str = "pretty_printers.py";
 
 /// A native debugger found on `PATH`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -77,6 +90,7 @@ pub fn script(
     program: &Path,
     breakpoints: &[String],
     args: &[String],
+    printers: Option<&Path>,
 ) -> String {
     match backend {
         Backend::Lldb(_) => {
@@ -84,6 +98,14 @@ pub fn script(
                 "settings set target.env-vars YASHY_DEBUG=1\ntarget create {}\n",
                 quote(&program.to_string_lossy())
             );
+            // The summary providers come first: they change how `frame
+            // variable` renders a value in every later command.
+            if let Some(printers) = printers {
+                out.push_str(&format!(
+                    "command script import {}\n",
+                    quote(&printers.to_string_lossy())
+                ));
+            }
             for name in breakpoints {
                 out.push_str(&format!("breakpoint set --name {}\n", quote(name)));
             }
@@ -138,6 +160,7 @@ mod tests {
             Path::new("app.exe"),
             &["main".to_string(), "work".to_string()],
             &["one".to_string(), "two words".to_string()],
+            None,
         );
         assert!(text.contains("YASHY_DEBUG=1"), "{text}");
         assert!(text.contains("breakpoint set --name \"main\""), "{text}");
@@ -147,18 +170,59 @@ mod tests {
     }
 
     #[test]
+    fn an_lldb_script_imports_the_value_printers() {
+        let backend = Backend::Lldb(PathBuf::from("lldb"));
+        let text = script(
+            &backend,
+            Path::new("app"),
+            &[],
+            &[],
+            Some(Path::new("C:/tmp/pretty_printers.py")),
+        );
+        assert!(
+            text.contains("command script import \"C:/tmp/pretty_printers.py\""),
+            "{text}"
+        );
+        // The import has to be in place before the first stop prints values.
+        let import = text.find("command script import").expect("import line");
+        let breakpoint = text.find("breakpoint set").expect("breakpoint line");
+        assert!(import < breakpoint, "{text}");
+    }
+
+    #[test]
+    fn the_printers_are_embedded_and_name_their_lldb_module() {
+        // The file has to keep its stem so `pretty_printers.<summary>`
+        // resolves after `command script import`.
+        assert_eq!(PRETTY_PRINTERS_FILE, "pretty_printers.py");
+        for summary in [
+            "string_summary",
+            "option_summary",
+            "result_summary",
+            "array_summary",
+            "map_summary",
+        ] {
+            assert!(PRETTY_PRINTERS.contains(summary), "missing {summary}");
+        }
+        assert!(
+            PRETTY_PRINTERS.contains("pretty_printers.%s"),
+            "the registration must name the imported module"
+        );
+    }
+
+    #[test]
     fn a_cdb_script_uses_its_own_command_syntax() {
         let backend = Backend::Cdb(PathBuf::from("cdb.exe"));
-        let text = script(&backend, Path::new("app.exe"), &[], &[]);
+        let text = script(&backend, Path::new("app.exe"), &[], &[], None);
         assert!(text.contains("bp main"), "{text}");
         assert!(text.contains('g'), "{text}");
         assert!(!text.contains("breakpoint set"), "{text}");
+        assert!(!text.contains("command script import"), "{text}");
     }
 
     #[test]
     fn a_default_breakpoint_is_the_entry_point() {
         let backend = Backend::Lldb(PathBuf::from("lldb"));
-        let text = script(&backend, Path::new("app"), &[], &[]);
+        let text = script(&backend, Path::new("app"), &[], &[], None);
         assert!(text.contains("breakpoint set --name \"main\""), "{text}");
     }
 }

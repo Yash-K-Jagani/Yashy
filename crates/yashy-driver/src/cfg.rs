@@ -191,12 +191,15 @@ fn filter_item(
                 None
             }
         }
-        Item::Public { item, span } => {
-            filter_item(*item, set, file, diagnostics).map(|inner| Item::Public {
-                item: Box::new(inner),
-                span,
-            })
-        }
+        Item::Public {
+            item,
+            span,
+            crate_visible,
+        } => filter_item(*item, set, file, diagnostics).map(|inner| Item::Public {
+            item: Box::new(inner),
+            span,
+            crate_visible,
+        }),
         Item::Effect { effect, item, span } => {
             filter_item(*item, set, file, diagnostics).map(|inner| Item::Effect {
                 effect,

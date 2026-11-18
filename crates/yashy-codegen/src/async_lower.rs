@@ -624,7 +624,7 @@ fn bind_result(ctx: &mut FnCtx<'_>, layout: &FrameLayout, site: &AwaitSite, resu
                     let slot = ctx.alloc_slot();
                     let ty = result_ty.clone();
                     ctx.push_alloca(format!("{slot} = alloca {}", repr));
-                    ctx.locals.insert(name.clone(), (slot, ty));
+                    ctx.declare_local(name, &ty, &slot, None);
                 }
                 if layout.fields.iter().any(|field| &field.name == name) {
                     let field_index = (5 + layout

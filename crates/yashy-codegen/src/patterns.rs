@@ -896,7 +896,7 @@ fn bind_owned_field(
                 ctx.push(format!("store {repr} {payload}, ptr {slot}"));
                 track_field(ctx, &slot, &ty.kind);
             }
-            ctx.locals.insert(name.clone(), (slot, ty.kind.clone()));
+            ctx.declare_local(name, &ty.kind, &slot, None);
         }
         nested => {
             let payload = extract_field(ctx, subject, index);
@@ -948,7 +948,7 @@ fn bind_value_owned(ctx: &mut FnCtx<'_>, name: &str, subject: &GenValue, ty: &Ty
     retain_field(ctx, &subject.value, ty);
     ctx.push(format!("store {repr} {}, ptr {slot}", subject.value));
     track_field(ctx, &slot, ty);
-    ctx.locals.insert(name.to_string(), (slot, ty.clone()));
+    ctx.declare_local(name, ty, &slot, None);
 }
 
 /// Bind an or-pattern through the alternative that matched.
@@ -991,5 +991,5 @@ fn bind_value(ctx: &mut FnCtx<'_>, name: &str, value: &str, ty: &TypeKind) {
     if !value.is_empty() {
         ctx.push(format!("store {repr} {value}, ptr {slot}"));
     }
-    ctx.locals.insert(name.to_string(), (slot, ty.clone()));
+    ctx.declare_local(name, ty, &slot, None);
 }

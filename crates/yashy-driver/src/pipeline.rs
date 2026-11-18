@@ -209,6 +209,7 @@ fn task_count(hir: &HirProgram) -> usize {
                 }
             }
             HirExpr::Lambda { f, .. } => block(&f.body, count),
+            HirExpr::UnsafeBlock { body, .. } => block(body, count),
             HirExpr::Literal(..)
             | HirExpr::Ident(..)
             | HirExpr::Capture { .. }

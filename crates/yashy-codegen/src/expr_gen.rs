@@ -648,15 +648,30 @@ impl<'a> FnCtx<'a> {
     /// [`crate::gen_fn`] stores the incoming SSA arguments into them.
     pub fn alloc_params(&mut self, f: &HirFn) -> Vec<String> {
         let mut slots = Vec::new();
-        for param in &f.params {
+        for (index, param) in f.params.iter().enumerate() {
             let slot = self.alloc_slot();
             let repr = repr_type(&param.ty.kind);
             self.push_alloca(format!("{slot} = alloca {repr}"));
-            self.locals
-                .insert(param.name.clone(), (slot.clone(), param.ty.kind.clone()));
+            self.declare_local(&param.name, &param.ty.kind, &slot, Some(index + 1));
             slots.push(slot);
         }
         slots
+    }
+
+    /// Bind `name` to `slot` for the body, and in a debug build leave the
+    /// marker the driver turns into a `DILocalVariable` and its
+    /// `llvm.dbg.declare`.
+    ///
+    /// One call site for both halves is the point: a binding that forgot the
+    /// marker would be invisible to a debugger, and a marker without a binding
+    /// would describe a slot the body cannot read. A parameter passes its
+    /// 1-based position so a debugger shows it in the argument list.
+    pub fn declare_local(&mut self, name: &str, ty: &TypeKind, slot: &str, arg: Option<usize>) {
+        self.locals
+            .insert(name.to_string(), (slot.to_string(), ty.clone()));
+        if let Some(tag) = crate::module::debug_tag(ty) {
+            self.module.note_var(name, slot, arg, &tag);
+        }
     }
 
     /// Record an `alloca` for the function's entry block instead of emitting it

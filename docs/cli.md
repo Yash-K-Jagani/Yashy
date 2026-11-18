@@ -34,7 +34,7 @@ yashyc build main.ya --emit-ir
 | `--no-opt=<pass>` | Disable one registered optimization pass for bisecting. See [Optimization passes](#optimization-passes). |
 | `--opt-list` | List the passes in order with the bench row each is held to; needs no input. |
 | `--opt-report[=json]` | Explain every check and allocation that survived, grouped by function, and stop. See [The optimization report](#the-optimization-report). |
-| `--emit-ir` | Print LLVM IR and stop; do not link. |
+| `--emit-ir` | Print LLVM IR and stop; do not link. With `--debug-info` the dump is the annotated debug IR: the same metadata a debug build links, so the variable and type tables can be inspected without a toolchain. |
 | `--stdlib-source` | Derive the program from source instead of reusing cached IR. The IR cache is neither read nor written, for bisecting a suspected cache problem. |
 | `--no-verify` | Build without the verifier and stamp `<output>.unverified`. Refused for a program with a contract, or when `YASHY_REQUIRE_VERIFY` is set. See [`--no-verify`](#--no-verify). |
 | `--timings` | Print how long each pipeline phase took. See [Timings](#timings). |
@@ -220,7 +220,7 @@ real line/column regions.
 | `--print-cfg` | Print the `cfg` keys that are true for this target, one per line, sorted, and stop. Needs no source file. See [`cfg`](#cfg-and---target). |
 | `--features <list>` | Enable the named `[features]` entries for the `cfg` filter and for `--print-cfg`. The names come from the `yashy.toml` beside the file (or in the working directory for `--print-cfg`). |
 | `--no-default-features` | Start the feature selection without `default`. |
-| `--debug-info` | Emit LLVM debug metadata from HIR spans (function entry lines) so a debugger and `inspect --addr` can map back to source. Off by default; `run --debug` enables it. |
+| `--debug-info` | Emit LLVM debug metadata from HIR spans: one `DISubprogram` per function, one `DILocation` per checked statement, and one `DILocalVariable` plus `llvm.dbg.declare` per parameter and `let` binding, with a type table for user structs and enums. Off by default; `run --debug` enables it, and `--emit-ir` prints the annotated IR. |
 | `--target <triple>` | Check for this target rather than the host. See [`cfg` and `--target`](#cfg-and---target). |
 
 ## `cfg` and `--target`

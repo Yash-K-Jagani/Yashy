@@ -67,3 +67,92 @@ fn debug_metadata_is_absent_without_a_debug_build() {
     let ir = "define i32 @main() {\nentry:\n  ret i32 0\n}\n";
     assert_eq!(annotate_basic(ir, &[]), ir);
 }
+
+mod common;
+
+use std::process::Command;
+
+const DEBUG_PROGRAM: &str = concat!(
+    "struct Point { x: int }\n",
+    "\n",
+    "fn total(int n) -> int {\n",
+    "    let name = \"ada\";\n",
+    "    let p = Point { x: n };\n",
+    "    p.x + n\n",
+    "}\n",
+    "\n",
+    "fn main() {\n",
+    "    let answer = total(2);\n",
+    "    print(\"done\");\n",
+    "}\n",
+);
+
+#[test]
+fn a_debug_ir_dump_carries_locals_and_types_without_a_toolchain() {
+    // `--debug-info` with `--emit-ir` stops before the backend, so this reads
+    // the exact metadata a debugger will consume without needing clang, a
+    // linker, or LLDB. It is also the only place the *shape* of that metadata
+    // is pinned: a field LLVM does not accept (an earlier `types:` on the
+    // compile unit) fails to compile a debug build and no unit test noticed.
+    let dir = common::work_dir("debug-ir");
+    common::write(&dir, "main.ya", DEBUG_PROGRAM);
+    let output = Command::new(common::yashyc())
+        .arg("build")
+        .arg(dir.join("main.ya"))
+        .arg("--emit-ir")
+        .arg("--debug-info")
+        .output()
+        .expect("the yashyc CLI must be runnable");
+    assert!(
+        output.status.success(),
+        "a debug IR dump failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let ir = String::from_utf8_lossy(&output.stdout).into_owned();
+
+    // The compile unit lists the declared types under the field LLVM defines.
+    assert!(ir.contains("retainedTypes: !{"), "{ir}");
+    assert!(
+        !ir.contains("emissionKind: FullDebug, types:"),
+        "`types` is not a DICompileUnit field:\n{ir}"
+    );
+    assert!(
+        ir.contains("DW_TAG_structure_type, name: \"Point\""),
+        "{ir}"
+    );
+
+    // A parameter and a `let` are declared variables with a debug location,
+    // and the statement markers that carried them are gone.
+    assert!(ir.contains("!DILocalVariable(name: \"n\", arg: 1,"), "{ir}");
+    assert!(ir.contains("!DILocalVariable(name: \"answer\","), "{ir}");
+    assert!(ir.contains("call void @llvm.dbg.declare("), "{ir}");
+    assert!(
+        ir.contains("declare void @llvm.dbg.declare(metadata, metadata, metadata)"),
+        "{ir}"
+    );
+    assert!(!ir.contains("; yashy-loc:"), "a marker survived:\n{ir}");
+    assert!(!ir.contains("; yashy-var:"), "a marker survived:\n{ir}");
+
+    // A `string` is described by the runtime header behind its pointer, which
+    // is what the shipped LLDB summary reads.
+    assert!(ir.contains("name: \"yashy_str\""), "{ir}");
+    assert!(ir.contains("DW_OP_deref"), "{ir}");
+    assert!(ir.contains("name: \"data\""), "{ir}");
+
+    // Every declared variable carries a location: LLVM's record form drops a
+    // declaration with a null location, and with it the function's variables.
+    let declares: Vec<&str> = ir
+        .lines()
+        .filter(|line| line.contains("call void @llvm.dbg.declare("))
+        .collect();
+    assert!(declares.len() >= 4, "expected one per binding:\n{ir}");
+    for line in declares {
+        assert!(
+            line.contains("), !dbg !"),
+            "a declare without a location is discarded: {line}"
+        );
+    }
+
+    // Both functions get a subprogram.
+    assert_eq!(ir.matches("= distinct !DISubprogram(").count(), 2, "{ir}");
+}

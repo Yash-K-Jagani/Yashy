@@ -861,7 +861,21 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
                     target,
                 };
                 let ir = timed(measured, "emit", || {
-                    emit_program(&hir, &entry, options, &report.facts)
+                    if debug_info {
+                        // `--emit-ir --debug-info` is the debug IR a user can
+                        // read and a test can assert on, with no toolchain in
+                        // the loop: the same markers a debug build emits,
+                        // turned into the same metadata.
+                        let text = yashy_codegen::emit_program_with_debug(
+                            &hir,
+                            &entry,
+                            options,
+                            &report.facts,
+                        );
+                        yashy_driver::debug_info::annotate(&text, &hir, &sources)
+                    } else {
+                        emit_program(&hir, &entry, options, &report.facts)
+                    }
                 });
                 if escape {
                     let (stack, arena) = promotion_counts(&hir, &report.facts);
@@ -1176,25 +1190,25 @@ fn trace_events_cmd(source: &Path, program_args: &[String], json: bool) -> ExitC
                             );
                         }
                     }
-                    EXIT_OK
+                    exit_code(EXIT_OK)
                 }
                 Err(error) => {
                     eprintln!("error: cannot read {}: {error}", events_file.display());
-                    EXIT_INTERNAL
+                    exit_code(EXIT_INTERNAL)
                 }
             },
             Ok(status) => {
                 eprintln!("warning: the traced program exited with {status}");
-                EXIT_OK
+                exit_code(EXIT_OK)
             }
             Err(error) => {
                 eprintln!("error: cannot run {}: {error}", binary.display());
-                EXIT_INTERNAL
+                exit_code(EXIT_INTERNAL)
             }
         }
     };
     let _ = fs::remove_dir_all(&scratch);
-    exit_code(result)
+    result
 }
 
 fn trace_cmd(args: &[String]) -> ExitCode {
@@ -1370,7 +1384,26 @@ fn debug_cmd(args: &[String]) -> ExitCode {
         }
     }
 
-    let text = debug::script(&backend, &target, &breakpoints, &program_args);
+    // The summary providers travel with the compiler, so a user does not have
+    // to find the source tree. They are written beside the script under the
+    // name their module registration assumes; a write failure is reported but
+    // does not stop the session -- the debugger still stops and prints task
+    // state, only values fall back to addresses.
+    let printers = scratch.join(debug::PRETTY_PRINTERS_FILE);
+    let printers_path = match std::fs::write(&printers, debug::PRETTY_PRINTERS) {
+        Ok(()) => Some(printers),
+        Err(error) => {
+            eprintln!("warning: cannot write the value printers: {error}");
+            None
+        }
+    };
+    let text = debug::script(
+        &backend,
+        &target,
+        &breakpoints,
+        &program_args,
+        printers_path.as_deref(),
+    );
     let script = scratch.join(format!("debug.{}", backend.name()));
     if let Err(error) = std::fs::write(&script, text) {
         eprintln!("error: cannot write the debugger script: {error}");

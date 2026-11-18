@@ -296,18 +296,28 @@ IR stays byte-identical. Verified with clang and `llvm-readobj`.
   real `.debug_line` section (verified with `llvm-readobj`). `inspect --addr`
   maps an address to a declaration span, and a debugger can stop on a source
   line. Debug builds now also emit a `DICompositeType` table for every declared
-  struct and enum, with member offsets and sizes from the checker's layout walk
-  and `types:` on the compile unit. A typed value assertion is still not
+  struct and enum, with member offsets and sizes from the checker's layout walk,
+  listed as `retainedTypes:` on the compile unit (`types:` is not a
+  `DICompileUnit` field and clang rejected it). `yashyc build --emit-ir
+  --debug-info` dumps that metadata without a toolchain, and
+  `tests/debug_info.rs` asserts on it. A typed value assertion is still not
   scripted, so the step stays unchecked.
 - [ ] **Step 2: Emit debug info from the same IR.** Every user function, local,
   parameter and type gets a `!dbg` location; the span comes from HIR, not from a
   re-parse. Optimised builds keep line tables; `--debug` builds keep full
   variable info.
-  *Current:* partial. The backend emits `; yashy-loc:` markers for every checked
-  statement only in a debug build; `debug_info.rs` turns them into `!dbg`
-  attachments plus `DISubprogram`/`DIFile`/`DILocation` metadata. Normal IR is
-  byte-identical. The same pass now writes a type table from HIR declarations;
-  locations for locals and parameters are still open, so the step stays
+  *Current:* partial. The backend emits `; yashy-loc:` and `; yashy-var:` markers
+  only in a debug build; `debug_info.rs` turns them into `!dbg` attachments plus
+  `DISubprogram`/`DIFile`/`DILocation` metadata, and emits one
+  `DILocalVariable` plus `llvm.dbg.declare` per parameter and per `let`/pattern
+  binding. Every declaration carries a location, because LLVM's record form
+  drops one with a null location together with the function's whole variable
+  list. A `string` is described as the runtime `yashy_str` header behind its
+  pointer with `DW_OP_deref`, and a local whose type has no DI type (tuple,
+  slice, map, task, `Option`/`Result`) is omitted rather than mistyped. Normal
+  IR is byte-identical. What is still open: a variable is scoped to its
+  function rather than its lexical block, its declared line is `0`, and
+  optimized builds do not keep variable info. Those are why the step stays
   unchecked.
 - [x] **Step 3: `yashyc debug` selects a backend.** LLDB where available (Linux,
   macOS, Windows when installed), `cdb` on Windows otherwise; a missing backend
@@ -322,12 +332,15 @@ IR stays byte-identical. Verified with clang and `llvm-readobj`.
   and `Option`/`Result` as values, not addresses.
   *Current:* the runtime's `YASHY_DEBUG=1` stop handler prints the live task
   table with id, function, resume index (now also named `await=`), state and
-  whether a scope owns the frame. Debug builds now emit a type table from HIR
+  whether a scope owns the frame. Debug builds emit a type table from HIR
   layouts, and the LLDB summary providers under `crates/yashy-runtime/debug/`
-  cover `string`, arrays/slices, maps, `Option` and `Result`. They must still
-  be loaded explicitly in the LLDB session; `yashyc debug` has not been taught
-  to import them, and there is no scripted assertion that a typed value prints
-  a particular string.
+  cover `string`, arrays/slices, maps, `Option` and `Result`.
+  `yashyc debug` now embeds that file in the compiler binary, writes it beside
+  the generated script and `command script import`s it before the first
+  breakpoint, so the providers are registered for every session. Still open: no
+  scripted assertion that a typed value prints a particular string, and
+  `Option`/`Result` locals are omitted from the variable list because their
+  generated composite names do not yet match the providers' type names.
 - [x] **Step 5: Commit.**
 
 ### Task 7: Profilers and coverage

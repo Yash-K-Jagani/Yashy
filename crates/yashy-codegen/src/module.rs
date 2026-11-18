@@ -13,6 +13,27 @@ use yashy_sema::{HirExternDecl, TypeKind};
 
 use crate::ir::repr_type;
 
+/// The DWARF spelling of a value's type, for the debug-build variable marker.
+///
+/// Only the kinds the driver can name exactly are spelled. A tuple, slice,
+/// map, task or closure has no `DIType` in the emitted table yet, so it answers
+/// `None` and the variable is left out of the debug info instead of being
+/// described as something it is not.
+pub fn debug_tag(kind: &TypeKind) -> Option<String> {
+    let tag = match kind {
+        TypeKind::I64 | TypeKind::CInt(64) => "int".to_string(),
+        TypeKind::F64 | TypeKind::CFloat(64) => "float".to_string(),
+        TypeKind::Bool => "bool".to_string(),
+        TypeKind::Char | TypeKind::CUInt(8) => "char".to_string(),
+        TypeKind::Str => "string".to_string(),
+        TypeKind::Ptr(_) | TypeKind::CPtr(_) => "ptr".to_string(),
+        TypeKind::Struct(name) => format!("struct {name}"),
+        TypeKind::Enum(name) => format!("enum {name}"),
+        _ => return None,
+    };
+    Some(tag)
+}
+
 /// One variant of a user-declared enum, as the backend needs it.
 ///
 /// The field list is flattened in source order and carries the LLVM
@@ -541,16 +562,41 @@ impl Module {
     /// Embed a source span as a comment marker. The driver's metadata pass
     /// reads these and attaches `!dbg` to the next instruction line, so the
     /// emitter never has to write LLVM metadata syntax itself.
+    ///
+    /// The marker goes through [`Module::push`] rather than straight into
+    /// `lines`: a lambda's body is lowered into a capture buffer, and a marker
+    /// that escaped that buffer would attach the lambda's first statement to
+    /// the enclosing function's next instruction.
     pub fn note_span(&mut self, file: yashy_common::FileId, span: yashy_common::Span) {
         if !self.debug_locations || span == yashy_common::Span::SYNTHETIC {
             return;
         }
-        self.lines.push(format!(
+        self.push(format!(
             "; yashy-loc:{}:{}:{}",
             file.index(),
             span.start,
             span.end
         ));
+    }
+
+    /// Embed a variable marker for a parameter or a `let` binding.
+    ///
+    /// The driver's metadata pass turns the marker into one `DILocalVariable`
+    /// plus the `llvm.dbg.declare` call that binds it to `slot`. The tag is a
+    /// DWARF spelling the pass understands; a tag it has no DI type for is
+    /// dropped rather than guessed at, because a variable whose debug type is
+    /// wrong is worse than a variable a debugger does not show.
+    pub fn note_var(&mut self, name: &str, slot: &str, arg: Option<usize>, tag: &str) {
+        if !self.debug_locations {
+            return;
+        }
+        let kind = match arg {
+            Some(index) => format!("arg:{index}"),
+            None => "local".to_string(),
+        };
+        // Names are identifiers and slots are `%slotN`, so `:` is a safe
+        // separator; the tag is last and may contain a space (`struct Point`).
+        self.push(format!("; yashy-var:{kind}:{name}:{slot}:{tag}"));
     }
 
     /// Start diverting the module's lines into a fresh buffer.

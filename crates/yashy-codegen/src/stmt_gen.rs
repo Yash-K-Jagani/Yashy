@@ -417,7 +417,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             } else {
                 gen_expr_to_slot(ctx, init)
             };
-            ctx.locals.insert(name.clone(), (slot, ty));
+            ctx.declare_local(name, &ty, &slot, None);
             note_promotion(ctx, init, name);
             Flow::Fallthrough
         }
