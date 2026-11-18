@@ -9,6 +9,7 @@
 //!
 //! - literals, and the parameters the call supplied;
 //! - arithmetic and comparisons on those;
+//! - fixed arrays and checked indexing into them;
 //! - calls to other `const fn`s;
 //! - `if`, with a `return` in each arm.
 //!
@@ -44,9 +45,11 @@ use crate::ty::{Type, TypeKind};
 
 /// A value a `const fn` can produce.
 ///
-/// The four kinds are the ones the plan names: `int`, `float`, `bool` and
-/// `string`. A `const fn` that returns anything else has no value the
-/// compiler could put in a `const` binding.
+/// The four scalar kinds are the ones the plan names: `int`, `float`, `bool`
+/// and `string`. An array is a fixed-length run of values of one kind; it is
+/// how a `const fn` builds a lookup table, and indexing it is how the caller
+/// reads one entry. Both stay values the compiler can write into the HIR as a
+/// literal, so a folded call has no run-time body.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ConstValue {
     I64(i64),
@@ -55,6 +58,9 @@ pub enum ConstValue {
     Str(String),
     /// One byte, from a char literal or a folded char comparison.
     Char(u8),
+    /// A fixed array `[T; N]`: its element type is the common type of the
+    /// values, which the checker has already proved is one of the scalar kinds.
+    Array(Vec<ConstValue>),
 }
 
 impl ConstValue {
@@ -66,6 +72,16 @@ impl ConstValue {
             ConstValue::Bool(_) => TypeKind::Bool,
             ConstValue::Str(_) => TypeKind::Str,
             ConstValue::Char(_) => TypeKind::Char,
+            ConstValue::Array(elements) => TypeKind::FixedArray(
+                Box::new(Type {
+                    kind: elements
+                        .first()
+                        .map(ConstValue::kind)
+                        .unwrap_or(TypeKind::Unit),
+                    span: Span::new(0, 0),
+                }),
+                elements.len(),
+            ),
         }
     }
 
@@ -75,20 +91,75 @@ impl ConstValue {
     /// so the program carries the number rather than the call that produced
     /// it.
     pub fn to_expr(&self, span: Span) -> HirExpr {
-        let (literal, kind) = match self {
-            ConstValue::I64(value) => (Literal::I64(*value), TypeKind::I64),
-            ConstValue::F64(value) => (Literal::F64(*value), TypeKind::F64),
-            ConstValue::Bool(value) => (Literal::Bool(*value), TypeKind::Bool),
-            ConstValue::Char(value) => (Literal::Char(*value), TypeKind::Char),
+        match self {
+            ConstValue::Array(elements) => {
+                // The checker proved one element type, so the first element's
+                // kind is the array's and every later one agrees with it.
+                let kind = elements
+                    .first()
+                    .map(ConstValue::kind)
+                    .unwrap_or(TypeKind::Unit);
+                let elem_ty = Type {
+                    kind: kind.clone(),
+                    span,
+                };
+                HirExpr::FixedArrayLit {
+                    elem_ty,
+                    elements: elements.iter().map(|value| value.to_expr(span)).collect(),
+                    span,
+                    ty: Type {
+                        kind: TypeKind::FixedArray(Box::new(Type { kind, span }), elements.len()),
+                        span,
+                    },
+                }
+            }
+            ConstValue::I64(value) => HirExpr::Literal(
+                Literal::I64(*value),
+                span,
+                Type {
+                    kind: TypeKind::I64,
+                    span,
+                },
+            ),
+            ConstValue::F64(value) => HirExpr::Literal(
+                Literal::F64(*value),
+                span,
+                Type {
+                    kind: TypeKind::F64,
+                    span,
+                },
+            ),
+            ConstValue::Bool(value) => HirExpr::Literal(
+                Literal::Bool(*value),
+                span,
+                Type {
+                    kind: TypeKind::Bool,
+                    span,
+                },
+            ),
+            ConstValue::Char(value) => HirExpr::Literal(
+                Literal::Char(*value),
+                span,
+                Type {
+                    kind: TypeKind::Char,
+                    span,
+                },
+            ),
             ConstValue::Str(value) => {
                 let text = StringLit {
                     value: value.clone(),
                     bytes: value.as_bytes().to_vec(),
                 };
-                (Literal::Str(text), TypeKind::Str)
+                HirExpr::Literal(
+                    Literal::Str(text),
+                    span,
+                    Type {
+                        kind: TypeKind::Str,
+                        span,
+                    },
+                )
             }
-        };
-        HirExpr::Literal(literal, span, Type { kind, span })
+        }
     }
 }
 
@@ -415,6 +486,57 @@ fn check_expr(
                 )),
             }
         }
+        Expr::FixedArrayLit { elements, span } => {
+            let mut element_ty: Option<Type> = None;
+            for element in elements {
+                let actual = check_expr(element, env, consts, context, work)?;
+                match &element_ty {
+                    None => {
+                        if !const_array_element_ok(&actual.kind) {
+                            return Err(TypeError::new(
+                                *span,
+                                format!("a fixed array cannot hold `{}`", actual.kind),
+                            ));
+                        }
+                        element_ty = Some(actual);
+                    }
+                    Some(expected) if expected.kind != actual.kind => {
+                        return Err(TypeError::new(
+                            expr_span(element),
+                            format!("expected `{expected}`, found `{actual}`"),
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+            let Some(element_ty) = element_ty else {
+                return Err(TypeError::new(
+                    *span,
+                    "a fixed array needs at least one element",
+                ));
+            };
+            Ok(Type {
+                kind: TypeKind::FixedArray(Box::new(element_ty), elements.len()),
+                span: *span,
+            })
+        }
+        Expr::Index { base, index, span } => {
+            let base_ty = check_expr(base, env, consts, context, work)?;
+            let TypeKind::FixedArray(element, _) = &base_ty.kind else {
+                return Err(TypeError::new(
+                    *span,
+                    format!("only a fixed array can be indexed in {context}, found `{base_ty}`"),
+                ));
+            };
+            let index_ty = check_expr(index, env, consts, context, work)?;
+            if index_ty.kind != TypeKind::I64 {
+                return Err(TypeError::new(
+                    expr_span(index),
+                    format!("an index must be `int`, found `{index_ty}`"),
+                ));
+            }
+            Ok(element.as_ref().clone())
+        }
         Expr::Call {
             callee, args, span, ..
         } => {
@@ -594,6 +716,18 @@ fn binary_kind(op: BinOp, left: &Type, right: &Type, span: Span) -> Result<Type,
 }
 
 /// Whether a type is one the evaluator can compute with.
+/// The scalar kinds a fixed array can hold in a `const fn`.
+///
+/// A fixed array is copied by copying its bytes, so the same rule the checker
+/// applies to a run-time `[T; N]` applies here: numbers, `bool` and `char`, no
+/// references and no owners.
+fn const_array_element_ok(kind: &TypeKind) -> bool {
+    matches!(
+        kind,
+        TypeKind::I64 | TypeKind::F64 | TypeKind::Bool | TypeKind::Char
+    )
+}
+
 fn is_numeric(kind: &TypeKind) -> bool {
     matches!(kind, TypeKind::I64 | TypeKind::F64)
 }
@@ -858,6 +992,46 @@ pub fn evaluate(
                     format!("cannot apply `~` to `{}`", other.kind()),
                 )),
             }
+        }
+        Expr::FixedArrayLit { elements, span } => {
+            let mut values = Vec::with_capacity(elements.len());
+            for element in elements {
+                values.push(evaluate(element, env, consts, work, missing)?);
+            }
+            if let Some(first) = values.first() {
+                if values.iter().any(|value| value.kind() != first.kind()) {
+                    return Err(ConstError::new(
+                        *span,
+                        "a fixed array needs elements of one type".to_string(),
+                    ));
+                }
+            }
+            Ok(ConstValue::Array(values))
+        }
+        Expr::Index { base, index, span } => {
+            let base_value = evaluate(base, env, consts, work, missing)?;
+            let ConstValue::Array(values) = &base_value else {
+                return Err(ConstError::new(
+                    *span,
+                    format!("cannot index `{}` in a const fn", base_value.kind()),
+                ));
+            };
+            let ConstValue::I64(at) = evaluate(index, env, consts, work, missing)? else {
+                return Err(ConstError::new(
+                    expr_span(index),
+                    "an index must be `int`".to_string(),
+                ));
+            };
+            if at < 0 || at as usize >= values.len() {
+                return Err(ConstError::new(
+                    *span,
+                    format!(
+                        "index {at} is outside a fixed array of length {}",
+                        values.len()
+                    ),
+                ));
+            }
+            Ok(values[at as usize].clone())
         }
         Expr::Call {
             callee, args, span, ..

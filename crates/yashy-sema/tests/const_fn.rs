@@ -141,3 +141,47 @@ fn evaluation_is_bounded_by_a_step_fuel() {
     assert!(error.message.contains("steps"), "{error:?}");
     let _ = ConstValue::I64(1);
 }
+
+#[test]
+fn a_const_fn_can_build_and_index_a_lookup_table() {
+    let (result, _, _) = check_source(
+        "const fn table(int n) -> [int; 4] { return [n, n + 1, n + 2, n + 3]; }\n\
+         fn f() { const t = table(10); const x = table(10)[2]; }",
+    );
+    let hir = result.expect("a table is a fixed array the compiler can build");
+    let f = hir
+        .items
+        .iter()
+        .find_map(|item| match item {
+            HirItem::Fn(function) if function.name == "f" => Some(function),
+            _ => None,
+        })
+        .expect("the function");
+    let text = format!("{:?}", f.body);
+    assert!(
+        text.contains("FixedArrayLit") && text.contains("I64(12)"),
+        "the table and its indexed entry are literals in the tree: {text}"
+    );
+    assert!(
+        !text.contains("table"),
+        "no const fn call survives into the tree: {text}"
+    );
+}
+
+#[test]
+fn an_out_of_bounds_index_into_a_const_table_is_reported() {
+    assert_error(
+        "const fn table() -> [int; 2] { return [1, 2]; }\n\
+         fn f() { const x = table()[9]; }",
+        "index 9 is outside a fixed array of length 2",
+    );
+}
+
+#[test]
+fn a_const_fn_cannot_build_a_table_of_strings() {
+    assert_error(
+        "const fn bad() -> [string; 2] { return [\"a\", \"b\"]; }\n\
+         fn f() { const t = bad(); }",
+        "a fixed array cannot hold `string`",
+    );
+}

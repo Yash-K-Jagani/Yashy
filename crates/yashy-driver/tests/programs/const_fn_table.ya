@@ -1,0 +1,17 @@
+// A `const fn` that builds a lookup table. The compiler folds the calls, so the
+// program carries the array and the indexed entry as literals: there is no
+// `table` symbol to call at run time. A fixed array holds plain scalar values
+// and indexing is checked at compile time.
+
+const fn table(int n) -> [int; 4] {
+    return [n, n + 1, n + 2, n + 3];
+}
+
+fn main() {
+    const t = table(10);
+    const third = table(10)[2];
+    print(t[1]);
+    print(third);
+    // => 11
+    //    12
+}

@@ -493,6 +493,7 @@ Only what the compiler can compute without running the program:
 
 - literals, and the parameters the call supplied;
 - arithmetic and comparisons on those;
+- fixed arrays of those values, and indexing one with a constant index;
 - calls to other `const fn`s;
 - `if`, with a `return` in each arm.
 
@@ -511,6 +512,27 @@ error: `read_line` is not allowed in a const fn
 The rule is not a limitation of the implementation but of the idea: a value the
 compiler cannot compute is a value the program has to compute at run time, and
 a `const fn` has no run time to do it in.
+
+A `const fn` can build a fixed array and index it, which is how a lookup table
+becomes a compile-time value:
+
+```text
+const fn table(int n) -> [int; 4] {
+    return [n, n + 1, n + 2, n + 3];
+}
+
+fn main() {
+    const third = table(10)[2];
+    print(third);
+    // => 12
+}
+```
+
+The array is an ordinary `[T; N]`, so it holds numbers, `bool` and `char`, and
+the index is checked: `table(10)[9]` is an error at the call, not a value the
+program can read at run time. A table of `string` is refused for the same
+reason a run-time fixed array cannot hold one: copying its bytes would copy a
+reference the compiler never retained.
 
 The arguments have to be constants for the same reason. A `const fn` call
 takes literals and other `const fn` calls:

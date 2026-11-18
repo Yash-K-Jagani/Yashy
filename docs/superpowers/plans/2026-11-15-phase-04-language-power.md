@@ -362,8 +362,12 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   *Current:* the named gate target now exists as
   `crates/yashy-sema/tests/const_fn.rs`, with the folding, non-emission,
   call-site diagnostic, nested-call and termination tests. A `const fn` that
-  only folds arithmetic is proved; building a lookup table still needs
-  `ConstValue::Array` and fixed-array evaluation, which are not implemented.
+  only folds arithmetic is proved; building a lookup table now works too:
+  `ConstValue::Array` folds a fixed array into `HirExpr::FixedArrayLit`, and a
+  checked constant index reads one entry. `const_fn_table.ya` and sema tests pin
+  the form. The IR-literal assertion, the differential comparison against a
+  hand-written table and a compile-time assertion are still owed, so the step
+  stays open.
 - [ ] **Step 2: Const evaluation is ordinary code, not a macro.** A `const fn`
   is parsed and checked like any function, then evaluated by the same typed
   interpreter that evaluates `size_of`, array lengths and const generic
