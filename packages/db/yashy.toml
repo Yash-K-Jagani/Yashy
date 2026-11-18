@@ -1,0 +1,5 @@
+[package]
+name = "db"
+version = "1.0.0"
+license = "MIT"
+description = "Parameter-bound SQL query builder"

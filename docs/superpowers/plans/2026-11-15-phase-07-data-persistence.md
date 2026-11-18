@@ -127,6 +127,11 @@ used that way.
   hatch in safe code; an identifier is a `Table`/`Column` value, not a string;
   a dynamic `ORDER BY` is a closed enum. The injection corpus is a test file,
   not a review checklist.
+  *Current:* `packages/db/src/query.ya` builds a `Query` only from SQL with `?`
+  placeholders and a matching parameter list; values stay in a separate slice,
+  so a semicolon or quote in a value is data. The package test includes an
+  injection-shaped value and an arity mismatch. A real driver, identifier
+  newtypes and the committed corpus are still owed, so the step stays open.
 - [ ] **Step 3: Codecs are deterministic and versioned.** The wire form has a
   version byte; a decoder rejects an unknown version; a struct field order is
   declaration order; an unknown field in a map-like codec is an error unless the

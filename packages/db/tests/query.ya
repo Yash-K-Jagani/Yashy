@@ -1,0 +1,26 @@
+// Parameter-bound SQL fragments.
+import query;
+
+fn main() {
+    let values = []string {};
+    values.push("O'Brien; DROP TABLE users;--");
+    const built = query.build("SELECT name FROM users WHERE id = ?", move values);
+    switch built {
+        case Ok(q) {
+            assert(query.sql(q) == "SELECT name FROM users WHERE id = ?");
+            const bound = query.params(q);
+            assert(bound.len() == 1);
+            assert(bound[0] matches Some("O'Brien; DROP TABLE users;--"));
+            bound.free();
+        }
+        case Err(_) {
+            assert(false);
+        }
+    }
+    const none = []string {};
+    assert(query.build("SELECT 1", move none) matches Ok(_));
+    const extra = []string {};
+    extra.push("x");
+    assert(query.build("SELECT ?", move extra) matches Err(_));
+    print("db-ok");
+}

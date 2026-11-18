@@ -1,0 +1,56 @@
+// Parameter-bound SQL fragments.
+//
+// A query is SQL text with `?` placeholders and a separate parameter list.
+// Values are never spliced into the SQL: a value containing `;` or a quote is
+// data, not syntax. The builder checks that the placeholder count matches the
+// parameter count and refuses an empty statement. It does not execute anything.
+
+/// Why a query could not be built.
+pub enum DbError {
+    /// The number of `?` placeholders did not match the parameter count.
+    Arity(int, int),
+    /// The SQL text was empty.
+    Empty,
+}
+
+/// A checked query: SQL with placeholders, and the bound values in order.
+pub struct Query {
+    sql: string,
+    params: []string,
+}
+
+/// Build a query from SQL text and one value per `?`.
+pub fn build(string sql, []string params) -> Result[Query, DbError] {
+    if sql.len() == 0 {
+        return Err(DbError.Empty);
+    }
+    const placeholders = count(sql, '?');
+    if placeholders != params.len() {
+        return Err(DbError.Arity(placeholders, params.len()));
+    }
+    return Ok(Query { sql: sql, params: params });
+}
+
+/// The SQL text. Placeholders stay in it; execution binds the parameters.
+pub fn sql(Query query) -> string {
+    return query.sql.slice(0, query.sql.len());
+}
+
+/// The bound values, in placeholder order.
+pub fn params(Query query) -> []string {
+    return query.params;
+}
+
+/// Count a byte in a string.
+fn count(string text, char wanted) -> int {
+    const target = wanted.to_int();
+    let total = 0;
+    let index = 0;
+    while index < text.len() {
+        if text.byte_at(index).to_int() == target {
+            total = total + 1;
+        }
+        index = index + 1;
+    }
+    return total;
+}
