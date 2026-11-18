@@ -25,6 +25,8 @@ pub struct RuleRow {
 pub struct Matrix {
     pub rows: Vec<RuleRow>,
     pub orphan_codes: Vec<String>,
+    /// Rules the design names but no catalog code yet enforces.
+    pub orphan_rules_without_code: Vec<String>,
 }
 
 fn collect_rust_tests(root: &Path, files: &mut Vec<PathBuf>) {
@@ -100,7 +102,20 @@ pub fn matrix(root: &Path) -> Result<Matrix, String> {
             tests,
         });
     }
-    Ok(Matrix { rows, orphan_codes })
+    let enforced: std::collections::BTreeSet<&str> = codes::CODES
+        .iter()
+        .map(|entry| codes::rule_for(entry.id))
+        .collect();
+    let orphan_rules_without_code = codes::PLANNED_RULES
+        .iter()
+        .filter(|rule| !enforced.contains(**rule))
+        .map(|rule| rule.to_string())
+        .collect();
+    Ok(Matrix {
+        rows,
+        orphan_codes,
+        orphan_rules_without_code,
+    })
 }
 
 /// The human page, generated from the same rows as the JSON model.
@@ -175,6 +190,16 @@ pub fn to_json(matrix: &Matrix) -> Json {
                 .orphan_codes
                 .iter()
                 .map(|code| Json::string(code))
+                .collect(),
+        ),
+    );
+    report.set(
+        "orphan_rules_without_code",
+        Json::array(
+            matrix
+                .orphan_rules_without_code
+                .iter()
+                .map(|rule| Json::string(rule))
                 .collect(),
         ),
     );
@@ -379,6 +404,12 @@ mod tests {
         let codes_in_rows: usize = rows.rows.iter().map(|row| row.codes.len()).sum();
         assert_eq!(codes_in_rows, codes::CODES.len());
         assert!(to_json(&rows).render().contains("orphan_codes"));
+        assert!(rows
+            .orphan_rules_without_code
+            .contains(&"ALIAS-1".to_string()));
+        assert!(rows
+            .orphan_rules_without_code
+            .contains(&"DET-1".to_string()));
     }
 
     #[test]

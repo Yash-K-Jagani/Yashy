@@ -824,6 +824,16 @@ pub fn docs_url(id: &str) -> String {
     format!("https://yashy.dev/errors/{id}")
 }
 
+/// The stable rule ids a code enforces, for the traceability matrix.
+///
+/// A rule can exist in the design before a diagnostic enforces it. This list
+/// names those rules so the matrix can report them as orphans instead of
+/// silently dropping them: a rule with no code is a rule nobody can check.
+pub const PLANNED_RULES: &[&str] = &[
+    "ALIAS-1", "ALIAS-2", "ALIAS-3", "ALIAS-4", "ALIAS-5", "DET-1", "DET-2", "DET-3", "DET-4",
+    "DET-5",
+];
+
 /// The stable rule id a code enforces.
 ///
 /// A rule groups the codes that answer the same question (`TYPE`, `OWN`,

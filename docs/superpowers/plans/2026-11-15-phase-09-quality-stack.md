@@ -172,13 +172,15 @@ what keeps a 138-week programme honest.
   test, a test with no rule, a conformance case with no rule and a stdlib
   function with no program are each an orphan; `trace --matrix --json` lists
   them; the test fails while one exists.
-  *Current:* `trace::matrix` now reports `orphan_rules` (a rule whose codes are
-  mentioned in no test) and `orphan_codes` (a code mentioned in no test); both
-  appear in `--json`, and `--fail-orphans` fails on either. The current tree has
-  16 codes with no test mention, so that flag is honest rather than green. The
-  other four orphan kinds (rule with no code, test with no rule, conformance
-  case with no rule, stdlib function with no program) still need their own
-  indexes, so the step stays open.
+  *Current:* `trace::matrix` reports three orphan kinds: `orphan_rules` (a
+  rule whose codes are mentioned in no test), `orphan_codes` (a code mentioned
+  in no test), and `orphan_rules_without_code` (a rule the design names but no
+  catalog code enforces, from `codes::PLANNED_RULES`). All appear in `--json`,
+  and `--fail-orphans` fails on any of them. The current tree has 16 codes with
+  no test mention and ten unenforced ALIAS/DET rules, so the flag is honest
+  rather than green. The remaining two kinds (conformance case with no rule,
+  stdlib function with no program) still need their own indexes, so the step
+  stays open.
 - [x] **Step 2: Generate, never hand-edit.** `docs/traceability.md` is rendered
   from the registry plus the test metadata; the JSON form is the source. A rule
   id is stable across the edition; renaming one is a migration note.
