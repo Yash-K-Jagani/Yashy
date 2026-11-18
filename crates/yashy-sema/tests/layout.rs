@@ -228,3 +228,30 @@ fn a_repr_c_object_and_enum_are_accepted_like_a_struct() {
     check("repr(C) object O { v: int }").expect("an object has a layout");
     check("repr(C) enum K { A, B }").expect("a fieldless enum has a layout");
 }
+
+#[test]
+fn a_packed_field_that_cannot_be_aligned_is_e0607() {
+    let diagnostics = assert_rejected(
+        "repr(packed) struct Packet { tag: u8, value: int }",
+        "byte offset 1",
+    );
+    assert!(
+        diagnostics.iter().any(|d| d.code == Some("E0607")),
+        "the diagnostic carries the catalog code: {diagnostics:?}"
+    );
+    // The object form is the same declaration under a different keyword.
+    assert_rejected(
+        "repr(packed) object Packet { tag: u8, value: int }",
+        "byte offset 1",
+    );
+}
+
+#[test]
+fn a_packed_struct_with_naturally_aligned_fields_still_checks() {
+    // Packing changes nothing when the field sizes already put every field at
+    // an address its type accepts, so this is not the diagnostic's case.
+    check("repr(packed) struct Pair { x: int, y: int }")
+        .expect("offsets 0 and 8 are both aligned for `int`");
+    check("repr(packed) struct Packet { value: int, tag: u8 }")
+        .expect("the byte-sized field goes last");
+}

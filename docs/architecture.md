@@ -254,7 +254,10 @@ licenses the C spellings `u8`, `i32` and friends. The compiler knows every
 type's size, alignment and field offsets; `yashyc inspect --layout` prints them
 as a table and as JSON (2.0). 2.0 adds `repr(packed)`, `repr(align(N))`,
 `repr(transparent)`, explicit integer enums, and compile-time `size_of`,
-`align_of` and `offset_of`.
+`align_of` and `offset_of`. `repr(packed)` removes padding, so a field whose
+type needs alignment greater than one at the offset packing gives it is
+refused at the field (`E0607`, rule `LAYOUT-1`) instead of lowered to an
+unaligned access.
 
 A type without `repr(C)` has no source-level layout guarantee; the compiler may
 reorder fields to reduce padding and reports the choice (2.0, Phase 11A).

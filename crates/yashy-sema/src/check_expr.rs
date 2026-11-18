@@ -27,9 +27,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use yashy_common::{codes, Applicability, Diagnostic, FileId, SourceMap, Span, Suggestion};
 use yashy_hir::layout::{self as type_layout, Decls, Layout, NamedType};
 use yashy_parser::ast::{
-    BinOp, BindingKeyword, Block, CallArg, Contract, Expr, ExternDecl, InterpFormat, InterpPart,
-    Item, LambdaParam, Literal, Param, Pattern, PtrKind, SliceElement, Stmt, StringLit, SwitchArm,
-    TypeExpr, TypeParam, VariantDef, VariantField,
+    BinOp, BindingKeyword, Block, CallArg, Contract, Expr, ExternDecl, FieldDef, InterpFormat,
+    InterpPart, Item, LambdaParam, Literal, Param, Pattern, PtrKind, SliceElement, Stmt, StringLit,
+    SwitchArm, TypeExpr, TypeParam, VariantDef, VariantField,
 };
 
 use crate::check_pat::{check_pattern, hir_pattern_span, is_irrefutable};
@@ -3172,6 +3172,9 @@ impl<'src> Checker<'src> {
                         (f.name.clone(), ty)
                     })
                     .collect();
+                if matches!(repr, Some(yashy_parser::ast::ReprKind::Packed)) {
+                    self.check_packed_fields(fields, &field_tys);
+                }
                 let field_public: Vec<bool> = fields.iter().map(|f| f.public).collect();
                 let defaults: Vec<Option<HirExpr>> = fields
                     .iter()
@@ -3312,6 +3315,9 @@ impl<'src> Checker<'src> {
                         (f.name.clone(), ty)
                     })
                     .collect();
+                if matches!(repr, Some(yashy_parser::ast::ReprKind::Packed)) {
+                    self.check_packed_fields(fields, &field_tys);
+                }
                 let field_public: Vec<bool> = fields.iter().map(|f| f.public).collect();
                 let defaults: Vec<Option<HirExpr>> = fields
                     .iter()
@@ -3726,6 +3732,47 @@ impl<'src> Checker<'src> {
                 self.report(e);
                 never(fallback_span)
             }
+        }
+    }
+
+    /// Reject the fields a packed layout cannot place at a valid alignment.
+    ///
+    /// Packing removes the padding a field's alignment would normally get, so
+    /// the byte offset of each field is the sum of the sizes before it. A field
+    /// whose type needs more than byte alignment at that offset would be an
+    /// unaligned access; Yashy refuses the declaration instead of emitting one.
+    fn check_packed_fields(&mut self, fields: &[FieldDef], field_tys: &[(String, Type)]) {
+        let problems = {
+            let decls = CheckerDecls {
+                structs: &self.structs,
+                enums: &self.enums,
+            };
+            let mut offset = 0usize;
+            let mut problems = Vec::new();
+            for (field, (_, ty)) in fields.iter().zip(field_tys.iter()) {
+                if let Some(layout) = type_layout::layout(&ty.kind, &decls) {
+                    if layout.align > 1 && offset % layout.align != 0 {
+                        problems.push((
+                            field.span,
+                            field.name.clone(),
+                            ty.clone(),
+                            offset,
+                            layout.align,
+                        ));
+                    }
+                    offset = offset.saturating_add(layout.size);
+                }
+            }
+            problems
+        };
+        for (field_span, field_name, ty, offset, align) in problems {
+            self.error_code(
+                field_span,
+                codes::PACKED_MISALIGNED_FIELD,
+                format!(
+                    "`repr(packed)` places field `{field_name}` at byte offset {offset}, but `{ty}` needs alignment {align}"
+                ),
+            );
         }
     }
 

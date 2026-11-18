@@ -75,6 +75,8 @@ pub const DUPLICATE_LABEL: &str = "E0605";
 /// A fixed-array pattern names the wrong elements: more than the array has,
 /// fewer than it has with no `..`, or more than one `..`.
 pub const BAD_ARRAY_PATTERN: &str = "E0606";
+/// A `repr(packed)` field would sit at an offset its type cannot accept.
+pub const PACKED_MISALIGNED_FIELD: &str = "E0607";
 /// A call passes the wrong number of arguments.
 pub const WRONG_ARGUMENT_COUNT: &str = "E0700";
 /// A named argument names no parameter, or a positional argument follows a
@@ -380,6 +382,12 @@ pub const CODES: &[Code] = &[
         title: "invalid fixed-array pattern",
         summary: "A fixed-array pattern names the wrong number of elements, or writes `..` more than once.",
         page: include_str!("../../../docs/errors/E0606.md"),
+    },
+    Code {
+        id: PACKED_MISALIGNED_FIELD,
+        title: "misaligned packed field",
+        summary: "A field of a `repr(packed)` struct sits at a byte offset its type's alignment does not allow.",
+        page: include_str!("../../../docs/errors/E0607.md"),
     },
     Code {
         id: WRONG_ARGUMENT_COUNT,
@@ -854,6 +862,7 @@ pub fn rule_for(id: &str) -> &'static str {
         UNKNOWN_LABEL => "PAT-5",
         DUPLICATE_LABEL => "PAT-6",
         BAD_ARRAY_PATTERN => "PAT-7",
+        PACKED_MISALIGNED_FIELD => "LAYOUT-1",
         WRONG_ARGUMENT_COUNT => "CALL-1",
         UNKNOWN_NAMED_ARGUMENT => "CALL-2",
         DUPLICATE_ARGUMENT => "CALL-3",
