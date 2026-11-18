@@ -184,7 +184,7 @@ fn collect_in_stmt(stmt: &HirStmt, memo: &mut BTreeMap<(String, u32), ()>) {
         HirStmt::Expr(expr, ..)
         | HirStmt::Const { init: expr, .. }
         | HirStmt::Var { init: expr, .. }
-        | HirStmt::Destructure { init: expr, .. }
+        | HirStmt::Destructure { init: expr, .. } | HirStmt::LetElse { init: expr, .. }
         | HirStmt::Assign { value: expr, .. }
         | HirStmt::IndexAssign { value: expr, .. }
         | HirStmt::FieldAssign { value: expr, .. }
@@ -382,7 +382,7 @@ fn stmt_has_contract(stmt: &HirStmt) -> bool {
         HirStmt::Expr(expr, ..) => expr_has_contract(expr),
         HirStmt::Const { init, .. }
         | HirStmt::Var { init, .. }
-        | HirStmt::Destructure { init, .. }
+        | HirStmt::Destructure { init, .. } | HirStmt::LetElse { init, .. }
         | HirStmt::Assign { value: init, .. }
         | HirStmt::FieldAssign { value: init, .. }
         | HirStmt::Return(Some(init), _) => expr_has_contract(init),

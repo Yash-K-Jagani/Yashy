@@ -596,7 +596,9 @@ impl<'f> Analysis<'f> {
                     self.declare(name, None);
                 }
             }
-            HirStmt::Destructure { init, .. } => self.value(init, Mode::Escape),
+            HirStmt::Destructure { init, .. } | HirStmt::LetElse { init, .. } => {
+                self.value(init, Mode::Escape)
+            }
             HirStmt::Assign {
                 name, value, span, ..
             } => {

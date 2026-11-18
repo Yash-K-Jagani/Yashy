@@ -124,7 +124,7 @@ impl Walker<'_> {
             HirStmt::Expr(expr, _, _) => self.expr(expr),
             HirStmt::Const { init, .. }
             | HirStmt::Var { init, .. }
-            | HirStmt::Destructure { init, .. } => self.expr(init),
+            | HirStmt::Destructure { init, .. } | HirStmt::LetElse { init, .. } => self.expr(init),
             HirStmt::Assign { value, .. } => self.expr(value),
             HirStmt::IndexAssign {
                 base, index, value, ..

@@ -182,6 +182,7 @@ fn destructuring_names_each_element_in_order() {
             kind,
             pattern,
             init,
+            else_block: _,
             span,
         } => {
             assert_eq!(

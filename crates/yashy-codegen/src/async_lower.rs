@@ -264,7 +264,7 @@ fn collect_uses(stmt: &HirStmt, out: &mut Vec<String>) {
             out.push(name.clone());
             expr_uses(value, out);
         }
-        HirStmt::Destructure { init, .. } => expr_uses(init, out),
+        HirStmt::Destructure { init, .. } | HirStmt::LetElse { init, .. } => expr_uses(init, out),
         HirStmt::IndexAssign {
             base, index, value, ..
         } => {

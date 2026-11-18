@@ -46,7 +46,7 @@ fn check_stmt(program: &HirProgram, stmt: &HirStmt, file: FileId, out: &mut Vec<
         HirStmt::Expr(expr, ..) => check_expr(program, expr, file, out),
         HirStmt::Const { init, .. }
         | HirStmt::Var { init, .. }
-        | HirStmt::Destructure { init, .. }
+        | HirStmt::Destructure { init, .. } | HirStmt::LetElse { init, .. }
         | HirStmt::Assign { value: init, .. }
         | HirStmt::FieldAssign { value: init, .. } => check_expr(program, init, file, out),
         HirStmt::IndexAssign {

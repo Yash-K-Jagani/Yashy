@@ -315,6 +315,17 @@ pub enum HirStmt {
         mutability: Mutability,
         span: Span,
     },
+    /// `let PAT = expr else { diverging };` -- a refutable binding whose
+    /// non-matching branch is required to leave the enclosing function.
+    /// Bindings are visible after the statement on the matching path only;
+    /// the else branch never reaches that code.
+    LetElse {
+        init: HirExpr,
+        pattern: HirPattern,
+        mutability: Mutability,
+        else_block: HirBlock,
+        span: Span,
+    },
     /// `x = value;`.
     ///
     /// The target is gone by now: the checker proved it named a `let` binding,
@@ -945,6 +956,7 @@ pub fn stmt_span(stmt: &HirStmt) -> Span {
         HirStmt::Const { span, .. }
         | HirStmt::Var { span, .. }
         | HirStmt::Destructure { span, .. }
+        | HirStmt::LetElse { span, .. }
         | HirStmt::Assign { span, .. }
         | HirStmt::IndexAssign { span, .. }
         | HirStmt::FieldAssign { span, .. }

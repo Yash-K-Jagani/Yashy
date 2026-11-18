@@ -135,7 +135,10 @@ fn collect_reads_in_block(block: &HirBlock, reads: &mut HashSet<String>) {
 fn collect_reads_in_stmt(stmt: &HirStmt, reads: &mut HashSet<String>) {
     match stmt {
         HirStmt::Expr(expr, ..) => collect_reads_in_expr(expr, reads),
-        HirStmt::Const { init, .. } | HirStmt::Var { init, .. } | HirStmt::Destructure { init, .. } => {
+        HirStmt::Const { init, .. }
+        | HirStmt::Var { init, .. }
+        | HirStmt::Destructure { init, .. }
+        | HirStmt::LetElse { init, .. } => {
             collect_reads_in_expr(init, reads);
         }
         HirStmt::Assign { value, .. } => collect_reads_in_expr(value, reads),
@@ -365,7 +368,7 @@ fn stmt_span(stmt: &HirStmt) -> Span {
         HirStmt::Expr(_, span, _) => *span,
         HirStmt::Const { span, .. } => *span,
         HirStmt::Var { span, .. } => *span,
-        HirStmt::Destructure { span, .. } => *span,
+        HirStmt::Destructure { span, .. } | HirStmt::LetElse { span, .. } => *span,
         HirStmt::Assign { span, .. } => *span,
         HirStmt::IndexAssign { span, .. } => *span,
         HirStmt::FieldAssign { span, .. } => *span,

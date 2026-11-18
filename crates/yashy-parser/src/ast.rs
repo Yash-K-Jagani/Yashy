@@ -798,6 +798,9 @@ pub enum Stmt {
         kind: BindingKeyword,
         pattern: Pattern,
         init: Expr,
+        /// The required diverging branch of `let PAT = expr else { ... };`.
+        /// `None` is an irrefutable binding in binding position.
+        else_block: Option<Block>,
         span: Span,
     },
     /// `x = expr;` -- assigning to a binding that already exists.

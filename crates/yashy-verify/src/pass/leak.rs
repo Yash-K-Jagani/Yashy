@@ -218,6 +218,12 @@ impl LeakPass<'_> {
                 pattern,
                 span,
                 ..
+            }
+            | HirStmt::LetElse {
+                init,
+                pattern,
+                span,
+                ..
             } => {
                 self.walk(init);
                 if !self.inside_arena() {

@@ -458,6 +458,10 @@ impl Db {
             Item::Import { path, .. } => {
                 *state = combine(*state, hash_str(&path.join(".")));
             }
+            Item::TypeAlias { name, target, .. } => {
+                *state = combine(*state, hash_str(name));
+                *state = combine(*state, hash_str(&format!("{target}")));
+            }
             Item::Struct {
                 name,
                 type_params,

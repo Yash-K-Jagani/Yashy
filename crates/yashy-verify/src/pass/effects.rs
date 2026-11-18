@@ -151,7 +151,7 @@ impl AsyncWalker<'_> {
     fn stmt(&mut self, stmt: &HirStmt) {
         match stmt {
             HirStmt::Expr(expr, ..) => self.expr(expr),
-            HirStmt::Const { init, .. } | HirStmt::Var { init, .. } | HirStmt::Destructure { init, .. } => self.expr(init),
+            HirStmt::Const { init, .. } | HirStmt::Var { init, .. } | HirStmt::Destructure { init, .. } | HirStmt::LetElse { init, .. } => self.expr(init),
             HirStmt::Assign { value, .. } => self.expr(value),
             HirStmt::IndexAssign { base, index, value, .. } => {
                 self.expr(base); self.expr(index); self.expr(value);
@@ -284,7 +284,7 @@ fn has_unsafe_calls(block: &HirBlock) -> bool {
 fn stmt_has_unsafe_call(stmt: &HirStmt) -> bool {
     match stmt {
         HirStmt::Expr(expr, ..) => expr_has_unsafe_call(expr),
-        HirStmt::Const { init, .. } | HirStmt::Var { init, .. } | HirStmt::Destructure { init, .. } => {
+        HirStmt::Const { init, .. } | HirStmt::Var { init, .. } | HirStmt::Destructure { init, .. } | HirStmt::LetElse { init, .. } => {
             expr_has_unsafe_call(init)
         }
         HirStmt::Assign { value, .. } => expr_has_unsafe_call(value),
@@ -393,7 +393,7 @@ impl UnsafeWalker<'_> {
     fn stmt(&mut self, stmt: &HirStmt) {
         match stmt {
             HirStmt::Expr(expr, ..) => self.expr(expr),
-            HirStmt::Const { init, .. } | HirStmt::Var { init, .. } | HirStmt::Destructure { init, .. } => self.expr(init),
+            HirStmt::Const { init, .. } | HirStmt::Var { init, .. } | HirStmt::Destructure { init, .. } | HirStmt::LetElse { init, .. } => self.expr(init),
             HirStmt::Assign { value, .. } => self.expr(value),
             HirStmt::IndexAssign { base, index, value, .. } => {
                 self.expr(base); self.expr(index); self.expr(value);
@@ -590,7 +590,7 @@ fn direct_effects(block: &HirBlock) -> Effect {
 fn direct_effects_stmt(stmt: &HirStmt) -> Effect {
     match stmt {
         HirStmt::Expr(expr, ..) => direct_effects_expr(expr),
-        HirStmt::Const { init, .. } | HirStmt::Var { init, .. } | HirStmt::Destructure { init, .. } => {
+        HirStmt::Const { init, .. } | HirStmt::Var { init, .. } | HirStmt::Destructure { init, .. } | HirStmt::LetElse { init, .. } => {
             direct_effects_expr(init)
         }
         HirStmt::Assign { value, .. } => direct_effects_expr(value),
@@ -781,7 +781,7 @@ fn collect_callees(block: &HirBlock) -> Vec<String> {
 fn collect_callees_stmt(stmt: &HirStmt, callees: &mut Vec<String>) {
     match stmt {
         HirStmt::Expr(expr, ..) => collect_callees_expr(expr, callees),
-        HirStmt::Const { init, .. } | HirStmt::Var { init, .. } | HirStmt::Destructure { init, .. } => {
+        HirStmt::Const { init, .. } | HirStmt::Var { init, .. } | HirStmt::Destructure { init, .. } | HirStmt::LetElse { init, .. } => {
             collect_callees_expr(init, callees);
         }
         HirStmt::Assign { value, .. } => collect_callees_expr(value, callees),

@@ -5786,26 +5786,60 @@ impl<'src> Checker<'src> {
                 kind,
                 pattern,
                 init,
+                else_block,
                 span,
             } => {
                 let init_expr = self.check_expr(init)?;
                 let init_ty = expr_ty(&init_expr);
-                // A tuple is a copyable value, but the rule is still stated the
-                // same way every other binding states it: a linear initializer
-                // has to say `move`. Nothing a tuple can currently hold is
-                // linear, so this is future-proofing rather than a live check.
                 self.forbid_linear_copy(init, &init_expr);
                 let mutability = match kind {
                     BindingKeyword::Const => Mutability::Const,
                     BindingKeyword::Let => Mutability::Var,
                 };
-                let pattern = self.check_binding_pattern(pattern, &init_ty, mutability)?;
-                Some(HirStmt::Destructure {
-                    init: init_expr,
+                // The else branch is checked before the pattern binds names,
+                // because a pattern that missed cannot have made them live.
+                let checked_else = match else_block {
+                    Some(block) => {
+                        let checked = self.check_block_with_ret(
+                            block,
+                            &Type {
+                                kind: TypeKind::Never,
+                                span: block.span,
+                            },
+                        )?;
+                        if !block_always_returns(&checked) {
+                            self.error(
+                                block.span,
+                                "a `let ... else` block must diverge: use `return`, `break`, \
+                                 `continue` or `panic`",
+                            );
+                            return None;
+                        }
+                        Some(checked)
+                    }
+                    None => None,
+                };
+                let pattern = self.check_binding_pattern(
                     pattern,
+                    &init_ty,
                     mutability,
-                    span: *span,
-                })
+                    checked_else.is_some(),
+                )?;
+                match checked_else {
+                    Some(else_block) => Some(HirStmt::LetElse {
+                        init: init_expr,
+                        pattern,
+                        mutability,
+                        else_block,
+                        span: *span,
+                    }),
+                    None => Some(HirStmt::Destructure {
+                        init: init_expr,
+                        pattern,
+                        mutability,
+                        span: *span,
+                    }),
+                }
             }
             Stmt::Assign {
                 target,
@@ -6256,7 +6290,7 @@ impl<'src> Checker<'src> {
                         },
                     );
                     let element_pattern =
-                        self.check_binding_pattern(pattern, &element, Mutability::Const);
+                        self.check_binding_pattern(pattern, &element, Mutability::Const, false);
                     self.iteration_borrows.push(binding);
                     self.push_loop_label(label, *span);
                     if label.is_some() {
@@ -6329,7 +6363,7 @@ impl<'src> Checker<'src> {
                 }
                 self.scope.push();
                 let element_pattern =
-                    self.check_binding_pattern(pattern, &element, Mutability::Const);
+                    self.check_binding_pattern(pattern, &element, Mutability::Const, false);
                 self.iteration_borrows.push(binding);
                 self.push_loop_label(label, *span);
                 if label.is_some() {
@@ -6905,6 +6939,7 @@ impl<'src> Checker<'src> {
         pattern: &Pattern,
         subject_ty: &Type,
         mutability: Mutability,
+        allow_refutable: bool,
     ) -> Option<HirPattern> {
         let mut bindings = Vec::new();
         let variants = |name: &str| self.enums.get(name).map(|sig| sig.variants.clone());
@@ -6948,7 +6983,7 @@ impl<'src> Checker<'src> {
                 this.resolve_type(ty)
             })
         };
-        if !irrefutable {
+        if !irrefutable && !allow_refutable {
             self.report(
                 TypeError::new(
                     hir_pattern_span(&checked),
@@ -12914,7 +12949,7 @@ impl<'src> Checker<'src> {
         // Check the produced expressions with the pattern's names in scope,
         // the way a loop body would see them.
         self.scope.push();
-        let _ = self.check_binding_pattern(pattern, &element, Mutability::Const);
+        let _ = self.check_binding_pattern(pattern, &element, Mutability::Const, false);
         let out_ty = if array {
             let checked = self.check_expr(expr)?;
             let elem_ty = expr_ty(&checked);

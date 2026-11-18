@@ -42,8 +42,8 @@ use yashy_parser::ast::Literal;
 use yashy_sema::{HirBlock, HirExpr, HirPattern, HirSwitchArm, TypeKind};
 
 use crate::expr_gen::{
-    gen_expr, gen_literal, owns_string_refs, retain_payload, retain_struct_fields, FnCtx,
-    GenValue, RefKind,
+    gen_expr, gen_literal, owns_string_refs, retain_payload, retain_struct_fields, FnCtx, GenValue,
+    RefKind,
 };
 use crate::ir::{repr_type, variant_payload_index, variant_tag};
 use crate::stmt_gen::Flow;
@@ -637,6 +637,39 @@ pub fn gen_if_let(
     if ctx.is_owned(&subject.value) {
         ctx.release_owned(&subject.value);
     }
+    Flow::Fallthrough
+}
+
+/// `let PAT = expr else { diverging }`: a refutable binding. The pattern's
+/// names are declared in the merge block, so they remain in scope for the
+/// statements after this one; the else branch is emitted in its own block and
+/// is required by the checker to diverge.
+pub fn gen_let_else(
+    ctx: &mut FnCtx<'_>,
+    pattern: &HirPattern,
+    init: &HirExpr,
+    else_block: &HirBlock,
+) -> Flow {
+    let subject = gen_expr(ctx, init);
+    let then_label = ctx.alloc_label_base() + "_letelse_then";
+    let else_label = ctx.alloc_label_base() + "_letelse_else";
+    let merge_label = ctx.alloc_label_base() + "_letelse_merge";
+    match emit_pattern_test(ctx, pattern, &subject) {
+        Some(condition) => ctx.push(format!(
+            "br i1 {condition}, label %{then_label}, label %{else_label}"
+        )),
+        None => ctx.push(format!("br label %{then_label}")),
+    }
+    ctx.push(format!("{then_label}:"));
+    bind_pattern(ctx, &subject, pattern);
+    ctx.push(format!("br label %{merge_label}"));
+    ctx.push(format!("{else_label}:"));
+    if crate::stmt_gen::gen_block(ctx, else_block) == Flow::Fallthrough {
+        // The checker rejects a falling-through else, but keep the IR well
+        // formed if one reaches here: this path must never reach the merge.
+        ctx.push("unreachable");
+    }
+    ctx.push(format!("{merge_label}:"));
     Flow::Fallthrough
 }
 

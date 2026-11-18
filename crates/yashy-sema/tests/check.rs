@@ -2875,3 +2875,36 @@ fn a_recursive_alias_is_e1519() {
         "E1519 expected: {diags:?}"
     );
 }
+
+#[test]
+fn let_else_binds_on_the_matching_path() {
+    let source = "fn f(Option[int] o) -> int { \
+                  let Some(x) = o else { return 0; }; \
+                  return x; }";
+    let (result, _, _) = check_source(source);
+    let hir = result.expect("a diverging let-else must check");
+    let f = hir
+        .items
+        .iter()
+        .find_map(|item| match item {
+            HirItem::Fn(function) if function.name == "f" => Some(function),
+            _ => None,
+        })
+        .expect("the function");
+    assert!(
+        f.body
+            .stmts
+            .iter()
+            .any(|stmt| matches!(stmt, HirStmt::LetElse { .. })),
+        "the checked tree must keep the diverging branch: {:?}",
+        f.body
+    );
+}
+
+#[test]
+fn let_else_requires_a_diverging_block() {
+    let (result, _, _) = check_source(
+        "fn f(Option[int] o) -> int { let Some(x) = o else { print(x); }; return x; }",
+    );
+    assert!(result.is_err(), "a falling-through else must be refused");
+}

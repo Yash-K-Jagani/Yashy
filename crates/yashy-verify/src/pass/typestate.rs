@@ -205,7 +205,7 @@ impl EscapeWalker<'_> {
             }
             HirStmt::Defer { body, .. } => self.block(body),
             HirStmt::Expr(expr, ..) => self.expr(expr),
-            HirStmt::Destructure { init, .. } => self.expr(init),
+            HirStmt::Destructure { init, .. } | HirStmt::LetElse { init, .. } => self.expr(init),
             HirStmt::Assign { value, .. } => self.expr(value),
             HirStmt::IndexAssign {
                 base, index, value, ..
@@ -523,7 +523,7 @@ impl HoldWalker<'_> {
                 }
             }
             HirStmt::Expr(expr, ..) => self.expr(expr),
-            HirStmt::Destructure { init, .. } => self.expr(init),
+            HirStmt::Destructure { init, .. } | HirStmt::LetElse { init, .. } => self.expr(init),
             HirStmt::Assign { value, .. } => self.expr(value),
             HirStmt::IndexAssign {
                 base, index, value, ..
@@ -725,7 +725,8 @@ fn stmt_await_span(stmt: &HirStmt) -> Option<Span> {
         HirStmt::Expr(expr, ..) => expr_await(expr),
         HirStmt::Var { init, .. }
         | HirStmt::Const { init, .. }
-        | HirStmt::Destructure { init, .. } => expr_await(init),
+        | HirStmt::Destructure { init, .. }
+        | HirStmt::LetElse { init, .. } => expr_await(init),
         HirStmt::Assign { value, .. } => expr_await(value),
         HirStmt::Return(Some(expr), _) => expr_await(expr),
         HirStmt::If {
@@ -924,6 +925,12 @@ impl TypestatePass<'_> {
                 true
             }
             HirStmt::Destructure {
+                init,
+                pattern,
+                span,
+                ..
+            }
+            | HirStmt::LetElse {
                 init,
                 pattern,
                 span,
@@ -1600,7 +1607,8 @@ fn check_race_in_stmt(stmt: &HirStmt, uses_threads: bool, out: &mut Vec<Diagnost
         HirStmt::Expr(expr, ..) => check_race_in_expr(expr, uses_threads, out, file),
         HirStmt::Const { init, .. }
         | HirStmt::Var { init, .. }
-        | HirStmt::Destructure { init, .. } => {
+        | HirStmt::Destructure { init, .. }
+        | HirStmt::LetElse { init, .. } => {
             check_race_in_expr(init, uses_threads, out, file);
         }
         HirStmt::Assign { value, .. } => check_race_in_expr(value, uses_threads, out, file),

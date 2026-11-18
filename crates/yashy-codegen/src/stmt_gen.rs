@@ -800,6 +800,12 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             else_block,
             ..
         } => crate::patterns::gen_if_let(ctx, pattern, subject, then_block, else_block.as_ref()),
+        HirStmt::LetElse {
+            init,
+            pattern,
+            else_block,
+            ..
+        } => crate::patterns::gen_let_else(ctx, pattern, init, else_block),
         HirStmt::Break(_) => match ctx.loops.last().cloned() {
             Some(target) => {
                 // A `break` nested in a block leaves the block *and* the loop

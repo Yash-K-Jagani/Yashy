@@ -246,12 +246,23 @@ impl<'src> Parser<'src> {
         let pattern = self.parse_pattern()?;
         self.expect(TokenKind::Eq)?;
         let init = self.parse_expr()?;
-        let semi = self.expect(TokenKind::Semi)?;
+        let else_block = if self.eat(TokenKind::Else) {
+            Some(self.parse_else_block()?)
+        } else {
+            let semi = self.expect(TokenKind::Semi)?;
+            let _ = semi;
+            None
+        };
+        let end = else_block
+            .as_ref()
+            .map(|block| block.span)
+            .unwrap_or_else(|| crate::exprs::expr_span(&init));
         Ok(Stmt::LetPattern {
             kind,
             pattern,
             init,
-            span: cover(keyword_span, semi.span),
+            else_block,
+            span: cover(keyword_span, end),
         })
     }
 

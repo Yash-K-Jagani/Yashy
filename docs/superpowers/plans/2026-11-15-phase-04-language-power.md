@@ -127,7 +127,14 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 - [x] **Step 1: Write the failing test for `else if`.** `if a { } else if b { } else if let Some(x) = c { } else { }` parses, runs the first true branch, and formats back to the same `else if` spelling. Assert the HIR is exactly the nested `if` it desugars to.
   *Current:* `crates/yashy-parser/tests/if_let.rs` pins the parse (`if`, `if let`, nested chains and spans) and `crates/yashy-sema/tests/check.rs` pins the HIR: the outer `else` block holds one nested `If`. The token-preserving formatter prints the source spelling unchanged; it does not canonicalise a user-written `else { if ... }` to `else if`, so that half of the step is not claimed.
 - [x] **Step 2: `else if` is parser sugar, not HIR.** On `else` followed by `if`, `parse_else_block` parses the nested `if`/`if let` and wraps it in a one-statement `Block` as the `else_block`. There is no new AST, HIR or verifier node. A user-written `else { if ... }` produces the same tree; semantics never change.
-- [ ] **Step 3: `let else`.** `let Some(x) = opt else { return; };` binds on the matching path and requires the else block to diverge (`return`, `break`, `continue`, `panic`, or a call returning `!`-like divergence). A non-diverging else is a diagnostic; a refutable `let` without `else` stays `E0100`.
+- [x] **Step 3: `let else`.** `let Some(x) = opt else { return; };` binds on the matching path and requires the else block to diverge (`return`, `break`, `continue`, `panic`, or a call returning `!`-like divergence). A non-diverging else is a diagnostic; a refutable `let` without `else` stays `E0100`.
+  *Current:* the parser records an optional else block on `Stmt::LetPattern` and
+  the checker lowers it to a new `HirStmt::LetElse`. The else block is checked
+  before the pattern declares names and must always return (reusing the
+  existing divergence analysis). Codegen tests the pattern, binds its names in
+  the taken block, emits the else branch on its own and continues from a merge
+  block, so bindings stay visible after the statement. Parser and sema tests pin
+  both the accepted form and the non-diverging refusal.
 - [ ] **Step 4: Slice/rest and `@`.** `[first, .., last]`, `[head, ..rest]`, `x @ 0..10`, and nested combinations bind names with element types; a rest binding is a view with the source's lifetime rules; every alternative of an or-pattern binds the same names (`E1002`).
 - [x] **Step 5: `matches` and if-let chains.** `x matches Some(_)` is an
   expression returning `bool`: the parser desugars it to a two-arm `switch`

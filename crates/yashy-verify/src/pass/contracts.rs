@@ -220,7 +220,7 @@ impl<'p, 'o> ContractPass<'p, 'o> {
                 }
                 Flow::normal(env)
             }
-            HirStmt::Destructure { init, pattern, .. } => {
+            HirStmt::Destructure { init, pattern, .. } | HirStmt::LetElse { init, pattern, .. } => {
                 self.eval(init, &mut env);
                 // Extracted fields are not modelled, so each bound name is
                 // unknown. Setting it is what keeps a stale binding from

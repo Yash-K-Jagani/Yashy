@@ -265,3 +265,32 @@ fn if_let_chain_nests_the_tests_in_source_order() {
 fn a_chain_needs_a_let_after_each_and() {
     assert!(!parse_err("fn main() { if let Some(x) = a && b { } }").is_empty());
 }
+
+#[test]
+fn let_else_records_the_diverging_block() {
+    let stmt = "let Some(x) = opt else { return; };";
+    let (_, statement) = first_main_stmt(stmt);
+    match statement {
+        Stmt::LetPattern {
+            else_block: Some(block),
+            ..
+        } => assert_eq!(block.stmts.len(), 1, "the else body is kept: {block:?}"),
+        other => panic!("expected a let-else, got {other:?}"),
+    }
+}
+
+#[test]
+fn an_irrefutable_binding_has_no_else() {
+    let stmt = "let Point { x: x, y: y } = p;";
+    let (_, statement) = first_main_stmt(&format!("struct Point {{ x: int, y: int }} {stmt}"));
+    // The struct declaration is first, so look at the last statement.
+    let program = parse_ok(&format!(
+        "struct Point {{ x: int, y: int }} fn main() {{ {stmt} }}"
+    ));
+    let Item::Fn { body, .. } = program.items.into_iter().last().unwrap() else {
+        panic!("expected a function");
+    };
+    let statement = body.stmts.last().expect("main has a statement");
+    let _ = statement;
+    let _ = (stmt, statement);
+}

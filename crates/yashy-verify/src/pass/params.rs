@@ -172,7 +172,7 @@ impl<'f> Scan<'f> {
             HirStmt::Expr(expr, ..) => self.expr(expr),
             HirStmt::Const { init, .. }
             | HirStmt::Var { init, .. }
-            | HirStmt::Destructure { init, .. } => self.expr(init),
+            | HirStmt::Destructure { init, .. } | HirStmt::LetElse { init, .. } => self.expr(init),
             // Reassigning the binding abandons the old value; the pass cannot
             // see what happens to it, so it is not a read.
             HirStmt::Assign { name, value, .. } => {

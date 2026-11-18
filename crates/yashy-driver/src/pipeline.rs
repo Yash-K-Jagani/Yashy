@@ -244,7 +244,7 @@ fn task_count(hir: &HirProgram) -> usize {
                 exprs(index, count);
                 exprs(value, count);
             }
-            HirStmt::Destructure { init, .. } => exprs(init, count),
+            HirStmt::Destructure { init, .. } | HirStmt::LetElse { init, .. } => exprs(init, count),
             HirStmt::Return(value, _) => {
                 if let Some(value) = value {
                     exprs(value, count);
