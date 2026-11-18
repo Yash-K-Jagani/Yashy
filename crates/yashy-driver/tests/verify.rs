@@ -624,7 +624,10 @@ fn require_inventory_warns_when_a_program_trusts_c() {
     let dir = work_dir("verify-require-inventory");
     write(&dir, "trust.ya", TRUSTS_C);
 
-    let output = run(&dir, &["verify", "--json", "--require-inventory", "trust.ya"]);
+    let output = run(
+        &dir,
+        &["verify", "--json", "--require-inventory", "trust.ya"],
+    );
     let json = stdout(&output);
     assert_eq!(output.status.code(), Some(0), "{json}");
     assert!(json.contains("E1404"), "the audit warning is coded: {json}");
