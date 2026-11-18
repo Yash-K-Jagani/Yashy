@@ -597,6 +597,29 @@ fn inventory_json_reports_the_same_assumptions_in_source_order() {
 }
 
 #[test]
+fn inventory_lists_an_explicit_unsafe_block_with_its_reason() {
+    let dir = work_dir("verify-inventory-block");
+    write(&dir, "block.ya", "fn main() { unsafe { let x = 1; } }");
+
+    let output = run(&dir, &["verify", "--inventory", "--json", "block.ya"]);
+    let json = stdout(&output);
+    assert_eq!(output.status.code(), Some(0), "{json}");
+    assert_eq!(
+        json.matches("\"kind\": \"unsafe_block\"").count(),
+        1,
+        "the block is an assumption: {json}"
+    );
+    assert!(
+        json.contains("an explicit unsafe block disables the safe rules for its body"),
+        "the reason travels with the kind: {json}"
+    );
+    assert!(
+        json.contains("\"name\": \"unsafe\""),
+        "the block names the spelling the reader wrote: {json}"
+    );
+}
+
+#[test]
 fn verify_json_without_the_flag_does_not_claim_an_inventory() {
     // An absent key means "not computed". An empty array would say the program
     // trusts nothing, which is a different fact and a false one here.

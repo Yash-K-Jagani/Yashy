@@ -372,23 +372,26 @@ the run.
 ### `--inventory`
 
 A proof rests on assumptions, and the assumptions are worth naming. `--inventory`
-lists every `extern` declaration and every call the source marked `unsafe`: the
-places where the program trusts something the verifier cannot see.
+lists every `extern` declaration, every call the source marked `unsafe`, and
+every `unsafe { }` block: the places where the program trusts something the
+verifier cannot see. Each row carries the reason for the trust.
 
 ```text
 $ yashyc verify --inventory libc.ya
 assumptions: 3
-  extern_decl  malloc  libc.ya:2:5
-  extern_decl  free    libc.ya:3:5
-  unsafe_call  free    libc.ya:8:12
+  extern_decl   malloc  libc.ya:2:5   the linker symbol and its signature are taken on trust
+  extern_decl   free    libc.ya:3:5   the linker symbol and its signature are taken on trust
+  unsafe_call   free    libc.ya:8:12  an unsafe call crosses a raw pointer unchanged
 ```
 
+A block such as `unsafe { p.write(1); }` adds an `unsafe_block  unsafe ...` row
+with the reason "an explicit unsafe block disables the safe rules for its body".
 The list is in source order, one line per assumption, and it is printed even
 when it is empty (`assumptions: 0`): "this program trusts nothing" is an answer.
 `--inventory --json` puts the same list in the envelope as `assumptions`, an
-array of `{kind, name, file, span}` where `kind` is `extern_decl` or
-`unsafe_call`. Without the flag the key is absent, which means "not computed",
-not "none".
+array of `{kind, name, reason, file, span}` where `kind` is `extern_decl`,
+`unsafe_call` or `unsafe_block`. Without the flag the key is absent, which
+means "not computed", not "none".
 
 The inventory never changes the exit code. A program the verifier accepted
 before the flag existed is still accepted with it; what changed is that its
@@ -679,8 +682,9 @@ stdout; `--json` implies no color and no prompt.
 - `labels` and `notes` are omitted when empty; `fix` is not part of R1.
 - `docs_url` is present only when `code` is present.
 - `assumptions` is present only on `verify --inventory`, and is an array of
-  `{kind, name, file, span}` in source order, where `kind` is `extern_decl` or
-  `unsafe_call`. An absent key means the inventory was not computed.
+  `{kind, name, reason, file, span}` in source order, where `kind` is
+  `extern_decl`, `unsafe_call` or `unsafe_block`. An absent key means the
+  inventory was not computed.
 - `span.start` and `span.end` are byte offsets; `line` and `column` are
   one-based and refer to `span.start`.
 - `proof` is present only on a verifier diagnostic, and describes why an

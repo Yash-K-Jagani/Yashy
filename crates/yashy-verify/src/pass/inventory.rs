@@ -23,6 +23,9 @@ pub enum AssumptionKind {
     /// unchanged, so the checker could not vouch for what the callee does with
     /// it.
     UnsafeCall,
+    /// An explicit `unsafe { }` block: the body is outside the safe rules, so
+    /// the program is trusting the writer's reasoning for everything it does.
+    UnsafeBlock,
 }
 
 impl AssumptionKind {
@@ -35,6 +38,16 @@ impl AssumptionKind {
         match self {
             AssumptionKind::ExternDecl => "extern_decl",
             AssumptionKind::UnsafeCall => "unsafe_call",
+            AssumptionKind::UnsafeBlock => "unsafe_block",
+        }
+    }
+    /// Why the program needs this assumption, in the same words in both
+    /// renderings: a reader should not have to map a kind to a rule by hand.
+    pub fn reason(self) -> &'static str {
+        match self {
+            Self::ExternDecl => "the linker symbol and its signature are taken on trust",
+            Self::UnsafeCall => "an unsafe call crosses a raw pointer unchanged",
+            Self::UnsafeBlock => "an explicit unsafe block disables the safe rules for its body",
         }
     }
 }
@@ -44,8 +57,10 @@ impl AssumptionKind {
 pub struct Assumption {
     pub kind: AssumptionKind,
     /// The name the source used: the C function for a declaration, the callee
-    /// for a call.
+    /// for a call, and `unsafe` for a block.
     pub name: String,
+    /// The reason the assumption exists, keyed by `kind`.
+    pub reason: &'static str,
     pub file: FileId,
     pub span: Span,
 }
@@ -70,6 +85,7 @@ pub fn inventory(hir: &HirProgram) -> Vec<Assumption> {
                         // the two names differ. The span still points at the
                         // declaration the reader wrote.
                         name: decl.symbol().to_string(),
+                        reason: AssumptionKind::ExternDecl.reason(),
                         file: block.file,
                         span: decl.span,
                     });
@@ -233,10 +249,22 @@ impl Walker<'_> {
 
     fn expr(&mut self, expr: &HirExpr) {
         match expr {
-            HirExpr::Literal(..) | HirExpr::UnsafeBlock { .. }
+            HirExpr::Literal(..)
             | HirExpr::Ident(..)
             | HirExpr::AddrOf { .. }
             | HirExpr::Capture { .. } => {}
+            HirExpr::UnsafeBlock { body, span, .. } => {
+                // The block itself is the assumption; the calls it contains
+                // are walked after it so the report reads outside-in.
+                self.found.push(Assumption {
+                    kind: AssumptionKind::UnsafeBlock,
+                    name: "unsafe".to_string(),
+                    reason: AssumptionKind::UnsafeBlock.reason(),
+                    file: self.file,
+                    span: *span,
+                });
+                self.block(body);
+            }
             HirExpr::Binary { lhs, rhs, .. } => {
                 self.expr(lhs);
                 self.expr(rhs);
@@ -257,6 +285,7 @@ impl Walker<'_> {
                     self.found.push(Assumption {
                         kind: AssumptionKind::UnsafeCall,
                         name: callee.join("."),
+                        reason: AssumptionKind::UnsafeCall.reason(),
                         file: self.file,
                         span: *span,
                     });

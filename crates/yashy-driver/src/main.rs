@@ -157,8 +157,8 @@ usage:
                them and the bench row each is held to. For bisecting only: none
                of them changes what a program prints
   --opt-list   list the optimization passes in order with their bench rows
-  --inventory  with `verify`: list every `extern` declaration and `unsafe` call,
-               the assumptions the proof rests on; never changes the exit code
+  --inventory  with `verify`: list every `extern` declaration, `unsafe` call,
+               and `unsafe` block, with the reason for each; never changes the exit code
   --color <auto|always|never>  when to colour output; auto is the default and
                degrades under NO_COLOR, CLICOLOR=0, TERM=dumb and a pipe
   --pager / --no-pager  page long human output through $PAGER on a terminal;
@@ -3866,11 +3866,12 @@ fn print_check_json(
     println!("{}", report.render());
 }
 
-/// One assumption in the schema-v1 shape: what it is, what it names, where.
+/// One assumption in the schema-v1 shape: what it is, what it names, why, where.
 fn assumption_json(sources: &SourceMap, assumption: &Assumption) -> Json {
     let mut object = Json::object();
     object.set("kind", Json::string(assumption.kind.as_str()));
     object.set("name", Json::string(assumption.name.as_str()));
+    object.set("reason", Json::string(assumption.reason));
     object.set("file", Json::string(sources.path(assumption.file)));
     object.set("span", span_json(sources, assumption.file, assumption.span));
     object
@@ -3895,12 +3896,13 @@ fn print_inventory(sources: &SourceMap, assumptions: &[Assumption]) {
     for assumption in assumptions {
         let location = sources.locate(assumption.file, assumption.span);
         println!(
-            "  {kind:<kind_width$}  {name:<name_width$}  {file}:{line}:{column}",
+            "  {kind:<kind_width$}  {name:<name_width$}  {file}:{line}:{column}  {reason}",
             kind = assumption.kind.as_str(),
             name = assumption.name,
             file = sources.path(assumption.file),
             line = location.line,
             column = location.col,
+            reason = assumption.reason,
         );
     }
 }

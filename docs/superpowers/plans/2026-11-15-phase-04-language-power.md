@@ -191,12 +191,16 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 
 - [ ] **Step 1: Write the failing test.** A safe function that dereferences a `*const T`; a `noalias` on a safe parameter; an `Option[*const T]` passed to and from C with null; a pointer offset past its allocation; an `unsafe` block that calls an `extern` function. Assert each refusal names the exact rule (`ALIAS-1`…`ALIAS-5`) and that the FFI round-trip preserves null as `None`.
 - [ ] **Step 2: Write the rules down before the code.** `docs/architecture.md` §5.3 becomes normative: owning pointers are unique by linearity; FFI pointers may alias; `noalias` is legal only on `extern` declarations and `unsafe fn` parameters; disjoint views are proved, not assumed; no assumption crosses a safe call. The five rules now carry ids ALIAS-1 through ALIAS-5 (docs/architecture.md 5.3), so later diagnostics and corpus cases can name the rule they test. Still owed: a corpus file per rule and codes that emit those ids.
+  *Current:* §5.3 is normative and the five IDs are written there. The alias
+  corpus file and diagnostics that name those IDs are still owed.
 - [ ] **Step 3: `unsafe` is a block, not a mode.** Dereferencing an FFI pointer, pointer arithmetic beyond a proved bound, calling an `unsafe fn`/`extern` function, and `alloc_uninit` require `unsafe { }`. A safe function cannot contain one. `verify --inventory` lists every unsafe site with its span and the reason; the count is a release number.
   *Current:* `unsafe { ... }` parses as an expression, checks its body and is
   lowered as a block by codegen; parser and sema tests pin the form. No safe
   operation currently *requires* the block (pointer deref and `alloc_uninit`
-  are not yet gated by it), and the inventory does not record these blocks with
-  a reason, so the step stays open.
+  are not yet gated by it), so the gating half of the step stays open. The
+  inventory now records an `unsafe_block` assumption for every explicit block
+  with its span and a reason, alongside extern declarations and unsafe calls,
+  in both the human table and `--json`; the driver test pins the new row.
 - [ ] **Step 4: Null has one spelling.** `Option[*const T]` and `Option[*mut T]` are guaranteed to use the null pointer for `None` at the ABI boundary; `Some(p)` is non-null. There is no `null` literal and no nullable pointer type. A C function returning null round-trips to `None`; a null passed where `Some` is expected is refused at the call site.
 - [ ] **Step 5: Spend only proved facts.** `noalias`, `nonnull` and `dereferenceable` are emitted only where Phase 4's facts license them; `--opt-report` names the fact. A pointer of unknown provenance gets no attribute. The alias corpus runs on both OSes and fails on any attribute without a justification.
 - [ ] **Step 6: Commit.**
@@ -223,6 +227,10 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   `alloc_uninit` builtin is still owed: it needs the `unsafe` blocks of Task 5,
   so the unsafe spelling is deliberately absent rather than silently safe. The
   verifier inventory counts only the sites that exist today.
+  *Current:* `yashy_alloc_aligned` in `yashy_runtime.h` memsets every byte it
+  hands out, and both the normal and small allocation paths go through it. The
+  stale-pattern/leak test needs binary execution and is CI-only; the explicit
+  `alloc_uninit` spelling is still deliberately absent.
 - [ ] **Step 3: Every allocation is visible.** The allocator interface is static-dispatch only; collections take an allocator or use the global one; `--alloc-report` (Phase 11A) reads the same hooks. No runtime path allocates behind the language's back.
 - [x] **Step 4: `repr` stays a keyword form.** `repr(C)`, `repr(packed)`, `repr(align(N))`, `repr(transparent)` and an integer enum repr are clauses, not attributes; `repr(C)` is never reordered; a packed field that would be misaligned is a diagnostic at the field, not a silent unaligned load.
   *Current:* all five clauses parse; a non-power-of-two align is refused. The
