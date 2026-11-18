@@ -30,6 +30,7 @@ check:linux:
   script:
     - cargo check --workspace --all-targets --locked
     - cargo fmt --all -- --check
+    - cargo run --locked -p yashy-driver --bin yashyc -- trace --json . > traceability.json
 
 check:windows:
   extends: .template:windows
@@ -37,6 +38,7 @@ check:windows:
   script:
     - cargo check --workspace --all-targets --locked
     - cargo fmt --all -- --check
+    - cargo run --locked -p yashy-driver --bin yashyc -- trace --json . > traceability.json
 
 build:linux:
   extends: .template:linux
@@ -73,5 +75,5 @@ report:linux:
   script:
     - cargo run --locked -p yashy-driver --bin yashyc -- coverage --json --fail-under 70 examples/hello
   artifacts:
-    paths: [coverage.json, sarif.json]
+    paths: [coverage.json, sarif.json, traceability.json]
     when: always

@@ -37,6 +37,13 @@ stage "lint"
 cargo clippy --workspace --all-targets --locked -- -D warnings || \
   skip "clippy: treat a new lint as a failure only when the workspace is clean"
 
+stage "traceability"
+if command -v yashyc >/dev/null 2>&1; then
+  yashyc trace --json . > traceability.json
+else
+  cargo run --locked -p yashy-driver --bin yashyc -- trace --json . > traceability.json
+fi
+
 stage "coverage"
 if command -v yashyc >/dev/null 2>&1; then
   yashyc coverage --json --fail-under 70 examples/hello >/dev/null

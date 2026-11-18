@@ -13,6 +13,7 @@ same stages locally or in any runner that can execute a shell script.
 | build | `cargo build --release --workspace --locked` | links on both OSes |
 | test | `cargo test --workspace --locked` | every suite green |
 | fmt | `cargo fmt --all -- --check` | touched files only; known pre-existing drift is tracked separately |
+| traceability | `yashyc trace --json .` | the matrix is emitted as an artifact; `--fail-orphans` is added once the reported orphans are cleared |
 | coverage | `yashyc coverage --json --fail-under 70 examples/hello` | the configured floor |
 | benchmark gate | `benchmarks/ci.sh` | every claimed row present, no regression past its threshold |
 | fuzz smoke | `yashyc fuzz --runs 1000` | no finding |
