@@ -1,3 +1,9 @@
+#if !defined(_WIN32) && !defined(_GNU_SOURCE)
+/* `REG_RIP` and friends are GNU extensions on glibc. The sampling signal
+ * handler needs them, and the macro has to be set before any system header. */
+#define _GNU_SOURCE
+#endif
+
 /* Platform functions behind the breadth modules (phase 12, Task 10):
  * process control, filesystem metadata and listing, the environment,
  * entropy, a monotonic clock, and tty detection.
@@ -26,17 +32,21 @@
 #define _WIN32_WINNT 0x0600
 #endif
 #include <io.h>
+#include <process.h>
 #include <windows.h>
 /* `bcrypt.h` needs the Windows types, so it comes after `windows.h`. */
 #include <bcrypt.h>
 #else
 #include <dirent.h>
+#include <dlfcn.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <sys/syscall.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <time.h>
+#include <ucontext.h>
 #include <unistd.h>
 #endif
 
@@ -1119,4 +1129,206 @@ yashy_str *yashy_stdin_record(void) {
     free(out);
     free(data);
     return record;
+}
+
+/* ---- Native sampling profiler -------------------------------------------
+ *
+ * `yashyc profile --sample` sets `YASHY_SAMPLE_FILE` and runs a debug build.
+ * The runtime samples the thread's instruction pointer at a fixed interval,
+ * subtracts the image base, and writes one hexadecimal offset per line at
+ * exit. Symbolisation happens in the driver, where the debug info and
+ * `llvm-symbolizer` live; the runtime itself never reads a symbol table.
+ *
+ * Windows uses a watchdog thread that suspends the target thread for the
+ * duration of a `GetThreadContext`. POSIX uses `ITIMER_PROF` and a `SIGPROF`
+ * handler, which the kernel delivers to a running thread. Both paths record
+ * into the same bounded table, so the file format is one format.
+ *
+ * Nothing is sampled unless the environment names a file: a program that does
+ * not ask pays one cached `getenv` at entry.
+ */
+#define YASHY_SAMPLE_CAPACITY 65536
+#define YASHY_SAMPLE_DEFAULT_INTERVAL_US 1000
+
+static unsigned long long yashy_sample_events[YASHY_SAMPLE_CAPACITY];
+static long long yashy_sample_next = 0;
+static long long yashy_sample_dropped = 0;
+static unsigned long long yashy_sample_base = 0;
+/* A copy, not `getenv`'s pointer: a program may replace the environment
+ * before it exits, and the flush happens last. */
+static char yashy_sample_path_storage[4096];
+static const char *yashy_sample_path = NULL;
+static int yashy_sample_started = 0;
+static int yashy_sample_relative = 0;
+
+static void yashy_sample_capture(unsigned long long pc);
+
+#if defined(_WIN32)
+static volatile long yashy_sample_stop = 0;
+static HANDLE yashy_sample_thread = NULL;
+static DWORD yashy_sample_target = 0;
+static unsigned long yashy_sample_interval_ms = 1;
+
+static unsigned __stdcall yashy_sample_worker(void *unused) {
+    (void)unused;
+    HANDLE target = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT, FALSE,
+                               yashy_sample_target);
+    if (target == NULL) {
+        return 1;
+    }
+    while (!yashy_sample_stop) {
+        if (SuspendThread(target) != (DWORD)-1) {
+            CONTEXT context;
+            memset(&context, 0, sizeof(context));
+            context.ContextFlags = CONTEXT_CONTROL;
+            if (GetThreadContext(target, &context)) {
+#if defined(_M_X64) || defined(__x86_64__)
+                unsigned long long pc = (unsigned long long)context.Rip;
+#elif defined(_M_ARM64) || defined(__aarch64__)
+                unsigned long long pc = (unsigned long long)context.Pc;
+#else
+                unsigned long long pc = 0;
+#endif
+                yashy_sample_capture(pc);
+            }
+            ResumeThread(target);
+        }
+        Sleep(yashy_sample_interval_ms);
+    }
+    CloseHandle(target);
+    return 0;
+}
+#else
+static void yashy_sample_signal(int signal_number, siginfo_t *info, void *context) {
+    (void)signal_number;
+    (void)info;
+    unsigned long long pc = 0;
+    ucontext_t *state = (ucontext_t *)context;
+#if defined(__x86_64__)
+#if defined(__APPLE__)
+    pc = (unsigned long long)state->uc_mcontext->__ss.__rip;
+#else
+    pc = (unsigned long long)state->uc_mcontext.gregs[REG_RIP];
+#endif
+#elif defined(__aarch64__)
+#if defined(__APPLE__)
+    pc = (unsigned long long)state->uc_mcontext->__ss.__pc;
+#else
+    pc = (unsigned long long)state->uc_mcontext.pc;
+#endif
+#endif
+    yashy_sample_capture(pc);
+}
+#endif
+
+static void yashy_sample_capture(unsigned long long pc) {
+    long long slot = __sync_fetch_and_add(&yashy_sample_next, 1);
+    if (slot < YASHY_SAMPLE_CAPACITY) {
+        yashy_sample_events[slot] =
+            pc >= yashy_sample_base ? pc - yashy_sample_base : pc;
+    } else {
+        __sync_fetch_and_add(&yashy_sample_dropped, 1);
+    }
+}
+
+static void yashy_sample_flush(void) {
+    if (yashy_sample_path == NULL) {
+        return;
+    }
+#if defined(_WIN32)
+    yashy_sample_stop = 1;
+    if (yashy_sample_thread != NULL) {
+        WaitForSingleObject(yashy_sample_thread, 2000);
+        CloseHandle(yashy_sample_thread);
+        yashy_sample_thread = NULL;
+    }
+#else
+    struct itimerval stopped;
+    memset(&stopped, 0, sizeof(stopped));
+    setitimer(ITIMER_PROF, &stopped, NULL);
+#endif
+    FILE *out = fopen(yashy_sample_path, "w");
+    if (out == NULL) {
+        return;
+    }
+    long long count = yashy_sample_next < YASHY_SAMPLE_CAPACITY
+                          ? yashy_sample_next
+                          : YASHY_SAMPLE_CAPACITY;
+    fprintf(out, "# relative %d\n", yashy_sample_relative);
+    for (long long i = 0; i < count; i++) {
+        fprintf(out, "%llx\n", yashy_sample_events[i]);
+    }
+    fprintf(out, "# dropped %lld\n", yashy_sample_dropped);
+    fclose(out);
+}
+
+/* Called once from `yashy_runtime_init`, before the program's first
+ * statement. A program without `YASHY_SAMPLE_FILE` leaves every field alone. */
+void yashy_sample_configure(void) {
+    if (yashy_sample_started) {
+        return;
+    }
+    yashy_sample_started = 1;
+    const char *requested_path = getenv("YASHY_SAMPLE_FILE");
+    if (requested_path == NULL || requested_path[0] == '\0') {
+        yashy_sample_path = NULL;
+        return;
+    }
+    snprintf(yashy_sample_path_storage, sizeof yashy_sample_path_storage, "%s",
+             requested_path);
+    yashy_sample_path = yashy_sample_path_storage;
+#if defined(_WIN32)
+    yashy_sample_base = (unsigned long long)(uintptr_t)GetModuleHandleW(NULL);
+    const char *interval = getenv("YASHY_SAMPLE_INTERVAL_US");
+    if (interval != NULL) {
+        long requested = atol(interval);
+        if (requested > 0) {
+            yashy_sample_interval_ms = (unsigned long)((requested + 999) / 1000);
+        }
+    }
+    if (yashy_sample_interval_ms == 0) {
+        yashy_sample_interval_ms = 1;
+    }
+    yashy_sample_relative = 1;
+    atexit(yashy_sample_flush);
+    yashy_sample_target = GetCurrentThreadId();
+    uintptr_t thread = _beginthreadex(NULL, 0, yashy_sample_worker, NULL, 0, NULL);
+    if (thread != 0) {
+        yashy_sample_thread = (HANDLE)thread;
+    }
+#else
+    Dl_info image;
+    if (dladdr((void *)&yashy_sample_configure, &image) != 0
+        && image.dli_fbase != NULL) {
+        yashy_sample_base = (unsigned long long)(uintptr_t)image.dli_fbase;
+        yashy_sample_relative = 1;
+    }
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
+    action.sa_sigaction = yashy_sample_signal;
+    action.sa_flags = SA_SIGINFO | SA_RESTART;
+    sigemptyset(&action.sa_mask);
+    if (sigaction(SIGPROF, &action, NULL) != 0) {
+        yashy_sample_path = NULL;
+        return;
+    }
+    long interval = YASHY_SAMPLE_DEFAULT_INTERVAL_US;
+    const char *requested = getenv("YASHY_SAMPLE_INTERVAL_US");
+    if (requested != NULL) {
+        long parsed = atol(requested);
+        if (parsed > 0) {
+            interval = parsed;
+        }
+    }
+    struct itimerval timer;
+    memset(&timer, 0, sizeof(timer));
+    timer.it_interval.tv_sec = interval / 1000000;
+    timer.it_interval.tv_usec = interval % 1000000;
+    timer.it_value = timer.it_interval;
+    if (setitimer(ITIMER_PROF, &timer, NULL) != 0) {
+        yashy_sample_path = NULL;
+        return;
+    }
+    atexit(yashy_sample_flush);
+#endif
 }

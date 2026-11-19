@@ -48,6 +48,14 @@ typedef struct yashy_str yashy_str;
 void yashy_trace_record(int kind, long long size, unsigned long long pc,
                         unsigned long long ptr);
 
+/* Native sampling for `yashyc profile --sample`. `yashy_sample_configure` is
+ * called once at the entry point; it is a no-op unless `YASHY_SAMPLE_FILE`
+ * names an output file. The runtime writes image-relative instruction
+ * pointers, one hexadecimal number per line, with a leading `# relative 1`
+ * (or `0` when the platform could not determine the image base) and a
+ * trailing `# dropped N`. */
+void yashy_sample_configure(void);
+
 /* Writes the NUL-terminated string to stdout, byte for byte. Nothing else: no
  * newline, and no line-ending translation (see the note in runtime.c). */
 /* Called once at the entry point, before the program's first statement: puts

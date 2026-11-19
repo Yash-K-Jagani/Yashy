@@ -1112,8 +1112,12 @@ Builds and runs the program, printing the measured wall time. A recorded
 per-function counter report renders with `--report <file.json>`: one line
 per function, sorted by self time, with the instrumentation overhead
 measured and printed. `--json` renders the same report as a schema-v1
-envelope. `--sample` is accepted, but no native sampler is wired in: it prints
-a note and measures the same counter path rather than inventing samples.
+envelope. `--sample` builds with debug info at `-O0`, runs the runtime's
+native sampler (a watchdog thread on Windows, `SIGPROF` elsewhere), resolves
+the recorded instruction pointers through the same `llvm-symbolizer` path the
+event trace uses, and reports each function's share; a run with no samples
+falls back to the wall-clock counter path and says so. See
+[profiling](profiling.md).
 `run --debug` also leaves `.yashy/debug.lldb` in the current directory —
 a generated command file that sets a breakpoint on `main` and dumps the
 async task table on stop; the same table is available without a debugger
@@ -1121,8 +1125,9 @@ through `YASHY_DEBUG=1`.
 
 `profile --alloc-report <file.ya>` builds with debug info, runs with the
 runtime's event trace enabled and reports every allocation site with a byte
-count and a source span, plus the blocks still live at exit. See
-[profiling](profiling.md).
+count and a source span, plus the blocks still live at exit. A deliberate leak
+needs `--no-verify`, because a verified program cannot leak; the build is then
+stamped unverified as usual. See [profiling](profiling.md).
 
 ## `yashyc coverage <file.ya>` / `coverage --tests [<dir>] [--json] [--format lcov|json|sarif] [--fail-under <pct>]`
 

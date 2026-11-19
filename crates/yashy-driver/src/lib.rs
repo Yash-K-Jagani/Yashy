@@ -42,6 +42,7 @@ pub mod profile;
 pub mod registry;
 pub mod repl;
 pub mod resolve;
+pub mod sample;
 pub mod sandbox;
 pub mod sarif;
 pub mod scaffold;

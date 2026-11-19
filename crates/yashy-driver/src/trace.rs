@@ -398,7 +398,7 @@ pub fn parse_events(text: &str) -> (Vec<Event>, u64) {
 }
 
 /// Find `llvm-symbolizer`, preferring the one beside the binary being traced.
-fn symbolizer_for(binary: &Path) -> Option<PathBuf> {
+pub fn symbolizer_for(binary: &Path) -> Option<PathBuf> {
     if let Ok(path) = std::env::var("YASHY_LLVM_SYMBOLIZER") {
         let path = PathBuf::from(path);
         if path.is_file() {
@@ -428,6 +428,54 @@ fn symbolizer_for(binary: &Path) -> Option<PathBuf> {
     None
 }
 
+/// Resolve hexadecimal addresses through `llvm-symbolizer`.
+///
+/// Each address yields `(function, location)`; the location is `file:line:col`
+/// or `??` when the binary has no line table for it. `relative` tells the
+/// symbolizer the addresses are image-relative, which is what the sampling
+/// runtime writes and what a normalised backtrace needs. `None` means the
+/// symbolizer could not be started, not that every address was unknown.
+pub fn frames(
+    addresses: &[String],
+    binary: &Path,
+    relative: bool,
+) -> Option<Vec<(String, String)>> {
+    let tool = symbolizer_for(binary)?;
+    let mut command = Command::new(tool);
+    command.arg(format!("--obj={}", binary.display()));
+    if relative {
+        command.arg("--relative-address");
+    }
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let mut stdin = child.stdin.take()?;
+    for address in addresses {
+        let _ = writeln!(stdin, "0x{address}");
+    }
+    drop(stdin);
+    let output = child.wait_with_output().ok()?;
+    let text = String::from_utf8_lossy(&output.stdout).into_owned();
+    let lines: Vec<&str> = text.lines().collect();
+    Some(
+        (0..addresses.len())
+            .map(|index| {
+                (
+                    lines.get(index * 2).copied().unwrap_or("??").to_string(),
+                    lines
+                        .get(index * 2 + 1)
+                        .copied()
+                        .unwrap_or("??")
+                        .to_string(),
+                )
+            })
+            .collect(),
+    )
+}
+
 /// Attach a source span to each event, using the debug info in `binary`.
 ///
 /// `llvm-symbolizer` prints two lines per address: the enclosing function and
@@ -436,44 +484,18 @@ fn symbolizer_for(binary: &Path) -> Option<PathBuf> {
 /// is still a useful answer. Without a symbolizer the raw address is kept, so
 /// a machine with no LLVM tools still gets a truthful trace.
 pub fn symbolize(events: &mut [Event], binary: &Path) {
-    let Some(tool) = symbolizer_for(binary) else {
+    let addresses: Vec<String> = events.iter().map(|event| event.pc.clone()).collect();
+    let Some(resolved) = frames(&addresses, binary, false) else {
         for event in events.iter_mut() {
             event.span = event.pc.clone();
         }
         return;
     };
-    let mut child = match Command::new(tool)
-        .arg(format!("--obj={}", binary.display()))
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-    {
-        Ok(child) => child,
-        Err(_) => {
-            for event in events.iter_mut() {
-                event.span = event.pc.clone();
-            }
-            return;
-        }
-    };
-    let mut stdin = child.stdin.take().expect("a piped stdin");
-    for event in events.iter() {
-        let _ = writeln!(stdin, "0x{}", event.pc);
-    }
-    drop(stdin);
-    let output = child
-        .wait_with_output()
-        .expect("the symbolizer must finish");
-    let text = String::from_utf8_lossy(&output.stdout).into_owned();
-    let lines: Vec<String> = text.lines().map(str::to_string).collect();
-    for (index, event) in events.iter_mut().enumerate() {
-        let function = lines.get(index * 2).map(String::as_str).unwrap_or("??");
-        let location = lines.get(index * 2 + 1).map(String::as_str).unwrap_or("??");
+    for (event, (function, location)) in events.iter_mut().zip(resolved) {
         event.span = if location.starts_with("??") {
-            function.to_string()
+            function
         } else {
-            location.to_string()
+            location
         };
     }
 }

@@ -86,7 +86,8 @@ usage:
   yashyc mcp --root <dir>
   yashyc lsp [--version]
   yashyc doc [path] [--out DIR] [--json] [--private]
-  yashyc profile <file.ya> | yashyc profile --report <file.json>
+  yashyc profile <file.ya> [--sample] [--json] | yashyc profile --report <file.json>
+  yashyc profile --alloc-report <file.ya> [--no-verify]
   yashyc lock --check
   yashyc fetch [--offline]
   yashyc update [--offline]
@@ -2170,15 +2171,6 @@ fn exit_status_code(status: ExitStatus) -> i32 {
     EXIT_COMPILE_ERROR
 }
 
-/// Start a freshly linked binary, stepping around an Application Control /
-/// Device Guard policy that refuses new content. The workaround is the same
-/// one the integration tests use: a copy with extra bytes past the image is a
-/// new question, and the loader never reads those bytes. The tail has to differ
-/// in content, not only in length: a copy padded with zeros is still refused.
-fn status_with_retry(exe: &Path, args: &[String]) -> std::io::Result<ExitStatus> {
-    status_with_retry_env(exe, args, &[])
-}
-
 /// Run the child with the sandbox's resource limits applied: a Job Object
 /// on Windows, rlimits before exec on Linux.
 fn status_with_sandbox(
@@ -2239,18 +2231,49 @@ fn status_with_sandbox(
     ))
 }
 
-/// As [`status_with_retry`], plus the child's environment. The debug modes
-/// (`run --debug`, `tasks`) use it to hand the runtime its task table
-/// triggers; an empty `envs` is an ordinary run.
+/// Start a freshly linked binary, stepping around an Application Control /
+/// Device Guard policy that refuses new content. The workaround is the same
+/// one the integration tests use: a copy with extra bytes past the image is a
+/// new question, and the loader never reads those bytes. The tail has to differ
+/// in content, not only in length: a copy padded with zeros is still refused.
+///
+/// `envs` is the child's extra environment: the debug modes (`run --debug`,
+/// `tasks`) use it to hand the runtime its task table triggers; an empty
+/// `envs` is an ordinary run.
 fn status_with_retry_env(
     exe: &Path,
     args: &[String],
     envs: &[(&str, &str)],
 ) -> std::io::Result<ExitStatus> {
+    status_with_retry_impl(exe, args, envs, false)
+}
+
+/// As `status_with_retry_env`, but the child's stdout goes to the null device.
+///
+/// `profile` writes its report on stdout; a measured program that prints would
+/// otherwise sit in front of a `--json` document and make it unparseable. The
+/// child's stderr stays inherited, because a fault is still the user's to see.
+fn status_with_retry_quiet(
+    exe: &Path,
+    args: &[String],
+    envs: &[(&str, &str)],
+) -> std::io::Result<ExitStatus> {
+    status_with_retry_impl(exe, args, envs, true)
+}
+
+fn status_with_retry_impl(
+    exe: &Path,
+    args: &[String],
+    envs: &[(&str, &str)],
+    quiet: bool,
+) -> std::io::Result<ExitStatus> {
     for attempt in 0..LAUNCH_ATTEMPTS {
         let candidate = launch_candidate(exe, attempt)?;
         let mut command = Command::new(&candidate);
         command.args(args);
+        if quiet {
+            command.stdout(Stdio::null());
+        }
         for (key, value) in envs {
             command.env(key, value);
         }
@@ -5848,10 +5871,12 @@ fn lsp_cmd(args: &[String]) -> ExitCode {
     }
 }
 
-/// Build one program with the leak counter armed, run it, and render the
-/// runtime's live-allocation total. No source site is available because the
-/// allocator does not carry one yet; the JSON says so.
-fn alloc_report(input: PathBuf) -> ExitCode {
+/// Build one program with the event trace armed, run it, and render every
+/// allocation site and the blocks still live at exit. A program the verifier
+/// proves cannot leak is still useful here (the sites of freed blocks are
+/// real), and `--no-verify` lets a deliberately leaking program be measured;
+/// the build stamps the usual unverified sidecar in that case.
+fn alloc_report(input: PathBuf, no_verify: bool) -> ExitCode {
     use yashy_driver::trace;
 
     let dir = temp_run_dir();
@@ -5861,12 +5886,15 @@ fn alloc_report(input: PathBuf) -> ExitCode {
     }
     let output = dir.join(format!("alloc{}", std::env::consts::EXE_SUFFIX));
     let events_file = dir.join("events.txt");
-    let build_arguments = vec![
+    let mut build_arguments = vec![
         input.to_string_lossy().into_owned(),
         "-o".to_string(),
         output.to_string_lossy().into_owned(),
         "--debug-info".to_string(),
     ];
+    if no_verify {
+        build_arguments.push("--no-verify".to_string());
+    }
     let code = build(CommandKind::Run, &build_arguments);
     if code != exit_code(EXIT_OK) {
         let _ = fs::remove_dir_all(&dir);
@@ -6233,24 +6261,20 @@ fn coverage_cmd(args: &[String]) -> ExitCode {
 }
 
 fn profile_cmd(args: &[String]) -> ExitCode {
-    // `--sample` is part of the command surface, but no native sampler is
-    // wired in yet. Accepting the flag and naming the fallback is better than
-    // rejecting a documented option: the measurement is the counter path, and
-    // the note says exactly that.
     let sample = args.iter().any(|arg| arg == "--sample");
-    if sample {
-        eprintln!("note: no native sampler is available; measuring the counter path instead");
-    }
     let json = args.iter().any(|arg| arg == "--json");
+    let no_verify = args.iter().any(|arg| arg == "--no-verify");
     // `--alloc-report <file>` runs a program with the runtime's trace armed and
     // renders every allocation site and the blocks still live at exit as a
     // schema-v1 table. The site comes from the runtime's recorded caller, not
-    // from a guess.
+    // from a guess. `--no-verify` is the one way to measure a program the
+    // verifier would refuse for leaking, which is the case a leak report is
+    // for.
     if let Some(position) = args.iter().position(|arg| arg == "--alloc-report") {
         let Some(path) = args.get(position + 1) else {
             return usage_error("`--alloc-report` needs a file");
         };
-        return alloc_report(PathBuf::from(path));
+        return alloc_report(PathBuf::from(path), no_verify);
     }
     // `--report <json>` renders a recorded table; without it, a fresh
     // measurement runs over the built program.
@@ -6282,7 +6306,7 @@ fn profile_cmd(args: &[String]) -> ExitCode {
     let mut input: Option<PathBuf> = None;
     for arg in args {
         match arg.as_str() {
-            "--sample" | "--json" => {}
+            "--sample" | "--json" | "--no-verify" => {}
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown option `{other}` for `profile`"))
             }
@@ -6297,35 +6321,90 @@ fn profile_cmd(args: &[String]) -> ExitCode {
     let Some(input) = input else {
         return usage_error("`profile` needs a source file");
     };
-    // Measure honestly: build, run twice, and report the wall times. The
-    // per-function table comes from a recorded `--report`; a fresh run has
-    // no counters to aggregate, so the report says so instead of inventing
-    // rows.
     let dir = temp_run_dir();
     if let Err(error) = fs::create_dir_all(&dir) {
         eprintln!("error: cannot create {}: {error}", dir.display());
         return exit_code(EXIT_COMPILE_ERROR);
     }
     let output = dir.join(format!("profile{}", std::env::consts::EXE_SUFFIX));
-    let build_arguments = vec![
+    let mut build_arguments = vec![
         input.to_string_lossy().into_owned(),
         "-o".to_string(),
         output.to_string_lossy().into_owned(),
     ];
+    if sample {
+        // The sampler's addresses are only useful with the debug info that
+        // names the function and source line they fall in. `-O0` keeps the
+        // source functions distinct: at `-O2` a hot helper is inlined into its
+        // caller and the sample would be attributed to a function that is not
+        // in the source at all.
+        build_arguments.push("--debug-info".to_string());
+        build_arguments.push("-O0".to_string());
+        if no_verify {
+            build_arguments.push("--no-verify".to_string());
+        }
+    }
     let code = build(CommandKind::Run, &build_arguments);
     if code != exit_code(EXIT_OK) {
         let _ = fs::remove_dir_all(&dir);
         return code;
     }
+    if sample {
+        let sample_file = dir.join("samples.txt");
+        let sample_path = sample_file.to_string_lossy().into_owned();
+        let envs = [
+            ("YASHY_SAMPLE_FILE", sample_path.as_str()),
+            ("YASHY_SAMPLE_INTERVAL_US", "1000"),
+        ];
+        let status = status_with_retry_quiet(&output, &[], &envs);
+        match status {
+            Ok(status) if status.success() => {
+                let parsed = std::fs::read_to_string(&sample_file)
+                    .ok()
+                    .map(|text| yashy_driver::sample::parse(&text))
+                    .unwrap_or_default();
+                if !parsed.addresses.is_empty() {
+                    let report =
+                        yashy_driver::sample::measure(&input.to_string_lossy(), &parsed, &output);
+                    if json {
+                        println!("{}", yashy_common::json_rpc::to_string(&report.to_json()));
+                    } else {
+                        print!("{}", report.render());
+                    }
+                    if report.hot().is_none() {
+                        eprintln!(
+                            "note: no function held 80% of the samples; the rows are still the measured shares."
+                        );
+                    }
+                    let _ = fs::remove_dir_all(&dir);
+                    return exit_code(EXIT_OK);
+                }
+                eprintln!(
+                    "note: the native sampler recorded no samples; measuring the counter path instead"
+                );
+            }
+            Ok(status) => {
+                let _ = fs::remove_dir_all(&dir);
+                return exit_code(exit_status_code(status));
+            }
+            Err(error) => {
+                let _ = fs::remove_dir_all(&dir);
+                eprintln!("error: cannot run {}: {error}", output.display());
+                return exit_code(EXIT_COMPILE_ERROR);
+            }
+        }
+    }
+    // Measure honestly: build, run, and report the wall time. The per-function
+    // table comes from a recorded `--report`; a fresh run has no counters to
+    // aggregate, so the report says so instead of inventing rows.
     let started = std::time::Instant::now();
-    let status = status_with_retry(&output, &[]);
+    let status = status_with_retry_quiet(&output, &[], &[]);
     let elapsed = started.elapsed();
     let _ = fs::remove_dir_all(&dir);
     match status {
         Ok(status) if status.success() => {
             let report = yashy_driver::profile::Report {
                 program: input.to_string_lossy().into_owned(),
-                // The second run is the measurement; the first is discarded.
                 overhead_pct: 0.0,
                 functions: vec![yashy_driver::profile::FunctionRow {
                     name: "main (wall clock; see --report for per-function)".to_string(),

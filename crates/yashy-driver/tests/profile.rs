@@ -141,18 +141,29 @@ fn a_recorded_report_has_the_same_model_as_json() {
 }
 
 #[test]
-fn sample_names_its_counter_fallback_instead_of_inventing_samples() {
+fn a_sample_run_measures_or_names_the_counter_fallback() {
     let dir = common::work_dir("profile-sample-fallback");
     common::write(&dir, "main.ya", "fn main() {\n    print(\"hi\");\n}\n");
     let (code, stdout, stderr) =
         run(&["profile", "--sample", dir.join("main.ya").to_str().unwrap()]);
     assert_eq!(code, 0, "stderr: {stderr}");
-    assert!(
-        stderr.contains("no native sampler"),
-        "the fallback is stated, not hidden: {stderr}"
-    );
-    assert!(
-        stdout.contains("wall clock"),
-        "the counter path is what ran: {stdout}"
-    );
+    // A program that finishes before the first tick records no samples; the
+    // driver then says so and measures the counter path. When the sampler did
+    // catch it, the table is the native one. Either way the output must name
+    // which measurement ran rather than present counters as samples.
+    if stdout.contains("samples:") {
+        assert!(
+            !stderr.contains("counter path"),
+            "a native report must not also claim the fallback:\n{stdout}\n{stderr}"
+        );
+    } else {
+        assert!(
+            stderr.contains("recorded no samples"),
+            "the fallback is stated, not hidden: {stderr}"
+        );
+        assert!(
+            stdout.contains("wall clock"),
+            "the counter path is what ran: {stdout}"
+        );
+    }
 }

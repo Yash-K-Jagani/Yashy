@@ -286,22 +286,22 @@ directory. All four named in the sketch exist (`bin`, `lib`, `cli`, `http`).
 `yashy-codegen` emits only in debug builds (`emit_program_with_debug`); normal
 IR stays byte-identical. Verified with clang and `llvm-readobj`.
 
-- [ ] **Step 1: Write the failing test.** Compile a program with a function,
+- [x] **Step 1: Write the failing test.** Compile a program with a function,
   a struct, a `switch` and an async task. Assert the binary has a line table and
   a type table for every user type, that `yashyc inspect --addr <symbol>`
   returns a source span, and that a scripted debugger session stops on the
   expected line and prints the expected value.
-  *Current:* partial. Debug builds now emit `!dbg` locations for every checked
-  statement from HIR spans; annotated golden IR compiled with clang produced a
-  real `.debug_line` section (verified with `llvm-readobj`). `inspect --addr`
-  maps an address to a declaration span, and a debugger can stop on a source
-  line. Debug builds now also emit a `DICompositeType` table for every declared
-  struct and enum, with member offsets and sizes from the checker's layout walk,
-  listed as `retainedTypes:` on the compile unit (`types:` is not a
-  `DICompileUnit` field and clang rejected it). `yashyc build --emit-ir
-  --debug-info` dumps that metadata without a toolchain, and
-  `tests/debug_info.rs` asserts on it. A typed value assertion is still not
-  scripted, so the step stays unchecked.
+  *Current:* the metadata is asserted on the IR by `tests/debug_info.rs`, and a
+  `struct`/`enum` `DICompositeType` table exists for every user type.
+  `tests/inspect.rs` builds a debug binary, reads its symbol table through
+  `llvm-nm`, and requires `inspect --addr` to name `main.ya`; on an MSVC-linked
+  PE (no COFF symbol table) it records the skip instead of failing. The scripted
+  session is `tests/debug_session.rs`: it stops on a source line and requires
+  `frame variable` to print the string local as `'ada'`, which also proves the
+  providers are imported before the first stop. LLDB is optional, so that test
+  is opt-in through `YASHY_LLDB_TEST=1` (CI sets it); a host without LLDB
+  records the skip. The `.debug_line` section itself was verified by hand with
+  `llvm-readobj` on an annotated golden IR compiled by clang.
 - [x] **Step 2: Emit debug info from the same IR.** Every user function, local,
   parameter and type gets a `!dbg` location; the span comes from HIR, not from a
   re-parse. Optimised builds keep line tables; `--debug` builds keep full
@@ -328,7 +328,7 @@ IR stays byte-identical. Verified with clang and `llvm-readobj`.
   Windows, exits `2` with an install hint when neither is present, writes both
   script dialects, passes `--break` names and post-`--` arguments, and removes
   the temporary directory after the session.
-- [ ] **Step 4: Make the async state visible.** A task view renders its state,
+- [x] **Step 4: Make the async state visible.** A task view renders its state,
   its scope, and the await point; pretty printers render `string`, arrays, maps
   and `Option`/`Result` as values, not addresses.
   *Current:* the runtime's `YASHY_DEBUG=1` stop handler prints the live task
@@ -344,8 +344,9 @@ IR stays byte-identical. Verified with clang and `llvm-readobj`.
   members, and a unit test pins the metadata. An `async fn` now names its
   lowered `poll` function for `DISubprogram`, because that is where the body
   and its statement markers live; `tests/debug_info.rs` pins the poll symbol and
-  a location scoped to it. Still open: a scripted assertion that a typed value
-  prints a particular string, which needs a debugger session.
+  a location scoped to it. The typed-value assertion is now scripted: the
+  opt-in `tests/debug_session.rs` (see Task 6 Step 1) stops inside a function
+  and requires the string local to print as `'ada'`, not as an address.
 - [x] **Step 5: Commit.**
 
 ### Task 7: Profilers and coverage
@@ -356,30 +357,39 @@ IR stays byte-identical. Verified with clang and `llvm-readobj`.
 - Create: `crates/yashy-driver/tests/profile_sampling.rs`, `crates/yashy-driver/tests/coverage.rs`
 - Docs: `docs/profiling.md`, `docs/coverage.md`
 
-*Actual:* `profile.rs`, `coverage.rs`, `tests/profile.rs`, `tests/coverage.rs`
-and both docs landed. `sample.rs` and `tests/profile_sampling.rs` were not
-created because a native sampler needs a platform stack walker and
-per-instruction locations, which neither the runtime nor the backend provides
-yet; the counter and allocation paths are the honest measurement.
+*Actual:* `profile.rs`, `coverage.rs`, `sample.rs`, `tests/profile.rs`,
+`tests/profile_sampling.rs`, `tests/coverage.rs` and both docs landed. The
+sampler is the runtime's, not the driver's: `yashy_sample_configure` starts a
+watchdog thread on Windows and an `ITIMER_PROF`/`SIGPROF` timer elsewhere, and
+writes image-relative instruction pointers at exit. The driver resolves them
+through the same `llvm-symbolizer` path the event trace uses and aggregates by
+function. A sample is the interrupted instruction only; there is no stack walk.
 
-- [ ] **Step 1: Write the failing test.** A program with a hot loop, a cold
+- [x] **Step 1: Write the failing test.** A program with a hot loop, a cold
   function and one deliberate leak. Assert the sampler attributes ≥ 80% of
   samples to the hot function, the allocation profiler names the leaking site
   with a source span, and `yashyc coverage` reports the executed lines as
   lcov and JSON.
-  *Current:* not met. `profile` reports wall-clock time and can render a
-  recorded counter table; `--alloc-report` reports the runtime's live-allocation
-  total. There is no sampler attribution and no source-site data, so the
-  80%-samples and leaking-span assertions cannot be written yet.
+  *Current:* `tests/profile_sampling.rs` has all three. The hot program builds
+  with `--sample`, and the test requires `mode: "sample"` plus `hot` holding at
+  least 80% of the rows. The leak is measured with
+  `profile --alloc-report --no-verify`: it must name `main.ya` in a site and
+  report `live_allocations: 1`, because a verified program cannot leak. The
+  coverage case asserts `covered_lines` and the source name. Like every
+  process-spawning test it runs in CI; this host's Application Control refuses
+  the linked executables.
 - [ ] **Step 2: Sampling is platform-native.** Linux `perf_event_open` (or
   `perf record` when permitted), Windows ETW/`DbgHelp` stack walking, macOS
   `sample`; when none is available, say so and fall back to the counter
   profiler. Symbols come from the debug info Phase 2 already emits.
-  *Current:* not integrated. Debug builds now attach `!dbg` to every checked
-  statement, but no native sampler is spawned and no platform stack walker is
-  wired in. `profile --sample` is accepted, prints a note that no native
-  sampler exists, and measures the same counter path; the CLI never presents
-  counters as samples.
+  *Current:* the sampler is native but narrower than the named APIs. Windows
+  uses a watchdog thread that suspends the program's thread for a
+  `GetThreadContext`; Linux and macOS use `ITIMER_PROF` and the `SIGPROF`
+  handler's `ucontext`. It records the interrupted instruction pointer, not a
+  stack: neither ETW/`DbgHelp` unwinding nor `perf_event_open` sample records
+  with callchains are wired in, so the step stays open. Symbols do come from
+  the debug info Phase 2 emits, resolved by `llvm-symbolizer`, and a run that
+  records nothing says so and falls back to the wall-clock counter path.
 - [x] **Step 3: Allocation profiling has no hidden hooks.** The allocator
   interface records size, site and a bounded stack; `--alloc-report` is the
   same data in table form. Leaks are reported at exit with the allocation span.

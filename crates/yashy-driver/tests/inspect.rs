@@ -84,6 +84,64 @@ fn inspect_human_prints_a_path_line_and_column() {
 }
 
 #[test]
+fn inspect_addr_maps_a_symbol_address_to_its_source_span() {
+    let dir = work_dir("inspect-addr");
+    project(&dir);
+    let exe = common::exe(&dir, "debug_addr");
+    let build = Command::new(yashyc())
+        .args(["build", "main.ya", "--debug-info", "-O0", "-o"])
+        .arg(&exe)
+        .current_dir(&dir)
+        .output()
+        .expect("the CLI must run");
+    assert!(
+        build.status.success(),
+        "the debug build must succeed:\n{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    // `inspect --addr` reads the symbol table with `llvm-nm`. An MSVC-linked
+    // PE has no COFF symbol table (the debug info lives in CodeView), so on
+    // that host there is no address to look up and the test skips loudly
+    // instead of failing for a reason outside the compiler.
+    let symbols = yashy_driver::addr::symbols(&exe).unwrap_or_default();
+    let Some(symbol) = symbols
+        .iter()
+        .find(|symbol| symbol.name == "add" || symbol.name.ends_with("_add"))
+    else {
+        eprintln!(
+            "skipping `inspect --addr`: {} has no symbol table llvm-nm can read",
+            exe.display()
+        );
+        return;
+    };
+    let address = format!("0x{:x}", symbol.address);
+    let output = run(
+        &dir,
+        &[
+            "inspect",
+            "--json",
+            "--addr",
+            &address,
+            "--binary",
+            exe.to_str().expect("the path is UTF-8"),
+            "main.ya",
+        ],
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "the address lookup must succeed:\n{}\n{stdout}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("\"tool\": \"inspect --addr\""), "{stdout}");
+    assert!(
+        stdout.contains("main.ya"),
+        "the span names the source: {stdout}"
+    );
+    assert!(stdout.contains("\"symbol\""), "{stdout}");
+}
+
+#[test]
 fn inspect_layout_reports_size_alignment_and_fields() {
     let dir = work_dir("inspect-layout");
     write(

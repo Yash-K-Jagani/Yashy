@@ -182,6 +182,7 @@ static void yashy_stdout_binary(void) {
  * first byte whichever way the bytes are written. */
 void yashy_runtime_init(void) {
     yashy_stdout_binary();
+    yashy_sample_configure();
 }
 
 /* The observability sink: one JSON object per line on stderr, with a

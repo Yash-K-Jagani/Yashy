@@ -49,12 +49,14 @@ stderr, so stdout stays available to the program being debugged.
 - Repeat `--break` to stop in several functions; arguments after `--` are
   passed to the debugged program.
 - `inspect --human` prints a clickable `path:line:col: signature` line for the same source. `inspect --addr 0x… --binary <path> <source.ya>` resolves an address through `llvm-nm` and the compiler's own index to that function's source span.
+- The scripted session in `crates/yashy-driver/tests/debug_session.rs` stops on
+  a source line and asserts `frame variable` prints the string local as `'ada'`
+  rather than an address, which proves the providers are imported before the
+  first stop. LLDB is not required to build or test the compiler, so the test
+  is opt-in: set `YASHY_LLDB_TEST=1` (CI does) and a host without LLDB prints a
+  skip note instead of failing.
 
 ## What is not there yet
 
 - `Option[T]` and `Result[T, E]` locals are described by the synthetic structs
-  their summary providers read, not by the checker's exact tag/payload layout;
-  a scripted session that asserts a printed value is still missing.
-- A scripted debugger session that asserts a typed value prints a particular
-  string is not part of the test suite; LLDB is not required to build or test
-  the compiler.
+  their summary providers read, not by the checker's exact tag/payload layout.
