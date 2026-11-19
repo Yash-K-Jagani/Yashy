@@ -402,8 +402,12 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   only folds arithmetic is proved; building a lookup table now works too:
   `ConstValue::Array` folds a fixed array into `HirExpr::FixedArrayLit`, and a
   checked constant index reads one entry. `const_fn_table.ya` and sema tests pin
-  the form. The IR-literal assertion, the differential comparison against a
-  hand-written table and a compile-time assertion are still owed, so the step
+  the form. A compile-time assertion now exists as `const_assert(c)`: the same
+  interpreter folds it and a false condition is `E1525`, pinned by
+  `crates/yashy-sema/tests/const_assert.rs` and
+  `crates/yashy-driver/tests/const_assert.rs`. The IR-literal assertion for a
+  const-fn *table*, the differential comparison against a hand-written table
+  and a fixed-buffer size computed from a const fn are still owed, so the step
   stays open.
 - [ ] **Step 2: Const evaluation is ordinary code, not a macro.** A `const fn`
   is parsed and checked like any function, then evaluated by the same typed
@@ -584,7 +588,7 @@ does not build on a claim that is not true.
 | 5.1-5.6 | `unsafe` gates deref and pointer arithmetic; `Option[*const T]` null niche; alias corpus per rule | `unsafe { }` parses, checks, is inventoried and gates both `alloc_uninit` (`E1405`) and C-pointer dereference (`E1406`, ALIAS-2). ALIAS-1, ALIAS-3 and ALIAS-5 have codes. Pointer arithmetic is still ungated, there is no null niche, and `crates/yashy-verify/tests/unsafe.rs` does not exist | Owed work, not excluded: pointer arithmetic, the null niche, ALIAS-4 and the corpus |
 | 6.5, 7.1-7.5 | `size_of[T]()` bracket spelling; `const N` parameters | `sizeof(T)` / `alignof(T)` / `offsetof(T, f)` and the underscore spellings fold from the shared layout table; the bracket spelling needs const generics, which do not exist | Owed work; the checker/layout/IR agreement is pinned by `crates/yashy-driver/tests/layout.rs` |
 | 8.1, 8.2 | `Range[T]` value type with `start`/`end`/`len`/`is_empty`/`contains`/`step_by` | `..` and `..=` parse as a `for` head and as a pattern; a float bound is `E1518`; there is no range value or method surface | Owed work; `in` over a range waits on it |
-| 9.1, 9.4, 9.5 | IR-literal assertion, compile-time/run-time differential test, evaluator consumes typed HIR | The evaluator consumes the parser AST and folds arithmetic, `if`, `let`/assignment, loops, fixed arrays and nested calls; the IR and differential assertions are owed | Owed work; the AST choice is why `switch` and struct construction are still refused rather than wrong |
+| 9.1, 9.4, 9.5 | IR-literal assertion, compile-time/run-time differential test, evaluator consumes typed HIR | The evaluator consumes the parser AST and folds arithmetic, `if`, `let`/assignment, loops, fixed arrays and nested calls; `const_assert` rejects a false compile-time fact. The IR-literal and differential assertions are owed | Owed work; the AST choice is why `switch` and struct construction are still refused rather than wrong |
 | 10.1, 10.2, 10.5 | BPE audit over this phase's keywords in `o200k`, `cl100k` and a Llama tokenizer | `yashyc tokens --bpe` reports one tokenizer and counts; no `docs/bpe.md`, no per-keyword measurement | Needs the three vocabularies vendored (Phase 2 Task 8 owes the same files) |
 | Gates | Every acceptance row is a command that exists and passes on Windows and Linux | Rows name the test file that exists; the rows whose file is owed say so. Driver checks are green with the documented runtime build-script detach; freshly linked binaries are blocked by Windows Application Control, so the runtime, e2e and IR gates are CI-only | CI is deferred by the project owner; re-run the full gate set when CI is unblocked |
 

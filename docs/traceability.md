@@ -166,7 +166,16 @@ Codes: `E1524`
 
 Tests:
 
+- `crates/yashy-sema/tests/const_assert.rs`
 - `crates/yashy-sema/tests/const_fn.rs`
+
+## `CONST-6`
+
+Codes: `E1525`
+
+Tests:
+
+- `crates/yashy-sema/tests/const_assert.rs`
 
 ## `CONTRACT-1`
 

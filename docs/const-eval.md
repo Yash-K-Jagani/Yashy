@@ -76,6 +76,13 @@ never a hang.
 A failure is reported at the call that wanted the value, because that is where
 the value was used:
 
+## Compile-time assertions
+
+`const_assert(condition)` is checked by the same interpreter. A true condition
+lowers to nothing; a false one is `E1525` at the call, and a condition that
+names a run-time value is `E1524`. Use the ordinary `assert(condition)` when the
+value is only known when the program runs.
+
 | Code | Rule | Cause |
 |---|---|---|
 | `E1520` | CONST-1 | integer overflow in a compile-time operation |
@@ -83,6 +90,7 @@ the value was used:
 | `E1522` | CONST-3 | the step budget ran out |
 | `E1523` | CONST-4 | the call depth or call budget ran out |
 | `E1524` | CONST-5 | a name that is only known at run time |
+| `E1525` | CONST-6 | a `const_assert` condition that evaluated to false |
 | `E0400` | MUT-1 | assigning a parameter (the same code a run-time body gets) |
 
 ## Seeing what the compiler computed

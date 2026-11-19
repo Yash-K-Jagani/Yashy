@@ -26,6 +26,7 @@ Every catalog code names one rule. Rules the design names without a code yet are
 | `CONST-3` | [E1522](errors/E1522.md) | constant evaluation out of fuel |
 | `CONST-4` | [E1523](errors/E1523.md) | constant evaluation too deep |
 | `CONST-5` | [E1524](errors/E1524.md) | not a constant |
+| `CONST-6` | [E1525](errors/E1525.md) | compile-time assertion failed |
 | `CONTRACT-1` | [E1100](errors/E1100.md) | undischarged contract |
 | `DET-1` | [E1302](errors/E1302.md) | nondeterministic pure function |
 | `DET-4` | [E1405](errors/E1405.md) | uninitialised allocation outside unsafe |

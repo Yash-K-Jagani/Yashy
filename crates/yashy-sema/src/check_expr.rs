@@ -1007,7 +1007,7 @@ impl<'src> Checker<'src> {
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ya`. Recorded as a divergence from the master plan's L3.
-        let builtins: [(&str, Vec<Type>, Type); 39] = [
+        let builtins: [(&str, Vec<Type>, Type); 40] = [
             ("alloc", vec![prim(TypeKind::I64)], ptr(prim(TypeKind::I64))),
             // The explicit unsafe spelling: same type as `alloc`, but the
             // runtime skips the zeroing. The checker refuses it outside an
@@ -1202,6 +1202,14 @@ impl<'src> Checker<'src> {
             // normally, so treating it as diverging would let a program assign
             // its non-existent value to anything.
             ("assert", vec![prim(TypeKind::Bool)], prim(TypeKind::Unit)),
+            // The compile-time half: the condition is evaluated by the same
+            // const interpreter as a `const` initializer. A true result lowers
+            // to nothing; a false one is E1525 at the call.
+            (
+                "const_assert",
+                vec![prim(TypeKind::Bool)],
+                prim(TypeKind::Unit),
+            ),
             // `debug_assert` is the same assertion, lowered only in a debug
             // build. The checker drops the whole call when `--release` asks for
             // a release build, so the condition -- and any side effect in it --
@@ -11626,6 +11634,51 @@ impl<'src> Checker<'src> {
                         "`alloc_uninit` requires an `unsafe` block".to_string(),
                     );
                     return None;
+                }
+                // A compile-time assertion is checked by the same interpreter
+                // that folds `const` initializers. A true condition lowers to a
+                // unit literal, which emits nothing; a false one is a
+                // diagnostic here, where the source text is still available.
+                if callee.len() == 1 && name == "const_assert" {
+                    let Some(condition) = arg_vals.first().cloned() else {
+                        return None;
+                    };
+                    let mut work = const_eval::Work::default();
+                    match const_eval::evaluate(
+                        &condition,
+                        &[],
+                        &self.const_fns,
+                        &mut work,
+                        Missing::NotConstant,
+                    ) {
+                        Ok(const_eval::ConstValue::Bool(true)) => {
+                            return Some(HirExpr::Literal(Literal::I64(0), *span, unit(*span)));
+                        }
+                        Ok(const_eval::ConstValue::Bool(false)) => {
+                            let text =
+                                self.snippet_text(yashy_parser::exprs::expr_span(&condition));
+                            self.error_code(
+                                *span,
+                                codes::CONST_ASSERT,
+                                format!("compile-time assertion failed: `{text}`"),
+                            );
+                            return None;
+                        }
+                        Ok(other) => {
+                            self.error(
+                                yashy_parser::exprs::expr_span(&condition),
+                                format!("a condition must be `bool`, found `{}`", other.kind()),
+                            );
+                            return None;
+                        }
+                        Err(error) => {
+                            match error.code {
+                                Some(code) => self.error_code(error.span, code, error.message),
+                                None => self.error(error.span, error.message),
+                            }
+                            return None;
+                        }
+                    }
                 }
                 // `sizeof`, `alignof` and `offsetof` are compile-time queries
                 // about a type's layout, not calls: the answer is a constant,

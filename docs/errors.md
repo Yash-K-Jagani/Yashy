@@ -103,6 +103,7 @@ the declaration or import involved when that is not obvious.
 | [E1522](errors/E1522.md) | constant evaluation out of fuel |
 | [E1523](errors/E1523.md) | constant evaluation too deep |
 | [E1524](errors/E1524.md) | not a constant |
+| [E1525](errors/E1525.md) | compile-time assertion failed |
 | [E1600](errors/E1600.md) | macro invocation matches no arm |
 | [E1601](errors/E1601.md) | macro expansion limit exceeded |
 | [E1602](errors/E1602.md) | macro metavariable kind mismatch |

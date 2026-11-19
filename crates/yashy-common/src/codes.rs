@@ -214,6 +214,8 @@ pub const CONST_FUEL: &str = "E1522";
 pub const CONST_RECURSION: &str = "E1523";
 /// A constant expression named a run-time value.
 pub const CONST_NOT_CONSTANT: &str = "E1524";
+/// A compile-time assertion was false.
+pub const CONST_ASSERT: &str = "E1525";
 /// A float was used as a range bound.
 pub const FLOAT_RANGE: &str = "E1518";
 /// `in` was used with a container that has no membership method.
@@ -790,6 +792,12 @@ pub const CODES: &[Code] = &[
         page: include_str!("../../../docs/errors/E1524.md"),
     },
     Code {
+        id: CONST_ASSERT,
+        title: "compile-time assertion failed",
+        summary: "A `const_assert` condition evaluated to false at compile time.",
+        page: include_str!("../../../docs/errors/E1525.md"),
+    },
+    Code {
         id: MEMBERSHIP_UNSUPPORTED,
         title: "membership is not defined for this container",
         summary: "`in` calls the container's `contains` method; this type has none.",
@@ -1003,6 +1011,7 @@ pub fn rule_for(id: &str) -> &'static str {
         CONST_FUEL => "CONST-3",
         CONST_RECURSION => "CONST-4",
         CONST_NOT_CONSTANT => "CONST-5",
+        CONST_ASSERT => "CONST-6",
         MEMBERSHIP_UNSUPPORTED => "IN-1",
         INVALID_IDENTITY => "ID-1",
         MACRO_NO_MATCH => "MACRO-1",
