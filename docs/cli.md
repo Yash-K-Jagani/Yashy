@@ -1111,7 +1111,9 @@ is propagated. `yashyc doctor` reports the lookup.
 Builds and runs the program, printing the measured wall time. A recorded
 per-function counter report renders with `--report <file.json>`: one line
 per function, sorted by self time, with the instrumentation overhead
-measured and printed. No sampling thread.
+measured and printed. `--json` renders the same report as a schema-v1
+envelope. `--sample` is accepted, but no native sampler is wired in: it prints
+a note and measures the same counter path rather than inventing samples.
 `run --debug` also leaves `.yashy/debug.lldb` in the current directory —
 a generated command file that sets a breakpoint on `main` and dumps the
 async task table on stop; the same table is available without a debugger
