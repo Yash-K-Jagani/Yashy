@@ -103,3 +103,54 @@ fn the_report_and_the_queries_name_every_field_offset() {
         yashy_driver::layout::find("Triple", &decls).expect("inspect --layout must find the type");
     assert_eq!(reported.offsets, expected.offsets);
 }
+
+/// A folded query has to reach the backend as the same literal a user would
+/// have written. Comparing the emitted `main` bodies makes the agreement a
+/// three-way one: the checker's fold, the layout table and the IR.
+#[test]
+fn a_folded_layout_query_emits_the_same_literal_as_a_written_number() {
+    let src = "repr(C) struct Pair { a: u8, b: i32 }\n\
+               fn main() {\n\
+                   const size = sizeof(Pair);\n\
+                   const align = alignof(Pair);\n\
+                   const second = offsetof(Pair, b);\n\
+                   print(size);\n\
+                   print(align);\n\
+                   print(second);\n\
+               }";
+    let program = check(src);
+    let decls = yashy_driver::layout::HirDecls::from_program(&program);
+    let expected = layout(&TypeKind::Struct("Pair".to_string()), &decls)
+        .expect("the declared struct has a layout");
+
+    let written = format!(
+        "fn main() {{\n\
+             const size = {};\n\
+             const align = {};\n\
+             const second = {};\n\
+             print(size);\n\
+             print(align);\n\
+             print(second);\n\
+         }}",
+        expected.size, expected.align, expected.offsets[1]
+    );
+    let literal_program = check(&written);
+
+    let body = |program: &HirProgram| {
+        let ir = yashy_codegen::emit_program(
+            program,
+            "main",
+            Default::default(),
+            &yashy_common::ProofFacts::empty(),
+        );
+        let at = ir
+            .find("define i32 @main")
+            .expect("the entry point is emitted");
+        ir[at..].to_string()
+    };
+    assert_eq!(
+        body(&program),
+        body(&literal_program),
+        "sizeof/alignof/offsetof must fold to the literals the layout table reports"
+    );
+}
