@@ -76,10 +76,11 @@ fn a_const_fn_body_may_only_use_what_the_compiler_can_compute() {
          fn g() { const t = f(); }",
         "`read_line` is not allowed in a const fn",
     );
-    // A statement whose value only exists when the program runs is refused by
-    // name, not evaluated to whatever the first iteration happened to see.
+    // An expression whose value only exists when the program runs is refused
+    // by name: a switch is parsed as a value here, not as a statement with
+    // `return` in its arms.
     assert_error(
-        "const fn f(int n) -> int { switch n { case 0 { return 1; } default { return 0; } } }\n\
+        "const fn f(int n) -> int { return switch n { default { 0 } }; }\n\
          fn g() { const t = f(3); }",
         "is not allowed in a const fn",
     );

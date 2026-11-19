@@ -427,8 +427,10 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   *Current:* the depth (160) and call (1M) caps existed; a 1M expression-step
   fuel was added and the failure is reported at the expression that exceeded
   it. A test drives `Work` to the cap directly. The evaluator still consumes
-  the parser AST rather than typed HIR, so loop/index construction is not yet
-  covered. Overflow, division by zero, fuel, recursion depth and non-constant
+  the parser AST rather than typed HIR, but loops, indexing and accumulation
+  are now covered by both the checker and the evaluator. A loop spends one step
+  per iteration, so it is stopped by the same fuel as a wide expression.
+  Overflow, division by zero, fuel, recursion depth and non-constant
   names now carry stable codes E1520-E1524 (CONST-1..5) with catalog pages and
   tests.
 - [ ] **Step 4: Const and run time agree.** For every `const fn`, a differential
