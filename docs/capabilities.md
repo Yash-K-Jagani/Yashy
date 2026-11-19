@@ -28,10 +28,17 @@ capability a package did not declare.
 
 ```text
 yashyc audit --capabilities      print the resolved union before anything runs
+yashyc audit --json              the same union in the machine-readable report
 yashyc add <name> --allow net    record an explicit grant when adding a dependency
 ```
 
-A `[audit]` policy can narrow them further: `allow-capabilities`, `deny-capabilities`, `max-transitive`, `deny-licenses`, `deny-registries` and `require-provenance` all produce E1807 findings from `yashyc audit`.\n\nThe same names are used by the checker's call-site rule, the Phase 13 sandbox,
+The union is computed from the resolved graph, so it includes the root package
+and every dependency: a library that asks for `net` is visible before the
+program is built, not only when the linker or a sandbox refuses it.
+
+A `[audit]` policy can narrow them further: `allow-capabilities`, `deny-capabilities`, `max-transitive`, `deny-licenses`, `deny-registries` and `require-provenance` all produce E1807 findings from `yashyc audit`.
+
+The same names are used by the checker's call-site rule, the Phase 13 sandbox,
 and the Phase 10 trace redactor. Enforcement is still split: this phase adds
 the declaration model, policy ceiling and audit view; the runtime handle that
 repeats the check at the call site lands with those phases.

@@ -7945,55 +7945,33 @@ fn audit_cmd(args: &[String]) -> ExitCode {
             return error.status();
         }
     };
-    let manifest_path = project.directory.join("yashy.toml");
-    if capabilities {
-        match yashy_manifest::Manifest::load(&manifest_path) {
-            Ok(manifest) => {
-                let resolved = yashy_driver::policy::resolve(&manifest, &[]);
-                let mut names: Vec<String> = resolved
-                    .granted
-                    .entries()
-                    .iter()
-                    .map(|(name, _)| (*name).to_string())
-                    .collect();
-                names.extend(resolved.denied);
-                names.sort();
-                names.dedup();
-                let rendered = if names.is_empty() {
-                    "none".to_string()
-                } else {
-                    names.join(", ")
-                };
-                println!("capabilities: {rendered}");
-            }
-            Err(error) => {
-                eprintln!(
-                    "error: {}:{}: {}",
-                    manifest_path.display(),
-                    error.line,
-                    error.message
-                );
-                return exit_code(EXIT_USAGE);
-            }
-        }
-    }
     match yashy_driver::audit::audit_project(&project.directory, &store) {
         Ok(report) => {
             if json {
                 println!("{}", report.to_json());
-            } else if report.ok {
-                println!(
-                    "ok: {} package{}, {} bytes",
-                    report.packages,
-                    if report.packages == 1 { "" } else { "s" },
-                    report.source_bytes
-                );
             } else {
-                for finding in &report.findings {
-                    eprintln!(
-                        "error[{}]: package `{}`: {}",
-                        finding.code, finding.package, finding.detail
+                if capabilities {
+                    let rendered = if report.capabilities.is_empty() {
+                        "none".to_string()
+                    } else {
+                        report.capabilities.join(", ")
+                    };
+                    println!("capabilities: {rendered}");
+                }
+                if report.ok {
+                    println!(
+                        "ok: {} package{}, {} bytes",
+                        report.packages,
+                        if report.packages == 1 { "" } else { "s" },
+                        report.source_bytes
                     );
+                } else {
+                    for finding in &report.findings {
+                        eprintln!(
+                            "error[{}]: package `{}`: {}",
+                            finding.code, finding.package, finding.detail
+                        );
+                    }
                 }
             }
             if report.ok {

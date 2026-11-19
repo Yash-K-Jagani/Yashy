@@ -1324,7 +1324,9 @@ yashyc add <name>@<version> --registry <dir>
 `yashyc audit` reads the resolved graph and reports missing exact versions,
 wrong sources, a lockfile that disagrees with the manifest, and an untrusted
 registry; each finding is [E1804](errors/E1804.md). A clean run prints
-`ok: N packages, M bytes` and exits 0.
+`ok: N packages, M bytes` and exits 0. `--capabilities` prints the sorted union
+of the root and every dependency's `[capabilities]`; `--json` carries the same
+list as `capabilities` and omits the human line.
 
 `[audit]` in `yashy.toml` tightens the policy: `allowed-licenses` and
 `allowed-packages` are allowlists ([E1807](errors/E1807.md)), and

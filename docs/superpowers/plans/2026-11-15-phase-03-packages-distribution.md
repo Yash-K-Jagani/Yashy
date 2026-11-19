@@ -389,10 +389,11 @@ folded into the IR cache key rather than resolver inputs.
   refuses a package that asks for it, and `yashyc audit --capabilities` prints
   the transitive union before anything runs.
   *Current:* `capability.rs` and `tests/capabilities.rs` pin default-deny,
-  the `..`-safe path glob and the policy ceiling; `audit --capabilities` prints
-  the root package's resolved capabilities, not a transitive union. A manifest
-  with `[capabilities]` now makes `check`/`build` refuse an ungranted call with
-  E1808; `--print-capabilities` prints the resolved set and stops.
+  the `..`-safe path glob and the policy ceiling; `audit --capabilities` now
+  prints the sorted transitive union of the root and every resolved package,
+  and `audit --json` carries the same list. A manifest with `[capabilities]`
+  makes `check`/`build` refuse an ungranted call with E1808;
+  `--print-capabilities` prints the build's own resolved set and stops.
 - [x] **Step 2: The manifest is the grant, the policy is the ceiling.** A
   dependency's capabilities are the intersection of what it declares and what
   the workspace policy allows; a missing declaration is no capability, never
@@ -402,8 +403,8 @@ folded into the IR cache key rather than resolver inputs.
   sandbox in Phase 13 and the trace redactor in Phase 10.
   *Current:* `policy::resolve` intersects a declaration with the allowlist and
   refuses a request outside it; `add --allow` validates the name and records
-  the grant. The union printed by `add` is the explicit grant list, not a
-  computed transitive union.
+  the grant. `add` prints the explicit grant list it records, while `audit
+  --capabilities` computes the transitive union from the resolved graph.
 - [x] **Step 3: Dependency policy is reviewable and machine-readable.**
   `[policy]` names allowed licenses, denied authors or registries, a transitive
   depth/size cap, and whether a signature and provenance are required. Each
@@ -629,6 +630,6 @@ ok  14 packages, 0 unsigned, 0 policy violations
 | 7.1 / 7.3 | Cross-OS install test and a caching Action | Manifests for five channels, a thin `setup-yashy` action with a version/OS/arch cache step, a verifying self-update with rollback; the cross-OS matrix and cold-install timing are CI/release work | Run the matrix when CI is unblocked |
 | 8.1 / 8.2 | Tested workspace, service and native templates | Three templates ship with smoke tests and README files; the shared root manifest exists and members read and write the root lock; the native template is a `-sys` package with `bindings.ya`, a checked `safe.ya` wrapper, a vendored `fixture.c`, and a test that calls into C through a file `link` clause | Run the template builds in the cross-OS CI matrix |
 | 9.1 / 9.3 | Signed, precompiled stdlib with a versioned cache key | The stdlib has a versioned package manifest; its version and canonical hash are part of the IR cache key and are written to `[stdlib]` in the lock; a lock that disagrees with the tree is refused (E1802); a clean-checkout "no recheck" timing is CI work | Sign the stdlib in the release |
-| 10.1 / 10.4 | Call-site and runtime capability enforcement, policy table | `[capabilities]`, the HIR call-site check (E1808), `audit --capabilities`, `add --allow`, `--print-capabilities`, and the full `[audit]` policy fields are implemented; the runtime handle is not | Enforce the grant in the runtime handle |
+| 10.1 / 10.4 | Call-site and runtime capability enforcement, policy table | `[capabilities]`, the HIR call-site check (E1808), the transitive `audit --capabilities` union in human and JSON form, `add --allow`, `--print-capabilities`, and the full `[audit]` policy fields are implemented; the runtime handle is not | Enforce the grant in the runtime handle |
 | 11.1 / 11.3 | Provenance produced by the build and verified by rebuild | In-toto/SLSA v1 statement, signed by the same `publish --key-id` invocation that writes the tarball, named in the registry entry, plus subject/material digest checks and `--rebuild` verification; `attest` remains available for an artifact built elsewhere | Distinguish an unknown builder in the policy |
 | 12.1 / 12.3 | Full package surface with reversible mutations | `tree` marks duplicates and features; `vendor` supports offline fetch; `info` reports size, signature, provenance and native libraries; `outdated` classifies major/minor/patch changes; `yank` records a reason with a backup | No known gap; `yank` is covered by `registry.rs` unit tests rather than a CLI test |

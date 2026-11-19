@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use yashy_common::codes;
 use yashy_common::Json;
-use yashy_manifest::{Lockfile, Manifest};
+use yashy_manifest::{CapabilitySet, Lockfile, Manifest};
 
 use crate::resolve::resolve;
 use crate::Store;
@@ -25,6 +25,13 @@ pub struct AuditReport {
     pub ok: bool,
     pub packages: usize,
     pub source_bytes: u64,
+    /// The sorted union of every package's `[capabilities]` names.
+    ///
+    /// The root is included, because the root's own grants are part of what
+    /// runs. This is the set `audit --capabilities` prints: a dependency that
+    /// asks for `net` is visible before anything executes, not only when the
+    /// linker or a sandbox later refuses it.
+    pub capabilities: Vec<String>,
     pub findings: Vec<AuditFinding>,
 }
 
@@ -38,9 +45,15 @@ impl AuditReport {
             item.set("detail", Json::string(&finding.detail));
             findings.push(item);
         }
+        let capabilities = self
+            .capabilities
+            .iter()
+            .map(|name| Json::string(name))
+            .collect();
         let mut object = Json::object();
         object.set("schema_version", Json::number(1));
         object.set("ok", Json::bool(self.ok));
+        object.set("capabilities", Json::array(capabilities));
         object.set("findings", Json::array(findings));
         object.render()
     }
@@ -115,6 +128,23 @@ fn source_bytes_into(root: &Path, total: &mut u64) {
     }
 }
 
+/// The sorted capability names every package declares, root included.
+///
+/// `yashy_manifest::CapabilitySet::union` keeps each name's patterns, so the
+/// union answers "what may this program touch?", not "which package asked for
+/// what" — the findings already carry the dependency path for that question.
+fn capability_names(sets: &[CapabilitySet]) -> Vec<String> {
+    let union = crate::policy::transitive(sets);
+    let mut names: Vec<String> = union
+        .entries()
+        .iter()
+        .map(|(name, _)| (*name).to_string())
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
 fn has_build_script(root: &Path) -> bool {
     let Ok(entries) = std::fs::read_dir(root) else {
         return false;
@@ -142,6 +172,7 @@ pub fn audit_project(directory: &Path, store: &Store) -> Result<AuditReport, Aud
                 ok: false,
                 packages: 0,
                 source_bytes: 0,
+                capabilities: Vec::new(),
                 findings: vec![finding(
                     codes::MANIFEST_SYNTAX,
                     "",
@@ -159,6 +190,7 @@ pub fn audit_project(directory: &Path, store: &Store) -> Result<AuditReport, Aud
         ok: true,
         packages: 0,
         source_bytes: 0,
+        capabilities: Vec::new(),
         findings: Vec::new(),
     };
 
@@ -212,12 +244,14 @@ pub fn audit_project(directory: &Path, store: &Store) -> Result<AuditReport, Aud
     for package in &graph.packages {
         packages.push((package.name.clone(), package.root.clone()));
     }
+    let mut declared: Vec<CapabilitySet> = Vec::new();
     packages.sort();
     for (name, root) in packages {
         report.packages += 1;
         report.source_bytes = report.source_bytes.saturating_add(source_bytes(&root));
         match Manifest::load(&root.join("yashy.toml")) {
             Ok(package_manifest) => {
+                declared.push(package_manifest.capabilities.clone().unwrap_or_default());
                 if package_manifest.package.license.is_none() {
                     findings.push(finding(
                         codes::AUDIT_FAILURE,
@@ -271,6 +305,8 @@ pub fn audit_project(directory: &Path, store: &Store) -> Result<AuditReport, Aud
             }
         }
     }
+
+    report.capabilities = capability_names(&declared);
 
     if let Some(policy) = &audit_policy {
         for package in &graph.packages {
