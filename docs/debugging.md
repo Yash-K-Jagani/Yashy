@@ -21,7 +21,7 @@ stderr, so stdout stays available to the program being debugged.
 
 - The script sets `YASHY_DEBUG=1` in the child. On a fault the runtime prints
   the live task table: task id, function and resume index.
-- Symbol breakpoints (`--break <fn>`) stop in named functions. With no
+- symbol breakpoints (`--break <fn>`) stop in named functions. With no
   `--break`, the entry point `main` is used.
 - A debug build (`yashyc run --debug` or `yashyc debug`) emits LLVM debug
   metadata from HIR spans: one `DISubprogram` per function, one `DILocation`
