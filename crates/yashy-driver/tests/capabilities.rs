@@ -9,7 +9,7 @@ use yashy_manifest::CapabilitySet;
 fn manifest() -> yashy_manifest::Manifest {
     yashy_manifest::Manifest::parse(
         "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n\
-         [capabilities]\nfs.read = [\"data/*\"]\nnet = []\n",
+         [capabilities]\nfs.read = [\"data/*\"]\nnet = [\"*\"]\n",
     )
     .expect("capability manifest")
 }
@@ -103,7 +103,7 @@ fn audit_capabilities_prints_the_transitive_union() {
         &dir,
         "lib/yashy.toml",
         "[package]\nname = \"lib\"\nversion = \"1.0.0\"\nlicense = \"MIT\"\n\n\
-         [capabilities]\nnet = []\n",
+         [capabilities]\nnet = [\"*\"]\n",
     );
     common::write(&dir, "lib/lib.ya", "pub fn ping() -> int { 1 }\n");
     let output = Command::new(common::yashyc())
