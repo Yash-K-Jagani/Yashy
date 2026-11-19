@@ -302,19 +302,32 @@ fn parse_capabilities(
         return Ok(None);
     };
     let mut map = std::collections::BTreeMap::new();
-    for (name, value) in table {
-        let patterns = match value {
-            Value::Array(items) => string_array(items, &format!("capabilities.{name}"), document)?,
-            _ => {
-                let location = document.location(&format!("capabilities.{name}"));
-                return Err(ParseError {
-                    line: location.line,
-                    column: location.column,
-                    message: format!("capability `{name}` must be an array of patterns"),
-                });
-            }
+    let mut insert = |name: &str, value: &Value| -> Result<(), ParseError> {
+        let Value::Array(items) = value else {
+            let location = document.location(&format!("capabilities.{name}"));
+            return Err(ParseError {
+                line: location.line,
+                column: location.column,
+                message: format!("capability `{name}` must be an array of patterns"),
+            });
         };
-        map.insert(name.clone(), patterns);
+        map.insert(
+            name.to_string(),
+            string_array(items, &format!("capabilities.{name}"), document)?,
+        );
+        Ok(())
+    };
+    for (name, value) in table {
+        match value {
+            // `fs.read = ["data/*"]` is parsed by `toml` as a nested table;
+            // capability names are dotted, so flatten the one level back.
+            Value::Table(nested) => {
+                for (subname, subvalue) in nested {
+                    insert(&format!("{name}.{subname}"), subvalue)?;
+                }
+            }
+            _ => insert(name, value)?,
+        }
     }
     CapabilitySet::from_map(&map).map(Some).map_err(|message| {
         let location = document.location("capabilities");
