@@ -254,6 +254,54 @@ pub fn to_markdown(rows: &[RuleRow]) -> String {
     out
 }
 
+/// A flat, deterministic list of every rule id and the codes that enforce it.
+///
+/// `docs/traceability.md` answers "which test proves this rule"; this page
+/// answers the simpler "which codes speak for this rule". Both read the same
+/// registry, so neither can be hand-edited into agreement with a stale table.
+pub fn rules_markdown() -> String {
+    let mut by_rule: BTreeMap<&str, Vec<(&str, &str)>> = BTreeMap::new();
+    for code in codes::CODES {
+        let rule = codes::rule_for(code.id);
+        if rule.is_empty() {
+            continue;
+        }
+        by_rule.entry(rule).or_default().push((code.id, code.title));
+    }
+    let mut out = String::new();
+    out.push_str("# Rule ids\n\n");
+    out.push_str(
+        "Generated from `codes::rule_for` and the error catalog. Edit the registry, never this page; `UPDATE_GOLDEN=1` regenerates it.\n\n",
+    );
+    out.push_str("Every catalog code names one rule. Rules the design names without a code yet are listed at the end.\n\n");
+    out.push_str("| Rule | Code | Meaning |\n|---|---|---|\n");
+    for (rule, entries) in by_rule {
+        for (id, title) in entries {
+            out.push_str(&format!(
+                "| `{rule}` | [{id}](errors/{id}.md) | {} |\n",
+                title.replace('|', "\\|")
+            ));
+        }
+    }
+    out.push_str("\n## Rules without a code\n\n");
+    let enforced: std::collections::BTreeSet<&str> = codes::CODES
+        .iter()
+        .map(|code| codes::rule_for(code.id))
+        .collect();
+    let orphaned = codes::PLANNED_RULES
+        .iter()
+        .filter(|rule| !enforced.contains(**rule))
+        .collect::<Vec<_>>();
+    if orphaned.is_empty() {
+        out.push_str("- none\n");
+    } else {
+        for rule in orphaned {
+            out.push_str(&format!("- `{rule}`\n"));
+        }
+    }
+    out
+}
+
 pub fn to_json(matrix: &Matrix) -> Json {
     let rows = &matrix.rows;
     let mut entries = Vec::new();

@@ -452,12 +452,14 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 
 - [ ] **Step 1: Write the failing test.** Every keyword and operator introduced by this phase (`trait`, `type`, `derive`, `unsafe`, `noalias`, `packed`, `align`, `transparent`, `const fn`, `let else`, `matches`, `@`) is one token in `o200k`, `cl100k` and a Llama-family tokenizer. The corpus reports ≥ 97% single-token lexical tokens.
 - [ ] **Step 2: Reject a spelling before it ships.** If a candidate keyword splits, choose a single-token synonym and record the measurement in `docs/bpe.md`. No aesthetic rewrites; only measured ones.
-- [ ] **Step 3: Rule ids.** Every new diagnostic names a rule (`TRAIT-1`, `PAT-2`, `ALIAS-3`, `LAYOUT-1`, `CONST-1`, `DET-1`). `yashyc trace` (Phase 9) will consume the registry; this phase fills it.
-  *Current:* the two new codes from this phase are registered with stable ids —
-  E1516 membership is `IN-1` and E1517 identity is `ID-1` — and the aliasing
-  rules in the architecture doc carry ALIAS-1..ALIAS-5. The other named
-  families belong to features still owed (traits, layout, const evaluation,
-  determinism), so their codes cannot be registered before they exist.
+- [x] **Step 3: Rule ids.** Every new diagnostic names a rule (`TRAIT-1`,
+  `PAT-2`, `ALIAS-3`, `LAYOUT-1`, `CONST-1`, `DET-1`). `yashyc trace` (Phase 9) will consume the registry; this phase fills it.
+  *Current:* every catalog code has a stable rule through `codes::rule_for`,
+  and `crates/yashy-driver/tests/rules.rs` pins both the generated
+  `docs/rules.md` page and the six design rules that still have no code
+  (`ALIAS-2`, `ALIAS-4`, `DET-2`..`DET-5`); the page names them as orphans
+  instead of hiding them. `docs/traceability.md` pairs the same registry with
+  the tests that mention each code.
 - [x] **Step 4: Update the architecture document.** §4 (program model), §5 (memory, aliasing, layout, allocation, determinism) and §12 (phase map) are updated in the same commit as the code.
   *Current:* §4.1 records `else if` sugar; §4.2 records that user traits stay
   `E1511`; §4.3 records `defer` sugar; §4.5 distinguishes the landed

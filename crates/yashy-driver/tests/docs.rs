@@ -122,6 +122,8 @@ fn quickstart_and_reference_links_resolve() {
         "docs/bench-policy.md",
         "docs/ci.md",
         "docs/traceability.md",
+        "docs/rules.md",
+        "docs/const-eval.md",
         "docs/errors.md",
         "docs/release-notes-template.md",
         "docs/tutorial/00-intro.md",
@@ -185,7 +187,10 @@ fn traceability_page_is_generated_from_the_rule_matrix() {
     }
     let pinned = std::fs::read_to_string(&page)
         .unwrap_or_else(|error| panic!("{} must be readable: {error}", page.display()));
-    assert_eq!(text, pinned, "docs/traceability.md is stale; rerun with UPDATE_GOLDEN=1");
+    assert_eq!(
+        text, pinned,
+        "docs/traceability.md is stale; rerun with UPDATE_GOLDEN=1"
+    );
 }
 
 /// `docs/stdlib.md` is generated from the same documentation model `yashyc doc`
