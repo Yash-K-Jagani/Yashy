@@ -600,8 +600,9 @@ scripts and the terminal tests are committed.
   `KITTY_WINDOW_ID`, `VTE_VERSION` ≥ 5000, a known `TERM`). `inspect --human`
   prints `path:line:col: signature` through the same helper, so a click opens
   the declaration. `yashyc trace --json` prints the static rule matrix in
-  plain text; it has no source span to link yet. Runtime `trace --events` is
-  not implemented.
+  plain text; it has no source span to link yet. `trace --events <file.ya>`
+  builds a debug binary and renders a JSON event per runtime allocation, free,
+  task and I/O with a symbolised source span.
 - [x] **Step 6: Commit.**
 
 ## Gates
@@ -612,12 +613,12 @@ scripts and the terminal tests are committed.
 | Editor matrix | `editors` CI job (deferred) | No such job exists yet; client configs are asserted by `tests/grammar.rs`, and real-editor runs are manual/CI work |
 | Generated grammar | `cargo test -p yashy-driver --test grammar` | `yashyc tokens --grammar` reproduces every committed file; a new keyword fails until regenerated |
 | Terminal | `cargo test -p yashy-driver --test terminal` | piped output is plain and ordered; colour, pager and hyperlink policy hold; every verb is in help, man output and all four completions; each script parses |
-| Machine fixes | `cargo test -p yashy-driver --test fix` | removed keywords and name typos apply; a conflicting fix is refused; a stale hash is refused. Missing-`move` and argument-order producers are not implemented |
+| Machine fixes | `cargo test -p yashy-driver --test fix` | removed keywords and name typos apply; missing `move` and reordered arguments apply; a conflicting fix is refused; a stale hash is refused |
 | Schema | `cargo test -p yashy-driver --test diagnostics_json --test schema_diff` | v1 fields unchanged; `suggestions[]` is additive; SARIF validates and carries `fixes` |
 | Error catalog | `cargo test -p yashy-driver --test error_catalog` | every code has a page, a catalog entry and an `explain --json` record; the triggering-fixture assertion is not implemented |
 | First test | `yashyc new hello && cd hello && yashyc test` | under 60 s on a cold machine, both OSes; not measurable locally |
-| Debugger | `cargo test -p yashy-driver --test debug --test debug_info` | backend selection, scripts, function-level line tables and `inspect --addr` are tested; a typed in-function stop is not implemented |
-| Profilers | `cargo test -p yashy-driver --lib` (unit tests only) | wall-clock and recorded counter reports; no sampler or allocation-site test exists |
+| Debugger | `cargo test -p yashy-driver --test debug --test debug_info` | backend selection, scripts, per-statement line tables, lexical blocks, async poll subprograms and `inspect --addr` are tested; a scripted typed-value stop is not |
+| Profilers | `cargo test -p yashy-driver --lib --test profile` | wall-clock and recorded counter reports in table and JSON form, the `--sample` fallback, and an allocation-site assertion; no native sampler test exists |
 | Coverage | `cargo test -p yashy-driver --test coverage` | one program and a merged test suite produce lcov/JSON/SARIF with a `--fail-under` gate when the LLVM helpers are present; the test skips on a host without them |
 | Architecture | `cargo test -p yashy-driver --test architecture` | crates and verbs in the doc match the workspace |
 | No regression | `cargo test --workspace` | green on Windows and Linux |
@@ -690,7 +691,7 @@ still owed so a later phase does not inherit a false checklist.
 | 8.1 / 8.2 | `inspect --addr`, contracts, layout, `trace --events`, `tokens --bpe` | `inspect --addr` maps an address via `llvm-nm` and the index; `inspect --layout` reports size/align/field offsets from the checker's layout walk and `inspect --json` attaches the same layout to a type symbol; contracts and spans are in `inspect --json`; `tokens --bpe` measures Yashy's own tokenizer; `trace --json` emits the static rule matrix | Vendor three BPE vocabularies |
 | 9 | One generated grammar, six clients, `editors` CI job | One model drives 11 generated files; all six clients are committed; `tests/grammar.rs` is the byte gate and the LSP conformance transcript is shared; no `editors` CI job yet, and the real-editor run is deferred with CI | Add the `editors` job when CI is unblocked |
 | 10.1 / 10.3 / 10.4 / 10.5 | Colour policy, `NO_COLOR`/`CLICOLOR`/`TERM=dumb`/`COLUMNS`, committed completions, pager, hyperlinks | `term.rs` implements the colour, width, pager and OSC 8 policies; `scripts/completions/*` are committed and diff-tested; `docs/terminal.md` documents the install; a signal-killed child is re-raised so the shell sees the same signal | Nothing outstanding |
-| Gates | LSP conformance in two editors, debugger and profiler demos, terminal matrix, `editors` job | `cargo check --workspace --all-targets` is green; runtime gates cannot run locally (Windows Application Control) and CI is deferred | Re-run the full gate set when CI is unblocked |
+| Gates | LSP conformance in two editors, debugger and profiler demos, terminal matrix, `editors` job | `cargo check -p yashy-driver --all-targets` is green with the documented runtime build-script detach; runtime gates cannot run locally (Windows Application Control) and CI is deferred | Re-run the full gate set when CI is unblocked |
 
 ## Out of scope
 
