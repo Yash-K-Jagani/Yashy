@@ -834,12 +834,41 @@ impl<'src> Parser<'src> {
 
     /// One term inside `cfg(..)`: a key, or a combinator with its own list.
     fn parse_cfg_term(&mut self) -> Result<CfgExpr, ParseError> {
+        // `not` is a keyword token, so it never reaches `identifier()`.
+        if self.check(TokenKind::KwNot) {
+            let not_span = self.advance().span;
+            self.expect(TokenKind::LParen)?;
+            let _ = self.push_open(TokenKind::LParen, not_span)?;
+            let mut parts = Vec::new();
+            if !self.check(TokenKind::RParen) {
+                loop {
+                    parts.push(self.parse_cfg_term()?);
+                    if !self.eat(TokenKind::Comma) {
+                        break;
+                    }
+                }
+            }
+            let close = self.expect(TokenKind::RParen)?;
+            self.close_open(TokenKind::RParen);
+            if parts.len() != 1 {
+                return Err(error::cfg_arity(cover(not_span, close.span), "not", parts.len()));
+            }
+            return Ok(CfgExpr::Not(
+                Box::new(parts.remove(0)),
+                cover(not_span, close.span),
+            ));
+        }
         let (name, name_span) = self.identifier()?;
         if name == "feature" {
-            // `cfg(feature = "net")` is the source spelling of the flat
-            // `feature:net` key the driver's cfg filter already reads from the
-            // enabled feature set. Keeping one key shape means the filter, the
-            // cache key and the lockfile never learn a second vocabulary.
+            // Both spellings lower to the flat `feature:net` key:
+            // `feature = "net"` and the older `feature:net`.
+            if self.eat(TokenKind::Colon) {
+                let (feature, feature_span) = self.identifier()?;
+                return Ok(CfgExpr::Key(
+                    format!("feature:{feature}"),
+                    cover(name_span, feature_span),
+                ));
+            }
             self.expect(TokenKind::Eq)?;
             let token = self.expect(TokenKind::Str)?;
             let raw = self.text(token.span)?;
