@@ -60,7 +60,7 @@ impl Repl {
         if text.is_empty() {
             return Ok(Line::Empty);
         }
-        match text {
+        match text.as_str() {
             ":quit" | ":exit" => return Ok(Line::Exit),
             ":help" => return Ok(Line::Help),
             ":clear" => return Ok(Line::Clear),
@@ -79,7 +79,7 @@ impl Repl {
             ("delete_file", "a delete on the filesystem"),
             ("shell", "a shell call"),
         ] {
-            if has_word(text, word) {
+            if has_word(&text, word) {
                 return Err(format!(
                     "the REPL cannot evaluate {alternative}; use `yashyc run` on a file instead"
                 ));
@@ -89,7 +89,7 @@ impl Repl {
             "fn", "struct", "enum", "trait", "impl", "object", "macro", "const", "let", "cfg",
             "repr",
         ] {
-            if has_word_prefix(text, word) {
+            if has_word_prefix(&text, word) {
                 return Ok(Line::Declaration);
             }
         }
