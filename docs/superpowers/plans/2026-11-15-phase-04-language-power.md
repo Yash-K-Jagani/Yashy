@@ -212,6 +212,10 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 - Test: `crates/yashy-verify/tests/unsafe.rs`
 
 - [ ] **Step 1: Write the failing test.** A safe function that dereferences a `*const T`; a `noalias` on a safe parameter; an `Option[*const T]` passed to and from C with null; a pointer offset past its allocation; an `unsafe` block that calls an `extern` function. Assert each refusal names the exact rule (`ALIAS-1`…`ALIAS-5`) and that the FFI round-trip preserves null as `None`.
+  *Current:* `crates/yashy-driver/tests/alias_corpus.rs` now holds positive and
+  negative cases for ALIAS-1, ALIAS-2, ALIAS-3 and ALIAS-5, and names ALIAS-4
+  as unenforced. The `*const T` deref is pinned by E1406; the null round-trip
+  and the `noalias`-on-a-safe-parameter case are still owed.
 - [ ] **Step 2: Write the rules down before the code.** `docs/architecture.md` §5.3 becomes normative: owning pointers are unique by linearity; FFI pointers may alias; `noalias` is legal only on `extern` declarations and `unsafe fn` parameters; disjoint views are proved, not assumed; no assumption crosses a safe call. The five rules now carry ids ALIAS-1 through ALIAS-5 (docs/architecture.md 5.3), so later diagnostics and corpus cases can name the rule they test. Still owed: a corpus file per rule and codes that emit those ids.
   *Current:* §5.3 is normative and the five IDs are written there. ALIAS-1,
   ALIAS-2, ALIAS-3 and ALIAS-5 now have enforcing diagnostics (`E1005`, `E1406`,
@@ -405,10 +409,10 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   the form. A compile-time assertion now exists as `const_assert(c)`: the same
   interpreter folds it and a false condition is `E1525`, pinned by
   `crates/yashy-sema/tests/const_assert.rs` and
-  `crates/yashy-driver/tests/const_assert.rs`. The IR-literal assertion for a
-  const-fn *table*, the differential comparison against a hand-written table
-  and a fixed-buffer size computed from a const fn are still owed, so the step
-  stays open.
+  `crates/yashy-driver/tests/const_assert.rs`. The table's IR literal assertion
+  is pinned by `crates/yashy-driver/tests/const_fn_ir.rs`. The differential
+  comparison against a hand-written table and a fixed-buffer size computed from
+  a const fn are still owed, so the step stays open.
 - [ ] **Step 2: Const evaluation is ordinary code, not a macro.** A `const fn`
   is parsed and checked like any function, then evaluated by the same typed
   interpreter that evaluates `size_of`, array lengths and const generic
@@ -486,12 +490,12 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 | Patterns | `cargo test -p yashy-sema --test pats --test desugar` | `let else`, slice/rest, `@`, `matches`, if-let chains and `else if` have desugar proofs |
 | Expressions | `cargo test -p yashy-sema --test expressions --test desugar` | `Range[T]`, `in`, `is`/`is not`, `and`/`or`/`not` parse, check and desugar; `float` ranges, membership on a user type and `is` on a value are diagnosed |
 | Derives | `cargo test -p yashy-sema --test derive` | deterministic bytes; `index --json` shows each impl; a missing field bound names the field |
-| Unsafe and aliasing | `cargo test -p yashy-sema --test alias -p yashy-sema --test ffi_deref -p yashy-driver --test ffi_deref` | ALIAS-1, ALIAS-2, ALIAS-3 and ALIAS-5 have enforcing codes with positive and negative cases; the inventory lists every explicit `unsafe` block. Pointer arithmetic, ALIAS-4 and the corpus per rule are owed |
-| Null niche | `cargo test -p yashy-verify --test unsafe` (file owed) | the test this row names does not exist: `Option[*const T]` has no null niche and no FFI round-trip yet, so Task 5 Step 4 is owed |
+| Unsafe and aliasing | `cargo test -p yashy-driver --test alias_corpus` plus `-p yashy-sema --test ffi_deref -p yashy-driver --test ffi_deref` | ALIAS-1, ALIAS-2, ALIAS-3 and ALIAS-5 have positive/negative cases in the corpus; the inventory lists every explicit `unsafe` block. ALIAS-4 is named as unenforced; pointer arithmetic and a corpus-based attribute-justification gate are still owed |
+| Unsafe inventory | `cargo test -p yashy-verify --test unsafe` | every `extern` declaration and explicit `unsafe` block is listed with a kind and a reason; safe code has none. The null-pointer niche itself is still owed (Task 5 Step 4) |
 | Allocation | `cargo test -p yashy-runtime --test memory` (binary execution is CI-only) plus `cargo test -p yashy-sema --test unsafe_alloc -p yashy-driver --test unsafe_alloc` | `alloc` is zeroed on both paths; `alloc_uninit` needs `unsafe` (E1405) and calls a distinct symbol; a custom allocator's call log is owed (Task 6 Step 3) |
 | Layout | `cargo test -p yashy-driver --test layout` | `size_of`/`align_of`/`offset_of` agree with the IR; `repr(C)` is stable; packed misalignment is diagnosed |
 | Const generics | `cargo test -p yashy-sema --test const_generics` (file owed) | `const N` parameters do not exist (Task 7), so there is no gate to run; the row stays until the task lands |
-| Const evaluation | `cargo test -p yashy-sema --test const_fn` | folding produces the value the compiler computed (arithmetic, `if`, loops, arrays, nested calls); fuel/depth caps terminate; I/O, allocation, `unsafe` and `extern` are refused; no panic. The compile-time/run-time differential and the IR-literal assertion are owed (Task 9 Steps 1 and 4) |
+| Const evaluation | `cargo test -p yashy-sema --test const_fn -p yashy-driver --test const_fn_ir --test const_assert` | folding produces the value the compiler computed (arithmetic, `if`, loops, arrays, nested calls); a const table is a literal in the IR with no emitted function; fuel/depth caps terminate; I/O, allocation, `unsafe` and `extern` are refused; no panic. The compile-time/run-time differential is owed (Task 9 Step 4) |
 | BPE | `cargo test -p yashy-driver --test tokens` | the report names its tokenizer and counts tokens for the 1.0 corpus. The o200k/cl100k/Llama audit over this phase's keywords is owed (Task 10 Step 1) and needs those vocabularies vendored |
 | No false positives | `yashyc verify --json examples/ crates/yashy-driver/tests/programs/` | zero |
 | No regression | `cargo test --workspace` | green on Windows and Linux |
@@ -585,10 +589,12 @@ does not build on a claim that is not true.
 |---|---|---|---|
 | 1.1-1.4, 1.6 | User generic traits, associated types, default methods, supertraits | `E1511`: a trait has no type parameters, no `type` item, no default body and no supertrait list; the impl surface (completeness, coherence, one impl per trait-and-type, static dispatch, no vtable) is what exists | Not a Phase 4 gap. §4.2 of the 2.0 design makes `Iterator[T]` the one compiler-known generic trait and keeps user generic traits excluded; reopening it needs a design-record change first |
 | 2.1, 2.3, 2.4 | `pub(crate)` / `pub(super)` / `pub(in path)` lattice, `pub use` re-exports | `pub(crate)` parses; `pub(super)` and `pub(in path)` are refused by the parser with a diagnostic naming the limitation; there is no `pub use`; visibility is the binary `pub`-vs-module-private model with the declaration's file as the module | §4.2 records the binary model: this compiler's crate is its whole program, so there is no `super` to compare a use site against. Reopen only with a module-graph design |
-| 5.1-5.6 | `unsafe` gates deref and pointer arithmetic; `Option[*const T]` null niche; alias corpus per rule | `unsafe { }` parses, checks, is inventoried and gates both `alloc_uninit` (`E1405`) and C-pointer dereference (`E1406`, ALIAS-2). ALIAS-1, ALIAS-3 and ALIAS-5 have codes. Pointer arithmetic is still ungated, there is no null niche, and `crates/yashy-verify/tests/unsafe.rs` does not exist | Owed work, not excluded: pointer arithmetic, the null niche, ALIAS-4 and the corpus |
+| 5.1-5.6 | `unsafe` gates deref and pointer arithmetic; `Option[*const T]` null niche; alias corpus per rule | `unsafe { }` parses, checks, is inventoried and gates both `alloc_uninit` (`E1405`) and C-pointer dereference (`E1406`, ALIAS-2). ALIAS-1, ALIAS-3 and ALIAS-5 have codes. Pointer arithmetic is still ungated, there is no null niche. `crates/yashy-verify/tests/unsafe.rs` pins the inventory, not the
+niche | Owed work, not excluded: pointer arithmetic, the null niche,
+ALIAS-4 and the attribute-justification gate |
 | 6.5, 7.1-7.5 | `size_of[T]()` bracket spelling; `const N` parameters | `sizeof(T)` / `alignof(T)` / `offsetof(T, f)` and the underscore spellings fold from the shared layout table; the bracket spelling needs const generics, which do not exist | Owed work; the checker/layout/IR agreement is pinned by `crates/yashy-driver/tests/layout.rs` |
 | 8.1, 8.2 | `Range[T]` value type with `start`/`end`/`len`/`is_empty`/`contains`/`step_by` | `..` and `..=` parse as a `for` head and as a pattern; a float bound is `E1518`; there is no range value or method surface | Owed work; `in` over a range waits on it |
-| 9.1, 9.4, 9.5 | IR-literal assertion, compile-time/run-time differential test, evaluator consumes typed HIR | The evaluator consumes the parser AST and folds arithmetic, `if`, `let`/assignment, loops, fixed arrays and nested calls; `const_assert` rejects a false compile-time fact. The IR-literal and differential assertions are owed | Owed work; the AST choice is why `switch` and struct construction are still refused rather than wrong |
+| 9.1, 9.4, 9.5 | Compile-time/run-time differential test, evaluator consumes typed HIR | The evaluator consumes the parser AST and folds arithmetic, `if`, `let`/assignment, loops, fixed arrays and nested calls; `const_assert` rejects a false compile-time fact; the table's IR-literal assertion is pinned by `crates/yashy-driver/tests/const_fn_ir.rs`. The compile-time/run-time differential is owed | Owed work; the AST choice is why `switch` and struct construction are still refused rather than wrong |
 | 10.1, 10.2, 10.5 | BPE audit over this phase's keywords in `o200k`, `cl100k` and a Llama tokenizer | `yashyc tokens --bpe` reports one tokenizer and counts; no `docs/bpe.md`, no per-keyword measurement | Needs the three vocabularies vendored (Phase 2 Task 8 owes the same files) |
 | Gates | Every acceptance row is a command that exists and passes on Windows and Linux | Rows name the test file that exists; the rows whose file is owed say so. Driver checks are green with the documented runtime build-script detach; freshly linked binaries are blocked by Windows Application Control, so the runtime, e2e and IR gates are CI-only | CI is deferred by the project owner; re-run the full gate set when CI is unblocked |
 
