@@ -1050,11 +1050,11 @@ impl<'src> Parser<'src> {
                 Ok(Expr::Ident(path, span))
             }
             TokenKind::Unsafe => {
-                if self.check(TokenKind::LBrace) {
-                    let unsafe_span = self.peek_span();
+                if self.peek_second() == TokenKind::LBrace {
+                    let unsafe_tok = self.advance();
                     let body = self.parse_block()?;
                     return Ok(Expr::UnsafeBlock {
-                        span: cover(unsafe_span, body.span),
+                        span: cover(unsafe_tok.span, body.span),
                         body,
                     });
                 }

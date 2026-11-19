@@ -69,7 +69,7 @@ fn alias_3_views_of_temporaries_are_refused_and_bindings_are_accepted() {
         has_code(&rejected, codes::UNPROVED_VIEW_SOURCE),
         "ALIAS-3 must be named: {rejected:?}"
     );
-    check("fn main() { let xs = []int { 1, 2 }; const v = xs[0..1]; xs.free(); }")
+    check("fn main() { let xs = []int { 1, 2 }; const v = xs[0..1]; print(v.len()); }")
         .expect("a named binding is a proved source");
 }
 
