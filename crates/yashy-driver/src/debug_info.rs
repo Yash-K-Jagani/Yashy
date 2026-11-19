@@ -1364,7 +1364,7 @@ mod tests {
             function("one", Span::new(0, 18)),
             function("two", Span::new(19, 38)),
         ]);
-        let ir = "define void @yashy_fn_one() {\nentry:\n; yashy-loc:0:11:12\n  ret void\n}\ndefine void @yashy_fn_two() {\nentry:\n; yashy-loc:0:30:31\n  ret void\n}\n";
+        let ir = "define void @yashy_fn_one() {\nentry:\n; yashy-loc:0:13:14\n  ret void\n}\ndefine void @yashy_fn_two() {\nentry:\n; yashy-loc:0:30:31\n  ret void\n}\n";
         let annotated = annotate(ir, &hir, &sources);
         // One file, two functions: subprograms are !6 and !7, locations !8.. .
         assert!(

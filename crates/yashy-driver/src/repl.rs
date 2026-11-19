@@ -169,9 +169,15 @@ fn without_strings(text: &str) -> String {
         }
         if character == '"' {
             in_string = true;
+            out.push('"');
         } else {
             out.push(character);
         }
+    }
+    if in_string {
+        // Keep a placeholder so a line that is only a string still classifies
+        // as an expression rather than as an empty line.
+        out.push_str("s\"");
     }
     out
 }
