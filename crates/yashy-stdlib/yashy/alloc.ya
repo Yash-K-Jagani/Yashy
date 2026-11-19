@@ -26,3 +26,24 @@ pub fn alloc_one(int value) -> *mut int {
     buffer[0] = value;
     return buffer;
 }
+
+/// The identity of the process-wide allocator.
+///
+/// A collection that does not name an allocator uses this one. The value is
+/// stable for the life of the program; it is an identity, not a handle that
+/// needs releasing. A collection that takes an allocator records this value
+/// and reaches the same runtime allocation path as a bare `alloc` call.
+pub fn global_allocator() -> int {
+    return 0;
+}
+
+/// Allocate `count` zeroed `int` slots through the global allocator.
+/// The caller owns the result; release it with `global_free` or `.free()`.
+pub fn global_alloc(int count) -> *mut int {
+    return alloc_zeroed(count);
+}
+
+/// Release a block handed out by `global_alloc`. Tolerates a null pointer.
+pub fn global_free(*mut int pointer) {
+    pointer.free();
+}

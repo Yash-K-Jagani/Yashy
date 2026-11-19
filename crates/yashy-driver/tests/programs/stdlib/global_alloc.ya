@@ -1,0 +1,13 @@
+// The global allocator interface: a collection that does not name an allocator
+// records the identity from `global_allocator()` and reaches the same zeroed
+// allocation path through `global_alloc` / `global_free`.
+
+import alloc;
+
+fn main() {
+    const allocator = global_allocator();
+    print(allocator);
+    const block = global_alloc(3);
+    print("${block[0]} ${block[1]} ${block[2]}");
+    global_free(block);
+}

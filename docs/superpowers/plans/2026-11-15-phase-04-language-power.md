@@ -274,6 +274,11 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   to a stack slot; `crates/yashy-sema/tests/unsafe_alloc.rs` and
   `crates/yashy-driver/tests/unsafe_alloc.rs` pin both halves.
 - [ ] **Step 3: Every allocation is visible.** The allocator interface is static-dispatch only; collections take an allocator or use the global one; `--alloc-report` (Phase 11A) reads the same hooks. No runtime path allocates behind the language's back.
+  *Current:* `crates/yashy-stdlib/yashy/alloc.ya` now exposes
+  `global_allocator()`, `global_alloc()` and `global_free()` as the documented
+  process-wide path; `crates/yashy-driver/tests/programs/stdlib/global_alloc.ya`
+  uses it and is covered by the stdlib determinism and leak tests. A collection
+  *parameter* and `--alloc-report` are still owed, so the step stays open.
 - [x] **Step 4: `repr` stays a keyword form.** `repr(C)`, `repr(packed)`, `repr(align(N))`, `repr(transparent)` and an integer enum repr are clauses, not attributes; `repr(C)` is never reordered; a packed field that would be misaligned is a diagnostic at the field, not a silent unaligned load.
   *Current:* all five clauses parse; a non-power-of-two align is refused. The
   layout walk uses packed (alignment 1, summed sizes) and align(N) (rounded

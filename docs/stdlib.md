@@ -45,6 +45,36 @@ fn alloc_zeroed(int count) -> *mut int
 A pointer to `count` zeroed `int` slots. The caller owns it; release it with
 `.free()`.
 
+### `global_alloc`
+
+```yashy
+fn global_alloc(int count) -> *mut int
+```
+
+Allocate `count` zeroed `int` slots through the global allocator.
+The caller owns the result; release it with `global_free` or `.free()`.
+
+### `global_allocator`
+
+```yashy
+fn global_allocator() -> int
+```
+
+The identity of the process-wide allocator.
+
+A collection that does not name an allocator uses this one. The value is
+stable for the life of the program; it is an identity, not a handle that
+needs releasing. A collection that takes an allocator records this value
+and reaches the same runtime allocation path as a bare `alloc` call.
+
+### `global_free`
+
+```yashy
+fn global_free(*mut int pointer) -> void
+```
+
+Release a block handed out by `global_alloc`. Tolerates a null pointer.
+
 ## `args`
 
 ### `all`
