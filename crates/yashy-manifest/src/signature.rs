@@ -68,6 +68,7 @@ impl Keyring {
     }
 }
 
+#[cfg(test)]
 fn decode_hex(text: &str) -> Option<Vec<u8>> {
     if text.len() % 2 != 0 {
         return None;
