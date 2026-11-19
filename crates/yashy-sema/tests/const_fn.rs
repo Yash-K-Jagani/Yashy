@@ -76,10 +76,100 @@ fn a_const_fn_body_may_only_use_what_the_compiler_can_compute() {
          fn g() { const t = f(); }",
         "`read_line` is not allowed in a const fn",
     );
+    // A statement whose value only exists when the program runs is refused by
+    // name, not evaluated to whatever the first iteration happened to see.
     assert_error(
-        "const fn f(int n) -> int { let i = 0; while i < n { i = i + 1; } return i; }\n\
+        "const fn f(int n) -> int { switch n { case 0 { return 1; } default { return 0; } } }\n\
          fn g() { const t = f(3); }",
         "is not allowed in a const fn",
+    );
+}
+
+#[test]
+fn a_const_fn_may_accumulate_in_a_loop() {
+    let (result, _, _) = check_source(
+        "const fn sum_to(int n) -> int {\n\
+             let int total = 0;\n\
+             let i = 1;\n\
+             while i <= n {\n\
+                 total += i;\n\
+                 i += 1;\n\
+             }\n\
+             return total;\n\
+         }\n\
+         fn f() { const t = sum_to(10); }",
+    );
+    let hir = result.expect("the compiler folds a loop it can run itself");
+    let f = hir
+        .items
+        .iter()
+        .find_map(|item| match item {
+            HirItem::Fn(function) if function.name == "f" => Some(function),
+            _ => None,
+        })
+        .expect("the function");
+    assert!(
+        format!("{:?}", f.body).contains("I64(55)"),
+        "the sum 1..=10 is a literal in the tree: {:?}",
+        f.body
+    );
+}
+
+#[test]
+fn a_break_leaves_a_const_fn_loop() {
+    let (result, _, _) = check_source(
+        "const fn first_above(int n) -> int {\n\
+             let i = 0;\n\
+             while i < 100 {\n\
+                 if i > n {\n\
+                     break;\n\
+                 }\n\
+                 i += 1;\n\
+             }\n\
+             return i;\n\
+         }\n\
+         fn f() { const t = first_above(7); }",
+    );
+    let hir = result.expect("a `break` ends a loop the compiler is running");
+    let f = hir
+        .items
+        .iter()
+        .find_map(|item| match item {
+            HirItem::Fn(function) if function.name == "f" => Some(function),
+            _ => None,
+        })
+        .expect("the function");
+    assert!(
+        format!("{:?}", f.body).contains("I64(8)"),
+        "the loop stops at the first value above 7: {:?}",
+        f.body
+    );
+}
+
+#[test]
+fn a_runaway_const_loop_is_stopped_by_the_step_budget() {
+    assert_error(
+        "const fn spin() -> int { let i = 0; while true { } return i; }\n\
+         fn f() { const t = spin(); }",
+        "exceeded",
+    );
+}
+
+#[test]
+fn a_const_fn_cannot_assign_to_its_parameter() {
+    assert_error(
+        "const fn f(int n) -> int { n = 2; return n; }\n\
+         fn g() { const t = f(1); }",
+        "cannot assign to `n`, which is immutable",
+    );
+}
+
+#[test]
+fn a_const_fn_local_must_match_its_written_type() {
+    assert_error(
+        "const fn f() -> int { let int x = true; return 0; }\n\
+         fn g() { const t = f(); }",
+        "expected `int`, found `bool`",
     );
 }
 

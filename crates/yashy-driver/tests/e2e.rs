@@ -724,10 +724,11 @@ fn debug_formatting_shows_the_surface_of_a_value() {
 #[test]
 fn a_const_fn_is_computed_by_the_compiler() {
     // The calls are folded at compile time: the program carries the numbers,
-    // not the calls that produced them. `fib(10)` is the recursive case, and
-    // `max_of` is the `if` case.
+    // not the calls that produced them. `fib(10)` is the recursive case,
+    // `max_of` is the `if` case, and `sum_to` is a loop with an accumulating
+    // local that the compiler ran itself.
     let output = build_and_run("const_fn");
-    assert_eq!(stdout_of(&output), "81\n10\n55\n16\n");
+    assert_eq!(stdout_of(&output), "81\n10\n55\n16\n55\n");
 }
 
 #[test]

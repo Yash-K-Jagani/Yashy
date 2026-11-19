@@ -2,9 +2,9 @@
 //
 // The call is folded at compile time: what the program carries is the number
 // the compiler computed, not a call it would make at run time. That is why the
-// body is a restricted language -- arithmetic, comparisons, `if`, and calls to
-// other `const fn`s -- and why a `read_line` in one is a diagnostic rather than
-// something the evaluator refuses at the end.
+// body is a restricted language -- arithmetic, comparisons, `if`, `let`,
+// loops, and calls to other `const fn`s -- and why a `read_line` in one is a
+// diagnostic rather than something the evaluator refuses at the end.
 
 const fn square(int n) -> int {
     return n * n;
@@ -24,6 +24,18 @@ const fn fib(int n) -> int {
     return fib(n - 1) + fib(n - 2);
 }
 
+// A loop and an accumulating local: the compiler runs both, so the caller
+// carries 55 rather than a loop it would have to execute.
+const fn sum_to(int n) -> int {
+    let int total = 0;
+    let i = 1;
+    while i <= n {
+        total += i;
+        i += 1;
+    }
+    return total;
+}
+
 fn main() {
     // The argument is a literal, because that is all a `const fn` call can
     // take: the value has to be known before the program runs.
@@ -38,4 +50,7 @@ fn main() {
 
     const ok = square(4);
     print(ok);
+
+    const total = sum_to(10);
+    print(total);
 }

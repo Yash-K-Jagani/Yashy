@@ -11,7 +11,10 @@
 //! - arithmetic and comparisons on those;
 //! - fixed arrays and checked indexing into them;
 //! - calls to other `const fn`s;
-//! - `if`, with a `return` in each arm.
+//! - `if`, with a `return` in each arm;
+//! - `let` and assignment to its binding, so a body can accumulate;
+//! - the condition-only loop (`while c { .. }`, which the parser lowers to
+//!   `for ; c; { .. }`) and its `break`/`continue`.
 //!
 //! Anything else is refused by name -- ``read_line`` is not allowed in a const
 //! fn -- rather than evaluated, because an expression the evaluator cannot
@@ -307,15 +310,17 @@ impl ConstError {
 /// another module's `const fn` is a mistake, and the body check is what knows
 /// which functions the body called.
 pub fn check_body(function: &ConstFn, consts: &ConstFns) -> Result<Vec<(String, Span)>, TypeError> {
-    let env: Vec<(String, Type)> = function.params.clone();
+    let mut env: Vec<(String, Type)> = function.params.clone();
     let mut work = Work::default();
     check_block(
         &function.body,
-        &env,
+        &mut env,
         &function.ret,
         consts,
         "a const fn",
         &mut work,
+        false,
+        function.params.len(),
     )?;
     // A `const fn` that returns a value must return one on every path: the
     // compiler folds the body, so a path that fell off the end would have no
@@ -355,44 +360,178 @@ fn returns_on_all_paths(block: &Block) -> bool {
 }
 
 /// Check the statements of a `const fn` body.
+///
+/// `env` is the block's scope: a `let` adds to it, and it is truncated to the
+/// length it had on entry when the block ends. The checker sees the same
+/// language the evaluator does, so a body that passes here cannot surprise it.
 fn check_block(
     block: &Block,
-    env: &[(String, Type)],
+    env: &mut Vec<(String, Type)>,
     ret: &Type,
     consts: &ConstFns,
     context: &str,
     work: &mut Work,
+    in_loop: bool,
+    params: usize,
 ) -> Result<(), TypeError> {
+    let base = env.len();
     for statement in &block.stmts {
-        match statement {
-            Stmt::Return(value, span) => {
-                let actual = match value {
-                    Some(expr) => check_expr(expr, env, consts, context, work)?,
-                    None => Type {
-                        kind: TypeKind::Unit,
-                        span: *span,
-                    },
-                };
-                if ret.kind != TypeKind::Unit && actual.kind != ret.kind {
-                    return Err(TypeError::new(
-                        *span,
-                        format!("expected `{ret}`, found `{actual}`"),
-                    ));
-                }
+        check_stmt(statement, env, ret, consts, context, work, in_loop, params)?;
+    }
+    env.truncate(base);
+    Ok(())
+}
+
+/// Check one statement of a `const fn` body.
+///
+/// `params` is how many leading entries of `env` are the function's
+/// parameters: only a `let` may be assigned, exactly as in a run-time body.
+#[allow(clippy::too_many_arguments)]
+fn check_stmt(
+    statement: &Stmt,
+    env: &mut Vec<(String, Type)>,
+    ret: &Type,
+    consts: &ConstFns,
+    context: &str,
+    work: &mut Work,
+    in_loop: bool,
+    params: usize,
+) -> Result<(), TypeError> {
+    match statement {
+        Stmt::Return(value, span) => {
+            let actual = match value {
+                Some(expr) => check_expr(expr, env, consts, context, work)?,
+                None => Type {
+                    kind: TypeKind::Unit,
+                    span: *span,
+                },
+            };
+            if ret.kind != TypeKind::Unit && actual.kind != ret.kind {
+                return Err(TypeError::new(
+                    *span,
+                    format!("expected `{ret}`, found `{actual}`"),
+                ));
             }
-            Stmt::If {
-                init,
-                cond,
-                then_block,
-                else_block,
-                span,
-            } => {
-                if init.is_some() {
-                    return Err(TypeError::new(
-                        *span,
-                        format!("a condition binding is not allowed in {context}"),
-                    ));
+            Ok(())
+        }
+        // A local is the same declaration a run-time body writes, minus the
+        // parts the evaluator has no value for: the initializer is computed
+        // now, and a written type has to agree with it.
+        Stmt::Let {
+            name,
+            ty,
+            init,
+            span,
+        } => {
+            let actual = check_expr(init, env, consts, context, work)?;
+            let kind = match ty {
+                Some(written) => {
+                    let Some(declared) = declared_kind(written) else {
+                        return Err(TypeError::new(
+                            *span,
+                            format!(
+                                "{} is not a type a `const fn` can declare: \
+                                 use `int`, `float`, `bool`, `string` or `char`",
+                                written_kind(written)
+                            ),
+                        ));
+                    };
+                    if declared != actual.kind {
+                        return Err(TypeError::new(
+                            *span,
+                            format!("expected `{declared}`, found `{actual}`"),
+                        ));
+                    }
+                    declared
                 }
+                None => actual.kind,
+            };
+            env.push((name.clone(), Type { kind, span: *span }));
+            Ok(())
+        }
+        // `x = e;` and `x op= e;` (the parser lowers the compound form to a
+        // plain assignment): the name has to be a binding this body declared.
+        Stmt::Assign {
+            target,
+            value,
+            span,
+        } => {
+            let Expr::Ident(path, name_span) = target else {
+                return Err(TypeError::new(
+                    *span,
+                    "only a name can be assigned in a const fn".to_string(),
+                ));
+            };
+            let name = path.last().cloned().unwrap_or_default();
+            let actual = check_expr(value, env, consts, context, work)?;
+            let Some((at, (_, bound))) = env
+                .iter()
+                .enumerate()
+                .rev()
+                .find(|(_, (bound, _))| bound == &name)
+            else {
+                return Err(TypeError::new(
+                    *name_span,
+                    format!("cannot find value `{name}`"),
+                ));
+            };
+            if at < params {
+                return Err(TypeError::new(
+                    *span,
+                    format!("cannot assign to `{name}`, which is immutable"),
+                )
+                .with_code(codes::CONST_REASSIGNMENT)
+                .with_note("use `let` for a mutable binding"));
+            }
+            if bound.kind != actual.kind {
+                return Err(TypeError::new(
+                    *span,
+                    format!("expected `{bound}`, found `{actual}`"),
+                ));
+            }
+            Ok(())
+        }
+        Stmt::If {
+            init,
+            cond,
+            then_block,
+            else_block,
+            span,
+        } => {
+            if init.is_some() {
+                return Err(TypeError::new(
+                    *span,
+                    format!("a condition binding is not allowed in {context}"),
+                ));
+            }
+            let condition = check_expr(cond, env, consts, context, work)?;
+            if condition.kind != TypeKind::Bool {
+                return Err(TypeError::new(
+                    expr_span(cond),
+                    format!("a condition must be `bool`, found `{condition}`"),
+                ));
+            }
+            check_block(then_block, env, ret, consts, context, work, in_loop, params)?;
+            if let Some(else_block) = else_block {
+                check_block(else_block, env, ret, consts, context, work, in_loop, params)?;
+            }
+            Ok(())
+        }
+        // `while c { .. }` and `for ; c; u { .. }` are the same node: the body
+        // is checked in a loop, which is what lets `break` and `continue`
+        // appear in it.
+        Stmt::ForC {
+            init,
+            cond,
+            update,
+            body,
+            span,
+            ..
+        } => {
+            if let Some(init) = init {
+                check_stmt(init, env, ret, consts, context, work, in_loop, params)?;
+            }
+            if let Some(cond) = cond {
                 let condition = check_expr(cond, env, consts, context, work)?;
                 if condition.kind != TypeKind::Bool {
                     return Err(TypeError::new(
@@ -400,20 +539,78 @@ fn check_block(
                         format!("a condition must be `bool`, found `{condition}`"),
                     ));
                 }
-                check_block(then_block, env, ret, consts, context, work)?;
-                if let Some(else_block) = else_block {
-                    check_block(else_block, env, ret, consts, context, work)?;
-                }
             }
-            other => {
+            if let Some(update) = update {
+                check_expr(update, env, consts, context, work)?;
+            }
+            check_block(body, env, ret, consts, context, work, true, params)?;
+            let _ = span;
+            Ok(())
+        }
+        Stmt::Break(label, span) => {
+            if !in_loop {
                 return Err(TypeError::new(
-                    other.span(),
-                    format!("{} is not allowed in {context}", statement_kind(other)),
+                    *span,
+                    "`break` outside a loop in a const fn".to_string(),
                 ));
             }
+            if label.is_some() {
+                return Err(TypeError::new(
+                    *span,
+                    "a labelled `break` is not allowed in a const fn".to_string(),
+                ));
+            }
+            Ok(())
         }
+        Stmt::Continue(label, span) => {
+            if !in_loop {
+                return Err(TypeError::new(
+                    *span,
+                    "`continue` outside a loop in a const fn".to_string(),
+                ));
+            }
+            if label.is_some() {
+                return Err(TypeError::new(
+                    *span,
+                    "a labelled `continue` is not allowed in a const fn".to_string(),
+                ));
+            }
+            Ok(())
+        }
+        other => Err(TypeError::new(
+            other.span(),
+            format!("{} is not allowed in {context}", statement_kind(other)),
+        )),
     }
-    Ok(())
+}
+
+/// The kind a written type names, when a `const fn` local may use it.
+///
+/// The evaluator has one width per scalar and no aggregate layout, so a local
+/// declares one of the five scalar kinds; a fixed array comes from its
+/// initializer, where the elements are all present.
+fn declared_kind(ty: &yashy_parser::ast::TypeExpr) -> Option<TypeKind> {
+    use yashy_parser::ast::TypeExpr;
+    match ty {
+        TypeExpr::Name(name, _) => match name.as_str() {
+            "int" => Some(TypeKind::I64),
+            "float" => Some(TypeKind::F64),
+            "bool" => Some(TypeKind::Bool),
+            "string" => Some(TypeKind::Str),
+            "char" => Some(TypeKind::Char),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// A written type, for a message that refuses it.
+fn written_kind(ty: &yashy_parser::ast::TypeExpr) -> String {
+    use yashy_parser::ast::TypeExpr;
+    match ty {
+        TypeExpr::Name(name, _) => format!("`{name}`"),
+        _ => "this type".to_string(),
+    }
 }
 
 /// Check one expression and report the type it has.
@@ -422,7 +619,7 @@ fn check_block(
 /// call it is the called function's return type.
 fn check_expr(
     expr: &Expr,
-    env: &[(String, Type)],
+    env: &mut Vec<(String, Type)>,
     consts: &ConstFns,
     context: &str,
     work: &mut Work,
@@ -546,7 +743,7 @@ fn check_expr(
                     return Err(TypeError::new(
                         *span,
                         "a qualified call is not allowed in a const fn".to_string(),
-                    ))
+                    ));
                 }
             };
             let Some(function) = consts.get(&name) else {
@@ -938,6 +1135,10 @@ pub fn mentions_const_fn(expr: &Expr, consts: &ConstFns) -> bool {
 /// `work` the state that bounds the evaluation: how deep it may nest and how
 /// many calls it may make. A call that would not terminate is reported rather
 /// than followed.
+///
+/// The bindings are copied into a working environment, because a `const fn`
+/// body may declare and assign its own: a call sees the arguments it was
+/// given, and a local one of its callees declares never reaches back out.
 pub fn evaluate(
     expr: &Expr,
     env: &[(String, ConstValue)],
@@ -945,14 +1146,36 @@ pub fn evaluate(
     work: &mut Work,
     missing: Missing,
 ) -> Result<ConstValue, ConstError> {
+    let mut bindings = env.to_vec();
+    eval(expr, &mut bindings, consts, work, missing)
+}
+
+/// Spend one step of the evaluation budget, or report that it is gone.
+///
+/// A loop iterates without an expression of its own to charge, so the loop
+/// spends one step per iteration as well: a body that never terminates is
+/// reported by the same budget as a wide expression tree.
+fn tick_at(span: Span, work: &mut Work) -> Result<(), ConstError> {
     work.steps = work.steps.saturating_add(1);
     if work.steps > MAX_CONST_STEPS {
         return Err(ConstError::new(
-            expr_span(expr),
+            span,
             format!("const evaluation exceeded {MAX_CONST_STEPS} steps"),
         )
         .with_code(codes::CONST_FUEL));
     }
+    Ok(())
+}
+
+/// Evaluate one expression against the bindings in scope.
+fn eval(
+    expr: &Expr,
+    env: &mut Vec<(String, ConstValue)>,
+    consts: &ConstFns,
+    work: &mut Work,
+    missing: Missing,
+) -> Result<ConstValue, ConstError> {
+    tick_at(expr_span(expr), work)?;
     match expr {
         Expr::Literal(literal, _) => Ok(match literal {
             Literal::I64(value) => ConstValue::I64(*value),
@@ -970,12 +1193,12 @@ pub fn evaluate(
             }
         }
         Expr::Binary { op, lhs, rhs, span } => {
-            let left = evaluate(lhs, env, consts, work, missing)?;
-            let right = evaluate(rhs, env, consts, work, missing)?;
+            let left = eval(lhs, env, consts, work, missing)?;
+            let right = eval(rhs, env, consts, work, missing)?;
             evaluate_binary(*op, &left, &right, *span)
         }
         Expr::Unary { op, operand, span } => {
-            let inner = evaluate(operand, env, consts, work, missing)?;
+            let inner = eval(operand, env, consts, work, missing)?;
             match (op, &inner) {
                 (UnOp::Neg, ConstValue::I64(value)) => Ok(ConstValue::I64(value.wrapping_neg())),
                 (UnOp::Neg, ConstValue::F64(value)) => Ok(ConstValue::F64(-value)),
@@ -998,7 +1221,7 @@ pub fn evaluate(
         Expr::FixedArrayLit { elements, span } => {
             let mut values = Vec::with_capacity(elements.len());
             for element in elements {
-                values.push(evaluate(element, env, consts, work, missing)?);
+                values.push(eval(element, env, consts, work, missing)?);
             }
             if let Some(first) = values.first() {
                 if values.iter().any(|value| value.kind() != first.kind()) {
@@ -1011,14 +1234,14 @@ pub fn evaluate(
             Ok(ConstValue::Array(values))
         }
         Expr::Index { base, index, span } => {
-            let base_value = evaluate(base, env, consts, work, missing)?;
+            let base_value = eval(base, env, consts, work, missing)?;
             let ConstValue::Array(values) = &base_value else {
                 return Err(ConstError::new(
                     *span,
                     format!("cannot index `{}` in a const fn", base_value.kind()),
                 ));
             };
-            let ConstValue::I64(at) = evaluate(index, env, consts, work, missing)? else {
+            let ConstValue::I64(at) = eval(index, env, consts, work, missing)? else {
                 return Err(ConstError::new(
                     expr_span(index),
                     "an index must be `int`".to_string(),
@@ -1044,7 +1267,7 @@ pub fn evaluate(
                     return Err(ConstError::new(
                         *span,
                         "a qualified call is not allowed in a const fn",
-                    ))
+                    ));
                 }
             };
             let Some(function) = consts.get(&name) else {
@@ -1066,20 +1289,30 @@ pub fn evaluate(
             }
             let mut values = Vec::with_capacity(args.len());
             for argument in args {
-                values.push(evaluate(&argument.value, env, consts, work, missing)?);
+                values.push(eval(&argument.value, env, consts, work, missing)?);
             }
             let mut bound = Vec::with_capacity(function.params.len());
             for ((param, _), value) in function.params.iter().zip(values.into_iter()) {
                 bound.push((param.clone(), value));
             }
             work.depth = work.depth.saturating_add(1);
-            let outcome = evaluate_block(&function.body, &bound, consts, work);
+            let outcome = evaluate_block(
+                &function.body,
+                &mut bound,
+                consts,
+                work,
+                false,
+                function.params.len(),
+            );
             work.depth = work.depth.saturating_sub(1);
-            let Some(value) = outcome? else {
-                return Err(ConstError::new(
-                    *span,
-                    format!("`{name}` does not return a value on every path"),
-                ));
+            let value = match outcome? {
+                Flow::Returned(value) => value,
+                Flow::Fell | Flow::Break | Flow::Continue => {
+                    return Err(ConstError::new(
+                        *span,
+                        format!("`{name}` does not return a value on every path"),
+                    ));
+                }
             };
             if value.kind() != function.ret.kind {
                 return Err(ConstError::new(
@@ -1100,65 +1333,221 @@ pub fn evaluate(
     }
 }
 
+/// What a statement did, as far as the statements after it are concerned.
+#[derive(Clone, Debug)]
+enum Flow {
+    /// The statement ran to its end without returning or jumping: the next
+    /// statement still runs. That is what makes `if c { return a; } return b;`
+    /// work -- the `if` returns on one path and falls through on the other.
+    Fell,
+    /// A `return` left the function with this value.
+    Returned(ConstValue),
+    /// A `break` left the enclosing loop.
+    Break,
+    /// A `continue` went on to the enclosing loop's next iteration.
+    Continue,
+}
+
 /// Evaluate the statements of a `const fn` body.
 ///
-/// `Ok(None)` means the block *fell through*: no `return` was reached, so the
-/// statement after it still runs. That is what makes `if c { return a; } return
-/// b;` work: the `if` returns on one path and falls through on the other.
+/// The block's own scope is the tail of `env`: whatever it declares is dropped
+/// when it ends, so two sibling blocks may each declare `i`.
 fn evaluate_block(
     block: &Block,
-    env: &[(String, ConstValue)],
+    env: &mut Vec<(String, ConstValue)>,
     consts: &ConstFns,
     work: &mut Work,
-) -> Result<Option<ConstValue>, ConstError> {
+    in_loop: bool,
+    params: usize,
+) -> Result<Flow, ConstError> {
+    let base = env.len();
+    let mut flow = Flow::Fell;
     for statement in &block.stmts {
-        match statement {
-            Stmt::Return(Some(expr), _) => {
-                let value = evaluate(expr, env, consts, work, Missing::NotFound)?;
-                return Ok(Some(value));
-            }
-            Stmt::Return(None, span) => {
-                return Err(ConstError::new(
-                    *span,
-                    "a const fn must return a value".to_string(),
-                ))
-            }
-            Stmt::If {
-                cond,
-                then_block,
-                else_block,
-                ..
-            } => {
-                let condition = evaluate(cond, env, consts, work, Missing::NotFound)?;
-                let ConstValue::Bool(chosen) = condition else {
-                    return Err(ConstError::new(
-                        expr_span(cond),
-                        "a condition must be `bool`".to_string(),
-                    ));
-                };
-                let taken = if chosen {
-                    Some(then_block)
-                } else {
-                    else_block.as_ref()
-                };
-                let Some(taken) = taken else {
-                    // No `else`: the `if` did nothing, and the statements
-                    // after it still run.
-                    continue;
-                };
-                if let Some(value) = evaluate_block(taken, env, consts, work)? {
-                    return Ok(Some(value));
-                }
-            }
-            other => {
-                return Err(ConstError::new(
-                    other.span(),
-                    format!("{} is not allowed in a const fn", statement_kind(other)),
-                ))
-            }
+        flow = evaluate_stmt(statement, env, consts, work, in_loop, params)?;
+        if !matches!(flow, Flow::Fell) {
+            break;
         }
     }
-    Ok(None)
+    env.truncate(base);
+    Ok(flow)
+}
+
+/// Evaluate one statement of a `const fn` body.
+#[allow(clippy::too_many_arguments)]
+fn evaluate_stmt(
+    statement: &Stmt,
+    env: &mut Vec<(String, ConstValue)>,
+    consts: &ConstFns,
+    work: &mut Work,
+    in_loop: bool,
+    params: usize,
+) -> Result<Flow, ConstError> {
+    match statement {
+        Stmt::Return(Some(expr), _) => Ok(Flow::Returned(eval(
+            expr,
+            env,
+            consts,
+            work,
+            Missing::NotFound,
+        )?)),
+        Stmt::Return(None, span) => Err(ConstError::new(
+            *span,
+            "a const fn must return a value".to_string(),
+        )),
+        // `let x = e;` is computed now and bound for the rest of the block.
+        // The written type was checked when the function was declared.
+        Stmt::Let { name, init, .. } => {
+            let value = eval(init, env, consts, work, Missing::NotFound)?;
+            env.push((name.clone(), value));
+            Ok(Flow::Fell)
+        }
+        // `x = e;` -- the innermost binding of that name takes the value. A
+        // name that is not a local is not assignable, which the declaration
+        // check already proved, so this is a value-level answer to the same
+        // question.
+        Stmt::Assign {
+            target,
+            value,
+            span,
+        } => {
+            let Expr::Ident(path, _) = target else {
+                return Err(ConstError::new(
+                    *span,
+                    "only a name can be assigned in a const fn".to_string(),
+                ));
+            };
+            let name = path.last().cloned().unwrap_or_default();
+            let new_value = eval(value, env, consts, work, Missing::NotFound)?;
+            let Some((at, (_, slot))) = env
+                .iter_mut()
+                .enumerate()
+                .rev()
+                .find(|(_, (bound, _))| bound == &name)
+            else {
+                return Err(ConstError::new(
+                    *span,
+                    format!("cannot find value `{name}`"),
+                ));
+            };
+            if at < params {
+                return Err(ConstError::new(
+                    *span,
+                    format!("cannot assign to `{name}`, which is immutable"),
+                )
+                .with_code(codes::CONST_REASSIGNMENT));
+            }
+            if slot.kind() != new_value.kind() {
+                return Err(ConstError::new(
+                    *span,
+                    format!("expected `{}`, found `{}`", slot.kind(), new_value.kind()),
+                ));
+            }
+            *slot = new_value;
+            Ok(Flow::Fell)
+        }
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+            ..
+        } => {
+            let condition = eval(cond, env, consts, work, Missing::NotFound)?;
+            let ConstValue::Bool(chosen) = condition else {
+                return Err(ConstError::new(
+                    expr_span(cond),
+                    "a condition must be `bool`".to_string(),
+                ));
+            };
+            let taken = if chosen {
+                Some(then_block)
+            } else {
+                else_block.as_ref()
+            };
+            let Some(taken) = taken else {
+                // No `else`: the `if` did nothing, and the statements after it
+                // still run.
+                return Ok(Flow::Fell);
+            };
+            evaluate_block(taken, env, consts, work, in_loop, params)
+        }
+        // `while c { .. }` is `for ; c; { .. }`, and both are one node. The
+        // condition is re-read every iteration, so a body that assigns the
+        // name it tests is a loop that ends.
+        Stmt::ForC {
+            init,
+            cond,
+            update,
+            body,
+            span,
+            ..
+        } => {
+            if let Some(init) = init {
+                if let Flow::Returned(value) =
+                    evaluate_stmt(init, env, consts, work, in_loop, params)?
+                {
+                    return Ok(Flow::Returned(value));
+                }
+            }
+            loop {
+                tick_at(*span, work)?;
+                if let Some(cond) = cond {
+                    match eval(cond, env, consts, work, Missing::NotFound)? {
+                        ConstValue::Bool(true) => {}
+                        ConstValue::Bool(false) => break,
+                        other => {
+                            return Err(ConstError::new(
+                                expr_span(cond),
+                                format!("a condition must be `bool`, found `{}`", other.kind()),
+                            ));
+                        }
+                    }
+                }
+                match evaluate_block(body, env, consts, work, true, params)? {
+                    Flow::Returned(value) => return Ok(Flow::Returned(value)),
+                    Flow::Break => break,
+                    Flow::Fell | Flow::Continue => {}
+                }
+                if let Some(update) = update {
+                    eval(update, env, consts, work, Missing::NotFound)?;
+                }
+            }
+            Ok(Flow::Fell)
+        }
+        Stmt::Break(label, span) => {
+            if !in_loop {
+                return Err(ConstError::new(
+                    *span,
+                    "`break` outside a loop in a const fn".to_string(),
+                ));
+            }
+            if label.is_some() {
+                return Err(ConstError::new(
+                    *span,
+                    "a labelled `break` is not allowed in a const fn".to_string(),
+                ));
+            }
+            Ok(Flow::Break)
+        }
+        Stmt::Continue(label, span) => {
+            if !in_loop {
+                return Err(ConstError::new(
+                    *span,
+                    "`continue` outside a loop in a const fn".to_string(),
+                ));
+            }
+            if label.is_some() {
+                return Err(ConstError::new(
+                    *span,
+                    "a labelled `continue` is not allowed in a const fn".to_string(),
+                ));
+            }
+            Ok(Flow::Continue)
+        }
+        other => Err(ConstError::new(
+            other.span(),
+            format!("{} is not allowed in a const fn", statement_kind(other)),
+        )),
+    }
 }
 
 /// The value of an arithmetic or comparison operation, or the error it is.

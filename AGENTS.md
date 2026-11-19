@@ -221,6 +221,7 @@ as [E0100](docs/errors/E0100.md) with a cause, a minimal example, and the fix.
 - [Profiling](docs/profiling.md)
 - [Coverage](docs/coverage.md)
 - [Optimization](docs/optimization.md)
+- [Compile-time evaluation](docs/const-eval.md)
 - [Error catalog](docs/errors.md)
 - [Examples](examples)
 - [llms.txt](llms.txt)

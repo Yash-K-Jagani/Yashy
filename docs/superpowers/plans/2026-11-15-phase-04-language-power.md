@@ -11,8 +11,10 @@ visible and deterministic.
 
 **Outcome:** Every form in §6.1 of the 2.0 design has a parser rule, a HIR
 lowering (or a desugar proof), a verifier rule, a diagnostic, a test and a
-BPE measurement. `E1511` changes from "user generic traits are refused" to the
-new trait surface. `alloc` zeroes; `alloc_uninit` is `unsafe`. `const fn`
+BPE measurement -- except the forms recorded under [Exceptions](#exceptions).
+User generic traits stay refused: `E1511` is the design's conclusion in §4.2 of
+the 2.0 design record, not a 1.0 gap this phase closes. `alloc` zeroes;
+`alloc_uninit` is `unsafe`. `const fn`
 evaluates pure code at compile time with a fuel cap and no I/O, so tables,
 fixed buffers and validated constants cost nothing at run time. The aliasing
 rules in `docs/architecture.md` §5.3 become normative, and an alias corpus keeps
@@ -76,15 +78,32 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 - `ImplDef { trait_ref: Option<TraitRef>, self_ty: Type, assoc_bindings: Vec<(String, Type)>, methods: Vec<HirFn> }`
 
 - [ ] **Step 1: Write the failing test.** `trait Container[T] { type Item; fn get(self, int i) -> T; fn len(self) -> int { 0 } }`, two impls, a supertrait `trait Ordered[T]: Eq`, and a default method overridden in one impl. Assert each call is monomorphic in the IR (no vtable, no `dyn`), the default body is instantiated per impl, and an associated type is inferred at the call site.
+  *Current:* the gate target `crates/yashy-sema/tests/traits.rs` exists and pins
+  the trait *impl* surface (completeness, coherence, `E1511`), but the generic
+  form this step writes has no parser rule: a trait takes no type parameters, no
+  `type Item`, no default body and no supertrait list. The step stays open and
+  the exclusion is recorded under [Exceptions](#exceptions).
 - [ ] **Step 2: Keep dispatch static.** A trait method call resolves to one `HirFn` per `(impl, substitution)`; the call graph names it. There is no trait object, no vtable, no runtime lookup. A trait used only through generics is monomorphised; a trait method called on a concrete type is a direct call.
+  *Current:* there is no trait object, no vtable and no runtime lookup in the
+  language at all -- `impl Trait for Type` is static dispatch and every method
+  is a direct `Type.Trait.method` symbol. Monomorphisation of a trait method per
+  substitution cannot exist while generic traits are `E1511`, so the first
+  sentence describes a form the language does not have.
 - [ ] **Step 3: Bound the expansion.** The existing cap (64 instantiations per function, 4096 per program, `E1505`) covers trait methods and associated-type projections. Exceeding it is a diagnostic naming the function and the substitution that grew, never a compile that runs out of memory. The E1505 message now names the substitution (crates/yashy-sema/src/check_expr.rs, pinned by tests/instantiation_budget.rs); trait methods and associated-type projections are still not routed through this budget because generic traits are not implemented.
 - [ ] **Step 4: Coherence.** An impl must be for a local type or a local trait; overlapping impls are refused with both spans; an associated type without a binding and without a default is refused; a supertrait obligation is checked at the impl and at every use.
+  *Current:* coherence and completeness are pinned (`E1500`-`E1502`):
+  one impl per `(trait, type)`, an impl must provide exactly the trait's
+  methods with their signatures, and a trait has no associated items or
+  supertraits to check today. The associated-type and supertrait halves follow
+  Step 1 and are excluded with it.
 - [x] **Step 5: `Iterator[T]` stays special.** It remains the compiler-known
   `for` protocol; `crates/yashy-sema/src/check_expr.rs` refuses a user trait
   that declares the name `Iterator` outside `iter.ya` with `E1511` and a message
   naming the rule, and `crates/yashy-sema/tests/traits.rs` pins the diagnostic.
   Adapter traits (`DoubleEnded`, `ExactSize`) are not added by this slice.
 - [ ] **Step 6: Commit.** `git commit -m "feat(sema): static generic traits with associated types and defaults"`.
+  *Current:* nothing to commit. The trait surface this task asks for is
+  excluded (`E1511`), and the impl checks it does have landed with 1.0.
 
 ### Task 2: Type aliases, visibility and re-exports
 
@@ -156,7 +175,10 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   Parser tests pin both trees and the `&& let` requirement, and a sema test
   checks a two-test chain. The keyword is in all eleven generated editor
   grammars.
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.** Landed as `0fc2c1c` (else if), `e4318fc` (if-let
+  chains), `5aa6f0c` (let else), `eff0f10` (matches), `4638704` + `43ed1e3`
+  (@ and fixed-array rest), with the editor grammars regenerated in the same
+  series.
 
 ### Task 4: Built-in derives and explicit closure captures
 
@@ -386,6 +408,17 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   construct structs/enums. It may not perform I/O, allocate, use `unsafe`, call
   `extern`, await, or read a capability; each refusal is a diagnostic at the
   call.
+  *Current:* branch (`if`), `let` with a scalar type, assignment and compound
+  assignment to a `let` binding, and `while c { .. }` / `for ; c; u { .. }` with
+  unlabelled `break`/`continue` are now evaluated, so a body can accumulate a
+  table in a loop instead of writing one expression per entry; a runaway loop is
+  stopped by the same step budget as a wide expression. Assigning a parameter is
+  refused with `E0400`, exactly as in a run-time body. Still refused, and why
+  the step stays open: struct and enum construction, method calls and `switch`
+  have no compile-time value. The evaluator folds `const` initializers, array
+  lengths and defaults through `const_eval`, while `size_of`/`align_of`/
+  `offset_of` fold from the shared layout table in the checker; `docs/const-eval.md`
+  writes both halves down.
 - [ ] **Step 3: Evaluation is total and bounded.** A step/fuel cap, a recursion
   depth cap and the same overflow/division rules as run time make every failure
   a diagnostic with the expression span. A `const fn` that does not terminate
@@ -437,17 +470,17 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 
 | Gate | Command | Passes when |
 |---|---|---|
-| Traits | `cargo test -p yashy-sema --test traits` | generic traits, associated types, defaults and supertraits monomorphise; no vtable in the IR; the cap holds |
+| Traits | `cargo test -p yashy-sema --test traits` | a generic trait, an associated type, a default body or a supertrait is `E1511` (the design's exclusion); impl completeness and coherence are enforced; dispatch is static, with no vtable in the IR |
 | Patterns | `cargo test -p yashy-sema --test pats --test desugar` | `let else`, slice/rest, `@`, `matches`, if-let chains and `else if` have desugar proofs |
 | Expressions | `cargo test -p yashy-sema --test expressions --test desugar` | `Range[T]`, `in`, `is`/`is not`, `and`/`or`/`not` parse, check and desugar; `float` ranges, membership on a user type and `is` on a value are diagnosed |
 | Derives | `cargo test -p yashy-sema --test derive` | deterministic bytes; `index --json` shows each impl; a missing field bound names the field |
-| Unsafe and aliasing | `cargo test -p yashy-driver --test alias_corpus` | every rule has a positive and a negative case; no attribute lacks a justification |
-| Null niche | `cargo test -p yashy-verify --test unsafe` | `Option[*const T]` round-trips null; a null `Some` is refused |
-| Allocation | `cargo test -p yashy-driver --test programs` | `alloc` is zeroed; `alloc_uninit` needs `unsafe`; a custom allocator sees every call |
+| Unsafe and aliasing | `cargo test -p yashy-sema --test alias` | ALIAS-3 has a positive and a negative case (`E1403`); the inventory lists every explicit `unsafe` block. The other four rules and the corpus per rule are owed (Task 5 Steps 1, 2 and 5) |
+| Null niche | `cargo test -p yashy-verify --test unsafe` (file owed) | the test this row names does not exist: `Option[*const T]` has no null niche and no FFI round-trip yet, so Task 5 Step 4 is owed |
+| Allocation | `cargo test -p yashy-runtime --test memory` (binary execution is CI-only) | `alloc` is zeroed on both allocation paths; `alloc_uninit` is deliberately absent rather than silently safe; a custom allocator's call log is owed (Task 6 Step 3) |
 | Layout | `cargo test -p yashy-driver --test layout` | `size_of`/`align_of`/`offset_of` agree with the IR; `repr(C)` is stable; packed misalignment is diagnosed |
-| Const generics | `cargo test -p yashy-sema --test const_generics` | `Buffer[16]` and `Buffer[64]` are distinct; evaluation is total; the cap holds |
-| Const evaluation | `cargo test -p yashy-sema --test const_fn --test const_eval` | compile-time and run-time values agree; fuel/depth caps terminate; I/O, allocation, `unsafe` and `extern` are refused; no panic |
-| BPE | `cargo test -p yashy-driver --test bpe` | 100% of keywords/operators single-token; corpus ≥ 97% |
+| Const generics | `cargo test -p yashy-sema --test const_generics` (file owed) | `const N` parameters do not exist (Task 7), so there is no gate to run; the row stays until the task lands |
+| Const evaluation | `cargo test -p yashy-sema --test const_fn` | folding produces the value the compiler computed (arithmetic, `if`, loops, arrays, nested calls); fuel/depth caps terminate; I/O, allocation, `unsafe` and `extern` are refused; no panic. The compile-time/run-time differential and the IR-literal assertion are owed (Task 9 Steps 1 and 4) |
+| BPE | `cargo test -p yashy-driver --test tokens` | the report names its tokenizer and counts tokens for the 1.0 corpus. The o200k/cl100k/Llama audit over this phase's keywords is owed (Task 10 Step 1) and needs those vocabularies vendored |
 | No false positives | `yashyc verify --json examples/ crates/yashy-driver/tests/programs/` | zero |
 | No regression | `cargo test --workspace` | green on Windows and Linux |
 | No P0 | `docs/triage.md` | no P0 |
@@ -501,8 +534,9 @@ $ yashyc build examples/const_eval/main.ya --emit-ir | grep -c 'call.*build_tabl
 - Specialisation, negative impls and coherence beyond local-type/local-trait.
 - Named read-only views; views stay unnamed.
 - Generators/`yield`.
-- Compile-time code generation, reflection or macros. `const fn` evaluates
-  typed HIR; it does not print source, reflect on names or run at run time.
+- Compile-time code generation, reflection or macros. `const fn` evaluates a
+  restricted expression language at compile time; it does not print source,
+  reflect on names or run at run time.
 - `const` trait methods and const dispatch across a generic bound; the first
   release covers free functions, inherent methods and pure operators.
 - JIT or run-time compilation.
@@ -523,7 +557,30 @@ $ yashyc build examples/const_eval/main.ya --emit-ir | grep -c 'call.*build_tabl
 | `Option[*const T]` niche leaks into layout | A layout test and an FFI round-trip pin the representation; the niche is documented, not incidental |
 | `unsafe` erodes the safety claim | Every site is inventoried and counted; the count is a release note number, not a footnote |
 | Const generics explode code size or const evaluation loops | A step/depth cap, the existing 64/4096 instantiation cap, and a diagnostic naming the substitution |
-| `const fn` becomes a second execution model | It evaluates typed HIR with the same overflow and layout rules; a compile-time/run-time differential test; no I/O, allocation, `unsafe`, `extern` or capability access |
+| `const fn` becomes a second execution model | It evaluates a restricted expression language with the same overflow rules; a compile-time/run-time differential test is owed; no I/O, allocation, `unsafe`, `extern` or capability access |
 | A word-form keyword breaks a 1.0 name | Edition-gated (`2027`); a migration diagnostic names the replacement; the BPE audit runs before the spelling ships |
 | `in` or `is` becomes a second dispatch path | Both are compiler-known over built-in types and lower to existing methods or `matches`; no user type can define either |
 | Const evaluation hangs the compiler | Fuel, depth and size caps; every failure is a diagnostic at the expression; the `never_panics` suite covers the evaluator |
+
+## Exceptions
+
+These are the places where the shipped code is smaller than the task text, or
+where the task text contradicts the design record this repository treats as
+authority. They are recorded here rather than silently ticked so a later phase
+does not build on a claim that is not true.
+
+| Task | Claimed | Shipped | Follow-up |
+|---|---|---|---|
+| 1.1-1.4, 1.6 | User generic traits, associated types, default methods, supertraits | `E1511`: a trait has no type parameters, no `type` item, no default body and no supertrait list; the impl surface (completeness, coherence, one impl per trait-and-type, static dispatch, no vtable) is what exists | Not a Phase 4 gap. §4.2 of the 2.0 design makes `Iterator[T]` the one compiler-known generic trait and keeps user generic traits excluded; reopening it needs a design-record change first |
+| 2.1, 2.3, 2.4 | `pub(crate)` / `pub(super)` / `pub(in path)` lattice, `pub use` re-exports | `pub(crate)` parses; `pub(super)` and `pub(in path)` are refused by the parser with a diagnostic naming the limitation; there is no `pub use`; visibility is the binary `pub`-vs-module-private model with the declaration's file as the module | §4.2 records the binary model: this compiler's crate is its whole program, so there is no `super` to compare a use site against. Reopen only with a module-graph design |
+| 5.1-5.6 | `unsafe` gates deref, pointer arithmetic and `alloc_uninit`; `Option[*const T]` null niche; alias corpus per rule | `unsafe { }` parses, checks and is inventoried; ALIAS-3 has an enforcing diagnostic (`E1403`). Deref and `alloc_uninit` are not gated, there is no null niche, and `crates/yashy-verify/tests/unsafe.rs` does not exist | Owed work, not excluded: the pointer model is the phase's hardest safety question and the remaining four ALIAS rules need codes |
+| 6.5, 7.1-7.5 | `size_of[T]()` bracket spelling; `const N` parameters | `sizeof(T)` / `alignof(T)` / `offsetof(T, f)` and the underscore spellings fold from the shared layout table; the bracket spelling needs const generics, which do not exist | Owed work; the layout-vs-IR agreement test exists in `crates/yashy-driver/tests/layout.rs` only for the folded queries |
+| 8.1, 8.2 | `Range[T]` value type with `start`/`end`/`len`/`is_empty`/`contains`/`step_by` | `..` and `..=` parse as a `for` head and as a pattern; a float bound is `E1518`; there is no range value or method surface | Owed work; `in` over a range waits on it |
+| 9.1, 9.4, 9.5 | IR-literal assertion, compile-time/run-time differential test, evaluator consumes typed HIR | The evaluator consumes the parser AST and folds arithmetic, `if`, `let`/assignment, loops, fixed arrays and nested calls; the IR and differential assertions are owed | Owed work; the AST choice is why `switch` and struct construction are still refused rather than wrong |
+| 10.1, 10.2, 10.5 | BPE audit over this phase's keywords in `o200k`, `cl100k` and a Llama tokenizer | `yashyc tokens --bpe` reports one tokenizer and counts; no `docs/bpe.md`, no per-keyword measurement | Needs the three vocabularies vendored (Phase 2 Task 8 owes the same files) |
+| Gates | Every acceptance row is a command that exists and passes on Windows and Linux | Rows name the test file that exists; the rows whose file is owed say so. Driver checks are green with the documented runtime build-script detach; freshly linked binaries are blocked by Windows Application Control, so the runtime, e2e and IR gates are CI-only | CI is deferred by the project owner; re-run the full gate set when CI is unblocked |
+
+The phase is therefore **partially complete**: the pattern, range-bound,
+membership, identity, word-form, `defer expr`, `repr` and const-evaluation
+slices have landed; the trait, visibility, pointer, const-generic and BPE slices
+are excluded or owed as named above.
