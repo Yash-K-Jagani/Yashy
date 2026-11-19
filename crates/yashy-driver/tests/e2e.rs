@@ -732,6 +732,14 @@ fn a_const_fn_is_computed_by_the_compiler() {
 }
 
 #[test]
+fn an_unsafe_allocation_runs_and_frees_its_block() {
+    // `alloc_uninit` is the explicit unsafe opt-out. The program writes the one
+    // element it reads, and `verify` still has to see the release.
+    let output = build_and_run("unsafe_alloc");
+    assert_eq!(stdout_of(&output), "7\n");
+}
+
+#[test]
 fn fibonacci_prints_the_tenth_number() {
     // 55, the tenth Fibonacci number, from an accumulating loop: this is the
     // end-to-end proof that `symbol = expr;` reaches a real binary and mutates a

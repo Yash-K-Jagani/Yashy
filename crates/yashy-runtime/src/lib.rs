@@ -144,9 +144,15 @@ unsafe extern "C" {
 // declarations are what lets Rust tests exercise the same linked code.
 
 unsafe extern "C" {
-    /// Allocates `size` bytes aligned to `align`, or returns null. The bytes are
-    /// uninitialised. Free the result with [`yashy_free`] exactly once.
+    /// Allocates `size` bytes aligned to `align`, or returns null. Every byte
+    /// is zeroed: a safe allocation never exposes what malloc left behind.
+    /// Free the result with [`yashy_free`] exactly once.
     pub fn yashy_alloc(size: c_longlong, align: c_longlong) -> *mut c_void;
+
+    /// The unsafe spelling: the same block, but no zeroing. The checker only
+    /// emits this call from an `unsafe` block; the caller must write before it
+    /// reads, or the bytes are whatever the allocator handed over.
+    pub fn yashy_alloc_uninit(size: c_longlong, align: c_longlong) -> *mut c_void;
 }
 
 unsafe extern "C" {

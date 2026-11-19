@@ -27,6 +27,7 @@ Every catalog code names one rule. Rules the design names without a code yet are
 | `CONST-5` | [E1524](errors/E1524.md) | not a constant |
 | `CONTRACT-1` | [E1100](errors/E1100.md) | undischarged contract |
 | `DET-1` | [E1302](errors/E1302.md) | nondeterministic pure function |
+| `DET-4` | [E1405](errors/E1405.md) | uninitialised allocation outside unsafe |
 | `DOC-1` | [E2100](errors/E2100.md) | doc comment with no item |
 | `EFFECT-1` | [E1300](errors/E1300.md) | effect exceeded |
 | `EFFECT-2` | [E1301](errors/E1301.md) | unsafe call in a declared function |
@@ -118,5 +119,4 @@ Every catalog code names one rule. Rules the design names without a code yet are
 - `ALIAS-4`
 - `DET-2`
 - `DET-3`
-- `DET-4`
 - `DET-5`

@@ -50,6 +50,28 @@ fn a_megabyte_allocation_lets_both_ends_be_written() {
 }
 
 #[test]
+fn an_uninitialised_allocation_is_aligned_and_writable() {
+    unsafe {
+        let pointer = yashy_runtime::yashy_alloc_uninit(64, 16);
+        assert!(!pointer.is_null());
+        assert!(
+            is_aligned(pointer, 16),
+            "yashy_alloc_uninit(64, 16) returned {:#x}",
+            pointer as usize
+        );
+        // Reading uninitialised bytes would be undefined behaviour in the
+        // test itself, so prove usability by writing first. The separate
+        // `a_safe_allocation_reads_as_zeroes` test pins the difference.
+        let bytes = std::slice::from_raw_parts_mut(pointer as *mut u8, 64);
+        for (index, byte) in bytes.iter_mut().enumerate() {
+            *byte = index as u8;
+        }
+        assert_eq!(bytes[63], 63);
+        yashy_runtime::yashy_free(pointer);
+    }
+}
+
+#[test]
 fn every_allocation_respects_its_alignment() {
     unsafe {
         for &align in &[1, 2, 4, 8, 16, 32, 64, 256] {

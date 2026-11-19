@@ -399,8 +399,9 @@ static void yashy_leak_arm(void) {
  * allocator, one free path, wrong in neither direction.
  *
  * The memory is zeroed: a safe `alloc` never exposes uninitialised bytes.
- * An explicit unsafe spelling for uninitialised memory is a later slice;
- * until `unsafe` blocks exist, no builtin offers it. */
+ * The explicit unsafe spelling `yashy_alloc_uninit` skips the memset; the
+ * checker admits it only inside an `unsafe` block (E1405). Both paths share
+ * the allocation arithmetic and bookkeeping. */
 
 /* Rounds a requested alignment to something usable: a power of two no smaller
  * than a pointer. A zero, a negative, or a non-power-of-two is treated as
@@ -424,6 +425,13 @@ void yashy_alloc_note(long long delta) {
 
 void *yashy_alloc(long long size, long long align) {
     return yashy_alloc_aligned(size, yashy_normalise_align(align));
+}
+
+/* The unsafe spelling. The checker only emits this call from inside an
+ * `unsafe` block, so the bytes the runtime leaves uninitialised are a promise
+ * the program made, not an accident a safe program can stumble into. */
+void *yashy_alloc_uninit(long long size, long long align) {
+    return yashy_alloc_uninit_aligned(size, yashy_normalise_align(align));
 }
 
 /* `yashy_alloc_bytes(size)` is `yashy_alloc(size, 1)`: a byte buffer needs no

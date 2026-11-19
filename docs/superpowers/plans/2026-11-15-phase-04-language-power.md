@@ -220,10 +220,11 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   step stays open.
 - [ ] **Step 3: `unsafe` is a block, not a mode.** Dereferencing an FFI pointer, pointer arithmetic beyond a proved bound, calling an `unsafe fn`/`extern` function, and `alloc_uninit` require `unsafe { }`. A safe function cannot contain one. `verify --inventory` lists every unsafe site with its span and the reason; the count is a release number.
   *Current:* `unsafe { ... }` parses as an expression, checks its body and is
-  lowered as a block by codegen; parser and sema tests pin the form. No safe
-  operation currently *requires* the block (pointer deref and `alloc_uninit`
-  are not yet gated by it), so the gating half of the step stays open. The
-  inventory now records an `unsafe_block` assumption for every explicit block
+  lowered as a block by codegen; parser and sema tests pin the form. It is now
+  a real gate for `alloc_uninit`: the builtin is refused outside a block with
+  `E1405` and accepted inside one, with nested blocks tracked by depth. Pointer
+  deref and pointer arithmetic are still not gated, so the rest of the gating
+  half stays open. The inventory records an `unsafe_block` assumption for every explicit block
   with its span and a reason, alongside extern declarations and unsafe calls,
   in both the human table and `--json`; the driver test pins the new row.
 - [ ] **Step 4: Null has one spelling.** `Option[*const T]` and `Option[*mut T]` are guaranteed to use the null pointer for `None` at the ABI boundary; `Some(p)` is non-null. There is no `null` literal and no nullable pointer type. A C function returning null round-trips to `None`; a null passed where `Some` is expected is refused at the call site.
@@ -249,13 +250,15 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   out, so uninitialised memory cannot make a program's output differ between
   runs; `crates/yashy-runtime/tests/memory.rs` writes a stale pattern, frees and
   reallocates, and asserts the new block is all zeroes. The explicit
-  `alloc_uninit` builtin is still owed: it needs the `unsafe` blocks of Task 5,
-  so the unsafe spelling is deliberately absent rather than silently safe. The
-  verifier inventory counts only the sites that exist today.
-  *Current:* `yashy_alloc_aligned` in `yashy_runtime.h` memsets every byte it
-  hands out, and both the normal and small allocation paths go through it. The
-  stale-pattern/leak test needs binary execution and is CI-only; the explicit
-  `alloc_uninit` spelling is still deliberately absent.
+  `alloc_uninit(n)` is the explicit unsafe opt-out and E1405 refuses it outside
+  an `unsafe` block. The verifier inventory counts only the sites that exist today.
+  *Current:* `yashy_alloc_with` in `yashy_runtime.h` memsets every byte when its
+  `zero` bit is set, and both the normal and small allocation paths go through
+  it. The stale-pattern/leak test needs binary execution and is CI-only.
+  `yashy_alloc_uninit` clears that bit, the checker admits it only inside
+  `unsafe { }`, codegen calls a distinct runtime symbol and never promotes it
+  to a stack slot; `crates/yashy-sema/tests/unsafe_alloc.rs` and
+  `crates/yashy-driver/tests/unsafe_alloc.rs` pin both halves.
 - [ ] **Step 3: Every allocation is visible.** The allocator interface is static-dispatch only; collections take an allocator or use the global one; `--alloc-report` (Phase 11A) reads the same hooks. No runtime path allocates behind the language's back.
 - [x] **Step 4: `repr` stays a keyword form.** `repr(C)`, `repr(packed)`, `repr(align(N))`, `repr(transparent)` and an integer enum repr are clauses, not attributes; `repr(C)` is never reordered; a packed field that would be misaligned is a diagnostic at the field, not a silent unaligned load.
   *Current:* all five clauses parse; a non-power-of-two align is refused. The
@@ -458,8 +461,8 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   `PAT-2`, `ALIAS-3`, `LAYOUT-1`, `CONST-1`, `DET-1`). `yashyc trace` (Phase 9) will consume the registry; this phase fills it.
   *Current:* every catalog code has a stable rule through `codes::rule_for`,
   and `crates/yashy-driver/tests/rules.rs` pins both the generated
-  `docs/rules.md` page and the six design rules that still have no code
-  (`ALIAS-2`, `ALIAS-4`, `DET-2`..`DET-5`); the page names them as orphans
+  `docs/rules.md` page and the five design rules that still have no code
+  (`ALIAS-2`, `ALIAS-4`, `DET-2`, `DET-3`, `DET-5`); the page names them as orphans
   instead of hiding them. `docs/traceability.md` pairs the same registry with
   the tests that mention each code.
 - [x] **Step 4: Update the architecture document.** §4 (program model), §5 (memory, aliasing, layout, allocation, determinism) and §12 (phase map) are updated in the same commit as the code.
@@ -480,7 +483,7 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 | Derives | `cargo test -p yashy-sema --test derive` | deterministic bytes; `index --json` shows each impl; a missing field bound names the field |
 | Unsafe and aliasing | `cargo test -p yashy-sema --test alias` | ALIAS-3 has a positive and a negative case (`E1403`); the inventory lists every explicit `unsafe` block. The other four rules and the corpus per rule are owed (Task 5 Steps 1, 2 and 5) |
 | Null niche | `cargo test -p yashy-verify --test unsafe` (file owed) | the test this row names does not exist: `Option[*const T]` has no null niche and no FFI round-trip yet, so Task 5 Step 4 is owed |
-| Allocation | `cargo test -p yashy-runtime --test memory` (binary execution is CI-only) | `alloc` is zeroed on both allocation paths; `alloc_uninit` is deliberately absent rather than silently safe; a custom allocator's call log is owed (Task 6 Step 3) |
+| Allocation | `cargo test -p yashy-runtime --test memory` (binary execution is CI-only) plus `cargo test -p yashy-sema --test unsafe_alloc -p yashy-driver --test unsafe_alloc` | `alloc` is zeroed on both paths; `alloc_uninit` needs `unsafe` (E1405) and calls a distinct symbol; a custom allocator's call log is owed (Task 6 Step 3) |
 | Layout | `cargo test -p yashy-driver --test layout` | `size_of`/`align_of`/`offset_of` agree with the IR; `repr(C)` is stable; packed misalignment is diagnosed |
 | Const generics | `cargo test -p yashy-sema --test const_generics` (file owed) | `const N` parameters do not exist (Task 7), so there is no gate to run; the row stays until the task lands |
 | Const evaluation | `cargo test -p yashy-sema --test const_fn` | folding produces the value the compiler computed (arithmetic, `if`, loops, arrays, nested calls); fuel/depth caps terminate; I/O, allocation, `unsafe` and `extern` are refused; no panic. The compile-time/run-time differential and the IR-literal assertion are owed (Task 9 Steps 1 and 4) |
@@ -577,7 +580,7 @@ does not build on a claim that is not true.
 |---|---|---|---|
 | 1.1-1.4, 1.6 | User generic traits, associated types, default methods, supertraits | `E1511`: a trait has no type parameters, no `type` item, no default body and no supertrait list; the impl surface (completeness, coherence, one impl per trait-and-type, static dispatch, no vtable) is what exists | Not a Phase 4 gap. §4.2 of the 2.0 design makes `Iterator[T]` the one compiler-known generic trait and keeps user generic traits excluded; reopening it needs a design-record change first |
 | 2.1, 2.3, 2.4 | `pub(crate)` / `pub(super)` / `pub(in path)` lattice, `pub use` re-exports | `pub(crate)` parses; `pub(super)` and `pub(in path)` are refused by the parser with a diagnostic naming the limitation; there is no `pub use`; visibility is the binary `pub`-vs-module-private model with the declaration's file as the module | §4.2 records the binary model: this compiler's crate is its whole program, so there is no `super` to compare a use site against. Reopen only with a module-graph design |
-| 5.1-5.6 | `unsafe` gates deref, pointer arithmetic and `alloc_uninit`; `Option[*const T]` null niche; alias corpus per rule | `unsafe { }` parses, checks and is inventoried; ALIAS-3 has an enforcing diagnostic (`E1403`). Deref and `alloc_uninit` are not gated, there is no null niche, and `crates/yashy-verify/tests/unsafe.rs` does not exist | Owed work, not excluded: the pointer model is the phase's hardest safety question and the remaining four ALIAS rules need codes |
+| 5.1-5.6 | `unsafe` gates deref and pointer arithmetic; `Option[*const T]` null niche; alias corpus per rule | `unsafe { }` parses, checks, is inventoried and now gates `alloc_uninit` (`E1405`); ALIAS-3 has an enforcing diagnostic (`E1403`). Pointer deref/arithmetic are still not gated, there is no null niche, and `crates/yashy-verify/tests/unsafe.rs` does not exist | Owed work, not excluded: the pointer model is the phase's hardest safety question; three ALIAS rules and three DET rules still need codes |
 | 6.5, 7.1-7.5 | `size_of[T]()` bracket spelling; `const N` parameters | `sizeof(T)` / `alignof(T)` / `offsetof(T, f)` and the underscore spellings fold from the shared layout table; the bracket spelling needs const generics, which do not exist | Owed work; the checker/layout/IR agreement is pinned by `crates/yashy-driver/tests/layout.rs` |
 | 8.1, 8.2 | `Range[T]` value type with `start`/`end`/`len`/`is_empty`/`contains`/`step_by` | `..` and `..=` parse as a `for` head and as a pattern; a float bound is `E1518`; there is no range value or method surface | Owed work; `in` over a range waits on it |
 | 9.1, 9.4, 9.5 | IR-literal assertion, compile-time/run-time differential test, evaluator consumes typed HIR | The evaluator consumes the parser AST and folds arithmetic, `if`, `let`/assignment, loops, fixed arrays and nested calls; the IR and differential assertions are owed | Owed work; the AST choice is why `switch` and struct construction are still refused rather than wrong |

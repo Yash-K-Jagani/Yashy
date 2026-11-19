@@ -263,8 +263,10 @@ A pure computation is a function of its arguments. The determinism rules are:
 5. **DET-5 — Layout is a compiler fact.** Sizes, alignments and offsets come
    from one layout table shared by the checker, the verifier and the backend.
 
-DET-1 has an enforcing diagnostic; the other four are obligations on later
-phases and are reported as unenforced rules by `yashyc trace --fail-orphans`.
+DET-1 and DET-4 have enforcing diagnostics (`E1302` and `E1405`: a safe
+`alloc` is zeroed and `alloc_uninit` needs `unsafe`). The other three are
+obligations on later phases and are reported as unenforced rules by
+`yashyc trace --fail-orphans`.
 
 ### 5.4 Layout
 

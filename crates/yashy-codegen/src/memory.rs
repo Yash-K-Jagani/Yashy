@@ -29,8 +29,9 @@ pub const I64_ALIGN: i64 = 8;
 /// `n` counts *elements*, not bytes: `alloc(16)` is room for sixteen `i64`s,
 /// which is what the `*mut i64` result suggests. The runtime asks for a byte
 /// count (ledger L1), so the multiply by the element size happens here. The
-/// memory is uninitialised, and the checker has already guaranteed that the one
-/// allocation reaches exactly one `dealloc` or one `move`.
+/// memory is zeroed by the runtime; `alloc_uninit` is the explicit unsafe
+/// spelling. The checker has already guaranteed that the one allocation
+/// reaches exactly one `dealloc` or one `move`.
 pub fn gen_alloc(ctx: &mut FnCtx<'_>, args: &[HirExpr], ret: &TypeKind, span: Span) -> GenValue {
     let site = AllocSite::of(span);
     let placement = ctx.placement(site);
@@ -115,6 +116,27 @@ pub fn gen_alloc(ctx: &mut FnCtx<'_>, args: &[HirExpr], ret: &TypeKind, span: Sp
     let ptr = ctx.tmp();
     ctx.push(format!(
         "{ptr} = call i8* @yashy_alloc(i64 {bytes}, i64 {I64_ALIGN})"
+    ));
+    GenValue {
+        value: ptr,
+        ty: ret.clone(),
+    }
+}
+
+/// Lower `alloc_uninit(n) -> *mut i64`.
+///
+/// The unsafe spelling asks the runtime for the same aligned block as `alloc`
+/// but skips the zeroing. It deliberately bypasses escape analysis: a pointer
+/// whose bytes the program has not written is not one the optimiser may turn
+/// into an initialised stack slot. The checker has already required an
+/// enclosing `unsafe` block (E1405), so this call cannot come from safe code.
+pub fn gen_alloc_uninit(ctx: &mut FnCtx<'_>, args: &[HirExpr], ret: &TypeKind) -> GenValue {
+    let count = element_count(ctx, args);
+    let bytes = ctx.tmp();
+    ctx.push(format!("{bytes} = mul i64 {count}, {I64_SIZE}"));
+    let ptr = ctx.tmp();
+    ctx.push(format!(
+        "{ptr} = call i8* @yashy_alloc_uninit(i64 {bytes}, i64 {I64_ALIGN})"
     ));
     GenValue {
         value: ptr,

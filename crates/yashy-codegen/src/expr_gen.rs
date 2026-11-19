@@ -1896,6 +1896,7 @@ fn gen_call(
         // not C functions with matching names: `alloc(n)` counts elements and
         // the runtime counts bytes, so the shape changes here.
         "alloc" => crate::memory::gen_alloc(ctx, args, ty, span),
+        "alloc_uninit" => crate::memory::gen_alloc_uninit(ctx, args, ty),
         "dealloc" => crate::memory::gen_dealloc(ctx, args),
         "alloc_bytes" => {
             if ctx.module.reporting() {

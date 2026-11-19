@@ -152,6 +152,8 @@ pub const RACE: &str = "E1402";
 pub const UNPROVED_VIEW_SOURCE: &str = "E1403";
 /// A program with trust assumptions was verified without asking for the inventory.
 pub const ASSUMPTION_NOT_REPORTED: &str = "E1404";
+/// An operation that can expose uninitialised bytes was written outside `unsafe`.
+pub const UNINITIALISED_ALLOC: &str = "E1405";
 /// A `const` or `let` binding is never read.
 pub const UNUSED_BINDING: &str = "E2000";
 /// `await` or `spawn` appears outside an `async fn`.
@@ -534,6 +536,12 @@ pub const CODES: &[Code] = &[
         page: include_str!("../../../docs/errors/E1404.md"),
     },
     Code {
+        id: UNINITIALISED_ALLOC,
+        title: "uninitialised allocation outside unsafe",
+        summary: "`alloc_uninit` can expose bytes no program wrote, so it is only allowed inside an `unsafe` block.",
+        page: include_str!("../../../docs/errors/E1405.md"),
+    },
+    Code {
         id: UNUSED_BINDING,
         title: "unused binding",
         summary: "A `const` or `let` binding is never read.",
@@ -901,7 +909,7 @@ pub fn docs_url(id: &str) -> String {
 /// A rule can exist in the design before a diagnostic enforces it. This list
 /// names those rules so the matrix can report them as orphans instead of
 /// silently dropping them: a rule with no code is a rule nobody can check.
-pub const PLANNED_RULES: &[&str] = &["ALIAS-2", "ALIAS-4", "DET-2", "DET-3", "DET-4", "DET-5"];
+pub const PLANNED_RULES: &[&str] = &["ALIAS-2", "ALIAS-4", "DET-2", "DET-3", "DET-5"];
 
 /// The stable rule id a code enforces.
 ///
@@ -962,6 +970,7 @@ pub fn rule_for(id: &str) -> &'static str {
         RACE => "THREAD-3",
         UNPROVED_VIEW_SOURCE => "ALIAS-3",
         ASSUMPTION_NOT_REPORTED => "ALIAS-5",
+        UNINITIALISED_ALLOC => "DET-4",
         UNKNOWN_TRAIT => "TRAIT-1",
         CONFLICTING_IMPL => "TRAIT-2",
         INCOMPLETE_IMPL => "TRAIT-3",

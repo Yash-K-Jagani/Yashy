@@ -1,0 +1,12 @@
+// The unsafe allocation spelling: the same block as `alloc`, but the program
+// takes responsibility for initialising it. The checker admits the call only
+// inside `unsafe`, and codegen reaches a different runtime symbol.
+
+fn main() {
+    unsafe {
+        let p = alloc_uninit(4);
+        p[0] = 7;
+        print(p[0]);
+        dealloc(p);
+    }
+}

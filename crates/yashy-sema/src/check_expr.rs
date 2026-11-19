@@ -991,6 +991,10 @@ pub struct Checker<'src> {
     /// knows to check the flag at the end of its body even before the
     /// `break` itself has been lowered.
     labeled_loops: Vec<String>,
+    /// How many `unsafe { }` blocks enclose the expression being checked.
+    /// An `alloc_uninit` call is only admitted while this is non-zero; the
+    /// block itself is still lowered and inventoried as before.
+    unsafe_depth: usize,
 }
 
 impl<'src> Checker<'src> {
@@ -1003,8 +1007,17 @@ impl<'src> Checker<'src> {
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ya`. Recorded as a divergence from the master plan's L3.
-        let builtins: [(&str, Vec<Type>, Type); 38] = [
+        let builtins: [(&str, Vec<Type>, Type); 39] = [
             ("alloc", vec![prim(TypeKind::I64)], ptr(prim(TypeKind::I64))),
+            // The explicit unsafe spelling: same type as `alloc`, but the
+            // runtime skips the zeroing. The checker refuses it outside an
+            // `unsafe` block (E1405); the backend calls a different C symbol so
+            // no safe path can reach uninitialised bytes.
+            (
+                "alloc_uninit",
+                vec![prim(TypeKind::I64)],
+                ptr(prim(TypeKind::I64)),
+            ),
             // Byte buffers (phase 3b). `alloc_bytes(n)` is `n` *bytes*, not `n`
             // elements, and the result is a pointer to one byte (`char`), so
             // `buf[i]` is a `char` and a program that wants an `int` has to
@@ -1289,6 +1302,7 @@ impl<'src> Checker<'src> {
             sm,
             loop_labels: Vec::new(),
             labeled_loops: Vec::new(),
+            unsafe_depth: 0,
         }
     }
 
@@ -11364,7 +11378,10 @@ impl<'src> Checker<'src> {
                     kind: TypeKind::Unit,
                     span: *span,
                 };
-                let checked = self.check_block_with_ret(body, &unit)?;
+                self.unsafe_depth += 1;
+                let checked = self.check_block_with_ret(body, &unit);
+                self.unsafe_depth -= 1;
+                let checked = checked?;
                 Some(HirExpr::UnsafeBlock {
                     body: checked,
                     span: *span,
@@ -11602,6 +11619,14 @@ impl<'src> Checker<'src> {
                     }
                 }
                 let name = callee.last().cloned().unwrap_or_default();
+                if name == "alloc_uninit" && self.unsafe_depth == 0 {
+                    self.error_code(
+                        *span,
+                        codes::UNINITIALISED_ALLOC,
+                        "`alloc_uninit` requires an `unsafe` block".to_string(),
+                    );
+                    return None;
+                }
                 // `sizeof`, `alignof` and `offsetof` are compile-time queries
                 // about a type's layout, not calls: the answer is a constant,
                 // so a program may use one in a `const` initializer and the

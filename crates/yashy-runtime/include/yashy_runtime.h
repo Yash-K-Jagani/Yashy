@@ -99,6 +99,7 @@ long long yashy_live_allocations_now(void);
  * is not copied, which is why a growing slice does not pay for the bytes it
  * already holds. */
 void *yashy_alloc(long long size, long long align);
+void *yashy_alloc_uninit(long long size, long long align);
 void *yashy_realloc(void *ptr, long long used, long long size, long long align);
 void yashy_free(void *ptr);
 
@@ -115,8 +116,9 @@ void yashy_alloc_note(long long delta);
  * one byte for a non-positive request, exactly as the public contract says. The
  * overflow guard is here because the total is what can wrap, and the counter is
  * updated only after `malloc` succeeded, so a failed call counts nothing. */
-static YASHY_ALWAYS_INLINE void *yashy_alloc_aligned(long long size,
-                                                     size_t alignment) {
+static YASHY_ALWAYS_INLINE void *yashy_alloc_with(long long size,
+                                                  size_t alignment,
+                                                  int zero) {
     size_t wanted = size > 0 ? (size_t)size : 1;
     size_t total = wanted + alignment + sizeof(void *);
     unsigned char *raw;
@@ -148,9 +150,12 @@ static YASHY_ALWAYS_INLINE void *yashy_alloc_aligned(long long size,
     ((void **)aligned)[-1] = raw;
     /* Safe `alloc` is zeroed from Phase 4 on: uninitialised bytes would make
      * the same program print different numbers on different machines, which
-     * breaks the determinism contract. The explicit unsafe spelling is a
-     * separate builtin and is not admitted until `unsafe` blocks land. */
-    memset((void *)aligned, 0, wanted);
+     * breaks the determinism contract. `alloc_uninit` is the explicit unsafe
+     * opt-out: it leaves the bytes as malloc handed them over, and the caller
+     * promises to write before reading. */
+    if (zero) {
+        memset((void *)aligned, 0, wanted);
+    }
     yashy_alloc_note(1);
 #if defined(__clang__) || defined(__GNUC__)
     yashy_trace_record(YASHY_TRACE_ALLOC, size,
@@ -158,6 +163,19 @@ static YASHY_ALWAYS_INLINE void *yashy_alloc_aligned(long long size,
                        (unsigned long long)(size_t)aligned);
 #endif
     return (void *)aligned;
+}
+
+/* Safe `alloc` and the unsafe spelling share one body, differing only in the
+ * `zero` bit. Everything else -- overflow, alignment, sandbox cap, leak count
+ * and trace record -- is the same arithmetic and the same bookkeeping. */
+static YASHY_ALWAYS_INLINE void *yashy_alloc_aligned(long long size,
+                                                     size_t alignment) {
+    return yashy_alloc_with(size, alignment, 1);
+}
+
+static YASHY_ALWAYS_INLINE void *yashy_alloc_uninit_aligned(long long size,
+                                                           size_t alignment) {
+    return yashy_alloc_with(size, alignment, 0);
 }
 
 /* The fast half of `yashy_alloc`, for calls the runtime makes with an alignment

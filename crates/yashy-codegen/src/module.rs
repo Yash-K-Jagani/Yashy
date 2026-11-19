@@ -890,6 +890,7 @@ impl Module {
         out.push_str("declare void @yashy_print_i64(i64)\n");
         out.push_str("declare void @yashy_print_f64(double)\n");
         out.push_str("declare i8* @yashy_alloc(i64, i64)\n");
+        out.push_str("declare i8* @yashy_alloc_uninit(i64, i64)\n");
         out.push_str("declare void @yashy_free(i8*)\n");
         out.push_str("declare i8* @yashy_arena_new()\n");
         out.push_str("declare i8* @yashy_arena_alloc(i8*, i64, i64)\n");

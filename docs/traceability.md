@@ -177,6 +177,14 @@ Tests:
 
 - `crates/yashy-verify/tests/effects.rs`
 
+## `DET-4`
+
+Codes: `E1405`
+
+Tests:
+
+- `crates/yashy-sema/tests/unsafe_alloc.rs`
+
 ## `DOC-1`
 
 Codes: `E2100`
@@ -512,6 +520,7 @@ Tests:
 
 - `crates/yashy-driver/tests/audit.rs`
 - `crates/yashy-driver/tests/lock_cli.rs`
+- `crates/yashy-driver/tests/stdlib_precompiled.rs`
 - `crates/yashy-manifest/tests/lock.rs`
 
 ## `PKG-4`
