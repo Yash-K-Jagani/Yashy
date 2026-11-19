@@ -69,9 +69,9 @@ static const char *yashy_trace_path = NULL;
 static void yashy_trace_flush(void);
 
 #if defined(__clang__) || defined(__GNUC__)
-#define YASHY_TRACE_CALLER(depth) ((unsigned long long)(size_t)__builtin_return_address(depth))
+#define YASHY_TRACE_CALLER() ((unsigned long long)(size_t)__builtin_return_address(0))
 #else
-#define YASHY_TRACE_CALLER(depth) ((unsigned long long)0)
+#define YASHY_TRACE_CALLER() ((unsigned long long)0)
 #endif
 
 static void yashy_trace_configure(void) {
@@ -99,13 +99,12 @@ void yashy_trace_record(int kind, long long size, unsigned long long pc,
         yashy_trace_events[slot].size = size;
         yashy_trace_events[slot].pc = pc;
         yashy_trace_events[slot].ptr = ptr;
-        /* A bounded caller chain, captured here rather than at each hook so
-         * every kind of event has the same shape. Three frames are enough to
-         * name the enclosing function without turning the trace into a
-         * full profile. */
-        yashy_trace_events[slot].stack[0] = YASHY_TRACE_CALLER(1);
-        yashy_trace_events[slot].stack[1] = YASHY_TRACE_CALLER(2);
-        yashy_trace_events[slot].stack[2] = YASHY_TRACE_CALLER(3);
+        /* The return address of the hook is the one frame that is safe to
+         * read in an optimized build: deeper frames need frame pointers,
+         * which Yashy does not require. The remaining slots stay zero. */
+        yashy_trace_events[slot].stack[0] = pc;
+        yashy_trace_events[slot].stack[1] = 0;
+        yashy_trace_events[slot].stack[2] = 0;
     } else {
         __sync_fetch_and_add(&yashy_trace_dropped, 1);
     }
@@ -250,7 +249,7 @@ void yashy_metrics(const char *kind, const char *name, long long value) {
  * call site and symbolises to the Yashy line that printed. */
 static void yashy_trace_io(void) {
 #if defined(__clang__) || defined(__GNUC__)
-    yashy_trace_record(YASHY_TRACE_IO, 0, YASHY_TRACE_CALLER(2), 0);
+    yashy_trace_record(YASHY_TRACE_IO, 0, YASHY_TRACE_CALLER(), 0);
 #endif
 }
 
@@ -448,7 +447,7 @@ void yashy_free(void *ptr) {
     }
 #if defined(__clang__) || defined(__GNUC__)
     yashy_trace_record(YASHY_TRACE_FREE, 0,
-                       YASHY_TRACE_CALLER(1),
+                       YASHY_TRACE_CALLER(),
                        (unsigned long long)(size_t)ptr);
 #endif
     free(((void **)ptr)[-1]);
