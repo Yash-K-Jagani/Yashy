@@ -426,9 +426,10 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   table in a loop instead of writing one expression per entry; a runaway loop is
   stopped by the same step budget as a wide expression. Assigning a parameter is
   refused with `E0400`, exactly as in a run-time body. Still refused, and why
-  the step stays open: enum construction, method calls and `switch` have no
-  compile-time value. Struct literals and field reads are now folded, with
-  field types checked against the declaration through `ConstStructs`. The evaluator
+  the step stays open: method calls and `switch` have no compile-time value.
+  Struct and enum constructors, struct field reads and unit variants are now
+  folded, with their types checked against the declarations through
+  `ConstTypes`. The evaluator
   folds `const` initializers, array
   lengths and defaults through `const_eval`, while `size_of`/`align_of`/
   `offset_of` fold from the shared layout table in the checker; `docs/const-eval.md`
@@ -596,7 +597,7 @@ niche | Owed work, not excluded: pointer arithmetic, the null niche,
 ALIAS-4 and the attribute-justification gate |
 | 6.5, 7.1-7.5 | `size_of[T]()` bracket spelling; `const N` parameters | `sizeof(T)` / `alignof(T)` / `offsetof(T, f)` and the underscore spellings fold from the shared layout table; the bracket spelling needs const generics, which do not exist | Owed work; the checker/layout/IR agreement is pinned by `crates/yashy-driver/tests/layout.rs` |
 | 8.1, 8.2 | `Range[T]` value type with `start`/`end`/`len`/`is_empty`/`contains`/`step_by` | `..` and `..=` parse as a `for` head and as a pattern; a float bound is `E1518`; there is no range value or method surface | Owed work; `in` over a range waits on it |
-| 9.1, 9.4, 9.5 | Compile-time/run-time differential test, evaluator consumes typed HIR | The evaluator consumes the parser AST and folds arithmetic, `if`, `let`/assignment, loops, fixed arrays and nested calls; `const_assert` rejects a false compile-time fact; the table's IR-literal assertion is pinned by `crates/yashy-driver/tests/const_fn_ir.rs`. The compile-time/run-time differential is owed | Owed work; the AST choice is why `switch` and enum construction are still refused rather than wrong |
+| 9.1, 9.4, 9.5 | Compile-time/run-time differential test, evaluator consumes typed HIR | The evaluator consumes the parser AST and folds arithmetic, `if`, `let`/assignment, loops, fixed arrays and nested calls; `const_assert` rejects a false compile-time fact; the table's IR-literal assertion is pinned by `crates/yashy-driver/tests/const_fn_ir.rs`. The compile-time/run-time differential is owed | Owed work; the AST choice is why `switch` and method calls are still refused rather than wrong |
 | 10.1, 10.2, 10.5 | BPE audit over this phase's keywords in `o200k`, `cl100k` and a Llama tokenizer | `yashyc tokens --bpe` reports one tokenizer and counts; no `docs/bpe.md`, no per-keyword measurement | Needs the three vocabularies vendored (Phase 2 Task 8 owes the same files) |
 | Gates | Every acceptance row is a command that exists and passes on Windows and Linux | Rows name the test file that exists; the rows whose file is owed say so. Driver checks are green with the documented runtime build-script detach; freshly linked binaries are blocked by Windows Application Control, so the runtime, e2e and IR gates are CI-only | CI is deferred by the project owner; re-run the full gate set when CI is unblocked |
 

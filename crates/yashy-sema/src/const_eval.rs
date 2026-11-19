@@ -16,7 +16,8 @@
 //! - the condition-only loop (`while c { .. }`, which the parser lowers to
 //!   `for ; c; { .. }`) and its `break`/`continue`;
 //! - struct literals and field reads, with field types checked against the
-//!   declaration before the value is folded.
+//!   declaration before the value is folded;
+//! - enum constructors, with variant payload types checked the same way.
 //!
 //! Anything else is refused by name -- ``read_line`` is not allowed in a const
 //! fn -- rather than evaluated, because an expression the evaluator cannot
@@ -74,6 +75,12 @@ pub enum ConstValue {
         name: String,
         fields: Vec<(String, ConstValue)>,
     },
+    /// An enum value: the enum name, the variant and its payload values.
+    Enum {
+        name: String,
+        variant: String,
+        payload: Vec<ConstValue>,
+    },
 }
 
 impl ConstValue {
@@ -96,6 +103,7 @@ impl ConstValue {
                 elements.len(),
             ),
             ConstValue::Struct { name, .. } => TypeKind::Struct(name.clone()),
+            ConstValue::Enum { name, .. } => TypeKind::Enum(name.clone()),
         }
     }
 
@@ -106,6 +114,20 @@ impl ConstValue {
     /// it.
     pub fn to_expr(&self, span: Span) -> HirExpr {
         match self {
+            ConstValue::Enum {
+                name,
+                variant,
+                payload,
+            } => HirExpr::Call {
+                callee: vec![name.clone(), variant.clone()],
+                args: payload.iter().map(|value| value.to_expr(span)).collect(),
+                unsafe_call: false,
+                span,
+                ty: Type {
+                    kind: TypeKind::Enum(name.clone()),
+                    span,
+                },
+            },
             ConstValue::Struct { name, fields } => HirExpr::StructLit {
                 path: vec![name.clone()],
                 fields: fields
@@ -216,11 +238,21 @@ pub struct ConstFn {
 /// functions are *checked* in is the checker's business, not this module's.
 pub type ConstFns = BTreeMap<String, ConstFn>;
 
-/// The fields of every struct a `const fn` may construct, in declaration
-/// order. The checker builds this from its own declaration table and passes it
-/// to both passes, so a struct literal in a `const fn` is checked against the
-/// same field types an ordinary literal would use.
-pub type ConstStructs = BTreeMap<String, Vec<(String, Type)>>;
+/// The declarations a `const fn` may name: struct field types and enum
+/// variants with their payload types. The checker builds this from its own
+/// tables and passes it to both passes, so a literal in a `const fn` is checked
+/// against the same declaration an ordinary literal would use.
+#[derive(Clone, Debug, Default)]
+pub struct ConstTypes {
+    pub structs: BTreeMap<String, Vec<(String, Type)>>,
+    pub enums: BTreeMap<String, Vec<(String, Vec<TypeKind>)>>,
+}
+
+impl ConstTypes {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
 
 /// How deep a `const fn` evaluation may nest before it is called
 /// non-terminating.
@@ -341,7 +373,7 @@ impl ConstError {
 pub fn check_body(
     function: &ConstFn,
     consts: &ConstFns,
-    structs: &ConstStructs,
+    structs: &ConstTypes,
 ) -> Result<Vec<(String, Span)>, TypeError> {
     let mut env: Vec<(String, Type)> = function.params.clone();
     let mut work = Work::default();
@@ -407,7 +439,7 @@ fn check_block(
     work: &mut Work,
     in_loop: bool,
     params: usize,
-    structs: &ConstStructs,
+    structs: &ConstTypes,
 ) -> Result<(), TypeError> {
     let base = env.len();
     for statement in &block.stmts {
@@ -433,7 +465,7 @@ fn check_stmt(
     work: &mut Work,
     in_loop: bool,
     params: usize,
-    structs: &ConstStructs,
+    structs: &ConstTypes,
 ) -> Result<(), TypeError> {
     match statement {
         Stmt::Return(value, span) => {
@@ -667,7 +699,7 @@ fn check_expr(
     consts: &ConstFns,
     context: &str,
     work: &mut Work,
-    structs: &ConstStructs,
+    structs: &ConstTypes,
 ) -> Result<Type, TypeError> {
     match expr {
         Expr::Literal(literal, span) => Ok(Type {
@@ -675,6 +707,24 @@ fn check_expr(
             span: *span,
         }),
         Expr::Ident(path, span) => {
+            if let [enum_name, variant] = path.as_slice() {
+                if let Some(variants) = structs.enums.get(enum_name) {
+                    if let Some((_, payload_types)) =
+                        variants.iter().find(|(name, _)| name == variant)
+                    {
+                        if !payload_types.is_empty() {
+                            return Err(TypeError::new(
+                                *span,
+                                format!("variant `{variant}` needs a payload: write `{enum_name}.{variant}(..)`"),
+                            ));
+                        }
+                        return Ok(Type {
+                            kind: TypeKind::Enum(enum_name.clone()),
+                            span: *span,
+                        });
+                    }
+                }
+            }
             let name = path.last().cloned().unwrap_or_default();
             match env.iter().rev().find(|(param, _)| param == &name) {
                 Some((_, ty)) => Ok(ty.clone()),
@@ -782,6 +832,45 @@ fn check_expr(
         Expr::Call {
             callee, args, span, ..
         } => {
+            if let [enum_name, variant] = callee.as_slice() {
+                let Some(variants) = structs.enums.get(enum_name) else {
+                    return Err(TypeError::new(
+                        *span,
+                        format!("`{enum_name}` is not an enum this const fn can build"),
+                    ));
+                };
+                let Some((_, payload_types)) = variants.iter().find(|(name, _)| name == variant)
+                else {
+                    return Err(TypeError::new(
+                        *span,
+                        format!("`{enum_name}` has no variant `{variant}`"),
+                    ));
+                };
+                if args.len() != payload_types.len() {
+                    return Err(TypeError::new(
+                        *span,
+                        format!(
+                            "variant `{variant}` takes {} payload value(s), found {}",
+                            payload_types.len(),
+                            args.len()
+                        ),
+                    ));
+                }
+                for (argument, expected) in args.iter().zip(payload_types) {
+                    let actual = check_expr(&argument.value, env, consts, context, work, structs)?;
+                    if actual.kind != *expected {
+                        return Err(TypeError::new(
+                            argument.span,
+                            format!("expected `{expected}`, found `{actual}`"),
+                        )
+                        .with_code(codes::TYPE_MISMATCH));
+                    }
+                }
+                return Ok(Type {
+                    kind: TypeKind::Enum(enum_name.clone()),
+                    span: *span,
+                });
+            }
             let name = match callee.as_slice() {
                 [name] => name.clone(),
                 _ => {
@@ -830,7 +919,7 @@ fn check_expr(
             span,
         } => {
             let name = path.last().cloned().unwrap_or_default();
-            let Some(declared) = structs.get(&name) else {
+            let Some(declared) = structs.structs.get(&name) else {
                 return Err(TypeError::new(
                     *span,
                     format!("`{name}` is not a struct this const fn can build"),
@@ -881,7 +970,7 @@ fn check_expr(
                     format!("only a struct has a field, found `{base_ty}`"),
                 ));
             };
-            let Some(declared) = structs.get(name) else {
+            let Some(declared) = structs.structs.get(name) else {
                 return Err(TypeError::new(
                     *span,
                     format!("`{name}` has no known fields in {context}"),
@@ -1262,7 +1351,7 @@ pub fn evaluate(
     consts: &ConstFns,
     work: &mut Work,
     missing: Missing,
-    structs: &ConstStructs,
+    structs: &ConstTypes,
 ) -> Result<ConstValue, ConstError> {
     let mut bindings = env.to_vec();
     eval(expr, &mut bindings, consts, work, missing, structs)
@@ -1292,7 +1381,7 @@ fn eval(
     consts: &ConstFns,
     work: &mut Work,
     missing: Missing,
-    structs: &ConstStructs,
+    structs: &ConstTypes,
 ) -> Result<ConstValue, ConstError> {
     tick_at(expr_span(expr), work)?;
     match expr {
@@ -1304,6 +1393,17 @@ fn eval(
             Literal::Char(byte) => ConstValue::Char(*byte),
         }),
         Expr::Ident(path, span) => {
+            if let [enum_name, variant] = path.as_slice() {
+                if let Some(variants) = structs.enums.get(enum_name) {
+                    if variants.iter().any(|(name, _)| name == variant) {
+                        return Ok(ConstValue::Enum {
+                            name: enum_name.clone(),
+                            variant: variant.clone(),
+                            payload: Vec::new(),
+                        });
+                    }
+                }
+            }
             let name = path.last().cloned().unwrap_or_default();
             match env.iter().rev().find(|(param, _)| param == &name) {
                 Some((_, value)) => Ok(value.clone()),
@@ -1380,6 +1480,17 @@ fn eval(
         Expr::Call {
             callee, args, span, ..
         } => {
+            if let [enum_name, variant] = callee.as_slice() {
+                let mut payload = Vec::with_capacity(args.len());
+                for argument in args {
+                    payload.push(eval(&argument.value, env, consts, work, missing, structs)?);
+                }
+                return Ok(ConstValue::Enum {
+                    name: enum_name.clone(),
+                    variant: variant.clone(),
+                    payload,
+                });
+            }
             let name = match callee.as_slice() {
                 [name] => name.clone(),
                 _ => {
@@ -1512,7 +1623,7 @@ fn evaluate_block(
     work: &mut Work,
     in_loop: bool,
     params: usize,
-    structs: &ConstStructs,
+    structs: &ConstTypes,
 ) -> Result<Flow, ConstError> {
     let base = env.len();
     let mut flow = Flow::Fell;
@@ -1535,7 +1646,7 @@ fn evaluate_stmt(
     work: &mut Work,
     in_loop: bool,
     params: usize,
-    structs: &ConstStructs,
+    structs: &ConstTypes,
 ) -> Result<Flow, ConstError> {
     match statement {
         Stmt::Return(Some(expr), _) => Ok(Flow::Returned(eval(

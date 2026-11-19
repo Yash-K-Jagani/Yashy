@@ -33,7 +33,7 @@ use yashy_parser::ast::{
 };
 
 use crate::check_pat::{check_pattern, hir_pattern_span, is_irrefutable};
-use crate::const_eval::{self, ConstFn, ConstFns, ConstStructs, Missing};
+use crate::const_eval::{self, ConstFn, ConstFns, ConstTypes, Missing};
 use crate::error::TypeError;
 use crate::exhaustive::missing_witnesses_with;
 use crate::hir::*;
@@ -1501,11 +1501,29 @@ impl<'src> Checker<'src> {
     /// The field types of every declared struct, for the const interpreter.
     /// It is rebuilt at each call because declarations are collected as the
     /// program is walked; a const fn may refer to a struct declared after it.
-    fn const_structs(&self) -> ConstStructs {
-        self.structs
-            .iter()
-            .map(|(name, signature)| (name.clone(), signature.fields.clone()))
-            .collect()
+    fn const_structs(&self) -> ConstTypes {
+        ConstTypes {
+            structs: self
+                .structs
+                .iter()
+                .map(|(name, signature)| (name.clone(), signature.fields.clone()))
+                .collect(),
+            enums: self
+                .enums
+                .iter()
+                .map(|(name, signature)| {
+                    (
+                        name.clone(),
+                        signature
+                            .variants
+                            .iter()
+                            .zip(signature.payloads.iter())
+                            .map(|(variant, payload)| (variant.name.clone(), payload.clone()))
+                            .collect(),
+                    )
+                })
+                .collect(),
+        }
     }
 
     /// The nearest visible name, for a "did you mean" label.

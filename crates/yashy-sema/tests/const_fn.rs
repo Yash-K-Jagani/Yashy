@@ -221,6 +221,56 @@ fn a_const_fn_can_read_a_struct_field() {
 }
 
 #[test]
+fn a_const_fn_can_build_an_enum() {
+    let (result, _, _) = check_source(
+        "enum Color { Red, Green(int) }\n\
+         const fn picked() -> Color { return Color.Green(3); }\n\
+         fn f() { const c = picked(); }",
+    );
+    let hir = result.expect("an enum value can be folded into the HIR");
+    let body = format!(
+        "{:?}",
+        hir.items.iter().find_map(|item| match item {
+            HirItem::Fn(function) if function.name == "f" => Some(&function.body),
+            _ => None,
+        })
+    );
+    assert!(body.contains("Green"), "the variant is in the tree: {body}");
+    assert!(body.contains("I64(3)"), "the payload folded: {body}");
+}
+
+#[test]
+fn a_const_fn_can_build_a_unit_variant() {
+    let (result, _, _) = check_source(
+        "enum Flag { On, Off }\n\
+         const fn on() -> Flag { return Flag.On; }\n\
+         fn f() { const v = on(); }",
+    );
+    let hir = result.expect("a unit variant can be folded");
+    let body = format!(
+        "{:?}",
+        hir.items.iter().find_map(|item| match item {
+            HirItem::Fn(function) if function.name == "f" => Some(&function.body),
+            _ => None,
+        })
+    );
+    assert!(
+        body.contains("On"),
+        "the unit variant is in the tree: {body}"
+    );
+}
+
+#[test]
+fn a_const_fn_enum_payload_is_checked() {
+    assert_error(
+        "enum Color { Green(int) }\n\
+         const fn bad() -> Color { return Color.Green(true); }\n\
+         fn f() { const c = bad(); }",
+        "expected `int`, found `bool`",
+    );
+}
+
+#[test]
 fn a_const_fn_struct_literal_checks_field_types() {
     assert_error(
         "struct Point { x: int, y: int }\n\
@@ -306,7 +356,7 @@ fn const_eval_failures_carry_stable_codes() {
 #[test]
 fn evaluation_is_bounded_by_a_step_fuel() {
     use yashy_common::Span;
-    use yashy_sema::const_eval::{evaluate, ConstFns, ConstStructs, Missing, Work};
+    use yashy_sema::const_eval::{evaluate, ConstFns, ConstTypes, Missing, Work};
     use yashy_sema::ConstValue;
 
     let mut work = Work::default();
@@ -319,7 +369,7 @@ fn evaluation_is_bounded_by_a_step_fuel() {
         &ConstFns::new(),
         &mut work,
         Missing::NotFound,
-        &ConstStructs::new(),
+        &ConstTypes::new(),
     );
     let error = result.expect_err("the fuel must be exhausted");
     assert!(error.message.contains("steps"), "{error:?}");
