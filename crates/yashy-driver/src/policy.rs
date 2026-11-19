@@ -57,20 +57,20 @@ mod tests {
     fn a_policy_can_narrow_a_grant() {
         let manifest = Manifest::parse(
             "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n\
-             [capabilities]\nnet = []\n\"fs.read\" = [\"data/*\"]\n",
+             [capabilities]\nnet = []\nenv = []\n",
         )
         .unwrap();
         let resolved = resolve(&manifest, &["net".to_string()]);
         assert!(resolved.granted.has("net"));
-        assert!(!resolved.granted.has("fs.read"));
-        assert_eq!(resolved.denied, vec!["fs.read".to_string()]);
+        assert!(!resolved.granted.has("env"));
+        assert_eq!(resolved.denied, vec!["env".to_string()]);
     }
 
     #[test]
     fn a_request_outside_the_policy_is_denied() {
         assert!(check_request("net", &["net".to_string()]).is_ok());
         assert!(check_request("net", &[]).is_ok());
-        assert!(check_request("net", &["fs.read".to_string()]).is_err());
+        assert!(check_request("net", &["env".to_string()]).is_err());
         assert!(check_request("telepathy", &[]).is_err());
     }
 }

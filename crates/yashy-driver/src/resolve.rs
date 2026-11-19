@@ -373,7 +373,7 @@ impl Resolver<'_> {
                                 ""
                             };
                             ResolveError::offline(format!(
-                                "no non-yanked version of `{name}` satisfies `{version}`{hint}"
+                                "no non-yanked version of `{name}` satisfies `{version}` in the registry{hint}"
                             ))
                         })?
                 };

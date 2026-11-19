@@ -56,7 +56,7 @@ impl Repl {
     /// Classify a line, refusing the forms the REPL deliberately does not
     /// support. Refusals name the compiler verb that does support them.
     pub fn classify(&self, line: &str) -> Result<Line, String> {
-        let text = line.trim();
+        let text = without_strings(line.trim());
         if text.is_empty() {
             return Ok(Line::Empty);
         }
@@ -148,6 +148,32 @@ is compiled into a small program that prints its value; the value's type comes
 from the checker. FFI, threads, async, imports and filesystem writes are not
 supported here: put those in a file and use `yashyc run`."
     }
+}
+
+/// Drop the contents of string literals before keyword checks: a word inside
+/// a string is data, not a form the REPL has to refuse.
+fn without_strings(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut in_string = false;
+    let mut escaped = false;
+    for character in text.chars() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        if character == '"' {
+            in_string = true;
+        } else {
+            out.push(character);
+        }
+    }
+    out
 }
 
 fn has_word(text: &str, word: &str) -> bool {

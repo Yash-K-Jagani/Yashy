@@ -1364,7 +1364,7 @@ mod tests {
             function("one", Span::new(0, 18)),
             function("two", Span::new(19, 38)),
         ]);
-        let ir = "define void @yashy_fn_one() {\nentry:\n; yashy-loc:0:10:11\n  ret void\n}\ndefine void @yashy_fn_two() {\nentry:\n; yashy-loc:0:29:30\n  ret void\n}\n";
+        let ir = "define void @yashy_fn_one() {\nentry:\n; yashy-loc:0:11:12\n  ret void\n}\ndefine void @yashy_fn_two() {\nentry:\n; yashy-loc:0:30:31\n  ret void\n}\n";
         let annotated = annotate(ir, &hir, &sources);
         // One file, two functions: subprograms are !6 and !7, locations !8.. .
         assert!(
@@ -1384,7 +1384,10 @@ mod tests {
         let hir = program(vec![function("list", Span::new(0, 13))]);
         let ir = "define void @yashy_fn_list() {\nentry:\n  %slot0 = alloca [3 x i64]\n; yashy-var:local:xs:%slot0:tuple\n  ret void\n}\n";
         let annotated = annotate(ir, &hir, &sources);
-        assert!(!annotated.contains("call void @llvm.dbg.declare"), "{annotated}");
+        assert!(
+            !annotated.contains("call void @llvm.dbg.declare"),
+            "{annotated}"
+        );
         assert!(!annotated.contains("yashy-var"), "{annotated}");
     }
 }

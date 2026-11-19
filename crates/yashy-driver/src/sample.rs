@@ -210,6 +210,7 @@ mod unit {
             ("hot".to_string(), "main.ya:2:1".to_string()),
             ("hot".to_string(), "main.ya:2:1".to_string()),
             ("hot".to_string(), "main.ya:2:1".to_string()),
+            ("hot".to_string(), "main.ya:2:1".to_string()),
             ("cold".to_string(), "main.ya:8:1".to_string()),
         ];
         let report = aggregate("main.ya", &[1, 2, 3, 4, 5], &frames, 0, true);
