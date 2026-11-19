@@ -1162,6 +1162,15 @@ impl<'src> Parser<'src> {
             });
         }
 
+        // A block-shaped expression is a statement on its own: `unsafe { .. }`
+        // ends at its own brace, so a trailing semicolon is optional when the
+        // next token closes the enclosing block.
+        if matches!(expr, Expr::UnsafeBlock { .. } | Expr::SwitchExpr { .. })
+            && matches!(self.peek(), TokenKind::RBrace | TokenKind::Eof)
+        {
+            return Ok(Stmt::Expr(expr, span));
+        }
+
         let semi = self.expect(TokenKind::Semi)?;
         Ok(Stmt::Expr(expr, cover(span, semi.span)))
     }
