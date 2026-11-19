@@ -5,6 +5,7 @@
 - How to declare a C function, and when the call must say `unsafe`.
 - How `link_name` separates the name a program writes from the symbol the
   linker resolves.
+- How `link` names a system library or a vendored source the build compiles.
 - How a variadic C function is declared and called.
 - What `repr(C)` promises, and how `sizeof`, `alignof` and `offsetof` ask for
   the layout that promise buys.
@@ -27,6 +28,32 @@ fn main() {
 `c_sqrt` is the name the program calls; `link_name "sqrt"` is the symbol the
 linker resolves, and `link "m"` names the C library that holds it. Without the
 clause the declaration's own name is the symbol.
+
+## A vendored source instead of a library
+
+A `link` clause may name a file instead of a library. The extension is the
+difference: a name that ends in `.c`, `.cc`, `.cpp`, `.o`, `.obj`, `.a`, `.lib`,
+`.so` or `.dylib` is an input to the build, and the driver hands it to the same
+`clang` invocation that links the program. That is how a `-sys` package ships
+its fixture without asking the user for a separate compile step:
+
+```text
+// native/bindings.ya: the C ABI, linked against the vendored source beside it.
+extern "C" link "fixture.c" {
+    unsafe fn add(int a, int b) -> int;
+}
+```
+
+This block is the header of a project file rather than a stand-alone program,
+so the tutorial harness does not compile it: it names a C source this chapter
+does not ship. `yashyc new` writes the same shape with the file present.
+
+A relative path is resolved beside the file that wrote the clause, the way an
+import is, so `tests/smoke.ya` can name the project's fixture as
+`"../fixture.c"`. The file's bytes are part of the build's cache key, so editing
+the C source rebuilds the program. `yashyc new <name> --template native` writes
+this shape: a raw binding in `bindings.ya`, a checked wrapper in `safe.ya`, the
+vendored `fixture.c`, and a test that links it.
 
 ## When a call says `unsafe`
 
@@ -140,6 +167,10 @@ asking a plain struct for a field offset is `E0108`.
 
 - **Forgetting the library.** `link "m"` is part of the declaration; without it
   the linker reports an undefined symbol at build time.
+- **Naming a file as a library.** `link "fixture.c"` is a build input, so the
+  file has to exist beside the module that wrote the clause (or be absolute).
+  A relative path is resolved beside that file, not beside the directory the
+  command was run in.
 - **Passing an `int` to a variadic parameter.** `printf("%d\n", 42)` reports
   that the argument needs an explicit C width. Write `42 as i32`.
 - **Calling a variadic function without `unsafe`.** The extra arguments are

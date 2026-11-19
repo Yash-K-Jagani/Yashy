@@ -18,7 +18,7 @@ use yashy_lexer::Lexer;
 use yashy_parser::Parser;
 use yashy_sema::{check_program, HirProgram};
 
-use yashy_driver::pipeline::link_directives;
+use yashy_driver::pipeline::{link_directives, link_inputs};
 
 /// Parse and check `src`, treating every failure as a broken test fixture.
 fn hir_of(src: &str) -> HirProgram {
@@ -99,6 +99,75 @@ fn two_different_libraries_keep_source_order() {
            "#,
     );
     assert_eq!(flags, vec!["-lm".to_string(), "-lpthread".to_string()]);
+}
+
+/// A source map whose entry file is `project/main.ya`, matching [`hir_of`]'s
+/// file id zero. Only the path matters to `link_inputs`.
+fn project_sources(src: &str) -> SourceMap {
+    let mut sources = SourceMap::new();
+    sources.add_file("project/main.ya", src.to_string());
+    sources
+}
+
+#[test]
+fn a_link_clause_that_names_a_file_is_an_input_not_a_library() {
+    // A `-sys` package vendors its C source. `-lnative/fixture.c` would ask the
+    // linker for a library with a slash and a `.c` in its name, which can only
+    // fail; the file itself is what the build needs.
+    let src = r#"extern "C" link "native/fixture.c" {
+                   unsafe fn add(int a, int b) -> int;
+               }
+
+               fn main() {}
+               "#;
+    assert!(
+        directives(src).is_empty(),
+        "a file input must not become a `-l` flag"
+    );
+
+    let inputs = link_inputs(&hir_of(src), &project_sources(src));
+    let expected = Path::new("project")
+        .join("native")
+        .join("fixture.c")
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(
+        inputs,
+        vec![expected],
+        "the input is resolved beside the file that wrote the clause"
+    );
+}
+
+#[test]
+fn an_absolute_link_input_stays_absolute() {
+    // A manifest that resolves a vendored source once names an absolute path;
+    // joining it onto the source directory would invent a path under it.
+    let absolute = std::env::temp_dir().join("yashy-vendored.o");
+    let src = format!(
+        "extern \"C\" link \"{}\" {{\n    unsafe fn f(int x) -> int;\n}}\n\nfn main() {{}}\n",
+        absolute.to_string_lossy()
+    );
+    let inputs = link_inputs(&hir_of(&src), &project_sources(&src));
+    assert_eq!(inputs, vec![absolute.to_string_lossy().into_owned()]);
+}
+
+#[test]
+fn a_file_named_twice_is_linked_once() {
+    // Two binding modules can both name the same fixture. Passing it twice is
+    // legal but wrong in a command a user reads, and the plan promises one
+    // input per file.
+    let src = r#"extern "C" link "fixture.c" {
+                   unsafe fn add(int a, int b) -> int;
+               }
+
+               extern "C" link "fixture.c" {
+                   unsafe fn sub(int a, int b) -> int;
+               }
+
+               fn main() {}
+               "#;
+    let inputs = link_inputs(&hir_of(src), &project_sources(src));
+    assert_eq!(inputs.len(), 1, "one file is one input: {inputs:?}");
 }
 
 fn work_dir() -> PathBuf {

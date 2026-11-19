@@ -291,6 +291,10 @@ pub fn build_harness(
     let mut compile_errors: Vec<(usize, Vec<Json>)> = Vec::new();
     let mut warnings: Vec<(usize, Vec<Json>)> = Vec::new();
     let mut libs: Vec<String> = Vec::new();
+    // A `link` clause that names a file is an input to the harness link, like
+    // an object: it is placed before `-o` so a library that follows still
+    // resolves a symbol the file needs.
+    let mut link_files: Vec<String> = Vec::new();
     // IR is written here and compiled to objects in one bounded worker pool
     // below. A hundred tiny modules must not cost a hundred clang processes
     // started one after another.
@@ -364,6 +368,14 @@ pub fn build_harness(
         for flag in link_directives(&hir) {
             if !libs.contains(&flag) {
                 libs.push(flag);
+            }
+        }
+        // A `link` clause may name a vendored C source or an archive instead
+        // of a library. The harness link needs it on the command line too, or
+        // a test that calls into the fixture would not link.
+        for input in crate::pipeline::link_inputs(&hir, &sources) {
+            if !link_files.contains(&input) {
+                link_files.push(input);
             }
         }
 
@@ -584,7 +596,15 @@ pub fn build_harness(
     }
 
     let binary = link_harness(
-        tmp_dir, &entries, toolchain, target, &opt, &cpu, &libs, timings,
+        tmp_dir,
+        &entries,
+        toolchain,
+        target,
+        &opt,
+        &cpu,
+        &libs,
+        &link_files,
+        timings,
     )?;
     Ok(BuiltHarness {
         binary,
@@ -617,6 +637,7 @@ fn link_harness(
     opt: &OptLevel,
     cpu: &CpuTarget,
     libs: &[String],
+    link_files: &[String],
     timings: &mut Vec<TimingRow>,
 ) -> Result<PathBuf, Vec<Diagnostic>> {
     let harness_src = tmp_dir.join("harness.c");
@@ -731,6 +752,14 @@ fn link_harness(
     for flag in platform_library_flags(target) {
         if !all_libs.contains(&flag.to_string()) {
             all_libs.push(flag.to_string());
+        }
+    }
+
+    // A vendored source or archive is an input, so it goes with the objects and
+    // before the libraries. A separate `-o` later does not reorder it.
+    for file in link_files {
+        if !inputs.contains(file) {
+            inputs.push(file.clone());
         }
     }
 

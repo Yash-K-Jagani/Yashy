@@ -256,32 +256,63 @@ fn source_size(root: &Path) -> u64 {
         })
 }
 
+/// The native libraries a package's sources name with `link "..."`.
+///
+/// The `link` clause, not the ABI, is the library: `extern "C" link "m"` names
+/// libm. The files are read by the parser a build uses, so a clause in a
+/// comment is not a directive. A clause that names a vendored source or object
+/// is a build input rather than a library, so it is not reported here.
 fn extern_libraries(root: &Path) -> Vec<String> {
     let mut out = Vec::new();
-    let Ok(entries) = std::fs::read_dir(root) else {
-        return out;
+    collect_extern_libraries(root, &mut out);
+    out.sort();
+    out
+}
+
+fn collect_extern_libraries(dir: &Path, out: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            out.extend(extern_libraries(&path));
+            collect_extern_libraries(&path, out);
         } else if path.extension().is_some_and(|ext| ext == "ya") {
-            if let Ok(text) = std::fs::read_to_string(&path) {
-                for line in text.lines() {
-                    let trimmed = line.trim();
-                    if let Some(rest) = trimmed.strip_prefix("extern \"") {
-                        if let Some((library, _)) = rest.split_once('"') {
-                            if !out.iter().any(|name| name == library) {
-                                out.push(library.to_string());
-                            }
-                        }
-                    }
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            for library in link_clauses(&text) {
+                if !crate::pipeline::is_link_input(&library)
+                    && !out.iter().any(|name| name == &library)
+                {
+                    out.push(library);
                 }
             }
         }
     }
-    out.sort();
-    out
+}
+
+/// Every `link "..."` value in one file, read by the parser the build uses.
+///
+/// A file that does not lex or parse contributes nothing: `info` reports what a
+/// build would act on, and a broken source has no directives a build would see.
+fn link_clauses(text: &str) -> Vec<String> {
+    let mut sources = yashy_common::SourceMap::new();
+    let file = sources.add_file("<pkg>", text.to_string());
+    let Ok(tokens) = yashy_lexer::Lexer::new(text).tokenize() else {
+        return Vec::new();
+    };
+    let Ok(program) = yashy_parser::Parser::new(tokens, &sources, file).parse_program() else {
+        return Vec::new();
+    };
+    program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            yashy_parser::ast::Item::Extern { link, .. } => link.clone(),
+            _ => None,
+        })
+        .collect()
 }
 
 fn package_root(project: &Path, source: &str) -> Option<PathBuf> {

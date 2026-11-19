@@ -57,6 +57,34 @@ fn info_names_reverse_dependencies() {
 }
 
 #[test]
+fn info_reports_link_values_and_not_the_abi() {
+    // `native_libraries` is what a package manager reads to know which system
+    // libraries an install needs. The ABI is `"C"`, not a library, so reporting
+    // it would ask the user to install a library named C. A vendored source is
+    // a build input, not a system library, so it is not reported either.
+    let dir = common::work_dir("pkg-info-native");
+    fixture(&dir);
+    common::write(
+        &dir,
+        "bindings.ya",
+        "extern \"C\" link \"m\" {\n    unsafe fn c_sqrt(f64 x) -> f64 link_name \"sqrt\";\n}\n\n\
+         extern \"C\" link \"fixture.c\" {\n    unsafe fn add(int a, int b) -> int;\n}\n",
+    );
+    let lock = Lockfile::load(&dir.join("yashy.lock")).unwrap();
+    let report = yashy_driver::pkg_cmd::info(&lock, "lib", &dir).unwrap();
+    let text = report.render();
+    assert!(
+        text.contains("\"native_libraries\": [\n    \"m\"\n  ]"),
+        "the `link` clause is the library: {text}"
+    );
+    assert!(
+        !text.contains("fixture.c"),
+        "a vendored source is not a system library: {text}"
+    );
+    assert!(!text.contains("\"C\""), "the ABI is not a library: {text}");
+}
+
+#[test]
 fn remove_writes_a_backup_and_drops_the_dependency() {
     let dir = common::work_dir("pkg-remove");
     fixture(&dir);

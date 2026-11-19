@@ -120,21 +120,111 @@ fn files(template: &str, name: &str) -> Result<Vec<(&'static str, String)>, Stri
         "native" => Ok(vec![
             (
                 "main.ya",
-                "// The Phase 6 native linker work makes this a one-command build.\n\
-                 // For now the extern declaration documents the C ABI the fixture\n\
-                 // in fixture.c provides.\n\
-                 extern \"C\" {\n    fn add(int a, int b) -> int;\n}\n\
-                 fn main() {\n    print(add(1, 2));\n}\n".to_string(),
+                r#"// A `-sys` package: `bindings.ya` is the raw C ABI, `safe.ya` is
+// the checked wrapper, and `fixture.c` is the vendored source the
+// build compiles with this program.
+import safe;
+
+fn main() {
+    print(show(checked_add(1, 2)));
+    print(show(checked_add(9223372036854775807, 1)));
+}
+
+/// The text of a checked sum. `None` is the wrapper's refusal, not a
+/// sentinel from C.
+fn show(Option[int] value) -> string {
+    return switch value {
+        case Some(total) { "${total}" }
+        case None { "overflow" }
+    };
+}
+"#
+                .to_string(),
+            ),
+            (
+                "bindings.ya",
+                r#"// The raw C ABI: one declaration per symbol `fixture.c` defines, and a
+// `pub` forward so another module can reach it. An `extern` declaration is
+// private to the module that writes it, so this file is the one place that
+// names C.
+extern "C" link "fixture.c" {
+    unsafe fn add(int a, int b) -> int;
+}
+
+/// C's `add`, unchecked: the sum wraps on overflow exactly as C says.
+/// A `-sys` module's surface is the raw ABI, so this forward adds no check.
+pub fn raw_add(int a, int b) -> int {
+    return add(a, b);
+}
+"#
+                .to_string(),
+            ),
+            (
+                "safe.ya",
+                r#"// The safe surface of the package. `bindings.ya` is C's contract;
+// this module is Yashy's.
+import bindings;
+
+/// `add(a, b)`, or `None` when the sum would not fit in `int`.
+///
+/// The C function is a `long long` addition, which wraps on overflow.
+/// The guard is what makes the call safe: an overflowing pair never
+/// reaches C, so the answer is a value and not undefined behaviour.
+pub fn checked_add(int a, int b) -> Option[int] {
+    if a > 0 && b > 9223372036854775807 - a {
+        return None;
+    }
+    if a < 0 && b < -9223372036854775807 - 1 - a {
+        return None;
+    }
+    return Some(raw_add(a, b));
+}
+"#
+                .to_string(),
             ),
             (
                 "fixture.c",
-                "int add(int a, int b) { return a + b; }\n".to_string(),
+                r#"/* The vendored C source. `link "fixture.c"` is an input to the
+ * build, so clang compiles it with the program: no separate build step
+ * and no installed library. */
+long long add(long long a, long long b) { return a + b; }
+"#
+                .to_string(),
             ),
             (
                 "tests/smoke.ya",
-                "fn main() { assert(1 + 1 == 2); }\n".to_string(),
+                r#"// A test is an entry file of its own, so it declares the ABI it
+// exercises and links the project's fixture by relative path. The
+// wrapper is exercised by `main.ya`; this test proves the C library
+// itself is reachable.
+extern "C" link "../fixture.c" {
+    unsafe fn add(int a, int b) -> int;
+}
+
+fn main() {
+    assert(add(1, 2) == 3);
+    assert(add(20, 22) == 42);
+}
+"#
+                .to_string(),
             ),
-            ("README.md", format!("# {name}\n\nA native binding skeleton; see fixture.c.\n")),
+            (
+                "README.md",
+                format!(
+                    "# {name}\n\n\
+                     A `-sys` package skeleton. `bindings.ya` declares the C ABI and\n\
+                     forwards it as `raw_add`, `safe.ya` wraps that in a checked call,\n\
+                     `fixture.c` is the vendored source, and `tests/smoke.ya` links the\n\
+                     same fixture.\n\n\
+                     `link \"fixture.c\"` names a file rather than a library: the build\n\
+                     compiles the C source with the program, so `yashyc build` and\n\
+                     `yashyc test` need no separate `cc` step. A system library keeps\n\
+                     the library spelling, such as `link \"m\"`.\n\n\
+                     The wrapper is the package's contract. `checked_add` refuses a\n\
+                     pair whose sum would overflow, so `raw_add` is the only path to\n\
+                     the unchecked ABI.\n"
+                ),
+            ),
         ]),
         other => Err(format!(
             "unknown template `{other}`; expected one of: {}",

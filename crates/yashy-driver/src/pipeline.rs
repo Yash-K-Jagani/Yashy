@@ -644,6 +644,20 @@ pub fn ir_cache_key(
     entry_name: &str,
     options: &BuildOptions,
 ) -> yashy_cache::CacheKey {
+    ir_cache_key_with_inputs(sources, entry_name, options, &[])
+}
+
+/// The IR cache key, with the native inputs a `link` clause names.
+///
+/// A vendored C source or archive can change the binary without touching a
+/// `.ya` file, so its bytes belong in the key. Hashing them here is what keeps
+/// a changed fixture from being answered by yesterday's cached program.
+pub fn ir_cache_key_with_inputs(
+    sources: &SourceMap,
+    entry_name: &str,
+    options: &BuildOptions,
+    link_inputs: &[String],
+) -> yashy_cache::CacheKey {
     let mut files: Vec<(String, String)> = (0..sources.len())
         .map(|index| {
             // `SourceMap` caps its ids at `u32::MAX`, so a valid index always
@@ -652,6 +666,19 @@ pub fn ir_cache_key(
             (sources.path(id).to_string(), sources.file(id).to_string())
         })
         .collect();
+    for input in link_inputs {
+        // A missing or unreadable input still contributes: its absence is part
+        // of the build, and a `marker` keeps it distinct from an empty file.
+        let fingerprint = match std::fs::read(input) {
+            Ok(bytes) => {
+                let mut state = FNV_OFFSET_BASIS;
+                fnv1a(&mut state, &bytes);
+                format!("{state:016x}")
+            }
+            Err(_) => "missing".to_string(),
+        };
+        files.push((input.clone(), fingerprint));
+    }
     files.sort();
     let flags = [
         entry_name.to_string(),
@@ -952,11 +979,16 @@ impl Default for BuildOptions {
 /// a `-l` flag: the backend never sees a linker command line. Each library is
 /// named once even when several blocks need it, in source order, so the command
 /// a build failure quotes is the one a user wrote.
+///
+/// A clause that names an input file is not here: see [`link_inputs`].
 pub fn link_directives(hir: &HirProgram) -> Vec<String> {
     let mut flags: Vec<String> = Vec::new();
     for item in &hir.items {
         if let HirItem::Extern(block) = item {
             if let Some(library) = &block.link {
+                if is_link_input(library) {
+                    continue;
+                }
                 let flag = format!("-l{library}");
                 if !flags.contains(&flag) {
                     flags.push(flag);
@@ -965,6 +997,64 @@ pub fn link_directives(hir: &HirProgram) -> Vec<String> {
         }
     }
     flags
+}
+
+/// Whether a `link` clause names a file rather than a library.
+///
+/// A `-sys` package vendors its C source, or ships an object or a static
+/// library, beside the declaration: `extern "C" link "native/fixture.c"`.
+/// That clause is an input to the link, not a name for the linker to search
+/// for. The extension is the whole test, so a bare name such as `"m"` keeps
+/// its `-l` spelling and a file with an extension does not acquire one.
+pub fn is_link_input(name: &str) -> bool {
+    let extension = Path::new(name)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| extension.to_ascii_lowercase());
+    matches!(
+        extension.as_deref(),
+        Some("c" | "cc" | "cpp" | "o" | "obj" | "a" | "lib" | "so" | "dylib")
+    )
+}
+
+/// The file `link` clauses of every `extern` block, in source order.
+///
+/// A relative path is resolved beside the file that wrote the clause, the way
+/// an import is, so a binding module and its vendored source can move together
+/// and a test under `tests/` can name the project's fixture as `../fixture.c`.
+/// Each file is named once even when several blocks share it. Clang compiles a
+/// C source and links an object or archive, so the driver passes the path as
+/// one more input rather than inventing a per-extension command.
+///
+/// The returned strings are display paths; the caller hands them to the
+/// toolchain unchanged.
+pub fn link_inputs(hir: &HirProgram, sources: &SourceMap) -> Vec<String> {
+    let mut inputs: Vec<String> = Vec::new();
+    for item in &hir.items {
+        let HirItem::Extern(block) = item else {
+            continue;
+        };
+        let Some(name) = &block.link else {
+            continue;
+        };
+        if !is_link_input(name) {
+            continue;
+        }
+        let path = Path::new(name);
+        let resolved = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            let base = Path::new(sources.path(block.file))
+                .parent()
+                .unwrap_or_else(|| Path::new("."));
+            base.join(path)
+        };
+        let text = resolved.to_string_lossy().into_owned();
+        if !inputs.contains(&text) {
+            inputs.push(text);
+        }
+    }
+    inputs
 }
 
 /// The libraries a platform needs whether or not a program names them.
@@ -1549,9 +1639,9 @@ pub fn compile_hir_timed(
     } else {
         None
     };
-    let key = cache
-        .as_ref()
-        .map(|_| ir_cache_key(sources, entry_name, &options));
+    let key = cache.as_ref().map(|_| {
+        ir_cache_key_with_inputs(sources, entry_name, &options, &link_inputs(hir, sources))
+    });
 
     let cached = match (&cache, &key) {
         (Some(store), Some(key)) => store
@@ -1783,6 +1873,7 @@ pub fn compile_hir_timed(
                 timings: &mut Vec<TimingRow>|
      -> Result<(), Vec<Diagnostic>> {
         let args = link_arguments(
+            sources,
             hir,
             options.clone(),
             &target,
@@ -1863,6 +1954,7 @@ fn sanitizer_flags(value: Option<&str>) -> &'static [&'static str] {
 /// target, the runtime sources and the libraries.
 #[allow(clippy::too_many_arguments)]
 fn link_arguments(
+    sources: &SourceMap,
     hir: &HirProgram,
     options: BuildOptions,
     target: &str,
@@ -1933,6 +2025,10 @@ fn link_arguments(
     }
     args.push("-o".to_string());
     args.push(display(out));
+    // A `link` clause that names a file is that file: clang compiles a C source
+    // and links an object or archive. It goes after the generated objects so an
+    // archive can resolve the symbols they reference.
+    args.extend(link_inputs(hir, sources));
     // Libraries last, after every object on the command line: GNU `ld` resolves
     // a symbol from the archives to its right, so `-lm` before the object that
     // calls `sqrt` would not find it. The `link` directives come first so a

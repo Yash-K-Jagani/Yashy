@@ -112,6 +112,69 @@ fn service_and_native_templates_have_tests_and_docs() {
         assert!(root.join("main.ya").is_file(), "{template}");
         if template == "native" {
             assert!(root.join("fixture.c").is_file());
+            assert!(root.join("bindings.ya").is_file());
+            assert!(root.join("safe.ya").is_file());
         }
     }
+}
+
+#[test]
+fn the_native_template_links_its_vendored_c_source() {
+    // The template is a `-sys` package: the ABI is in `bindings.ya`, the safe
+    // wrapper is in `safe.ya`, and the C fixture is a build input named by
+    // `link "fixture.c"`. Both commands therefore need no `cc` step of their
+    // own, and the test really calls into C. A skeleton that compiled but never
+    // reached the fixture would pass on this host and fail in CI, which is
+    // exactly the "placeholder that lies" the plan refuses.
+    let dir = work_dir("new-native-link");
+    let output = new(&dir, &["new", "native-demo", "--template", "native"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let project = dir.join("native-demo");
+
+    let tested = Command::new(yashyc())
+        .arg("test")
+        .current_dir(&project)
+        .output()
+        .expect("the CLI must run");
+    assert!(
+        tested.status.success(),
+        "the native template's test must link and pass:\n{}\n{}",
+        String::from_utf8_lossy(&tested.stdout),
+        String::from_utf8_lossy(&tested.stderr)
+    );
+
+    let exe = project.join(format!("native-demo{}", std::env::consts::EXE_SUFFIX));
+    let built = Command::new(yashyc())
+        .arg("build")
+        .arg("main.ya")
+        .arg("-o")
+        .arg(&exe)
+        .current_dir(&project)
+        .output()
+        .expect("the CLI must run");
+    assert!(
+        built.status.success(),
+        "the wrapper and fixture must link together:\n{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+
+    let ran = Command::new(&exe)
+        .output()
+        .expect("the built program must run");
+    assert!(
+        ran.status.success(),
+        "the built program must exit 0: {}",
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&ran.stdout);
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(
+        lines,
+        vec!["3", "overflow"],
+        "the wrapper turns C's unchecked add into a checked value: {stdout}"
+    );
 }
