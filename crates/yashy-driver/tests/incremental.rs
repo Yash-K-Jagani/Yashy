@@ -7,20 +7,6 @@ mod common;
 use common::{work_dir, write, yashyc};
 use std::process::Command;
 
-fn verify(dir: &std::path::Path, file: &str) -> String {
-    let output = Command::new(yashyc())
-        .args(["cache", "verify", file])
-        .current_dir(dir)
-        .output()
-        .expect("the CLI must run");
-    assert!(
-        output.status.success(),
-        "cache verify must succeed:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8_lossy(&output.stdout).trim().to_string()
-}
-
 #[test]
 fn the_v2_key_changes_when_any_named_input_changes() {
     use yashy_cache::program_key_v2;
