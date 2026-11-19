@@ -171,6 +171,9 @@ pub enum Item {
         /// The representation asked for by a `repr(..)` clause, when one was
         /// written.
         repr: Option<ReprKind>,
+        /// The names written in a `derive(..)` clause, in source order. They
+        /// are metadata until expansion; nothing is generated from them yet.
+        derives: Vec<String>,
         span: Span,
     },
     /// `enum C { Red, Green }`
@@ -184,6 +187,8 @@ pub enum Item {
         /// The representation asked for by a `repr(..)` clause, when one was
         /// written.
         repr: Option<ReprKind>,
+        /// The names written in a `derive(..)` clause, in source order.
+        derives: Vec<String>,
         span: Span,
     },
     /// `impl Point { fn sum(self) -> i64 { ... } }`

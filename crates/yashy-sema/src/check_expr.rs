@@ -58,6 +58,8 @@ pub const MAX_INSTANTIATIONS_TOTAL: usize = 4096;
 #[derive(Clone, Debug)]
 struct StructSig {
     fields: Vec<(String, Type)>,
+    /// Names from a `derive(..)` clause, in source order.
+    derives: Vec<String>,
     /// Whether each field may be used from another module, in the same order
     /// as `fields`.
     ///
@@ -112,6 +114,8 @@ struct ItemOrigin {
 #[derive(Clone, Debug)]
 struct EnumSig {
     variants: Vec<VariantDef>,
+    /// Names from a `derive(..)` clause, in source order.
+    derives: Vec<String>,
     /// Each variant's payload types, resolved, in declaration order and in the
     /// same order as `variants`.
     ///
@@ -2412,6 +2416,7 @@ impl<'src> Checker<'src> {
                     field_public,
                     defaults,
                     repr_c: scheme.repr_c,
+                    derives: Vec::new(),
                     repr: scheme.repr,
                     origin: scheme.origin,
                 },
@@ -2481,6 +2486,7 @@ impl<'src> Checker<'src> {
                     variants,
                     payloads,
                     repr_c: scheme.repr_c,
+                    derives: Vec::new(),
                 },
             );
         }
@@ -2517,6 +2523,7 @@ impl<'src> Checker<'src> {
                     .unwrap_or_else(|| sig.fields.iter().map(|_| scheme_span).collect());
                 out.push(HirItem::Struct(HirStruct {
                     name: mangled.clone(),
+                    derives: sig.derives.clone(),
                     fields: sig
                         .fields
                         .iter()
@@ -2543,6 +2550,7 @@ impl<'src> Checker<'src> {
                     .unwrap_or(Span::new(0, 0));
                 out.push(HirItem::Enum(HirEnum {
                     name: mangled.clone(),
+                    derives: sig.derives.clone(),
                     variants: sig
                         .variants
                         .iter()
@@ -3245,6 +3253,7 @@ impl<'src> Checker<'src> {
                         field_public,
                         defaults,
                         repr_c: repr.is_some(),
+                        derives: Vec::new(),
                         repr: *repr,
                         origin: self.origin(public),
                     },
@@ -3300,6 +3309,7 @@ impl<'src> Checker<'src> {
                 fields,
                 repr,
                 span,
+                ..
             } => {
                 let binding = Binding {
                     ty: Type {
@@ -3388,6 +3398,7 @@ impl<'src> Checker<'src> {
                         field_public,
                         defaults,
                         repr_c: repr.is_some(),
+                        derives: Vec::new(),
                         repr: *repr,
                         origin: self.origin(public),
                     },
@@ -3400,6 +3411,7 @@ impl<'src> Checker<'src> {
                 variants,
                 repr,
                 span,
+                ..
             } => {
                 let binding = Binding {
                     ty: Type {
@@ -3486,6 +3498,7 @@ impl<'src> Checker<'src> {
                         variants: variants.clone(),
                         payloads,
                         repr_c: repr.is_some(),
+                        derives: Vec::new(),
                     },
                 );
                 self.record_origin(name, public);
@@ -5014,6 +5027,7 @@ impl<'src> Checker<'src> {
                 type_params,
                 fields,
                 repr,
+                derives,
                 span,
             } => {
                 // A generic struct is a scheme: it emits nothing, and its
@@ -5025,6 +5039,7 @@ impl<'src> Checker<'src> {
                 let sig = self.structs.get(name).cloned()?;
                 Some(vec![HirItem::Struct(HirStruct {
                     name: name.clone(),
+                    derives: derives.clone(),
                     fields: fields
                         .iter()
                         .zip(sig.fields.iter())
@@ -5043,6 +5058,7 @@ impl<'src> Checker<'src> {
                 type_params,
                 variants,
                 repr,
+                derives,
                 span,
             } => {
                 // A generic enum is a scheme like a generic struct.
@@ -5056,6 +5072,7 @@ impl<'src> Checker<'src> {
                 let sig = self.enums.get(name).cloned()?;
                 Some(vec![HirItem::Enum(HirEnum {
                     name: name.clone(),
+                    derives: derives.clone(),
                     variants: variants
                         .iter()
                         .zip(sig.payloads.iter())
@@ -5166,6 +5183,7 @@ impl<'src> Checker<'src> {
                 let sig = self.structs.get(name).cloned()?;
                 let mut items = vec![HirItem::Struct(HirStruct {
                     name: name.clone(),
+                    derives: sig.derives.clone(),
                     fields: fields
                         .iter()
                         .zip(sig.fields.iter())
@@ -14378,6 +14396,7 @@ fn builtin_enums() -> HashMap<String, EnumSig> {
             variants,
             payloads,
             repr_c: false,
+            derives: Vec::new(),
         },
     );
     enums

@@ -25,6 +25,21 @@ fn index_of(dir: &Path) -> String {
 }
 
 #[test]
+fn an_index_shows_the_derive_clause_on_a_type() {
+    let dir = common::work_dir("index-derives");
+    common::write(
+        &dir,
+        "main.ya",
+        "struct Point derive(Debug, Eq) { x: int }\nfn main() {}",
+    );
+    let output = index_of(&dir);
+    assert!(
+        output.contains("\"signature\": \"struct Point derive(Debug, Eq)\""),
+        "the derive clause must be visible in the index: {output}"
+    );
+}
+
+#[test]
 fn an_index_of_examples_contains_every_top_level_symbol() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
     let output = index_of(&root);
@@ -32,7 +47,10 @@ fn an_index_of_examples_contains_every_top_level_symbol() {
         output.contains("\"schema_version\": 1"),
         "json must be schema v1:\n{output}"
     );
-    assert!(output.contains("\"kind\": \"fn\""), "a function symbol:\n{output}");
+    assert!(
+        output.contains("\"kind\": \"fn\""),
+        "a function symbol:\n{output}"
+    );
     assert!(
         output.contains("\"signature\": \"fn main() -> void\""),
         "main's signature:\n{output}"

@@ -1155,6 +1155,7 @@ mod tests {
         let hir = HirProgram {
             items: vec![HirItem::Struct(HirStruct {
                 name: "Point".to_string(),
+                derives: Vec::new(),
                 fields: vec![HirFieldDef {
                     name: "x".to_string(),
                     ty: Type {

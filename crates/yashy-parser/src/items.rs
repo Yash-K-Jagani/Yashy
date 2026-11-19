@@ -266,6 +266,7 @@ impl<'src> Parser<'src> {
                 name,
                 type_params,
                 fields,
+                derives,
                 span,
                 ..
             } => Ok(Item::Struct {
@@ -273,12 +274,14 @@ impl<'src> Parser<'src> {
                 type_params,
                 fields,
                 repr: Some(repr),
+                derives,
                 span: cover(repr_span, span),
             }),
             Item::Enum {
                 name,
                 type_params,
                 variants,
+                derives,
                 span,
                 ..
             } => Ok(Item::Enum {
@@ -286,6 +289,7 @@ impl<'src> Parser<'src> {
                 type_params,
                 variants,
                 repr: Some(repr),
+                derives,
                 span: cover(repr_span, span),
             }),
             Item::Object {
@@ -436,6 +440,31 @@ impl<'src> Parser<'src> {
         Ok(name)
     }
 
+    /// An optional `derive(Debug, Eq)` clause on a struct or enum.
+    ///
+    /// It is a clause, not an attribute: no `#[..]` spelling exists, and the
+    /// names travel to HIR as data for a later expansion pass.
+    fn parse_derive_clause(&mut self) -> Result<Vec<String>, ParseError> {
+        if !self.check(TokenKind::Ident) || !self.identifier_is("derive") {
+            return Ok(Vec::new());
+        }
+        self.advance();
+        self.expect(TokenKind::LParen)?;
+        let mut names = Vec::new();
+        while !self.check(TokenKind::RParen) && !self.at_eof() {
+            let (name, _) = self.identifier()?;
+            if names.contains(&name) {
+                return Err(self.error(self.peek_span(), format!("derive names `{name}` twice")));
+            }
+            names.push(name);
+            if !self.eat(TokenKind::Comma) {
+                break;
+            }
+        }
+        self.expect(TokenKind::RParen)?;
+        Ok(names)
+    }
+
     /// `struct P { x: f64, y: f64 }` or `struct Pair[T] { first: T }`
     ///
     /// At least one field is required. An empty struct is legal in plenty of
@@ -446,6 +475,7 @@ impl<'src> Parser<'src> {
         let keyword = self.expect(TokenKind::Struct)?;
         let (name, name_span) = self.identifier()?;
         let type_params = self.parse_type_params()?;
+        let derives = self.parse_derive_clause()?;
         let open = self.expect(TokenKind::LBrace)?;
         let _ = self.push_open(TokenKind::LBrace, open.span)?;
 
@@ -470,6 +500,7 @@ impl<'src> Parser<'src> {
             type_params,
             fields,
             repr: None,
+            derives,
             span: cover(keyword.span, close.span),
         })
     }
@@ -852,6 +883,7 @@ impl<'src> Parser<'src> {
         let keyword = self.expect(TokenKind::Enum)?;
         let (name, name_span) = self.identifier()?;
         let type_params = self.parse_type_params()?;
+        let derives = self.parse_derive_clause()?;
         let open = self.expect(TokenKind::LBrace)?;
         let _ = self.push_open(TokenKind::LBrace, open.span)?;
 
@@ -876,6 +908,7 @@ impl<'src> Parser<'src> {
             type_params,
             variants,
             repr: None,
+            derives,
             span: cover(keyword.span, close.span),
         })
     }

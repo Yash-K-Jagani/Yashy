@@ -61,6 +61,9 @@ pub struct HirStruct {
     /// The representation the declaration asked for, when it asked for one.
     /// `Some(ReprKind::C)` means the fields are laid out by C's rules.
     pub repr: Option<ReprKind>,
+    /// The names from a `derive(..)` clause, in source order. Expansion is
+    /// still owed; the names are carried so tooling can see the promise.
+    pub derives: Vec<String>,
     pub span: Span,
 }
 
@@ -80,6 +83,8 @@ pub struct HirEnum {
     /// The representation the declaration asked for, when it asked for one.
     /// `Some(ReprKind::C)` makes the tag a C `int` and forbids payloads.
     pub repr: Option<ReprKind>,
+    /// The names from a `derive(..)` clause, in source order.
+    pub derives: Vec<String>,
     pub span: Span,
 }
 

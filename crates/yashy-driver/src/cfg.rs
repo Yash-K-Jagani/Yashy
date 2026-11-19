@@ -219,6 +219,7 @@ fn filter_item(
             type_params,
             mut fields,
             repr,
+            derives,
             span,
         } => {
             filter_fields(&mut fields, set, file, diagnostics);
@@ -227,6 +228,7 @@ fn filter_item(
                 type_params,
                 fields,
                 repr,
+                derives,
                 span,
             })
         }

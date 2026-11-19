@@ -189,7 +189,13 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 - Test: `crates/yashy-sema/tests/derive.rs`, `crates/yashy-sema/tests/closures.rs`
 
 - [ ] **Step 1: Write the failing test.** `struct Point derive(Debug, Eq, Hash) { x: int, y: int }` and an enum with `Encode`/`Decode`. Assert the generated impls are deterministic (same bytes across runs), visible in `index --json`, and refused when a field does not implement the requirement (naming the field).
+  *Current:* the clause parses and is carried through HIR to `index --json`
+  (`crates/yashy-parser/tests/derives.rs`, `crates/yashy-driver/tests/index.rs`).
+  No impl is generated yet, so the determinism and field-bound assertions are
+  still owed.
 - [ ] **Step 2: Derives are compiler-known, not macros.** Each derive is a built-in expansion over HIR with a stable order: fields in declaration order, variants in declaration order, no hash-map iteration. `derive(Debug)` renders a stable, readable form; `Encode`/`Decode` use the Phase 7 codec interface.
+  *Current:* the names are data on `HirStruct`/`HirEnum` and appear in the
+  index signature, but no expansion pass exists, so the step stays open.
 - [ ] **Step 3: Capture modes are in the type.** A closure writes `move` / value / by-pointer captures; the closure's type records each captured binding and its mode, the verifier sees every capture, and a `move` closure cannot outlive a value it moved. A capture mode that cannot be honoured is a diagnostic, not a silent copy.
 - [x] **Step 4: `defer expr;` and scoped release.** `defer expr;` and
   `defer a(), b();` parse into the same `Stmt::Defer` body a braced block
@@ -595,6 +601,7 @@ does not build on a claim that is not true.
 | 5.1-5.6 | `unsafe` gates deref and pointer arithmetic; `Option[*const T]` null niche; alias corpus per rule | `unsafe { }` parses, checks, is inventoried and gates both `alloc_uninit` (`E1405`) and C-pointer dereference (`E1406`, ALIAS-2). ALIAS-1, ALIAS-3 and ALIAS-5 have codes. Pointer arithmetic is still ungated, there is no null niche. `crates/yashy-verify/tests/unsafe.rs` pins the inventory, not the
 niche | Owed work, not excluded: pointer arithmetic, the null niche,
 ALIAS-4 and the attribute-justification gate |
+| 4.1, 4.2 | Deterministic derive impls, visible in `index`, field-bound diagnostics | `derive(Name, ..)` parses as a clause on structs and enums, the names travel through HIR and appear in the index signature. No impl is generated and no field bound is checked | Owed work: expansion, determinism proof and field-bound diagnostic |
 | 6.5, 7.1-7.5 | `size_of[T]()` bracket spelling; `const N` parameters | `sizeof(T)` / `alignof(T)` / `offsetof(T, f)` and the underscore spellings fold from the shared layout table; the bracket spelling needs const generics, which do not exist | Owed work; the checker/layout/IR agreement is pinned by `crates/yashy-driver/tests/layout.rs` |
 | 8.1, 8.2 | `Range[T]` value type with `start`/`end`/`len`/`is_empty`/`contains`/`step_by` | `..` and `..=` parse as a `for` head and as a pattern; a float bound is `E1518`; there is no range value or method surface | Owed work; `in` over a range waits on it |
 | 9.1, 9.4, 9.5 | Compile-time/run-time differential test, evaluator consumes typed HIR | The evaluator consumes the parser AST and folds arithmetic, `if`, `let`/assignment, loops, fixed arrays and nested calls; `const_assert` rejects a false compile-time fact; the table's IR-literal assertion is pinned by `crates/yashy-driver/tests/const_fn_ir.rs`. The compile-time/run-time differential is owed | Owed work; the AST choice is why `switch` and method calls are still refused rather than wrong |

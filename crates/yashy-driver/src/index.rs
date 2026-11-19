@@ -37,6 +37,17 @@ pub struct Symbol {
     pub docs: Option<String>,
 }
 
+/// The spelling a `derive(..)` clause contributes to a symbol's signature.
+/// Empty when the item wrote no clause, so unchanged items keep their old
+/// signature byte-for-byte.
+fn derive_suffix(names: &[String]) -> String {
+    if names.is_empty() {
+        String::new()
+    } else {
+        format!(" derive({})", names.join(", "))
+    }
+}
+
 impl Symbol {
     pub fn is_public(&self) -> bool {
         self.visibility == "pub"
@@ -439,7 +450,7 @@ fn collect_file(
                     kind: "struct".to_string(),
                     file: display.clone(),
                     span,
-                    signature: format!("struct {}", s.name),
+                    signature: format!("struct {}{}", s.name, derive_suffix(&s.derives)),
                     effects: None,
                     contracts: Vec::new(),
                     typestate: None,
@@ -458,7 +469,7 @@ fn collect_file(
                     kind: "enum".to_string(),
                     file: display.clone(),
                     span,
-                    signature: format!("enum {}", e.name),
+                    signature: format!("enum {}{}", e.name, derive_suffix(&e.derives)),
                     effects: None,
                     contracts: Vec::new(),
                     typestate: None,
