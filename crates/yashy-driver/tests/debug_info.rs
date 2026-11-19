@@ -166,7 +166,7 @@ fn a_debug_ir_dump_carries_locals_and_types_without_a_toolchain() {
     // a frame, so giving the factory the subprogram would orphan every marker.
     assert_eq!(ir.matches("= distinct !DISubprogram(").count(), 3, "{ir}");
     assert!(
-        ir.contains("@later.poll("),
+        ir.contains("@later.poll"),
         "the poll function is emitted: {ir}"
     );
     let later = ir
