@@ -835,6 +835,24 @@ impl<'src> Parser<'src> {
     /// One term inside `cfg(..)`: a key, or a combinator with its own list.
     fn parse_cfg_term(&mut self) -> Result<CfgExpr, ParseError> {
         let (name, name_span) = self.identifier()?;
+        if name == "feature" {
+            // `cfg(feature = "net")` is the source spelling of the flat
+            // `feature:net` key the driver's cfg filter already reads from the
+            // enabled feature set. Keeping one key shape means the filter, the
+            // cache key and the lockfile never learn a second vocabulary.
+            self.expect(TokenKind::Eq)?;
+            let token = self.expect(TokenKind::Str)?;
+            let raw = self.text(token.span)?;
+            let decoded = yashy_lexer::StringLit::decode(&raw)
+                .map_err(|_| self.error(token.span, "a feature name must be a string literal"))?;
+            if decoded.value.is_empty() {
+                return Err(self.error(token.span, "a feature name cannot be empty"));
+            }
+            return Ok(CfgExpr::Key(
+                format!("feature:{}", decoded.value),
+                cover(name_span, token.span),
+            ));
+        }
         match name.as_str() {
             "not" | "any" | "all" => {
                 let open = self.expect(TokenKind::LParen)?;

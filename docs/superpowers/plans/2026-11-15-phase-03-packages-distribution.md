@@ -154,10 +154,11 @@ folded into the IR cache key rather than resolver inputs.
   own. A feature name is a `cfg` key (Phase 4 reads it); a misspelt feature is
   a diagnostic, never a false condition.
   *Current:* features are a sorted `BTreeSet`, exposed as `feature:<name>` cfg
-  keys. Phase 4's `cfg(feature = "x")` syntax is not here yet; the flat key is
-  the current spelling. `build`, `check`, `verify` and `--print-cfg` all accept
-  `--features`/`--no-default-features`; the selection is applied to the `cfg`
-  filter before the tree is resolved, not just recorded for the cache key.
+  keys. The source spelling `cfg(feature = "x")` now parses to that same flat
+  key, so the two spellings cannot disagree. `build`, `check`, `verify` and
+  `--print-cfg` all accept `--features`/`--no-default-features`; the selection
+  is applied to the `cfg` filter before the tree is resolved, not just recorded
+  for the cache key.
 - [x] **Step 3: Commit.**
 
 ### Task 4: Signed registry v1
@@ -628,7 +629,7 @@ ok  14 packages, 0 unsigned, 0 policy violations
 |---|---|---|---|
 | 1.1-1.3 | Semver ranges, one resolution, per-case diagnostic codes | `Version`/`VersionReq` with SemVer 2.0 precedence, range selection, v2 lock with v1 migration, yanked refusal, bounded DFS; existing E180x codes reused; `ResolveOptions` honours the explicit index and `--locked` | Add per-case resolver codes and feed features/target into the index selection |
 | 2.1 / 2.2 | Shared lockfile and target directory for members | Workspace discovery, `-p`/`--workspace` selection, unique names, outside-path refusal with the `test --allow-path` grant, and one root lock read/written by every package command; `update` unions every member's graph and refuses a version/source conflict | Add a workspace-local build directory if a shared user cache is not enough |
-| 3.1 / 3.2 | `cfg(feature = "x")` and `--print-cfg` with features | Sorted feature sets, unification, cache-key and lockfile recording, optional dependencies, `feature:<name>` flat cfg keys, `--features`/`--no-default-features` on `build`, `check`, `verify` and `--print-cfg`, applied to the `cfg` filter before resolution | Add the Phase 4 `cfg(feature = ...)` syntax |
+| 3.1 / 3.2 | `cfg(feature = "x")` and `--print-cfg` with features | Sorted feature sets, unification, cache-key and lockfile recording, optional dependencies, `feature:<name>` flat cfg keys, `--features`/`--no-default-features` on `build`, `check`, `verify` and `--print-cfg`, applied to the `cfg` filter before resolution | Add the Phase 4 `cfg(feature = ...)` syntax | Done: the source spelling now parses to the same flat key, pinned by `cfg_features.rs` and `cfg.rs` |
 | 4.1 / 4.2 | Signed index and tarballs, explicit trust set | `ed25519-compact` signs tarballs and the index; `publish --key-id` writes an SPDX SBOM; `fetch` verifies when `YASHY_TRUSTED_KEY`/`YASHY_KEYRING` is set, reading local or remote `.sig` files, and `fetch_index` refuses an unverifiable index before selecting a version | Add a built-in release key and multi-signature support |
 | 5.1 / 5.2 | SBOM, distinct mismatch codes, audit policy with signatures | `yashyc sbom` prints SPDX 2.3; `verify-package` reports E1805/E1806 and E1809 for the index entry when a registry is named; `[audit]` allowlists and `require-signatures` are parsed and enforced | Add per-package audit findings and a registry-less index lookup |
 | 6.1 / 6.3 | Two-directory gate and publish refusal | Two-directory byte comparison and an IR path check exist; `publish` builds the package's program twice in two copied trees and refuses different bytes or a failed build; the SBOM records compiler version and target; the CI gate is deferred with CI | Gate reproducibility in CI |

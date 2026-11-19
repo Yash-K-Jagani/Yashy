@@ -313,6 +313,39 @@ fn the_formatter_round_trips_the_three_positions() {
 }
 
 #[test]
+fn the_source_spelling_of_a_feature_selects_the_branch() {
+    // `cfg(feature = "tls")` must be the same key as the flat `feature:tls`
+    // spelling: both branches guard one name, so a mismatch would declare it
+    // twice and fail the check.
+    let dir = work_dir("cfg-feature-source-spelling");
+    fs::write(
+        dir.join("yashy.toml"),
+        "[package]\nname = \"cfg-feature-spelling\"\nversion = \"0.1.0\"\n\n\
+         [features]\ndefault = []\ntls = []\n",
+    )
+    .expect("the manifest must be writable");
+    let file = dir.join("main.ya");
+    fs::write(
+        &file,
+        "cfg(feature = \"tls\") fn name() -> string { return \"tls\"; }\n\n\
+         cfg(not(feature = \"tls\")) fn name() -> string { return \"plain\"; }\n\n\
+         fn main() { print(name()); }\n",
+    )
+    .expect("the test source must be writable");
+
+    assert!(
+        run(&["check", file.to_str().unwrap()]).status.success(),
+        "the plain branch must compile without the feature"
+    );
+    assert!(
+        run(&["check", file.to_str().unwrap(), "--features", "tls"])
+            .status
+            .success(),
+        "the feature branch must compile with the feature"
+    );
+}
+
+#[test]
 fn a_selected_feature_decides_the_guarded_branch() {
     // The two items guard the same name with opposite conditions, so exactly
     // one survives for each feature set. If `--features` only reached the
