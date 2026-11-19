@@ -43,6 +43,13 @@ fn the_debug_docs_name_the_limits() {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/debugging.md"),
     )
     .expect("docs/debugging.md exists");
-    assert!(docs.contains("no line table"), "{docs}");
     assert!(docs.contains("symbol breakpoints"), "{docs}");
+    assert!(
+        docs.contains("scripted debugger session"),
+        "the remaining limit is named: {docs}"
+    );
+    assert!(
+        docs.contains("poll"),
+        "an async body's debug scope is documented: {docs}"
+    );
 }

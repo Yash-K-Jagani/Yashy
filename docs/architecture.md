@@ -293,8 +293,9 @@ reorder fields to reduce padding and reports the choice (2.0, Phase 11A).
   to a stack slot, and `stack_alloc(n)` is an explicit frame allocation whose
   pointer the verifier refuses to let escape.
 - **(2.0)** an `Allocator` interface lets a program supply its own allocator;
-  `--alloc-report` lists every allocation site, its size class and whether it
-  was promoted to the stack or served by the global allocator.
+  `--alloc-report` lists every allocation site with its byte count and source
+  span, plus the blocks still live at the program's last event. A verified
+  program cannot leak, so the live list is empty by construction.
 
 ### 5.6 Determinism
 
