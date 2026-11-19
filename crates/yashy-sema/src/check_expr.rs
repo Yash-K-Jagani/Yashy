@@ -33,7 +33,7 @@ use yashy_parser::ast::{
 };
 
 use crate::check_pat::{check_pattern, hir_pattern_span, is_irrefutable};
-use crate::const_eval::{self, ConstFn, ConstFns, Missing};
+use crate::const_eval::{self, ConstFn, ConstFns, ConstStructs, Missing};
 use crate::error::TypeError;
 use crate::exhaustive::missing_witnesses_with;
 use crate::hir::*;
@@ -1496,6 +1496,16 @@ impl<'src> Checker<'src> {
     /// here would silently drop that help.
     fn report(&mut self, error: TypeError) {
         self.errors.push((self.file, error));
+    }
+
+    /// The field types of every declared struct, for the const interpreter.
+    /// It is rebuilt at each call because declarations are collected as the
+    /// program is walked; a const fn may refer to a struct declared after it.
+    fn const_structs(&self) -> ConstStructs {
+        self.structs
+            .iter()
+            .map(|(name, signature)| (name.clone(), signature.fields.clone()))
+            .collect()
     }
 
     /// The nearest visible name, for a "did you mean" label.
@@ -5669,7 +5679,14 @@ impl<'src> Checker<'src> {
         // from constants, so a name that is not one is a run-time value the
         // compiler cannot know.
         let mut work = const_eval::Work::default();
-        match const_eval::evaluate(init, &[], &self.const_fns, &mut work, Missing::NotConstant) {
+        match const_eval::evaluate(
+            init,
+            &[],
+            &self.const_fns,
+            &mut work,
+            Missing::NotConstant,
+            &self.const_structs(),
+        ) {
             Ok(value) => {
                 // Every `const fn` the evaluation called has to be one this
                 // module may use: a `const fn` belongs to its module like any
@@ -5702,7 +5719,7 @@ impl<'src> Checker<'src> {
         // about it is attributed there and not to the module being checked.
         let outer = self.file;
         self.file = function.file;
-        match const_eval::check_body(&function, &self.const_fns) {
+        match const_eval::check_body(&function, &self.const_fns, &self.const_structs()) {
             Ok(called) => {
                 // A `const fn` body may call another `const fn`, and that one
                 // has to be one this module may use.
@@ -9309,6 +9326,7 @@ impl<'src> Checker<'src> {
             &self.const_fns,
             &mut work,
             const_eval::Missing::NotConstant,
+            &self.const_structs(),
         ) {
             Ok(value) => {
                 let found = Type {
@@ -11650,6 +11668,7 @@ impl<'src> Checker<'src> {
                         &self.const_fns,
                         &mut work,
                         Missing::NotConstant,
+                        &self.const_structs(),
                     ) {
                         Ok(const_eval::ConstValue::Bool(true)) => {
                             return Some(HirExpr::Literal(Literal::I64(0), *span, unit(*span)));

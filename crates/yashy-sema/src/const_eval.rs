@@ -14,7 +14,9 @@
 //! - `if`, with a `return` in each arm;
 //! - `let` and assignment to its binding, so a body can accumulate;
 //! - the condition-only loop (`while c { .. }`, which the parser lowers to
-//!   `for ; c; { .. }`) and its `break`/`continue`.
+//!   `for ; c; { .. }`) and its `break`/`continue`;
+//! - struct literals and field reads, with field types checked against the
+//!   declaration before the value is folded.
 //!
 //! Anything else is refused by name -- ``read_line`` is not allowed in a const
 //! fn -- rather than evaluated, because an expression the evaluator cannot
@@ -64,6 +66,14 @@ pub enum ConstValue {
     /// A fixed array `[T; N]`: its element type is the common type of the
     /// values, which the checker has already proved is one of the scalar kinds.
     Array(Vec<ConstValue>),
+    /// A struct value: field names and values in declaration order. The
+    /// checker validates the field types against the declaration before the
+    /// evaluator builds one, so a fold cannot put a `bool` where an `int`
+    /// belongs.
+    Struct {
+        name: String,
+        fields: Vec<(String, ConstValue)>,
+    },
 }
 
 impl ConstValue {
@@ -85,6 +95,7 @@ impl ConstValue {
                 }),
                 elements.len(),
             ),
+            ConstValue::Struct { name, .. } => TypeKind::Struct(name.clone()),
         }
     }
 
@@ -95,6 +106,18 @@ impl ConstValue {
     /// it.
     pub fn to_expr(&self, span: Span) -> HirExpr {
         match self {
+            ConstValue::Struct { name, fields } => HirExpr::StructLit {
+                path: vec![name.clone()],
+                fields: fields
+                    .iter()
+                    .map(|(field, value)| (field.clone(), value.to_expr(span), span))
+                    .collect(),
+                span,
+                ty: Type {
+                    kind: TypeKind::Struct(name.clone()),
+                    span,
+                },
+            },
             ConstValue::Array(elements) => {
                 // The checker proved one element type, so the first element's
                 // kind is the array's and every later one agrees with it.
@@ -192,6 +215,12 @@ pub struct ConstFn {
 /// A map rather than a list, because a call names the function; the order the
 /// functions are *checked* in is the checker's business, not this module's.
 pub type ConstFns = BTreeMap<String, ConstFn>;
+
+/// The fields of every struct a `const fn` may construct, in declaration
+/// order. The checker builds this from its own declaration table and passes it
+/// to both passes, so a struct literal in a `const fn` is checked against the
+/// same field types an ordinary literal would use.
+pub type ConstStructs = BTreeMap<String, Vec<(String, Type)>>;
 
 /// How deep a `const fn` evaluation may nest before it is called
 /// non-terminating.
@@ -309,7 +338,11 @@ impl ConstError {
 /// The `const fn`s the body calls are returned with the answer: a call to
 /// another module's `const fn` is a mistake, and the body check is what knows
 /// which functions the body called.
-pub fn check_body(function: &ConstFn, consts: &ConstFns) -> Result<Vec<(String, Span)>, TypeError> {
+pub fn check_body(
+    function: &ConstFn,
+    consts: &ConstFns,
+    structs: &ConstStructs,
+) -> Result<Vec<(String, Span)>, TypeError> {
     let mut env: Vec<(String, Type)> = function.params.clone();
     let mut work = Work::default();
     check_block(
@@ -321,6 +354,7 @@ pub fn check_body(function: &ConstFn, consts: &ConstFns) -> Result<Vec<(String, 
         &mut work,
         false,
         function.params.len(),
+        structs,
     )?;
     // A `const fn` that returns a value must return one on every path: the
     // compiler folds the body, so a path that fell off the end would have no
@@ -373,10 +407,13 @@ fn check_block(
     work: &mut Work,
     in_loop: bool,
     params: usize,
+    structs: &ConstStructs,
 ) -> Result<(), TypeError> {
     let base = env.len();
     for statement in &block.stmts {
-        check_stmt(statement, env, ret, consts, context, work, in_loop, params)?;
+        check_stmt(
+            statement, env, ret, consts, context, work, in_loop, params, structs,
+        )?;
     }
     env.truncate(base);
     Ok(())
@@ -396,11 +433,12 @@ fn check_stmt(
     work: &mut Work,
     in_loop: bool,
     params: usize,
+    structs: &ConstStructs,
 ) -> Result<(), TypeError> {
     match statement {
         Stmt::Return(value, span) => {
             let actual = match value {
-                Some(expr) => check_expr(expr, env, consts, context, work)?,
+                Some(expr) => check_expr(expr, env, consts, context, work, structs)?,
                 None => Type {
                     kind: TypeKind::Unit,
                     span: *span,
@@ -423,7 +461,7 @@ fn check_stmt(
             init,
             span,
         } => {
-            let actual = check_expr(init, env, consts, context, work)?;
+            let actual = check_expr(init, env, consts, context, work, structs)?;
             let kind = match ty {
                 Some(written) => {
                     let Some(declared) = declared_kind(written) else {
@@ -463,7 +501,7 @@ fn check_stmt(
                 ));
             };
             let name = path.last().cloned().unwrap_or_default();
-            let actual = check_expr(value, env, consts, context, work)?;
+            let actual = check_expr(value, env, consts, context, work, structs)?;
             let Some((at, (_, bound))) = env
                 .iter()
                 .enumerate()
@@ -504,16 +542,20 @@ fn check_stmt(
                     format!("a condition binding is not allowed in {context}"),
                 ));
             }
-            let condition = check_expr(cond, env, consts, context, work)?;
+            let condition = check_expr(cond, env, consts, context, work, structs)?;
             if condition.kind != TypeKind::Bool {
                 return Err(TypeError::new(
                     expr_span(cond),
                     format!("a condition must be `bool`, found `{condition}`"),
                 ));
             }
-            check_block(then_block, env, ret, consts, context, work, in_loop, params)?;
+            check_block(
+                then_block, env, ret, consts, context, work, in_loop, params, structs,
+            )?;
             if let Some(else_block) = else_block {
-                check_block(else_block, env, ret, consts, context, work, in_loop, params)?;
+                check_block(
+                    else_block, env, ret, consts, context, work, in_loop, params, structs,
+                )?;
             }
             Ok(())
         }
@@ -529,10 +571,12 @@ fn check_stmt(
             ..
         } => {
             if let Some(init) = init {
-                check_stmt(init, env, ret, consts, context, work, in_loop, params)?;
+                check_stmt(
+                    init, env, ret, consts, context, work, in_loop, params, structs,
+                )?;
             }
             if let Some(cond) = cond {
-                let condition = check_expr(cond, env, consts, context, work)?;
+                let condition = check_expr(cond, env, consts, context, work, structs)?;
                 if condition.kind != TypeKind::Bool {
                     return Err(TypeError::new(
                         expr_span(cond),
@@ -541,9 +585,9 @@ fn check_stmt(
                 }
             }
             if let Some(update) = update {
-                check_expr(update, env, consts, context, work)?;
+                check_expr(update, env, consts, context, work, structs)?;
             }
-            check_block(body, env, ret, consts, context, work, true, params)?;
+            check_block(body, env, ret, consts, context, work, true, params, structs)?;
             let _ = span;
             Ok(())
         }
@@ -623,6 +667,7 @@ fn check_expr(
     consts: &ConstFns,
     context: &str,
     work: &mut Work,
+    structs: &ConstStructs,
 ) -> Result<Type, TypeError> {
     match expr {
         Expr::Literal(literal, span) => Ok(Type {
@@ -637,8 +682,8 @@ fn check_expr(
             }
         }
         Expr::Binary { op, lhs, rhs, span } => {
-            let left = check_expr(lhs, env, consts, context, work)?;
-            let right = check_expr(rhs, env, consts, context, work)?;
+            let left = check_expr(lhs, env, consts, context, work, structs)?;
+            let right = check_expr(rhs, env, consts, context, work, structs)?;
             let kind = binary_kind(*op, &left, &right, *span)?;
             // A literal count outside the type's range is known to fault, so the
             // declaration is rejected here rather than at every call. The
@@ -661,7 +706,7 @@ fn check_expr(
             Ok(kind)
         }
         Expr::Unary { op, operand, span } => {
-            let inner = check_expr(operand, env, consts, context, work)?;
+            let inner = check_expr(operand, env, consts, context, work, structs)?;
             match op {
                 UnOp::Neg if is_numeric(&inner.kind) => Ok(inner),
                 UnOp::Neg => Err(TypeError::new(
@@ -686,7 +731,7 @@ fn check_expr(
         Expr::FixedArrayLit { elements, span } => {
             let mut element_ty: Option<Type> = None;
             for element in elements {
-                let actual = check_expr(element, env, consts, context, work)?;
+                let actual = check_expr(element, env, consts, context, work, structs)?;
                 match &element_ty {
                     None => {
                         if !const_array_element_ok(&actual.kind) {
@@ -718,14 +763,14 @@ fn check_expr(
             })
         }
         Expr::Index { base, index, span } => {
-            let base_ty = check_expr(base, env, consts, context, work)?;
+            let base_ty = check_expr(base, env, consts, context, work, structs)?;
             let TypeKind::FixedArray(element, _) = &base_ty.kind else {
                 return Err(TypeError::new(
                     *span,
                     format!("only a fixed array can be indexed in {context}, found `{base_ty}`"),
                 ));
             };
-            let index_ty = check_expr(index, env, consts, context, work)?;
+            let index_ty = check_expr(index, env, consts, context, work, structs)?;
             if index_ty.kind != TypeKind::I64 {
                 return Err(TypeError::new(
                     expr_span(index),
@@ -767,7 +812,7 @@ fn check_expr(
                 .with_code(codes::WRONG_ARGUMENT_COUNT));
             }
             for (argument, (_, param)) in args.iter().zip(function.params.iter()) {
-                let actual = check_expr(&argument.value, env, consts, context, work)?;
+                let actual = check_expr(&argument.value, env, consts, context, work, structs)?;
                 if actual.kind != param.kind {
                     return Err(TypeError::new(
                         argument.span,
@@ -777,6 +822,78 @@ fn check_expr(
                 }
             }
             Ok(function.ret.clone())
+        }
+        Expr::StructLit {
+            path,
+            fields,
+            spread,
+            span,
+        } => {
+            let name = path.last().cloned().unwrap_or_default();
+            let Some(declared) = structs.get(&name) else {
+                return Err(TypeError::new(
+                    *span,
+                    format!("`{name}` is not a struct this const fn can build"),
+                ));
+            };
+            if spread.is_some() {
+                return Err(TypeError::new(
+                    *span,
+                    "a struct spread is not allowed in a const fn".to_string(),
+                ));
+            }
+            for (field, value, field_span) in fields {
+                let Some((_, expected)) = declared.iter().find(|(written, _)| written == field)
+                else {
+                    return Err(TypeError::new(
+                        *field_span,
+                        format!("`{name}` has no field `{field}`"),
+                    ));
+                };
+                let actual = check_expr(value, env, consts, context, work, structs)?;
+                if actual.kind != expected.kind {
+                    return Err(TypeError::new(
+                        *field_span,
+                        format!("expected `{expected}`, found `{actual}`"),
+                    )
+                    .with_code(codes::TYPE_MISMATCH));
+                }
+            }
+            for (field, _) in declared {
+                if !fields.iter().any(|(written, _, _)| written == field) {
+                    return Err(TypeError::new(
+                        *span,
+                        format!("`{name}` needs a value for field `{field}`"),
+                    )
+                    .with_code(codes::MISSING_FIELD));
+                }
+            }
+            Ok(Type {
+                kind: TypeKind::Struct(name),
+                span: *span,
+            })
+        }
+        Expr::FieldAccess { base, field, span } => {
+            let base_ty = check_expr(base, env, consts, context, work, structs)?;
+            let TypeKind::Struct(name) = &base_ty.kind else {
+                return Err(TypeError::new(
+                    *span,
+                    format!("only a struct has a field, found `{base_ty}`"),
+                ));
+            };
+            let Some(declared) = structs.get(name) else {
+                return Err(TypeError::new(
+                    *span,
+                    format!("`{name}` has no known fields in {context}"),
+                ));
+            };
+            let Some((_, ty)) = declared.iter().find(|(written, _)| written == field) else {
+                return Err(TypeError::new(
+                    *span,
+                    format!("`{name}` has no field `{field}`"),
+                ));
+            };
+            Ok(ty.clone())
         }
         other => Err(TypeError::new(
             expr_span(other),
@@ -1145,9 +1262,10 @@ pub fn evaluate(
     consts: &ConstFns,
     work: &mut Work,
     missing: Missing,
+    structs: &ConstStructs,
 ) -> Result<ConstValue, ConstError> {
     let mut bindings = env.to_vec();
-    eval(expr, &mut bindings, consts, work, missing)
+    eval(expr, &mut bindings, consts, work, missing, structs)
 }
 
 /// Spend one step of the evaluation budget, or report that it is gone.
@@ -1174,6 +1292,7 @@ fn eval(
     consts: &ConstFns,
     work: &mut Work,
     missing: Missing,
+    structs: &ConstStructs,
 ) -> Result<ConstValue, ConstError> {
     tick_at(expr_span(expr), work)?;
     match expr {
@@ -1193,12 +1312,12 @@ fn eval(
             }
         }
         Expr::Binary { op, lhs, rhs, span } => {
-            let left = eval(lhs, env, consts, work, missing)?;
-            let right = eval(rhs, env, consts, work, missing)?;
+            let left = eval(lhs, env, consts, work, missing, structs)?;
+            let right = eval(rhs, env, consts, work, missing, structs)?;
             evaluate_binary(*op, &left, &right, *span)
         }
         Expr::Unary { op, operand, span } => {
-            let inner = eval(operand, env, consts, work, missing)?;
+            let inner = eval(operand, env, consts, work, missing, structs)?;
             match (op, &inner) {
                 (UnOp::Neg, ConstValue::I64(value)) => Ok(ConstValue::I64(value.wrapping_neg())),
                 (UnOp::Neg, ConstValue::F64(value)) => Ok(ConstValue::F64(-value)),
@@ -1221,7 +1340,7 @@ fn eval(
         Expr::FixedArrayLit { elements, span } => {
             let mut values = Vec::with_capacity(elements.len());
             for element in elements {
-                values.push(eval(element, env, consts, work, missing)?);
+                values.push(eval(element, env, consts, work, missing, structs)?);
             }
             if let Some(first) = values.first() {
                 if values.iter().any(|value| value.kind() != first.kind()) {
@@ -1234,14 +1353,14 @@ fn eval(
             Ok(ConstValue::Array(values))
         }
         Expr::Index { base, index, span } => {
-            let base_value = eval(base, env, consts, work, missing)?;
+            let base_value = eval(base, env, consts, work, missing, structs)?;
             let ConstValue::Array(values) = &base_value else {
                 return Err(ConstError::new(
                     *span,
                     format!("cannot index `{}` in a const fn", base_value.kind()),
                 ));
             };
-            let ConstValue::I64(at) = eval(index, env, consts, work, missing)? else {
+            let ConstValue::I64(at) = eval(index, env, consts, work, missing, structs)? else {
                 return Err(ConstError::new(
                     expr_span(index),
                     "an index must be `int`".to_string(),
@@ -1289,7 +1408,7 @@ fn eval(
             }
             let mut values = Vec::with_capacity(args.len());
             for argument in args {
-                values.push(eval(&argument.value, env, consts, work, missing)?);
+                values.push(eval(&argument.value, env, consts, work, missing, structs)?);
             }
             let mut bound = Vec::with_capacity(function.params.len());
             for ((param, _), value) in function.params.iter().zip(values.into_iter()) {
@@ -1303,6 +1422,7 @@ fn eval(
                 work,
                 false,
                 function.params.len(),
+                structs,
             );
             work.depth = work.depth.saturating_sub(1);
             let value = match outcome? {
@@ -1325,6 +1445,39 @@ fn eval(
                 ));
             }
             Ok(value)
+        }
+        Expr::StructLit {
+            path, fields, span, ..
+        } => {
+            let name = path.last().cloned().unwrap_or_default();
+            let mut built = Vec::with_capacity(fields.len());
+            for (field, value, _) in fields {
+                built.push((
+                    field.clone(),
+                    eval(value, env, consts, work, missing, structs)?,
+                ));
+            }
+            let _ = span;
+            Ok(ConstValue::Struct {
+                name,
+                fields: built,
+            })
+        }
+        Expr::FieldAccess { base, field, span } => {
+            let value = eval(base, env, consts, work, missing, structs)?;
+            let ConstValue::Struct { name, fields } = value else {
+                return Err(ConstError::new(
+                    *span,
+                    format!("only a struct has a field, found `{}`", value.kind()),
+                ));
+            };
+            let Some((_, found)) = fields.into_iter().find(|(written, _)| written == field) else {
+                return Err(ConstError::new(
+                    *span,
+                    format!("`{name}` has no field `{field}`"),
+                ));
+            };
+            Ok(found)
         }
         other => Err(ConstError::new(
             expr_span(other),
@@ -1359,11 +1512,12 @@ fn evaluate_block(
     work: &mut Work,
     in_loop: bool,
     params: usize,
+    structs: &ConstStructs,
 ) -> Result<Flow, ConstError> {
     let base = env.len();
     let mut flow = Flow::Fell;
     for statement in &block.stmts {
-        flow = evaluate_stmt(statement, env, consts, work, in_loop, params)?;
+        flow = evaluate_stmt(statement, env, consts, work, in_loop, params, structs)?;
         if !matches!(flow, Flow::Fell) {
             break;
         }
@@ -1381,6 +1535,7 @@ fn evaluate_stmt(
     work: &mut Work,
     in_loop: bool,
     params: usize,
+    structs: &ConstStructs,
 ) -> Result<Flow, ConstError> {
     match statement {
         Stmt::Return(Some(expr), _) => Ok(Flow::Returned(eval(
@@ -1389,6 +1544,7 @@ fn evaluate_stmt(
             consts,
             work,
             Missing::NotFound,
+            structs,
         )?)),
         Stmt::Return(None, span) => Err(ConstError::new(
             *span,
@@ -1397,7 +1553,7 @@ fn evaluate_stmt(
         // `let x = e;` is computed now and bound for the rest of the block.
         // The written type was checked when the function was declared.
         Stmt::Let { name, init, .. } => {
-            let value = eval(init, env, consts, work, Missing::NotFound)?;
+            let value = eval(init, env, consts, work, Missing::NotFound, structs)?;
             env.push((name.clone(), value));
             Ok(Flow::Fell)
         }
@@ -1417,7 +1573,7 @@ fn evaluate_stmt(
                 ));
             };
             let name = path.last().cloned().unwrap_or_default();
-            let new_value = eval(value, env, consts, work, Missing::NotFound)?;
+            let new_value = eval(value, env, consts, work, Missing::NotFound, structs)?;
             let Some((at, (_, slot))) = env
                 .iter_mut()
                 .enumerate()
@@ -1451,7 +1607,7 @@ fn evaluate_stmt(
             else_block,
             ..
         } => {
-            let condition = eval(cond, env, consts, work, Missing::NotFound)?;
+            let condition = eval(cond, env, consts, work, Missing::NotFound, structs)?;
             let ConstValue::Bool(chosen) = condition else {
                 return Err(ConstError::new(
                     expr_span(cond),
@@ -1468,7 +1624,7 @@ fn evaluate_stmt(
                 // still run.
                 return Ok(Flow::Fell);
             };
-            evaluate_block(taken, env, consts, work, in_loop, params)
+            evaluate_block(taken, env, consts, work, in_loop, params, structs)
         }
         // `while c { .. }` is `for ; c; { .. }`, and both are one node. The
         // condition is re-read every iteration, so a body that assigns the
@@ -1483,7 +1639,7 @@ fn evaluate_stmt(
         } => {
             if let Some(init) = init {
                 if let Flow::Returned(value) =
-                    evaluate_stmt(init, env, consts, work, in_loop, params)?
+                    evaluate_stmt(init, env, consts, work, in_loop, params, structs)?
                 {
                     return Ok(Flow::Returned(value));
                 }
@@ -1491,7 +1647,7 @@ fn evaluate_stmt(
             loop {
                 tick_at(*span, work)?;
                 if let Some(cond) = cond {
-                    match eval(cond, env, consts, work, Missing::NotFound)? {
+                    match eval(cond, env, consts, work, Missing::NotFound, structs)? {
                         ConstValue::Bool(true) => {}
                         ConstValue::Bool(false) => break,
                         other => {
@@ -1502,13 +1658,13 @@ fn evaluate_stmt(
                         }
                     }
                 }
-                match evaluate_block(body, env, consts, work, true, params)? {
+                match evaluate_block(body, env, consts, work, true, params, structs)? {
                     Flow::Returned(value) => return Ok(Flow::Returned(value)),
                     Flow::Break => break,
                     Flow::Fell | Flow::Continue => {}
                 }
                 if let Some(update) = update {
-                    eval(update, env, consts, work, Missing::NotFound)?;
+                    eval(update, env, consts, work, Missing::NotFound, structs)?;
                 }
             }
             Ok(Flow::Fell)

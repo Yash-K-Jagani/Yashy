@@ -175,6 +175,68 @@ fn a_const_fn_local_must_match_its_written_type() {
 }
 
 #[test]
+fn a_const_fn_can_build_a_struct() {
+    let (result, _, _) = check_source(
+        "struct Point { x: int, y: int }\n\
+         const fn origin() -> Point { return Point { x: 1, y: 2 }; }\n\
+         fn f() { const p = origin(); }",
+    );
+    let hir = result.expect("a struct value can be folded into the HIR");
+    let body = format!(
+        "{:?}",
+        hir.items.iter().find_map(|item| match item {
+            HirItem::Fn(function) if function.name == "f" => Some(&function.body),
+            _ => None,
+        })
+    );
+    assert!(
+        body.contains("Point"),
+        "the struct literal is in the tree: {body}"
+    );
+    assert!(
+        body.contains("I64(1)") && body.contains("I64(2)"),
+        "both fields folded: {body}"
+    );
+}
+
+#[test]
+fn a_const_fn_can_read_a_struct_field() {
+    let (result, _, _) = check_source(
+        "struct Point { x: int, y: int }\n\
+         const fn first() -> int { let p = Point { x: 7, y: 8 }; return p.x; }\n\
+         fn f() { const v = first(); }",
+    );
+    let hir = result.expect("a field read can be folded");
+    let body = format!(
+        "{:?}",
+        hir.items.iter().find_map(|item| match item {
+            HirItem::Fn(function) if function.name == "f" => Some(&function.body),
+            _ => None,
+        })
+    );
+    assert!(
+        body.contains("I64(7)"),
+        "the selected field is the value: {body}"
+    );
+}
+
+#[test]
+fn a_const_fn_struct_literal_checks_field_types() {
+    assert_error(
+        "struct Point { x: int, y: int }\n\
+         const fn bad() -> Point { return Point { x: true, y: 2 }; }\n\
+         fn f() { const p = bad(); }",
+        "expected `int`, found `bool`",
+    );
+    assert_error(
+        "struct Point { x: int, y: int }\n\
+         const fn bad() -> Point { return Point { x: 1 }; }\n\
+         fn f() { const p = bad(); }",
+        "needs a value for field `y`",
+    );
+}
+
+#[test]
 fn a_const_fn_cannot_be_called_at_run_time() {
     assert_error(
         "const fn square(int n) -> int { return n * n; }\n\
@@ -244,7 +306,7 @@ fn const_eval_failures_carry_stable_codes() {
 #[test]
 fn evaluation_is_bounded_by_a_step_fuel() {
     use yashy_common::Span;
-    use yashy_sema::const_eval::{evaluate, ConstFns, Missing, Work};
+    use yashy_sema::const_eval::{evaluate, ConstFns, ConstStructs, Missing, Work};
     use yashy_sema::ConstValue;
 
     let mut work = Work::default();
@@ -257,6 +319,7 @@ fn evaluation_is_bounded_by_a_step_fuel() {
         &ConstFns::new(),
         &mut work,
         Missing::NotFound,
+        &ConstStructs::new(),
     );
     let error = result.expect_err("the fuel must be exhausted");
     assert!(error.message.contains("steps"), "{error:?}");

@@ -33,7 +33,7 @@ cannot compute is one whose value is not known until the program runs.
 * calls to other `const fn`s (a private one only from its own module);
 * `if`, with a `return` in each arm;
 * `let`, written with a scalar type (`int`, `float`, `bool`, `string`, `char`)
-  or inferred from its initializer;
+  or inferred from its initializer, plus struct values and `.field` reads;
 * assignment and compound assignment to a `let` binding;
 * `while c { .. }` and `for ; c; u { .. }`, with unlabelled `break` and
   `continue`;
@@ -48,7 +48,7 @@ not anything calls the function:
 |---|---|
 | `read_line()` and the other I/O builtins | the value exists only once the program runs |
 | an `extern` call or a qualified call `A::b()` | the caller is not a `const fn` |
-| struct and enum construction, method calls, lambdas | no compile-time value is built for them yet |
+| enum construction, method calls, lambdas | no compile-time value is built for them yet |
 | `switch`, `defer`, `arena`, `scope`, `unsafe { }`, `.await` | control flow the evaluator has no value for |
 | a condition binding (`if d := f(); ..`) | the binding's value is a run-time one |
 | assigning a parameter | a parameter is immutable, as in every function |
