@@ -370,14 +370,6 @@ pub fn build_harness(
                 libs.push(flag);
             }
         }
-        // A `link` clause may name a vendored C source or an archive instead
-        // of a library. The harness link needs it on the command line too, or
-        // a test that calls into the fixture would not link.
-        for input in crate::pipeline::link_inputs(&hir, &sources) {
-            if !link_files.contains(&input) {
-                link_files.push(input);
-            }
-        }
 
         // The test is checked as an ordinary program with its `main` intact.
         // Only the emitted symbol is renamed, so codegen still gives it the
@@ -385,6 +377,17 @@ pub fn build_harness(
         if let Err(diagnostic) = check_main_exists(&hir.items) {
             compile_errors.push((index, vec![crate::diagnostic_json(&sources, &diagnostic)]));
             continue;
+        }
+
+        // A `link` clause may name a vendored C source or an archive instead
+        // of a library. The harness link needs it on the command line too, or
+        // a test that calls into the fixture would not link. This runs after
+        // the test's own checks, so a test that already failed does not drag a
+        // missing path into the shared link and hide its own diagnostic.
+        for input in crate::pipeline::link_inputs(&hir, &sources) {
+            if !link_files.contains(&input) {
+                link_files.push(input);
+            }
         }
 
         // Merge only the trivial shape: one function, named main. Anything
