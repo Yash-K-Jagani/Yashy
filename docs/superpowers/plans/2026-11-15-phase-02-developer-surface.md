@@ -341,8 +341,11 @@ IR stays byte-identical. Verified with clang and `llvm-readobj`.
   breakpoint, so the providers are registered for every session.
   `Option`/`Result` locals now carry synthetic `DICompositeType` entries named
   after the providers' type names, with `tag`/`payload` and `tag`/`ok`/`err`
-  members, and a unit test pins the metadata. Still open: a scripted assertion
-  that a typed value prints a particular string, which needs a debugger session.
+  members, and a unit test pins the metadata. An `async fn` now names its
+  lowered `poll` function for `DISubprogram`, because that is where the body
+  and its statement markers live; `tests/debug_info.rs` pins the poll symbol and
+  a location scoped to it. Still open: a scripted assertion that a typed value
+  prints a particular string, which needs a debugger session.
 - [x] **Step 5: Commit.**
 
 ### Task 7: Profilers and coverage

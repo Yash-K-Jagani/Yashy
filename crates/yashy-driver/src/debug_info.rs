@@ -12,7 +12,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use yashy_common::{FileId, SourceMap, Span};
-use yashy_hir::hir::{HirBlock, HirExpr, HirItem, HirProgram, HirStmt, HirSwitchArm};
+use yashy_hir::hir::{HirBlock, HirExpr, HirFn, HirItem, HirProgram, HirStmt, HirSwitchArm};
 use yashy_hir::ty::{Type, TypeKind};
 
 /// The source facts one `DISubprogram` needs.
@@ -58,6 +58,21 @@ struct Block {
     column: u32,
 }
 
+/// The LLVM function that holds a user function's statement markers.
+///
+/// A normal function keeps its source name. An `async fn` keeps that name for
+/// its *factory* — a few instructions that allocate a frame — while the body
+/// is lowered into a separate `poll` function. The debugger wants the body:
+/// pointing a `DISubprogram` at the factory would leave every location in the
+/// poll with no scope at all.
+fn body_symbol(function: &HirFn) -> String {
+    if function.is_async {
+        yashy_codegen::async_lower::lower_async(function).1
+    } else {
+        yashy_codegen::ir::fn_symbol(&function.name)
+    }
+}
+
 /// Collect every block nested inside a user function, in source order.
 ///
 /// The function's own body block is not one of them: its scope is the
@@ -68,10 +83,13 @@ fn blocks(hir: &HirProgram, sources: &SourceMap, functions: &[FunctionLocation])
         let HirItem::Fn(function) = item else {
             continue;
         };
-        if function.name.contains('$') || function.is_async {
+        // Lambdas and other `$`-mangled helpers are emitted as their own
+        // functions with no HIR of their own to walk; their markers borrow the
+        // enclosing function's source and cannot be scoped here.
+        if function.name.contains('$') {
             continue;
         }
-        let symbol = yashy_codegen::ir::fn_symbol(&function.name);
+        let symbol = body_symbol(function);
         let Some(scope) = functions.iter().position(|entry| entry.symbol == symbol) else {
             continue;
         };
@@ -373,16 +391,21 @@ fn parent_block(blocks: &[Block], index: usize) -> Option<usize> {
 }
 
 /// Collect one location per named user function in source order.
+///
+/// For an `async fn` the location names the lowered `poll` function, which is
+/// where the body lives; the factory that returns the task frame has no source
+/// statements of its own. The debugger therefore stops in the body at the
+/// async function's source line when the task is polled.
 pub fn functions(hir: &HirProgram, sources: &SourceMap) -> Vec<FunctionLocation> {
     let mut out = Vec::new();
     for item in &hir.items {
         let HirItem::Fn(function) = item else {
             continue;
         };
-        if function.name.contains('$') || function.is_async {
+        if function.name.contains('$') {
             continue;
         }
-        let symbol = yashy_codegen::ir::fn_symbol(&function.name);
+        let symbol = body_symbol(function);
         let line = sources.locate(function.file, function.span).line;
         out.push(FunctionLocation {
             symbol,

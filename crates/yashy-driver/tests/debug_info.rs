@@ -89,6 +89,10 @@ const DEBUG_PROGRAM: &str = concat!(
     "    let answer = total(2);\n",
     "    print(\"done\");\n",
     "}\n",
+    "\n",
+    "async fn later() -> int {\n",
+    "    return 7;\n",
+    "}\n",
 );
 
 #[test]
@@ -157,8 +161,25 @@ fn a_debug_ir_dump_carries_locals_and_types_without_a_toolchain() {
         );
     }
 
-    // Both functions get a subprogram.
-    assert_eq!(ir.matches("= distinct !DISubprogram(").count(), 2, "{ir}");
+    // Both ordinary functions and the async body's poll get a subprogram.
+    // The async body is where the statements live; its factory only allocates
+    // a frame, so giving the factory the subprogram would orphan every marker.
+    assert_eq!(ir.matches("= distinct !DISubprogram(").count(), 3, "{ir}");
+    assert!(
+        ir.contains("@later.poll("),
+        "the poll function is emitted: {ir}"
+    );
+    let later = ir
+        .lines()
+        .find(|line| line.contains("= distinct !DISubprogram(name: \"later\""))
+        .expect("the async body has a subprogram");
+    let later_id = later.trim_start_matches('!').split(' ').next().unwrap();
+    assert!(
+        ir.lines()
+            .any(|line| line.contains("!DILocation(")
+                && line.contains(&format!("scope: !{later_id}"))),
+        "the async body's statement is scoped to its poll: {ir}"
+    );
 
     // A `let` inside `if { ... }` is scoped to that lexical block, carries the
     // line it is declared on, and its `declare` sits at that line's location.

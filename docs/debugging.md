@@ -29,9 +29,12 @@ stderr, so stdout stays available to the program being debugged.
   nested `{ ... }` scope, and one `DILocalVariable` plus `llvm.dbg.declare`
   per parameter and `let` binding. A binding is scoped to the lexical block it
   is declared in and carries that statement's line, so a debugger shows it only
-  while the block is live. The linked object has a real `.debug_line` section,
-  so a debugger can break at a source line inside a function and `yashyc
-  inspect --addr` can map an address back to the declaration's source span.
+  while the block is live. An `async fn` names the lowered `poll` function that
+  holds its body, so a source breakpoint stops in the body when the task is
+  polled, not in the short factory that allocates its frame. The linked object
+  has a real `.debug_line` section, so a debugger can break at a source line
+  inside a function and `yashyc inspect --addr` can map an address back to the
+  declaration's source span.
 - `frame variable` shows a local as a typed value. `int`, `float`, `bool`,
   `char`, `string`, `*T`, user structs and user enums carry a DI type; a
   `string` is described as the runtime's `yashy_str` header reached through its
