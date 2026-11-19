@@ -13,6 +13,7 @@ fn tokens(source: &str) -> Vec<String> {
         .tokenize()
         .unwrap_or_else(|error| panic!("{source:?} must lex: {error:?}"))
         .iter()
+        .filter(|token| token.kind != yashy_lexer::TokenKind::Eof)
         .map(|token| format!("{:?}", token.kind))
         .collect()
 }
