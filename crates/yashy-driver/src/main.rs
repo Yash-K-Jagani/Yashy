@@ -2156,15 +2156,15 @@ fn exit_status_code(status: ExitStatus) -> i32 {
     #[cfg(unix)]
     {
         use std::os::unix::process::ExitStatusExt;
-        if let Some(signal) = status.signal() {
+        if let Some(sig) = status.signal() {
             extern "C" {
                 fn signal(signal: i32, handler: usize) -> usize;
                 fn raise(signal: i32) -> i32;
             }
             // SIG_DFL is 0 on every Unix the compiler targets.
             unsafe {
-                signal(signal, 0);
-                raise(signal);
+                signal(sig, 0);
+                raise(sig);
             }
         }
     }
