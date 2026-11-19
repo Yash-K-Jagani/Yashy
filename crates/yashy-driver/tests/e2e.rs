@@ -732,6 +732,12 @@ fn a_const_fn_is_computed_by_the_compiler() {
 }
 
 #[test]
+fn derived_methods_render_and_compare() {
+    let output = build_and_run("derive");
+    assert_eq!(stdout_of(&output), "Point { x: 1, y: 2 }\ntrue\n");
+}
+
+#[test]
 fn an_unsafe_allocation_runs_and_frees_its_block() {
     // `alloc_uninit` is the explicit unsafe opt-out. The program writes the one
     // element it reads, and `verify` still has to see the release.

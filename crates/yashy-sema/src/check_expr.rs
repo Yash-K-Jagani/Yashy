@@ -1844,7 +1844,20 @@ impl<'src> Checker<'src> {
         &mut self,
         modules: &[(FileId, &yashy_parser::ast::Program)],
     ) -> Result<HirProgram, Vec<Diagnostic>> {
+        let mut expanded: Vec<(FileId, yashy_parser::ast::Program)> = Vec::new();
         for (file, ast) in modules {
+            self.file = *file;
+            match crate::derive::expand(ast) {
+                Ok(program) => expanded.push((*file, program)),
+                Err(errors) => {
+                    for (span, message) in errors {
+                        self.error(span, message);
+                    }
+                    expanded.push((*file, (*ast).clone()));
+                }
+            }
+        }
+        for (file, ast) in &expanded {
             self.file = *file;
             self.declare_items(&ast.items);
             let mut module_aliases: HashMap<String, String> = HashMap::new();
@@ -1860,7 +1873,7 @@ impl<'src> Checker<'src> {
         }
         self.check_symbol_collisions();
         let mut items = Vec::new();
-        for (file, ast) in modules {
+        for (file, ast) in &expanded {
             self.file = *file;
             for item in &ast.items {
                 if let Some(hir) = self.check_item(item) {

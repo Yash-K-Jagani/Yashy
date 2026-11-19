@@ -1,0 +1,11 @@
+// Two built-in derives, expanded as ordinary methods before checking.
+// Debug renders the fields in declaration order; Eq compares them pairwise.
+
+struct Point derive(Debug, Eq) { x: int, y: int }
+
+fn main() {
+    let a = Point { x: 1, y: 2 };
+    let b = Point { x: 1, y: 2 };
+    print(a.debug());
+    print(a.eq(b));
+}

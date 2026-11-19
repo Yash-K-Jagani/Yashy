@@ -7,6 +7,7 @@
 pub mod check_expr;
 pub mod check_pat;
 pub mod const_eval;
+pub mod derive;
 pub mod error;
 pub mod scope;
 
@@ -15,8 +16,8 @@ pub use yashy_hir::{exhaustive, hir, ty};
 pub use yashy_verify::ownership;
 
 pub use check_expr::{
-    check_modules_with, check_program, check_program_with, CheckOptions,
-    MAX_INSTANTIATIONS_PER_FN, MAX_INSTANTIATIONS_TOTAL,
+    check_modules_with, check_program, check_program_with, CheckOptions, MAX_INSTANTIATIONS_PER_FN,
+    MAX_INSTANTIATIONS_TOTAL,
 };
 pub use check_pat::check_pattern;
 pub use const_eval::{ConstFn, ConstValue};
