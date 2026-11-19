@@ -1100,6 +1100,9 @@ fn point_id(point: &Point, points: &[Point], location_base: usize) -> usize {
 
 /// The function-only form used by the unit tests: no statements, no markers.
 pub fn annotate_basic(ir: &str, functions: &[FunctionLocation]) -> String {
+    if functions.is_empty() {
+        return ir.to_string();
+    }
     // The basic form is kept simple: function attachments without locations.
     let mut out: Vec<String> = ir.lines().map(str::to_string).collect();
     for line in &mut out {
@@ -1118,6 +1121,22 @@ pub fn annotate_basic(ir: &str, functions: &[FunctionLocation]) -> String {
     out.push(String::new());
     out.push("!llvm.dbg.cu = !{!0}".to_string());
     out.push("!1 = !{i32 2, !\"Debug Info Version\", i32 3}".to_string());
+    out.push("!2 = !DISubroutineType(types: !3)".to_string());
+    out.push("!3 = !{}".to_string());
+    out.push("!4 = !DIFile(filename: \"main.ya\", directory: \".\")".to_string());
+    out.push(
+        "!0 = distinct !DICompileUnit(language: DW_LANG_C, file: !4, producer: \"yashyc\", \
+         isOptimized: false, runtimeVersion: 0, emissionKind: FullDebug, retainedTypes: !{})"
+            .to_string(),
+    );
+    for (index, entry) in functions.iter().enumerate() {
+        let id = 4 + functions.len() + index;
+        out.push(format!(
+            "!{id} = distinct !DISubprogram(name: \"{}\", scope: !4, file: !4, line: {}, \
+             type: !2, scopeLine: {}, spFlags: DISPFlagDefinition, unit: !0)",
+            entry.name, entry.line, entry.line
+        ));
+    }
     out.join("\n")
 }
 

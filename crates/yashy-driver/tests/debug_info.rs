@@ -82,7 +82,7 @@ const DEBUG_PROGRAM: &str = concat!(
     "        let inner = n + 1;\n",
     "        print(inner);\n",
     "    }\n",
-    "    p.x + n\n",
+    "    return p.x + n;\n",
     "}\n",
     "\n",
     "fn main() {\n",
