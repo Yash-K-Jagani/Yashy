@@ -58,5 +58,8 @@ stderr, so stdout stays available to the program being debugged.
 
 ## What is not there yet
 
+- A scripted debugger session is not part of the default test run: it needs
+  LLDB on `PATH` and is opt-in with `YASHY_LLDB_TEST=1`. A host without LLDB
+  prints a skip note rather than failing.
 - `Option[T]` and `Result[T, E]` locals are described by the synthetic structs
   their summary providers read, not by the checker's exact tag/payload layout.
