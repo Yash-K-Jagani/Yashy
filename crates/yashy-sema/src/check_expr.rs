@@ -12327,6 +12327,21 @@ impl<'src> Checker<'src> {
                 let base_ty = expr_ty(&base);
                 let (element, checked) = match &base_ty.kind {
                     TypeKind::Ptr(pointee) => ((**pointee).clone(), false),
+                    TypeKind::CPtr(pointee) => {
+                        // A C pointer may alias anything and the C side may
+                        // free it behind our back. Reading through one is the
+                        // point where that risk becomes the program's, so it
+                        // needs an explicit `unsafe` block (ALIAS-2).
+                        if self.unsafe_depth == 0 {
+                            self.error_code(
+                                *span,
+                                codes::FFI_POINTER_DEREF,
+                                "dereferencing a C pointer requires an `unsafe` block".to_string(),
+                            );
+                            return None;
+                        }
+                        ((**pointee).clone(), false)
+                    }
                     TypeKind::Slice(element)
                     | TypeKind::FixedArray(element, _)
                     | TypeKind::View(element) => ((**element).clone(), true),

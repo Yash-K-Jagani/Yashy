@@ -263,10 +263,13 @@ A pure computation is a function of its arguments. The determinism rules are:
 5. **DET-5 — Layout is a compiler fact.** Sizes, alignments and offsets come
    from one layout table shared by the checker, the verifier and the backend.
 
+The enforced alias rules are ALIAS-1 (`E1005`), ALIAS-2 (`E1406`: a C pointer
+may only be dereferenced inside `unsafe`), ALIAS-3 (`E1403`) and ALIAS-5
+(`E1404`). ALIAS-4, DET-2, DET-3 and DET-5 remain obligations on later phases
+and are reported as unenforced rules by `yashyc trace --fail-orphans`.
+
 DET-1 and DET-4 have enforcing diagnostics (`E1302` and `E1405`: a safe
-`alloc` is zeroed and `alloc_uninit` needs `unsafe`). The other three are
-obligations on later phases and are reported as unenforced rules by
-`yashyc trace --fail-orphans`.
+`alloc` is zeroed and `alloc_uninit` needs `unsafe`).
 
 ### 5.4 Layout
 

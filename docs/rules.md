@@ -7,6 +7,7 @@ Every catalog code names one rule. Rules the design names without a code yet are
 | Rule | Code | Meaning |
 |---|---|---|
 | `ALIAS-1` | [E1005](errors/E1005.md) | owning pointer copied without move |
+| `ALIAS-2` | [E1406](errors/E1406.md) | FFI pointer dereference outside unsafe |
 | `ALIAS-3` | [E1403](errors/E1403.md) | unproved view source |
 | `ALIAS-5` | [E1404](errors/E1404.md) | assumption not reported |
 | `ASYNC-1` | [E1700](errors/E1700.md) | await or spawn outside an async function |
@@ -115,7 +116,6 @@ Every catalog code names one rule. Rules the design names without a code yet are
 
 ## Rules without a code
 
-- `ALIAS-2`
 - `ALIAS-4`
 - `DET-2`
 - `DET-3`

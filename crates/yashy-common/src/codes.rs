@@ -154,6 +154,8 @@ pub const UNPROVED_VIEW_SOURCE: &str = "E1403";
 pub const ASSUMPTION_NOT_REPORTED: &str = "E1404";
 /// An operation that can expose uninitialised bytes was written outside `unsafe`.
 pub const UNINITIALISED_ALLOC: &str = "E1405";
+/// An FFI pointer was dereferenced outside an `unsafe` block.
+pub const FFI_POINTER_DEREF: &str = "E1406";
 /// A `const` or `let` binding is never read.
 pub const UNUSED_BINDING: &str = "E2000";
 /// `await` or `spawn` appears outside an `async fn`.
@@ -542,6 +544,12 @@ pub const CODES: &[Code] = &[
         page: include_str!("../../../docs/errors/E1405.md"),
     },
     Code {
+        id: FFI_POINTER_DEREF,
+        title: "FFI pointer dereference outside unsafe",
+        summary: "A `*const` or `*mut` C pointer may only be read or written inside an `unsafe` block.",
+        page: include_str!("../../../docs/errors/E1406.md"),
+    },
+    Code {
         id: UNUSED_BINDING,
         title: "unused binding",
         summary: "A `const` or `let` binding is never read.",
@@ -909,7 +917,7 @@ pub fn docs_url(id: &str) -> String {
 /// A rule can exist in the design before a diagnostic enforces it. This list
 /// names those rules so the matrix can report them as orphans instead of
 /// silently dropping them: a rule with no code is a rule nobody can check.
-pub const PLANNED_RULES: &[&str] = &["ALIAS-2", "ALIAS-4", "DET-2", "DET-3", "DET-5"];
+pub const PLANNED_RULES: &[&str] = &["ALIAS-4", "DET-2", "DET-3", "DET-5"];
 
 /// The stable rule id a code enforces.
 ///
@@ -971,6 +979,7 @@ pub fn rule_for(id: &str) -> &'static str {
         UNPROVED_VIEW_SOURCE => "ALIAS-3",
         ASSUMPTION_NOT_REPORTED => "ALIAS-5",
         UNINITIALISED_ALLOC => "DET-4",
+        FFI_POINTER_DEREF => "ALIAS-2",
         UNKNOWN_TRAIT => "TRAIT-1",
         CONFLICTING_IMPL => "TRAIT-2",
         INCOMPLETE_IMPL => "TRAIT-3",

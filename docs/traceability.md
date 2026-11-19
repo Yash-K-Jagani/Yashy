@@ -11,6 +11,14 @@ Tests:
 
 - `crates/yashy-sema/tests/check.rs`
 
+## `ALIAS-2`
+
+Codes: `E1406`
+
+Tests:
+
+- `crates/yashy-sema/tests/ffi_deref.rs`
+
 ## `ALIAS-3`
 
 Codes: `E1403`

@@ -1202,7 +1202,7 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
             let ptr = gen_expr(ctx, base);
             let idx = gen_expr(ctx, index);
             let element = match &ptr.ty {
-                TypeKind::Ptr(inner) => (**inner).clone(),
+                TypeKind::Ptr(inner) | TypeKind::CPtr(inner) => (**inner).clone(),
                 _ => ty.clone(),
             };
             let repr = crate::ir::repr_type(&element.kind);

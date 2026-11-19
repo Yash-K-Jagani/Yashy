@@ -213,18 +213,19 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 
 - [ ] **Step 1: Write the failing test.** A safe function that dereferences a `*const T`; a `noalias` on a safe parameter; an `Option[*const T]` passed to and from C with null; a pointer offset past its allocation; an `unsafe` block that calls an `extern` function. Assert each refusal names the exact rule (`ALIAS-1`…`ALIAS-5`) and that the FFI round-trip preserves null as `None`.
 - [ ] **Step 2: Write the rules down before the code.** `docs/architecture.md` §5.3 becomes normative: owning pointers are unique by linearity; FFI pointers may alias; `noalias` is legal only on `extern` declarations and `unsafe fn` parameters; disjoint views are proved, not assumed; no assumption crosses a safe call. The five rules now carry ids ALIAS-1 through ALIAS-5 (docs/architecture.md 5.3), so later diagnostics and corpus cases can name the rule they test. Still owed: a corpus file per rule and codes that emit those ids.
-  *Current:* §5.3 is normative and the five IDs are written there. ALIAS-3 now
-  has an enforcing diagnostic: E1403 fires when a view's source is a temporary
-  or a field the compiler cannot keep alive, with a sema test and a catalog
-  page. The other four alias rules and the DET family still need codes, so the
-  step stays open.
+  *Current:* §5.3 is normative and the five IDs are written there. ALIAS-1,
+  ALIAS-2, ALIAS-3 and ALIAS-5 now have enforcing diagnostics (`E1005`, `E1406`,
+  `E1403` and `E1404`); the two FFI/alias gates are pinned by
+  `crates/yashy-sema/tests/ffi_deref.rs` and
+  `crates/yashy-driver/tests/ffi_deref.rs`. ALIAS-4 and a corpus file per rule
+  are still owed.
 - [ ] **Step 3: `unsafe` is a block, not a mode.** Dereferencing an FFI pointer, pointer arithmetic beyond a proved bound, calling an `unsafe fn`/`extern` function, and `alloc_uninit` require `unsafe { }`. A safe function cannot contain one. `verify --inventory` lists every unsafe site with its span and the reason; the count is a release number.
   *Current:* `unsafe { ... }` parses as an expression, checks its body and is
   lowered as a block by codegen; parser and sema tests pin the form. It is now
-  a real gate for `alloc_uninit`: the builtin is refused outside a block with
-  `E1405` and accepted inside one, with nested blocks tracked by depth. Pointer
-  deref and pointer arithmetic are still not gated, so the rest of the gating
-  half stays open. The inventory records an `unsafe_block` assumption for every explicit block
+  a real gate for `alloc_uninit` and for dereferencing a C pointer: the builtins
+  are refused outside a block with `E1405` / `E1406` and accepted inside one,
+  with nested blocks tracked by depth. Pointer arithmetic is still not gated,
+  so the rest of the gating half stays open. The inventory records an `unsafe_block` assumption for every explicit block
   with its span and a reason, alongside extern declarations and unsafe calls,
   in both the human table and `--json`; the driver test pins the new row.
 - [ ] **Step 4: Null has one spelling.** `Option[*const T]` and `Option[*mut T]` are guaranteed to use the null pointer for `None` at the ABI boundary; `Some(p)` is non-null. There is no `null` literal and no nullable pointer type. A C function returning null round-trips to `None`; a null passed where `Some` is expected is refused at the call site.
@@ -461,8 +462,8 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   `PAT-2`, `ALIAS-3`, `LAYOUT-1`, `CONST-1`, `DET-1`). `yashyc trace` (Phase 9) will consume the registry; this phase fills it.
   *Current:* every catalog code has a stable rule through `codes::rule_for`,
   and `crates/yashy-driver/tests/rules.rs` pins both the generated
-  `docs/rules.md` page and the five design rules that still have no code
-  (`ALIAS-2`, `ALIAS-4`, `DET-2`, `DET-3`, `DET-5`); the page names them as orphans
+  `docs/rules.md` page and the four design rules that still have no code
+  (`ALIAS-4`, `DET-2`, `DET-3`, `DET-5`); the page names them as orphans
   instead of hiding them. `docs/traceability.md` pairs the same registry with
   the tests that mention each code.
 - [x] **Step 4: Update the architecture document.** §4 (program model), §5 (memory, aliasing, layout, allocation, determinism) and §12 (phase map) are updated in the same commit as the code.
@@ -481,7 +482,7 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 | Patterns | `cargo test -p yashy-sema --test pats --test desugar` | `let else`, slice/rest, `@`, `matches`, if-let chains and `else if` have desugar proofs |
 | Expressions | `cargo test -p yashy-sema --test expressions --test desugar` | `Range[T]`, `in`, `is`/`is not`, `and`/`or`/`not` parse, check and desugar; `float` ranges, membership on a user type and `is` on a value are diagnosed |
 | Derives | `cargo test -p yashy-sema --test derive` | deterministic bytes; `index --json` shows each impl; a missing field bound names the field |
-| Unsafe and aliasing | `cargo test -p yashy-sema --test alias` | ALIAS-3 has a positive and a negative case (`E1403`); the inventory lists every explicit `unsafe` block. The other four rules and the corpus per rule are owed (Task 5 Steps 1, 2 and 5) |
+| Unsafe and aliasing | `cargo test -p yashy-sema --test alias -p yashy-sema --test ffi_deref -p yashy-driver --test ffi_deref` | ALIAS-1, ALIAS-2, ALIAS-3 and ALIAS-5 have enforcing codes with positive and negative cases; the inventory lists every explicit `unsafe` block. Pointer arithmetic, ALIAS-4 and the corpus per rule are owed |
 | Null niche | `cargo test -p yashy-verify --test unsafe` (file owed) | the test this row names does not exist: `Option[*const T]` has no null niche and no FFI round-trip yet, so Task 5 Step 4 is owed |
 | Allocation | `cargo test -p yashy-runtime --test memory` (binary execution is CI-only) plus `cargo test -p yashy-sema --test unsafe_alloc -p yashy-driver --test unsafe_alloc` | `alloc` is zeroed on both paths; `alloc_uninit` needs `unsafe` (E1405) and calls a distinct symbol; a custom allocator's call log is owed (Task 6 Step 3) |
 | Layout | `cargo test -p yashy-driver --test layout` | `size_of`/`align_of`/`offset_of` agree with the IR; `repr(C)` is stable; packed misalignment is diagnosed |
@@ -580,7 +581,7 @@ does not build on a claim that is not true.
 |---|---|---|---|
 | 1.1-1.4, 1.6 | User generic traits, associated types, default methods, supertraits | `E1511`: a trait has no type parameters, no `type` item, no default body and no supertrait list; the impl surface (completeness, coherence, one impl per trait-and-type, static dispatch, no vtable) is what exists | Not a Phase 4 gap. §4.2 of the 2.0 design makes `Iterator[T]` the one compiler-known generic trait and keeps user generic traits excluded; reopening it needs a design-record change first |
 | 2.1, 2.3, 2.4 | `pub(crate)` / `pub(super)` / `pub(in path)` lattice, `pub use` re-exports | `pub(crate)` parses; `pub(super)` and `pub(in path)` are refused by the parser with a diagnostic naming the limitation; there is no `pub use`; visibility is the binary `pub`-vs-module-private model with the declaration's file as the module | §4.2 records the binary model: this compiler's crate is its whole program, so there is no `super` to compare a use site against. Reopen only with a module-graph design |
-| 5.1-5.6 | `unsafe` gates deref and pointer arithmetic; `Option[*const T]` null niche; alias corpus per rule | `unsafe { }` parses, checks, is inventoried and now gates `alloc_uninit` (`E1405`); ALIAS-3 has an enforcing diagnostic (`E1403`). Pointer deref/arithmetic are still not gated, there is no null niche, and `crates/yashy-verify/tests/unsafe.rs` does not exist | Owed work, not excluded: the pointer model is the phase's hardest safety question; three ALIAS rules and three DET rules still need codes |
+| 5.1-5.6 | `unsafe` gates deref and pointer arithmetic; `Option[*const T]` null niche; alias corpus per rule | `unsafe { }` parses, checks, is inventoried and gates both `alloc_uninit` (`E1405`) and C-pointer dereference (`E1406`, ALIAS-2). ALIAS-1, ALIAS-3 and ALIAS-5 have codes. Pointer arithmetic is still ungated, there is no null niche, and `crates/yashy-verify/tests/unsafe.rs` does not exist | Owed work, not excluded: pointer arithmetic, the null niche, ALIAS-4 and the corpus |
 | 6.5, 7.1-7.5 | `size_of[T]()` bracket spelling; `const N` parameters | `sizeof(T)` / `alignof(T)` / `offsetof(T, f)` and the underscore spellings fold from the shared layout table; the bracket spelling needs const generics, which do not exist | Owed work; the checker/layout/IR agreement is pinned by `crates/yashy-driver/tests/layout.rs` |
 | 8.1, 8.2 | `Range[T]` value type with `start`/`end`/`len`/`is_empty`/`contains`/`step_by` | `..` and `..=` parse as a `for` head and as a pattern; a float bound is `E1518`; there is no range value or method surface | Owed work; `in` over a range waits on it |
 | 9.1, 9.4, 9.5 | IR-literal assertion, compile-time/run-time differential test, evaluator consumes typed HIR | The evaluator consumes the parser AST and folds arithmetic, `if`, `let`/assignment, loops, fixed arrays and nested calls; the IR and differential assertions are owed | Owed work; the AST choice is why `switch` and struct construction are still refused rather than wrong |

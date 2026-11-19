@@ -77,6 +77,7 @@ the declaration or import involved when that is not obvious.
 | [E1403](errors/E1403.md) | unproved view source |
 | [E1404](errors/E1404.md) | assumption not reported |
 | [E1405](errors/E1405.md) | uninitialised allocation outside unsafe |
+| [E1406](errors/E1406.md) | FFI pointer dereference outside unsafe |
 | [E1500](errors/E1500.md) | unknown trait |
 | [E1501](errors/E1501.md) | conflicting trait impl |
 | [E1502](errors/E1502.md) | incomplete trait impl |
