@@ -1047,7 +1047,7 @@ pub fn annotate(ir: &str, hir: &HirProgram, sources: &SourceMap) -> String {
         basic_base + 3
     ));
     out.push(format!(
-        "!{} = distinct !DICompositeType(tag: DW_TAG_structure_type, name: \"yashy_str\", scope: !4, file: !4, size: 256, align: 64, elements: !{!{}, !{}, !{}, !{}})",
+        "!{} = distinct !DICompositeType(tag: DW_TAG_structure_type, name: \"yashy_str\", scope: !4, file: !4, size: 256, align: 64, elements: !{{!{}, !{}, !{}, !{}}})",
         string_type,
         string_member,
         string_member + 1,
