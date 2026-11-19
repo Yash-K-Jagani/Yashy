@@ -27,7 +27,8 @@ fn architecture_lists_every_workspace_crate() {
             continue;
         }
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if !name.starts_with("yashy-") {
+        if !name.starts_with("yashy-") || !path.join("Cargo.toml").is_file() {
+            // `yashy-stdlib` holds Yashy source, not a Rust crate.
             continue;
         }
         assert!(
