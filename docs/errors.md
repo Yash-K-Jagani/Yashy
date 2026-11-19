@@ -94,7 +94,7 @@ the declaration or import involved when that is not obvious.
 | [E1515](errors/E1515.md) | operators cannot be overloaded |
 | [E1516](errors/E1516.md) | membership is not defined for this container |
 | [E1517](errors/E1517.md) | invalid `is` comparison |
-| [E1518](errors/E1518.md) | float range bound |
+| [E1518](errors/E1518.md) | a range needs integer or character bounds |
 | [E1519](errors/E1519.md) | recursive type alias |
 | [E1520](errors/E1520.md) | constant overflow |
 | [E1521](errors/E1521.md) | constant division by zero |

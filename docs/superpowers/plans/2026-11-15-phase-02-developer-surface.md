@@ -215,12 +215,19 @@ crate; the `Lint` interface below is the implemented one.
   catalog lists it, `explain --json` returns `title`/`summary`/`page`/
   `docs_url`. The "at least one test or fixture triggers it" assertion is not
   implemented; `error_catalog.rs` checks the page, heading, catalog entry,
-  `explain --json` record and the all-codes envelope.
+  `explain --json` record and the all-codes envelope, and
+  `error_examples.rs` checks that each transcript's
+  `path:line:column` names the line it echoes, so the example a page shows and
+  the example its transcript describes cannot drift apart. Running the example
+  through the checker and asserting the code is still owed.
 - [x] **Step 2: Make the catalog generated.** `yashyc explain --all --json` is
   the machine form; a code without a page fails the build.
-  *Current:* `docs/errors.md` is committed and its links are checked by
-  `tests/docs.rs`, but no test regenerates it from `explain --all`, and no test
-  fails on an orphan page without a code.
+  *Current:* `docs/errors.md` is committed and `error_examples.rs` compares its
+  table byte for byte with the registry (id, link and `title`, in registry
+  order) and refuses an orphan page, so the table and the pages are checked
+  against one source. The table is rendered by the test's expectation rather
+  than written by `explain --all`; a `yashyc`-driven regeneration is the
+  remaining half.
 - [x] **Step 3: Rule ids.** Every code names the rule it enforces
   (`OWN-3`, `ALIAS-2`, `DET-4`, …) through `codes::rule_for`; `explain --json`
   and `explain --all --json` carry a `rule` field, and a unit test refuses an
@@ -625,7 +632,7 @@ scripts and the terminal tests are committed.
 | Terminal | `cargo test -p yashy-driver --test terminal` | piped output is plain and ordered; colour, pager and hyperlink policy hold; every verb is in help, man output and all four completions; each script parses |
 | Machine fixes | `cargo test -p yashy-driver --test fix` | removed keywords and name typos apply; missing `move` and reordered arguments apply; a conflicting fix is refused; a stale hash is refused |
 | Schema | `cargo test -p yashy-driver --test diagnostics_json --test schema_diff` | v1 fields unchanged; `suggestions[]` is additive; SARIF validates and carries `fixes` |
-| Error catalog | `cargo test -p yashy-driver --test error_catalog` | every code has a page, a catalog entry and an `explain --json` record; the triggering-fixture assertion is not implemented |
+| Error catalog | `cargo test -p yashy-driver --test error_catalog --test error_examples` | every code has a page, a catalog entry and an `explain --json` record; the catalog table matches the registry and no page is orphaned; each transcript names the line it echoes; running each example through the checker is not implemented |
 | First test | `yashyc new hello && cd hello && yashyc test` | under 60 s on a cold machine, both OSes; not measurable locally |
 | Debugger | `cargo test -p yashy-driver --test debug --test debug_info` | backend selection, scripts, per-statement line tables, lexical blocks, async poll subprograms and `inspect --addr` are tested; a scripted typed-value stop is not |
 | Profilers | `cargo test -p yashy-driver --lib --test profile` | wall-clock and recorded counter reports in table and JSON form, the `--sample` fallback, and an allocation-site assertion; no native sampler test exists |
@@ -693,7 +700,7 @@ still owed so a later phase does not inherit a false checklist.
 | 1.1-1.3 | All LSP features answer; `LspModel` is a `yashy-query` snapshot; rename refuses macro-origin and out-of-workspace edits | All 19 features answer from a source-derived `LspModel`; rename refuses invalid names and collisions; code actions now apply removed-keyword and name-typo fixes as real workspace edits | Feed the model from the query database; add project-wide rename refusals |
 | 2.1 / 2.2 / 2.4 | Name typo, missing `move`, wrong argument order, LSP-applied fix, SARIF `fixes` | Name-typo and removed-keyword suggestions, a `move` insertion for a linear copy, an argument-permutation suggestion when the argument types are a permutation of the parameters, LSP quick fixes with real workspace edits, SARIF `fixes` with line/column regions | Nothing outstanding |
 | 3.1 / 3.2 | `--deny`, `switch`/`while`/`Result` lints, lint suggestions, generated `docs/lints.md` | `--deny <code>`, `--group`, `--docs`, the machine-applicable `var`→`let` suggestion, all six lints (including `switch`/`while`/`Result`) and a generated `docs/lints.md` compared by test | Lints are source-level advice; they do not use the checker's type information |
-| 4.1 / 4.3 | Every code has a triggering test or fixture; every code names its rule | Page, heading, catalog, `explain --json` and `--all --json` are tested; `codes::rule_for` gives every code a unique `FAMILY-N` id in the JSON; triggering fixtures are not | Add one triggering fixture per code |
+| 4.1 / 4.3 | Every code has a triggering test or fixture; every code names its rule | Page, heading, catalog, `explain --json` and `--all --json` are tested; `codes::rule_for` gives every code a unique `FAMILY-N` id in the JSON; `error_examples.rs` holds each transcript to the line it echoes and the catalog table to the registry; triggering fixtures are not | Add one triggering fixture per code |
 | 5.1 | First test under 60 s on a cold machine | `new` creates a project and its first test passes; the wall-clock bound is not asserted in the unit test | Measure in CI |
 | 5.3 / 5.4 | `repl`, `doc --serve` | A compiling REPL with retained declarations, type reporting and honest refusals; a loopback read-only docs server with `/json` and `/search`; no persistent HIR interpreter | Add an HIR interpreter only if compile-per-expression is too slow |
 | 6 | DWARF/CodeView debugger, async task view, pretty printers | `yashyc debug` selects LLDB or cdb; debug builds emit `!dbg` per checked statement and per nested lexical block (a real `.debug_line` section), sources types for structs, enums and `Option`/`Result`, ships LLDB value printers, and `inspect --addr` maps addresses to spans; `tests/debug_session.rs` stops on a source line and asserts a typed `Option` value, opt-in through `YASHY_LLDB_TEST=1` | Run the scripted session in the CI matrix |
