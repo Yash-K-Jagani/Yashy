@@ -740,6 +740,24 @@ impl<'a> Parser<'a> {
         Ok(out)
     }
 
+    /// A field value in an index entry: a quoted string or a bare literal.
+    /// `yanked` is written as a JSON boolean by the publisher, while every
+    /// other field is a string; both have to read back without a parse error.
+    fn parse_field_value(&mut self) -> Result<String, RegistryError> {
+        self.skip_whitespace();
+        if self.remaining().starts_with('"') {
+            return self.parse_string();
+        }
+        let start = self.index;
+        while let Some(character) = self.remaining().chars().next() {
+            if character.is_whitespace() || matches!(character, ',' | '}' | ']') {
+                break;
+            }
+            self.index += character.len_utf8();
+        }
+        Ok(self.text[start..self.index].to_string())
+    }
+
     fn skip_value(&mut self) -> Result<(), RegistryError> {
         self.skip_whitespace();
         match self.remaining().chars().next() {
@@ -822,7 +840,7 @@ pub fn read_index_text(text: &str) -> Result<Vec<RegistryEntry>, RegistryError> 
                     }
                     let field = parser.parse_string()?;
                     parser.expect_char(':')?;
-                    let value = parser.parse_string()?;
+                    let value = parser.parse_field_value()?;
                     match field.as_str() {
                         "name" => name = value,
                         "version" => version = value,

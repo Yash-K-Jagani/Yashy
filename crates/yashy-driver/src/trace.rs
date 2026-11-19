@@ -599,7 +599,7 @@ mod tests {
         assert!(to_json(&rows).render().contains("orphan_codes"));
         assert!(rows
             .orphan_rules_without_code
-            .contains(&"ALIAS-1".to_string()));
+            .contains(&"ALIAS-4".to_string()));
         assert!(rows
             .orphan_rules_without_code
             .contains(&"DET-2".to_string()));

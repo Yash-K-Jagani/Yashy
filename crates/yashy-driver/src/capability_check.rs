@@ -166,7 +166,7 @@ mod tests {
 
     #[test]
     fn required_capabilities_are_named_once() {
-        let mut names: Vec<&str> = REQUIRED.iter().map(|(_, name)| *name).collect();
+        let mut names: Vec<&str> = REQUIRED.iter().map(|(name, _)| *name).collect();
         names.sort_unstable();
         let count = names.len();
         names.dedup();

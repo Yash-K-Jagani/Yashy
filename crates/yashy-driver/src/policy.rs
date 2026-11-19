@@ -57,7 +57,7 @@ mod tests {
     fn a_policy_can_narrow_a_grant() {
         let manifest = Manifest::parse(
             "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n\
-             [capabilities]\nnet = []\nfs.read = [\"data/*\"]\n",
+             [capabilities]\nnet = []\n\"fs.read\" = [\"data/*\"]\n",
         )
         .unwrap();
         let resolved = resolve(&manifest, &["net".to_string()]);

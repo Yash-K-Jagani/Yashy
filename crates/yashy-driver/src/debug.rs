@@ -223,6 +223,6 @@ mod tests {
     fn a_default_breakpoint_is_the_entry_point() {
         let backend = Backend::Lldb(PathBuf::from("lldb"));
         let text = script(&backend, Path::new("app"), &[], &[], None);
-        assert!(text.contains("breakpoint set --name \"main\""), "{text}");
+        assert!(text.contains("breakpoint set --name main"), "{text}");
     }
 }

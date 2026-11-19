@@ -24,11 +24,26 @@ pub fn parse_nm(text: &str) -> Vec<Symbol> {
     let mut out = Vec::new();
     for line in text.lines() {
         let mut fields = line.split_whitespace();
-        let Some(address) = fields.next() else {
+        let Some(mut address) = fields.next() else {
             continue;
         };
+        // Windows llvm-nm prefixes a source line number (`0: ADDRESS T name`).
+        if address.ends_with(':') {
+            let Some(next) = fields.next() else { continue };
+            address = next;
+        }
         if let Ok(address) = u64::from_str_radix(address, 16) {
-            if let Some(name) = fields.next() {
+            let Some(next) = fields.next() else {
+                continue;
+            };
+            // Both Windows and ELF `nm` write a one-letter symbol type before
+            // the name; the type is not part of the symbol.
+            let name = if next.len() == 1 {
+                fields.next()
+            } else {
+                Some(next)
+            };
+            if let Some(name) = name {
                 out.push(Symbol {
                     address,
                     name: name.to_string(),

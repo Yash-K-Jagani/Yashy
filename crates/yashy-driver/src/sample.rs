@@ -212,8 +212,8 @@ mod unit {
             ("hot".to_string(), "main.ya:2:1".to_string()),
             ("cold".to_string(), "main.ya:8:1".to_string()),
         ];
-        let report = aggregate("main.ya", &[1, 2, 3, 4], &frames, 0, true);
-        assert_eq!(report.total, 4);
+        let report = aggregate("main.ya", &[1, 2, 3, 4, 5], &frames, 0, true);
+        assert_eq!(report.total, 5);
         assert_eq!(report.hot().map(|row| row.name.as_str()), Some("hot"));
         let sum: u64 = report.functions.iter().map(|row| row.samples).sum();
         assert_eq!(sum, report.total);
@@ -235,9 +235,9 @@ mod unit {
         let frames = vec![("hot".to_string(), String::new())];
         let report = aggregate("main.ya", &[1], &frames, 0, true);
         let json = json_rpc::to_string(&report.to_json());
-        assert!(json.contains("\"mode\": \"sample\""), "{json}");
-        assert!(json.contains("\"name\": \"hot\""), "{json}");
-        assert!(json.contains("\"hot\": \"hot\""), "{json}");
-        assert!(json.contains("\"percent\": 100"), "{json}");
+        assert!(json.contains("\"mode\":\"sample\""), "{json}");
+        assert!(json.contains("\"name\":\"hot\""), "{json}");
+        assert!(json.contains("\"hot\":\"hot\""), "{json}");
+        assert!(json.contains("\"percent\":100"), "{json}");
     }
 }

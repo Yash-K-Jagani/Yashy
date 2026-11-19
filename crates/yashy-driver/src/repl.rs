@@ -73,6 +73,7 @@ impl Repl {
             ("import", "an import"),
             ("async", "an `async fn` or `.await`"),
             ("thread", "a thread"),
+            ("thread_spawn", "a spawned task or thread"),
             ("spawn", "a spawned task or thread"),
             ("write_file", "a write to the filesystem"),
             ("delete_file", "a delete on the filesystem"),

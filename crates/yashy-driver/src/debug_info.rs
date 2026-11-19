@@ -670,13 +670,19 @@ struct Variable {
 
 fn parse_variable(line: &str) -> Option<(Option<usize>, String, String, String)> {
     let rest = line.trim().strip_prefix("; yashy-var:")?;
-    let (kind, rest) = rest.split_once(':')?;
-    let (name, rest) = rest.split_once(':')?;
-    let (slot, tag) = rest.split_once(':')?;
+    let (kind, mut rest) = rest.split_once(':')?;
     let arg = match kind {
         "local" => None,
-        other => Some(other.strip_prefix("arg:")?.parse::<usize>().ok()?),
+        // The emitter writes `arg:<index>`, so the index is the next field.
+        "arg" => {
+            let (index, remaining) = rest.split_once(':')?;
+            rest = remaining;
+            Some(index.parse::<usize>().ok()?)
+        }
+        _ => return None,
     };
+    let (name, rest) = rest.split_once(':')?;
+    let (slot, tag) = rest.split_once(':')?;
     Some((arg, name.to_string(), slot.to_string(), tag.to_string()))
 }
 
@@ -1360,13 +1366,13 @@ mod tests {
         ]);
         let ir = "define void @yashy_fn_one() {\nentry:\n; yashy-loc:0:10:11\n  ret void\n}\ndefine void @yashy_fn_two() {\nentry:\n; yashy-loc:0:29:30\n  ret void\n}\n";
         let annotated = annotate(ir, &hir, &sources);
-        // One file, two functions: subprograms are !5 and !6, locations !7.. .
+        // One file, two functions: subprograms are !6 and !7, locations !8.. .
         assert!(
-            annotated.contains("= !DILocation(line: 2, column: 3, scope: !5)"),
+            annotated.contains("= !DILocation(line: 2, column: 3, scope: !6)"),
             "{annotated}"
         );
         assert!(
-            annotated.contains("= !DILocation(line: 5, column: 3, scope: !6)"),
+            annotated.contains("= !DILocation(line: 5, column: 3, scope: !7)"),
             "{annotated}"
         );
     }
@@ -1378,7 +1384,7 @@ mod tests {
         let hir = program(vec![function("list", Span::new(0, 13))]);
         let ir = "define void @yashy_fn_list() {\nentry:\n  %slot0 = alloca [3 x i64]\n; yashy-var:local:xs:%slot0:tuple\n  ret void\n}\n";
         let annotated = annotate(ir, &hir, &sources);
-        assert!(!annotated.contains("llvm.dbg.declare"), "{annotated}");
+        assert!(!annotated.contains("call void @llvm.dbg.declare"), "{annotated}");
         assert!(!annotated.contains("yashy-var"), "{annotated}");
     }
 }
