@@ -482,7 +482,14 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 - Test: `crates/yashy-driver/tests/bpe.rs`, `crates/yashy-driver/tests/rules.rs`
 
 - [ ] **Step 1: Write the failing test.** Every keyword and operator introduced by this phase (`trait`, `type`, `derive`, `unsafe`, `noalias`, `packed`, `align`, `transparent`, `const fn`, `let else`, `matches`, `@`) is one token in `o200k`, `cl100k` and a Llama-family tokenizer. The corpus reports ≥ 97% single-token lexical tokens.
+  *Current:* `crates/yashy-driver/tests/bpe.rs` pins the Yashy-lexer half and
+  `docs/bpe.md` records it. The three external vocabularies are not vendored,
+  so the o200k/cl100k/Llama measurement and the 97% corpus row cannot be
+  claimed here.
 - [ ] **Step 2: Reject a spelling before it ships.** If a candidate keyword splits, choose a single-token synonym and record the measurement in `docs/bpe.md`. No aesthetic rewrites; only measured ones.
+  *Current:* no external measurement exists, so no spelling has been rewritten.
+  Once the vocabularies are vendored, this step decides whether any of the
+  Phase 4 spellings need a measured synonym.
 - [x] **Step 3: Rule ids.** Every new diagnostic names a rule (`TRAIT-1`,
   `PAT-2`, `ALIAS-3`, `LAYOUT-1`, `CONST-1`, `DET-1`). `yashyc trace` (Phase 9) will consume the registry; this phase fills it.
   *Current:* every catalog code has a stable rule through `codes::rule_for`,
