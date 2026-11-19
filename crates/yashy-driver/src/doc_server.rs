@@ -192,6 +192,14 @@ fn serve_stream(model: &DocModel, stream: &mut TcpStream) -> std::io::Result<()>
     // A request line is the only thing read. A bad or non-GET request gets a
     // 404 rather than being forwarded anywhere.
     let _ = reader.read_line(&mut request)?;
+    // Drain the remaining headers. Dropping a socket with unread bytes makes
+    // Linux send RST, which can discard the response we just wrote.
+    loop {
+        let mut header = String::new();
+        if reader.read_line(&mut header)? == 0 || header.trim().is_empty() {
+            break;
+        }
+    }
     let uri = request.split_whitespace().nth(1).unwrap_or("/").to_string();
     let response = if request.starts_with("GET ") {
         respond(model, &uri)
