@@ -37,10 +37,6 @@ pub fn tree_lines_with_features(
     features: &std::collections::BTreeSet<String>,
 ) -> Vec<String> {
     let graph = edges(lock);
-    let mut versions: BTreeMap<String, usize> = BTreeMap::new();
-    for package in &lock.packages {
-        *versions.entry(package.name.clone()).or_default() += 1;
-    }
     let mut lines = Vec::new();
     let mut seen = BTreeSet::new();
     let root = lock
@@ -59,10 +55,30 @@ pub fn tree_lines_with_features(
             .find(|package| package.name == name)
             .map(|package| package.version.as_str())
             .unwrap_or("?");
-        let marks = if versions.get(&name).copied().unwrap_or(0) > 1 {
-            " (duplicate)"
+        // A duplicate is explained, not merely labelled: name the versions the
+        // lock holds, or say that one version came from several sources, so the
+        // reader knows what to look at without running `why` first.
+        let mut locked: Vec<&str> = lock
+            .packages
+            .iter()
+            .filter(|package| package.name == name)
+            .map(|package| package.version.as_str())
+            .collect();
+        locked.sort();
+        locked.dedup();
+        let locked_count = lock
+            .packages
+            .iter()
+            .filter(|package| package.name == name)
+            .count();
+        let marks = if locked_count > 1 {
+            if locked.len() == 1 {
+                format!(" (duplicate: {} from {locked_count} sources)", locked[0])
+            } else {
+                format!(" (duplicate: {})", locked.join(", "))
+            }
         } else {
-            ""
+            String::new()
         };
         let enabled: Vec<String> = features
             .iter()

@@ -16,8 +16,16 @@ use std::process::Command;
 /// tutorial's so a change to one does not hide a change in the other.
 const PROGRAM: &str = "fn main() {\n    print(\"hello\");\n}\n";
 
-/// Build `source` into `dir` and return the bytes of the binary.
-fn build(source: &Path, dir: &Path, reproducible: bool) -> Vec<u8> {
+/// Build `PROGRAM` into `dir` and return the bytes of the binary.
+fn build(dir: &Path, reproducible: bool) -> Vec<u8> {
+    build_with_env(dir, reproducible, &[])
+}
+
+/// The same build with explicit environment variables.
+///
+/// A build that reads the locale, the user name or `SOURCE_DATE_EPOCH` is not
+/// reproducible, so the caller varies them deliberately and compares bytes.
+fn build_with_env(dir: &Path, reproducible: bool, envs: &[(&str, &str)]) -> Vec<u8> {
     fs::create_dir_all(dir).expect("the build directory must be creatable");
     let source = dir.join("main.ya");
     fs::write(&source, PROGRAM).expect("the source must be writable");
@@ -26,6 +34,9 @@ fn build(source: &Path, dir: &Path, reproducible: bool) -> Vec<u8> {
     command.arg("build").arg(&source).arg("-o").arg(&out);
     if reproducible {
         command.arg("--reproducible");
+    }
+    for (key, value) in envs {
+        command.env(key, value);
     }
     let output = command.output().expect("the yashyc CLI must be runnable");
     assert!(
@@ -56,13 +67,51 @@ fn first_difference(left: &[u8], right: &[u8]) -> Option<(usize, usize)> {
 #[test]
 fn two_builds_in_two_directories_produce_the_same_bytes() {
     let dir = work_dir("reproducible-build");
-    let first = build(&dir.join("main.ya"), &dir.join("a"), true);
-    let second = build(&dir.join("main.ya"), &dir.join("b"), true);
+    let first = build(&dir.join("a"), true);
+    let second = build(&dir.join("b"), true);
 
     if let Some((offset, _)) = first_difference(&first, &second) {
         panic!(
             "two reproducible builds differ at byte {offset} of {}; the first build is {} bytes",
             first.len(),
+            first.len()
+        );
+    }
+}
+
+#[test]
+fn the_build_ignores_the_locale_and_the_identity() {
+    // Two machines building the same tree are allowed to disagree about the
+    // time zone, the locale and the user name. They are not allowed to produce
+    // different bytes, so vary every input the driver could accidentally read.
+    let dir = work_dir("reproducible-env");
+    let first = build_with_env(
+        &dir.join("env-a"),
+        true,
+        &[
+            ("SOURCE_DATE_EPOCH", "1000000000"),
+            ("LC_ALL", "C"),
+            ("LANG", "C"),
+            ("TZ", "UTC"),
+            ("USERNAME", "alice"),
+            ("USER", "alice"),
+        ],
+    );
+    let second = build_with_env(
+        &dir.join("env-b"),
+        true,
+        &[
+            ("SOURCE_DATE_EPOCH", "1700000000"),
+            ("LC_ALL", "fr_FR.UTF-8"),
+            ("LANG", "fr_FR.UTF-8"),
+            ("TZ", "Europe/Paris"),
+            ("USERNAME", "bob"),
+            ("USER", "bob"),
+        ],
+    );
+    if let Some((offset, _)) = first_difference(&first, &second) {
+        panic!(
+            "the builds differ at byte {offset} of {}; environment variables leaked into the binary",
             first.len()
         );
     }
@@ -112,7 +161,7 @@ fn the_two_builds_run_the_same_way() {
     let binary = dir
         .join("a")
         .join(format!("hello{}", std::env::consts::EXE_SUFFIX));
-    build(&dir.join("main.ya"), &dir.join("a"), true);
+    build(&dir.join("a"), true);
     let output = common::launch_output(&binary).expect("the built program must run");
     assert!(output.status.success(), "the program must exit zero");
     assert_eq!(

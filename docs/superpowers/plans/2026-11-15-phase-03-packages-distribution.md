@@ -245,9 +245,10 @@ folded into the IR cache key rather than resolver inputs.
   `C:\a\demo` and `C:\b\demo` (and `/tmp/a`, `/tmp/b`) with `--reproducible`;
   compare SHA-256. Then vary `SOURCE_DATE_EPOCH`, an absolute path, a locale and
   a username; assert the bytes do not change.
-  *Current:* `tests/reproducible.rs` already compares two builds in two
-  directories and asserts the emitted IR names no absolute path. The locale and
-  username variations are not asserted in the test suite yet.
+  *Current:* `tests/reproducible.rs` compares two builds in two directories,
+  asserts the emitted IR names no absolute path, and builds twice with
+  different `SOURCE_DATE_EPOCH`, locale, time zone and user names. The absolute
+  path variation is the two-directory build itself.
 - [x] **Step 2: Remove every non-input.** Fixed build id, sorted symbol and
   section order, no timestamps, path remapping (`--remap-path-prefix`), stable
   hash seeds, LF-normalised archives with fixed mtimes, and a sorted SBOM. The
@@ -509,15 +510,19 @@ folded into the IR cache key rather than resolver inputs.
   supports `fetch --offline`. `info` now reports size, signature, provenance and
   native libraries, where a library is the `link "..."` value (read by the
   parser, so a comment is not a directive) and a vendored source or archive is
-  an input rather than a system library. Feature/duplicate marks and
-  major/minor/patch classification are not implemented.
+  an input rather than a system library. `tree` marks a duplicate with the
+  locked versions it found, and `outdated` classifies a change as major, minor,
+  patch or none.
 - [x] **Step 2: Every command has one JSON form and one human form.** `--json`
   is stable and used by the Action and the agent; the human form is the same
   facts with color only on a TTY. Duplicates and feature conflicts are explained,
   not merely listed.
   *Current:* `tree`, `why`, `info` and `outdated` render from one JSON value;
-  the human form is plain text without color. Duplicate and feature conflict
-  explanations are not implemented.
+  the human form is plain text without color. A duplicate now names the
+  versions the lock holds (or says one version came from several sources), so
+  the mark explains itself. Feature marks are per line because the lock records
+  the union a build enables, not which member requested which feature; there is
+  no conflict to explain, since features unify.
 - [x] **Step 3: Destructive commands are reversible.** `remove` and `yank` write
   a backup of the manifest and lock, print what changed, and can be undone;
   `vendor` is additive and reports the bytes and the license files it wrote.
@@ -632,4 +637,4 @@ ok  14 packages, 0 unsigned, 0 policy violations
 | 9.1 / 9.3 | Signed, precompiled stdlib with a versioned cache key | The stdlib has a versioned package manifest; its version and canonical hash are part of the IR cache key and are written to `[stdlib]` in the lock; a lock that disagrees with the tree is refused (E1802); a clean-checkout "no recheck" timing is CI work | Sign the stdlib in the release |
 | 10.1 / 10.4 | Call-site and runtime capability enforcement, policy table | `[capabilities]`, the HIR call-site check (E1808), the transitive `audit --capabilities` union in human and JSON form, `add --allow`, `--print-capabilities`, and the full `[audit]` policy fields are implemented; the runtime handle is not | Enforce the grant in the runtime handle |
 | 11.1 / 11.3 | Provenance produced by the build and verified by rebuild | In-toto/SLSA v1 statement, signed by the same `publish --key-id` invocation that writes the tarball, named in the registry entry, plus subject/material digest checks and `--rebuild` verification; `attest` remains available for an artifact built elsewhere | Distinguish an unknown builder in the policy |
-| 12.1 / 12.3 | Full package surface with reversible mutations | `tree` marks duplicates and features; `vendor` supports offline fetch; `info` reports size, signature, provenance and native libraries; `outdated` classifies major/minor/patch changes; `yank` records a reason with a backup | No known gap; `yank` is covered by `registry.rs` unit tests rather than a CLI test |
+| 12.1 / 12.3 | Full package surface with reversible mutations | `tree` marks duplicates with their locked versions and features; `vendor` supports offline fetch; `info` reports size, signature, provenance and native libraries; `outdated` classifies major/minor/patch changes; `yank` records a reason with a backup | No known gap; `yank` is covered by `registry.rs` unit tests rather than a CLI test |
