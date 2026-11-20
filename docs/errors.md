@@ -55,9 +55,6 @@ the declaration or import involved when that is not obvious.
 | [E0700](errors/E0700.md) | wrong argument count |
 | [E0701](errors/E0701.md) | unknown named argument |
 | [E0702](errors/E0702.md) | duplicate argument |
-| [E0801](errors/E0801.md) | private item used from another module |
-| [E0802](errors/E0802.md) | import cycle |
-| [E1200](errors/E1200.md) | grapheme index out of range |
 | [E0900](errors/E0900.md) | duplicate extern symbol |
 | [E0901](errors/E0901.md) | malformed extern declaration |
 | [E0902](errors/E0902.md) | misplaced variadic marker |
@@ -78,6 +75,23 @@ the declaration or import involved when that is not obvious.
 | [E1404](errors/E1404.md) | assumption not reported |
 | [E1405](errors/E1405.md) | uninitialised allocation outside unsafe |
 | [E1406](errors/E1406.md) | FFI pointer dereference outside unsafe |
+| [E2000](errors/E2000.md) | unused binding |
+| [E1700](errors/E1700.md) | await or spawn outside an async function |
+| [E1701](errors/E1701.md) | task handle escapes its scope |
+| [E1702](errors/E1702.md) | resource held across an await |
+| [E1703](errors/E1703.md) | async method in a trait |
+| [E1800](errors/E1800.md) | manifest syntax |
+| [E1801](errors/E1801.md) | dependency cycle |
+| [E1802](errors/E1802.md) | lockfile mismatch |
+| [E1803](errors/E1803.md) | package missing from the offline store |
+| [E1804](errors/E1804.md) | package audit failure |
+| [E1805](errors/E1805.md) | invalid package signature |
+| [E1806](errors/E1806.md) | package SBOM mismatch |
+| [E1808](errors/E1808.md) | capability not granted |
+| [E1807](errors/E1807.md) | package policy denial |
+| [E1809](errors/E1809.md) | registry index mismatch |
+| [E1900](errors/E1900.md) | sandbox capability denied |
+| [E1901](errors/E1901.md) | sandbox limit breached |
 | [E1500](errors/E1500.md) | unknown trait |
 | [E1501](errors/E1501.md) | conflicting trait impl |
 | [E1502](errors/E1502.md) | incomplete trait impl |
@@ -94,8 +108,6 @@ the declaration or import involved when that is not obvious.
 | [E1513](errors/E1513.md) | there is no Drop |
 | [E1514](errors/E1514.md) | a trait has no fields |
 | [E1515](errors/E1515.md) | operators cannot be overloaded |
-| [E1516](errors/E1516.md) | membership is not defined for this container |
-| [E1517](errors/E1517.md) | invalid `is` comparison |
 | [E1518](errors/E1518.md) | a range needs integer or character bounds |
 | [E1519](errors/E1519.md) | recursive type alias |
 | [E1520](errors/E1520.md) | constant overflow |
@@ -104,31 +116,19 @@ the declaration or import involved when that is not obvious.
 | [E1523](errors/E1523.md) | constant evaluation too deep |
 | [E1524](errors/E1524.md) | not a constant |
 | [E1525](errors/E1525.md) | compile-time assertion failed |
+| [E1516](errors/E1516.md) | membership is not defined for this container |
+| [E1517](errors/E1517.md) | invalid `is` comparison |
 | [E1600](errors/E1600.md) | macro invocation matches no arm |
 | [E1601](errors/E1601.md) | macro expansion limit exceeded |
 | [E1602](errors/E1602.md) | macro metavariable kind mismatch |
 | [E1603](errors/E1603.md) | duplicate macro name |
-| [E1700](errors/E1700.md) | await or spawn outside an async function |
-| [E1800](errors/E1800.md) | manifest syntax |
-| [E1801](errors/E1801.md) | dependency cycle |
-| [E1802](errors/E1802.md) | lockfile mismatch |
-| [E1803](errors/E1803.md) | package missing from the offline store |
-| [E1804](errors/E1804.md) | package audit failure |
-| [E1805](errors/E1805.md) | invalid package signature |
-| [E1806](errors/E1806.md) | package SBOM mismatch |
-| [E1807](errors/E1807.md) | package policy denial |
-| [E1808](errors/E1808.md) | capability not granted |
-| [E1809](errors/E1809.md) | registry index mismatch |
-| [E1900](errors/E1900.md) | sandbox capability denied |
-| [E1901](errors/E1901.md) | sandbox limit breached |
-| [E1701](errors/E1701.md) | task handle escapes its scope |
-| [E1702](errors/E1702.md) | resource held across an await |
-| [E1703](errors/E1703.md) | async method in a trait |
-| [E2000](errors/E2000.md) | unused binding |
 | [E2001](errors/E2001.md) | unused import |
 | [E2002](errors/E2002.md) | unreachable code |
 | [E2003](errors/E2003.md) | unused parameter |
 | [E2100](errors/E2100.md) | doc comment with no item |
+| [E0802](errors/E0802.md) | import cycle |
+| [E0801](errors/E0801.md) | private item used from another module |
+| [E1200](errors/E1200.md) | grapheme index out of range |
 | [E2200](errors/E2200.md) | unsupported target |
 | [E2201](errors/E2201.md) | target C toolchain missing |
 | [E2202](errors/E2202.md) | unknown cfg key |
