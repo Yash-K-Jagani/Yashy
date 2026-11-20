@@ -18,15 +18,27 @@ fn parse(src: &str) -> Result<Item, Vec<yashy_common::Diagnostic>> {
         .map(|program| program.items.into_iter().next().expect("one item"))
 }
 
+fn render(expr: &CfgExpr) -> String {
+    match expr {
+        CfgExpr::Key(name, _) => name.clone(),
+        CfgExpr::Not(inner, _) => format!("not({})", render(inner)),
+        CfgExpr::Any(parts, _) => format!(
+            "any({})",
+            parts.iter().map(render).collect::<Vec<_>>().join(", ")
+        ),
+        CfgExpr::All(parts, _) => format!(
+            "all({})",
+            parts.iter().map(render).collect::<Vec<_>>().join(", ")
+        ),
+    }
+}
+
 fn key(src: &str) -> String {
     let item = parse(src).expect("the clause must parse");
     let Item::Cfg { key, .. } = item else {
         panic!("expected a cfg item, got {item:?}");
     };
-    let CfgExpr::Key(name, _) = key else {
-        panic!("expected one key, got {key:?}");
-    };
-    name
+    render(&key)
 }
 
 #[test]
