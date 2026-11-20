@@ -687,6 +687,7 @@ Codes: `E1511`
 
 Tests:
 
+- `crates/yashy-driver/tests/verify.rs`
 - `crates/yashy-sema/tests/traits.rs`
 
 ## `TRAIT-13`
