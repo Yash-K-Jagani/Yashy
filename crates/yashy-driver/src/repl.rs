@@ -128,12 +128,37 @@ impl Repl {
             .rev()
             .find_map(|statement| match statement {
                 HirStmt::Expr(expression, _, _) => match expression {
-                    HirExpr::Call { args, .. } => args.first(),
+                    // The program for an expression ends in `print(value)`.
+                    // Pick that call, not a later cleanup call whose first
+                    // argument is a temporary string.
+                    HirExpr::Call { callee, args, .. }
+                        if callee
+                            .last()
+                            .is_some_and(|name| name.contains("print")) =>
+                    {
+                        args.first()
+                    }
                     _ => None,
                 },
                 _ => None,
             })?;
-        Some(expr_ty(printed).to_string())
+        let mut result = expr_ty(printed).to_string();
+        // `print(3)` lowers to a string-print call whose argument is already
+        // `str_from_i64(3)`. The REPL reports the expression's type, not the
+        // temporary string the printer made from it.
+        if result == "string" {
+            if let HirExpr::Call { callee, args, .. } = printed {
+                if callee
+                    .last()
+                    .is_some_and(|name| name.contains("str_from"))
+                {
+                    if let Some(value) = args.first() {
+                        result = expr_ty(value).to_string();
+                    }
+                }
+            }
+        }
+        Some(result)
     }
 
     pub fn help() -> &'static str {
