@@ -143,10 +143,9 @@ fn a_warm_ir_cache_skips_emit_and_reproduces_the_binary() {
     // identical `.ll` files with differing images put the difference in the
     // link step, while a differing `.ll` puts it in the front end. The text is
     // written beside every output as a debugging aid, so it is already there.
-    let cold_ir = fs::read(first.with_extension("ll")).expect("the cold build's IR must exist");
-    let warm_ir = fs::read(second.with_extension("ll")).expect("the warm build's IR must exist");
-    let source_ir =
-        fs::read(from_source.with_extension("ll")).expect("the from-source build's IR must exist");
+    let cold_ir = ir_text(&first);
+    let warm_ir = ir_text(&second);
+    let source_ir = ir_text(&from_source);
     assert_same_ir(&cold_ir, &warm_ir, "cold", "warm");
     assert_same_ir(&cold_ir, &source_ir, "cold", "from-source");
 
@@ -349,6 +348,31 @@ fn a_stdlib_version_change_invalidates_the_ir_cache() {
         "a changed stdlib version must invalidate the entry:\n{}",
         stderr(&rebuilt)
     );
+}
+
+/// Every `.ll` text a build wrote beside its output, in unit order.
+///
+/// A one-file program keeps the single `<output>.ll`; a split build writes one
+/// file per source file, `<output>.u0.ll`, `<output>.u1.ll`, …, and those are
+/// exactly the texts it handed to the linker. Joining them in order is what
+/// lets a cold, warm and from-source build be compared as one artifact.
+fn ir_text(out: &Path) -> Vec<u8> {
+    let single = out.with_extension("ll");
+    if single.is_file() {
+        return fs::read(single).expect("the emitted IR must be readable");
+    }
+    let mut text = Vec::new();
+    let mut index = 0;
+    loop {
+        let path = out.with_extension(format!("u{index}.ll"));
+        if !path.is_file() {
+            break;
+        }
+        text.extend(fs::read(path).expect("the emitted IR must be readable"));
+        index += 1;
+    }
+    assert!(index > 0, "a build must write its IR beside the output");
+    text
 }
 
 /// The file offset of the `PE\0\0` signature, or `None` for a non-PE image.

@@ -140,6 +140,34 @@ pub fn gen_extern_decl(module: &mut Module, d: &HirExternDecl) {
     ));
 }
 
+/// Emit `f` as a `declare`, for a unit that calls it but does not define it.
+///
+/// When the driver splits a program into one LLVM module per source file, a
+/// unit may call a function whose body is emitted by another unit. Only the
+/// signature crosses the boundary: the `define` belongs to the file that wrote
+/// the body. Parameter attributes are deliberately left off — they describe the
+/// definition, and repeating them here would be a second place to keep in step.
+///
+/// The entry point is skipped: `main` is called by the operating system and
+/// never by another unit, and its emitted signature is the OS's `i32(i32,
+/// i8**)` rather than the Yashy one, so a declaration would be a lie.
+pub fn gen_fn_decl(module: &mut Module, f: &HirFn) {
+    if f.name == "main" || f.name.starts_with("__yashy_test_") {
+        return;
+    }
+    let ret = fn_return_repr(&f.ret.kind);
+    let params: Vec<String> = f
+        .params
+        .iter()
+        .map(|param| repr_type(&param.ty.kind).to_string())
+        .collect();
+    module.push(format!(
+        "declare {ret} @{}({})",
+        crate::ir::fn_symbol(&f.name),
+        params.join(", ")
+    ));
+}
+
 /// Emit `f` as the program's entry point.
 ///
 /// The C runtime starts a process by calling `main` and using its `int` return

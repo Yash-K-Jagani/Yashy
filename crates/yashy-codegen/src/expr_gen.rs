@@ -1536,7 +1536,7 @@ fn gen_unary(
 /// has nothing to carry.
 fn gen_lambda(ctx: &mut FnCtx<'_>, f: &HirFn, ty: &TypeKind) -> GenValue {
     let index = ctx.module.next_lambda();
-    let name = format!("__lambda_{index}");
+    let name = ctx.module.tagged(&format!("__lambda_{index}"));
     // The environment: the captured values, copied into a block the closure
     // carries. It is built before the body, because the body is lowered into
     // its own function and the two have to agree on the layout.

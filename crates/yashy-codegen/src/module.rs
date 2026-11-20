@@ -194,6 +194,15 @@ pub struct Module {
     /// synthesized per `thread_spawn` site, so the argument struct's shape is
     /// already known when the entry is written.
     next_thread_entry: u32,
+    /// A suffix appended to every synthesized symbol name.
+    ///
+    /// Empty for a whole-program module, whose names are the ones the golden
+    /// IR records. When the driver splits a program into one module per source
+    /// file, each unit gets its own tag: two files may both use the same
+    /// function as a value, and both would otherwise define `@__fnvalue_f` and
+    /// fail to link. The tag is the unit's own index, so it is stable across
+    /// runs and byte-identical on every host.
+    unit_tag: String,
     /// Top-level function signatures, used when a function name is used as a
     /// value. The key is the source name; the value is the parameter and return
     /// types the thunk must reproduce.
@@ -277,6 +286,7 @@ impl Module {
             next_value: 0,
             synthesized: Vec::new(),
             next_thread_entry: 0,
+            unit_tag: String::new(),
             fn_signatures: HashMap::new(),
             fn_value_thunks: HashMap::new(),
             struct_fields: HashMap::new(),
@@ -760,6 +770,25 @@ impl Module {
         index
     }
 
+    /// Set the suffix every synthesized symbol name carries.
+    ///
+    /// Empty for a whole-program module. A driver that emits one module per
+    /// source file passes the unit's index, so two files can each own a thunk
+    /// for the same function without colliding at link time.
+    pub fn set_unit_tag(&mut self, tag: &str) {
+        self.unit_tag = tag.to_string();
+    }
+
+    /// `base` with this module's unit tag appended, the spelling every
+    /// synthesized symbol uses.
+    pub fn tagged(&self, base: &str) -> String {
+        if self.unit_tag.is_empty() {
+            base.to_string()
+        } else {
+            format!("{base}{}", self.unit_tag)
+        }
+    }
+
     /// Record one top-level function's signature.
     ///
     /// The table is separate from the emitted `define` because a function can
@@ -785,7 +814,7 @@ impl Module {
             return Some(thunk.clone());
         }
         let (params, ret) = self.fn_signatures.get(name)?.clone();
-        let thunk = format!("__fnvalue_{name}");
+        let thunk = self.tagged(&format!("__fnvalue_{name}"));
         let ret_repr = if matches!(ret, TypeKind::Unit | TypeKind::Never) {
             "void".to_string()
         } else {

@@ -107,7 +107,7 @@ pub fn gen_thread_spawn(ctx: &mut FnCtx<'_>, body: &HirExpr, args: &[HirExpr]) -
     // struct, so two spawns of the same body with different shapes each get an
     // entry that matches their own bytes.
     let index = ctx.module.next_thread_entry();
-    let entry = format!("yashy_thread_entry_{index}");
+    let entry = ctx.module.tagged(&format!("yashy_thread_entry_{index}"));
     let release = ctx.string_release_symbol();
     let mut lines = Vec::new();
     lines.push(format!("define void @{entry}(i8* %raw) {{"));

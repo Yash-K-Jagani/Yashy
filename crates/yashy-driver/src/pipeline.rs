@@ -102,6 +102,17 @@ pub enum TimingRow {
         /// True when the IR was read instead of emitted.
         hit: bool,
     },
+    /// One object per source file: how many were rebuilt and how many reused.
+    ///
+    /// Printed only by a multi-module build that went through the per-file
+    /// object path. `rebuilt + cached` is the number of units, so a one-function
+    /// edit reads as `1 rebuilt, 9 cached` when the edit touched one module.
+    ModuleObjects {
+        /// Objects this build had to produce.
+        rebuilt: usize,
+        /// Objects it found in the cache and linked unchanged.
+        cached: usize,
+    },
     /// How many modules the build loaded from the standard library.
     ///
     /// Zero for a program that imports none: the stdlib is not ambient, so
@@ -616,10 +627,12 @@ pub(crate) fn runtime_cache_key(tool: &Path, triple: &str, opt: OptLevel) -> u64
 /// The format of a cached IR entry.
 ///
 /// Bump this whenever `yashy-codegen` starts emitting different bytes for the
-/// same input. The compiler version alone is not enough during development:
-/// `0.1.0` does not change between commits, so without this constant a
-/// developer's warm cache would serve IR from the previous codegen.
-const IR_CACHE_FORMAT: &str = "1";
+/// same input, or when a cached entry's *shape* changes. The compiler version
+/// alone is not enough during development: `0.1.0` does not change between
+/// commits, so without this constant a developer's warm cache would serve IR
+/// from the previous codegen. Format 2 stores one text per source file instead
+/// of one text per program.
+const IR_CACHE_FORMAT: &str = "2";
 
 /// The content-addressed store the emitted IR lives in.
 ///
@@ -705,9 +718,10 @@ pub fn ir_cache_key_with_inputs(
     .join("|");
 
     let version = format!(
-        "{}/{}/{}/{}",
+        "{}/{}/{}/{}/{}",
         env!("CARGO_PKG_VERSION"),
         IR_CACHE_FORMAT,
+        modules::stdlib_version(),
         modules::stdlib_fingerprint(),
         compiler_stamp()
     );
@@ -865,6 +879,346 @@ pub(crate) fn cached_runtime_object(
     Some(object)
 }
 
+/// Whether this build emits one LLVM module per source file.
+///
+/// The split is an optimization, so it is only taken where it cannot change a
+/// program's meaning or the artifacts a user can inspect: not under ThinLTO
+/// (which wants bitcode from every translation unit at once), not under
+/// profile-guided builds (whose two link passes ask the compiler for different
+/// instrumentation), and not for a debug build (whose metadata pass annotates
+/// one text at a time). A single-file program has nothing to split.
+///
+/// `ir_cache` is deliberately not part of the test: `--stdlib-source` disables
+/// the *content* cache, but a build that skips the cache must still be the same
+/// build in every other respect, or the two would hand the linker different IR.
+fn per_module_build(options: &BuildOptions, files: usize) -> bool {
+    !options.lto && !options.pgo && !options.debug_info && files > 1
+}
+
+/// One unit per source file, in path order.
+///
+/// The order is sorted rather than discovery order because a unit's *index* is
+/// what tags its synthesized symbols (`__fnvalue_f_u2`). Two builds of the same
+/// program must therefore number the units the same way, whatever order the
+/// module loader happened to reach the files in — otherwise the IR text would
+/// differ between runs and every cache entry would miss.
+fn emission_units(sources: &SourceMap) -> Vec<(FileId, String)> {
+    let mut units: Vec<(FileId, String)> = (0..sources.len())
+        .map(|index| {
+            let id = FileId::from_index(index as u32);
+            (id, sources.path(id).to_string())
+        })
+        .collect();
+    // The sort is by path only; equal paths cannot happen (a `SourceMap` holds
+    // one entry per file) but comparing the file number as well makes it total.
+    units.sort_by(|left, right| {
+        left.1
+            .cmp(&right.1)
+            .then(left.0.index().cmp(&right.0.index()))
+    });
+    units
+}
+
+/// The `.ll` paths a build writes, one per module text.
+///
+/// A whole-program build keeps the single `<output>.ll` it always wrote; a
+/// split build writes `<output>.u0.ll`, `<output>.u1.ll`, …, because those are
+/// the texts that reached the linker and merging them into one file would be a
+/// document nothing compiled.
+fn unit_ir_paths(out: &Path, count: usize) -> Vec<PathBuf> {
+    if count <= 1 {
+        return vec![with_extension(out, "ll")];
+    }
+    (0..count)
+        .map(|index| out.with_extension(format!("u{index}.ll")))
+        .collect()
+}
+
+/// The magic line that opens an IR cache record.
+const UNITS_MAGIC: &str = "yashy-ir-units 1";
+
+/// Encode a build's module texts as one cache record.
+///
+/// `unit <index> <bytes>` followed by exactly that many bytes, for each unit.
+/// Length prefixes rather than a separator line: IR text is arbitrary bytes,
+/// and a record that can be mis-split is a stale-build bug waiting to happen.
+fn encode_units(texts: &[String]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(UNITS_MAGIC.as_bytes());
+    out.push(b'\n');
+    for (index, text) in texts.iter().enumerate() {
+        out.extend_from_slice(format!("unit {index} {}\n", text.len()).as_bytes());
+        out.extend_from_slice(text.as_bytes());
+    }
+    out
+}
+
+/// Read back what [`encode_units`] wrote, or `None` for anything unexpected.
+///
+/// A record from a different format is not an error: it is a cache miss, and
+/// the build simply emits again.
+fn decode_units(bytes: &[u8]) -> Option<Vec<String>> {
+    let magic = UNITS_MAGIC.as_bytes();
+    let mut at = 0;
+    if !bytes.starts_with(magic) {
+        return None;
+    }
+    at += magic.len();
+    if bytes.get(at) != Some(&b'\n') {
+        return None;
+    }
+    at += 1;
+    let mut texts = Vec::new();
+    while at < bytes.len() {
+        let header_end = bytes[at..].iter().position(|byte| *byte == b'\n')? + at;
+        let header = std::str::from_utf8(&bytes[at..header_end]).ok()?;
+        let mut fields = header.split(' ');
+        if fields.next()? != "unit" {
+            return None;
+        }
+        let index: usize = fields.next()?.parse().ok()?;
+        let length: usize = fields.next()?.parse().ok()?;
+        if fields.next().is_some() || index != texts.len() {
+            return None;
+        }
+        let start = header_end + 1;
+        let end = start.checked_add(length)?;
+        let text = std::str::from_utf8(bytes.get(start..end)?).ok()?;
+        texts.push(text.to_string());
+        at = end;
+    }
+    Some(texts)
+}
+
+/// How many threads a bounded loop may run at once.
+///
+/// `--jobs 0` means one per available core, which is what the front end already
+/// reads. A machine that will not say gets one thread: a wrong guess upward
+/// costs memory, a wrong guess downward costs only time.
+fn worker_count(jobs: usize) -> usize {
+    if jobs > 0 {
+        return jobs;
+    }
+    std::thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(1)
+}
+
+/// Run `work` for every index in `0..count`, at most `worker_count(jobs)` at a
+/// time, and return the results in index order.
+///
+/// Index order is the point: the work is independent, but what the caller does
+/// with it — writing unit files, linking — must not depend on which thread
+/// finished first.
+fn in_parallel<T, F>(count: usize, jobs: usize, work: F) -> Vec<T>
+where
+    T: Send,
+    F: Fn(usize) -> T + Sync,
+{
+    if count == 0 {
+        return Vec::new();
+    }
+    let workers = worker_count(jobs).min(count);
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let collected: Vec<(usize, T)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..workers)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut mine = Vec::new();
+                    loop {
+                        let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        if index >= count {
+                            break;
+                        }
+                        mine.push((index, work(index)));
+                    }
+                    mine
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|handle| handle.join().unwrap_or_default())
+            .collect()
+    });
+    let mut slots: Vec<Option<T>> = (0..count).map(|_| None).collect();
+    for (index, value) in collected {
+        slots[index] = Some(value);
+    }
+    slots
+        .into_iter()
+        .map(|slot| slot.expect("every index of a parallel loop runs exactly once"))
+        .collect()
+}
+
+/// The tool's own identity: where it is and when it was last written.
+///
+/// Two objects built by the same `clang` are the same object; one built by a
+/// different or upgraded `clang` is not, and the source bytes cannot say so.
+fn fnv1a_tool(state: &mut u64, tool: &Path) {
+    fnv1a(state, tool.to_string_lossy().as_bytes());
+    if let Ok(modified) = fs::metadata(tool).and_then(|meta| meta.modified()) {
+        if let Ok(since_epoch) = modified.duration_since(std::time::UNIX_EPOCH) {
+            fnv1a(state, &since_epoch.as_secs().to_le_bytes());
+            fnv1a(state, &since_epoch.subsec_nanos().to_le_bytes());
+        }
+    }
+}
+
+/// The cache key for one module object: everything that changes its bytes.
+///
+/// The unit's own IR text is the core, which is what makes a one-function edit
+/// invalidate one object and no other. The target, the optimization level, the
+/// compile flags (machine tier, sanitizer, coverage, reproducibility) and the
+/// tool's identity are the rest: two objects that differ in any of those are
+/// different objects.
+fn module_object_key(
+    ir: &str,
+    target: &str,
+    opt: OptLevel,
+    tool: &Path,
+    flags: &[String],
+) -> u64 {
+    let mut state = FNV_OFFSET_BASIS;
+    fnv1a(&mut state, ir.as_bytes());
+    fnv1a(&mut state, target.as_bytes());
+    fnv1a(&mut state, opt.flag().as_bytes());
+    for flag in flags {
+        fnv1a(&mut state, flag.as_bytes());
+        fnv1a(&mut state, &[0]);
+    }
+    fnv1a_tool(&mut state, tool);
+    state
+}
+
+/// The flags that change what compiling one unit produces, as opposed to what
+/// linking the objects produces.
+///
+/// The machine tier, a sanitizer and source-based coverage all act on the
+/// generated code, so they belong to every object; the link-time profile flags
+/// do not, which is one reason a profile-guided build stays on the
+/// whole-program path.
+fn module_compile_flags(options: &BuildOptions, target: &str, toolchain: &Toolchain) -> Vec<String> {
+    let sanitize = std::env::var("YASHY_SANITIZE").ok();
+    let mut flags: Vec<String> = sanitizer_flags(sanitize.as_deref())
+        .iter()
+        .map(|flag| flag.to_string())
+        .collect();
+    if std::env::var("YASHY_COVERAGE").ok().as_deref() == Some("1") {
+        flags.push("-fprofile-instr-generate".to_string());
+        flags.push("-fcoverage-mapping".to_string());
+    }
+    flags.extend(
+        options
+            .cpu
+            .flags_for(target)
+            .iter()
+            .map(|flag| flag.to_string()),
+    );
+    flags.extend(reproducibility_flags(options, target));
+    flags.extend(opaque_pointers_args(toolchain).iter().map(|flag| flag.to_string()));
+    flags
+}
+
+/// Compile one unit's IR to an object, or reuse the cached one.
+///
+/// Returns the object's path and whether it was a hit. The staged-then-renamed
+/// write is the same discipline the runtime objects use: an interrupted build
+/// must never leave a truncated object that the next build links as complete.
+fn cached_module_object(
+    cache_dir: &Path,
+    source: &Path,
+    cache_key: u64,
+    target: &str,
+    opt: OptLevel,
+    toolchain: &Toolchain,
+    flags: &[String],
+    epoch: Option<&str>,
+) -> Option<(PathBuf, bool)> {
+    let object = cache_dir.join(format!("yashy-mod-{cache_key:016x}.o"));
+    if object.is_file() {
+        return Some((object, true));
+    }
+    fs::create_dir_all(cache_dir).ok()?;
+    let staged = cache_dir.join(format!(
+        "yashy-mod-{cache_key:016x}.{}.tmp",
+        std::process::id()
+    ));
+    let mut command = Command::new(&toolchain.llc);
+    command.args([
+        "-c".to_string(),
+        display(source),
+        "-o".to_string(),
+        display(&staged),
+        format!("--target={target}"),
+        opt.flag().to_string(),
+    ]);
+    command.args(flags.iter().cloned());
+    if let Some(epoch) = epoch {
+        command.env("SOURCE_DATE_EPOCH", epoch);
+    }
+    match command.output() {
+        Ok(output) if output.status.success() => {}
+        _ => {
+            let _ = fs::remove_file(&staged);
+            return None;
+        }
+    }
+    if fs::rename(&staged, &object).is_err() {
+        let _ = fs::remove_file(&staged);
+        if !object.is_file() {
+            return None;
+        }
+    }
+    Some((object, false))
+}
+
+/// Turn every unit's IR into a cached object, in unit order.
+///
+/// `None` means the caller should link the `.ll` files instead: a cache
+/// directory that cannot be used and a toolchain that will not compile one
+/// unit are both lost optimizations, never build failures, and the link step
+/// turns the second one into the diagnostic it deserves.
+fn compile_units(
+    ir_paths: &[PathBuf],
+    ir_texts: &[String],
+    options: &BuildOptions,
+    target: &str,
+    toolchain: &Toolchain,
+    epoch: Option<&str>,
+    timings: &mut Vec<TimingRow>,
+) -> Option<Vec<PathBuf>> {
+    let cache_dir = runtime_cache_dir()?;
+    let flags = module_compile_flags(options, target, toolchain);
+    let compiled = in_parallel(ir_paths.len(), options.jobs, |index| {
+        let key = module_object_key(&ir_texts[index], target, options.opt, &toolchain.llc, &flags);
+        cached_module_object(
+            &cache_dir,
+            &ir_paths[index],
+            key,
+            target,
+            options.opt,
+            toolchain,
+            &flags,
+            epoch,
+        )
+    });
+    let mut objects = Vec::with_capacity(compiled.len());
+    let mut rebuilt = 0;
+    let mut cached = 0;
+    for entry in compiled {
+        let (object, hit) = entry?;
+        if hit {
+            cached += 1;
+        } else {
+            rebuilt += 1;
+        }
+        objects.push(object);
+    }
+    timings.push(TimingRow::ModuleObjects { rebuilt, cached });
+    Some(objects)
+}
+
 /// Everything a caller chooses about a build, apart from the source and the
 /// output path.
 ///
@@ -925,6 +1279,12 @@ pub struct BuildOptions {
     /// [`CodegenOptions::async_`]. On by default and disabled by
     /// `--no-opt=async`.
     pub async_: bool,
+    /// How many threads and toolchain processes codegen may run at once.
+    ///
+    /// Zero means one per available core. The front end has taken `--jobs` for
+    /// its parser threads since phase 1; codegen reads the same number, so one
+    /// flag bounds the whole build rather than half of it.
+    pub jobs: usize,
     /// Reuse the emitted IR from the content-addressed cache.
     ///
     /// On by default. The cache is keyed on every source byte, the codegen
@@ -965,6 +1325,7 @@ impl Default for BuildOptions {
             lto: false,
             pgo: false,
             async_: true,
+            jobs: 0,
             ir_cache: true,
             target: host_target_triple(),
             reproducible: false,
@@ -1643,47 +2004,68 @@ pub fn compile_hir_timed(
         ir_cache_key_with_inputs(sources, entry_name, &options, &link_inputs(hir, sources))
     });
 
-    let cached = match (&cache, &key) {
+    // The build is split into one unit per source file only where every step
+    // can keep the split: ThinLTO wants bitcode from the whole program, a
+    // profile-guided build re-runs the compiler with a different
+    // instrumentation per pass, and the debug pass annotates one text at a
+    // time. A one-file program has nothing to split, so it keeps the
+    // whole-program path and its IR stays byte-identical to `--emit-ir`'s.
+    let units = if per_module_build(&options, sources.len()) {
+        emission_units(sources)
+    } else {
+        Vec::new()
+    };
+    let codegen_options = CodegenOptions {
+        fp_contract: options.fast_math,
+        escape: options.escape,
+        facts: options.facts,
+        intern: options.intern,
+        async_: options.async_,
+        target: options.target,
+    };
+
+    let cached_units = match (&cache, &key) {
         (Some(store), Some(key)) => store
             .get(key)
-            .and_then(|path| fs::read_to_string(path).ok()),
+            .and_then(|path| fs::read(path).ok())
+            .and_then(|bytes| decode_units(&bytes)),
         _ => None,
     };
-    let (ir_text, hit) = match cached {
-        Some(text) => {
+    let expected = units.len().max(1);
+    let (ir_texts, hit) = match cached_units {
+        Some(texts) if texts.len() == expected => {
             // Keep the row shape a build without a cache has: `emit` is a
             // phase, and it took no time because nothing was emitted.
             timings.push(TimingRow::Phase {
                 phase: "emit",
                 ms: 0,
             });
-            (text, true)
+            (texts, true)
         }
-        None => {
-            let mut text = timed(timings, "emit", || {
-                let codegen_options = CodegenOptions {
-                    fp_contract: options.fast_math,
-                    escape: options.escape,
-                    facts: options.facts,
-                    intern: options.intern,
-                    async_: options.async_,
-                    target: options.target,
-                };
-                if options.debug_info {
-                    emit_program_with_debug(hir, entry_name, codegen_options, facts)
+        _ => {
+            let texts = timed(timings, "emit", || {
+                if units.is_empty() {
+                    let mut text = if options.debug_info {
+                        emit_program_with_debug(hir, entry_name, codegen_options, facts)
+                    } else {
+                        emit_program(hir, entry_name, codegen_options, facts)
+                    };
+                    if options.debug_info {
+                        text = crate::debug_info::annotate(&text, hir, sources);
+                    }
+                    vec![text]
                 } else {
-                    emit_program(hir, entry_name, codegen_options, facts)
+                    in_parallel(units.len(), options.jobs, |index| {
+                        yashy_codegen::emit_unit(hir, &units, index, codegen_options, facts)
+                    })
                 }
             });
-            if options.debug_info {
-                text = crate::debug_info::annotate(&text, hir, sources);
-            }
             if let (Some(store), Some(key)) = (&cache, &key) {
                 // A cache that cannot be written is a lost optimization, not
                 // a build failure.
-                let _ = store.put(key, text.as_bytes());
+                let _ = store.put(key, &encode_units(&texts));
             }
-            (text, false)
+            (texts, false)
         }
     };
     if cache.is_some() {
@@ -1696,9 +2078,14 @@ pub fn compile_hir_timed(
 
     // The IR next to the output is a debugging aid, not a temporary: when a
     // program misbehaves, "what did we actually hand to LLVM?" is the first
-    // question, and it should not require re-running with a flag.
-    let ir_path = with_extension(out, "ll");
-    write_or_report(&ir_path, ir_text.as_bytes(), entry_name)?;
+    // question, and it should not require re-running with a flag. A split
+    // build writes one file per unit, named after the unit's index, because
+    // those are the texts the linker sees; a whole-program build keeps the
+    // single `<output>.ll` it always wrote.
+    let ir_paths = unit_ir_paths(out, ir_texts.len());
+    for (path, text) in ir_paths.iter().zip(&ir_texts) {
+        write_or_report(path, text.as_bytes(), entry_name)?;
+    }
 
     // A no-change build needs neither LLVM nor a link: the key names every
     // input, so a stored binary is the exact output this run would produce.
@@ -1867,6 +2254,27 @@ pub fn compile_hir_timed(
         })
     };
 
+    // The objects the link consumes. A split build turns each unit into one
+    // cached object keyed by the unit's own IR text, so a build that changed
+    // one file reuses every other file's object. Any failure on that path —
+    // no cache directory, a toolchain that will not compile one unit — falls
+    // back to handing the `.ll` files to the link, which is the whole-program
+    // behaviour and just as correct.
+    let mut native_inputs = ir_paths.clone();
+    if !units.is_empty() {
+        if let Some(objects) = compile_units(
+            &ir_paths,
+            &ir_texts,
+            &options,
+            &target,
+            toolchain,
+            epoch.as_deref(),
+            timings,
+        ) {
+            native_inputs = objects;
+        }
+    }
+
     let link = |extra: &[String],
                 output: &Path,
                 what: &str,
@@ -1878,7 +2286,7 @@ pub fn compile_hir_timed(
             options.clone(),
             &target,
             toolchain,
-            &ir_path,
+            &native_inputs,
             output,
             &runtime_objects,
             &runtime_dir,
@@ -1959,7 +2367,7 @@ fn link_arguments(
     options: BuildOptions,
     target: &str,
     toolchain: &Toolchain,
-    ir_path: &Path,
+    inputs: &[PathBuf],
     out: &Path,
     runtime_objects: &Option<(PathBuf, PathBuf, PathBuf, PathBuf, PathBuf)>,
     runtime_dir: &Path,
@@ -2005,7 +2413,13 @@ fn link_arguments(
             .map(|flag| flag.to_string()),
     );
     args.extend(extra.iter().cloned());
-    args.push(display(ir_path));
+    // The generated objects, in source order. One `.ll` for a whole-program
+    // emission, or one `.o` per source file when the build ran the per-module
+    // path; the order is the units' order either way, so the command line (and
+    // therefore the linked image) is deterministic.
+    for input in inputs {
+        args.push(display(input));
+    }
     match runtime_objects {
         Some((runtime, hashmap, executor, net, platform)) => {
             args.push(display(runtime));

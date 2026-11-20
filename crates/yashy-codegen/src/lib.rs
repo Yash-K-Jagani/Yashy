@@ -35,7 +35,9 @@ pub mod threads;
 pub use escape::{promotion_counts, AllocSite, ArenaId, Placement};
 pub use expr_gen::{gen_expr, gen_expr_to_slot, FnCtx, GenValue};
 pub use ffi::gen_ffi_call;
-pub use fn_gen::{fn_return_repr, gen_extern_decl, gen_fn, gen_main, gen_main_with_symbol};
+pub use fn_gen::{
+    fn_return_repr, gen_extern_decl, gen_fn, gen_fn_decl, gen_main, gen_main_with_symbol,
+};
 pub use ir::{llvm_type_string, repr_type, variant_payload_index, variant_tag};
 pub use module::data_layout;
 pub use module::host_target_triple;
@@ -149,7 +151,145 @@ pub fn emit_program(
     options: CodegenOptions,
     facts: &yashy_common::ProofFacts,
 ) -> String {
-    emit(hir, entry, options, facts, false, None, false).0
+    emit(hir, entry, options, facts, false, None, false, None).0
+}
+
+/// Emit one LLVM IR module per source file, in the order `units` gives.
+///
+/// Each unit carries every declaration and type definition the program has —
+/// the same pre-pass a whole-program emission runs — but only the function
+/// bodies written in its own file. That is what makes the units separable: a
+/// unit's text depends on the whole program's *declarations* and on its own
+/// bodies, so editing one function body changes exactly one unit's text and
+/// the other units' cached objects stay valid.
+///
+/// `units` is `(file, source_filename)` in a stable order. A single unit is the
+/// whole program and produces the same text [`emit_program`] would, with no
+/// symbol suffixes; with more than one, synthesized helpers (`__fnvalue_*`,
+/// `__lambda_*`, `yashy_thread_entry_*`) gain a `_u<index>` suffix so two units
+/// can define one without colliding at link time. A body whose span names no
+/// unit is emitted by the first unit, so no item can be dropped.
+pub fn emit_units(
+    hir: &HirProgram,
+    units: &[(FileId, String)],
+    options: CodegenOptions,
+    facts: &yashy_common::ProofFacts,
+) -> Vec<String> {
+    emit_units_inner(hir, units, options, facts, false)
+}
+
+/// [`emit_units`] with statement-span markers for the debug pass.
+pub fn emit_units_with_debug(
+    hir: &HirProgram,
+    units: &[(FileId, String)],
+    options: CodegenOptions,
+    facts: &yashy_common::ProofFacts,
+) -> Vec<String> {
+    emit_units_inner(hir, units, options, facts, true)
+}
+
+fn emit_units_inner(
+    hir: &HirProgram,
+    units: &[(FileId, String)],
+    options: CodegenOptions,
+    facts: &yashy_common::ProofFacts,
+    debug_locations: bool,
+) -> Vec<String> {
+    (0..units.len())
+        .map(|index| emit_unit_at(hir, units, index, options, facts, debug_locations))
+        .collect()
+}
+
+/// Emit the IR for one of `units`.
+///
+/// This is the parallel-safe entry point: it borrows the program read-only and
+/// writes nothing shared, so a driver may emit every unit on its own thread.
+/// The unit's index is the whole of its identity, which is why the synthesized
+/// symbol suffix and the body filter both come from `index` alone and not from
+/// any accumulation order.
+pub fn emit_unit(
+    hir: &HirProgram,
+    units: &[(FileId, String)],
+    index: usize,
+    options: CodegenOptions,
+    facts: &yashy_common::ProofFacts,
+) -> String {
+    emit_unit_at(hir, units, index, options, facts, false)
+}
+
+fn emit_unit_at(
+    hir: &HirProgram,
+    units: &[(FileId, String)],
+    index: usize,
+    options: CodegenOptions,
+    facts: &yashy_common::ProofFacts,
+    debug_locations: bool,
+) -> String {
+    // One slot per source file, indexed by the file's own number. `SourceMap`
+    // hands out contiguous ids from zero, so a vector is both total and
+    // cheaper than a map here.
+    let mut assignment = vec![0usize; source_count(units)];
+    for (position, (file, _)) in units.iter().enumerate() {
+        let slot = file.index() as usize;
+        if let Some(owner) = assignment.get_mut(slot) {
+            if *owner == usize::MAX || position < *owner {
+                *owner = position;
+            }
+        }
+    }
+    let (_, name) = &units[index];
+    let filter = UnitFilter {
+        assignment: &assignment,
+        unit: index,
+    };
+    let tag = if units.len() > 1 {
+        format!("_u{index}")
+    } else {
+        String::new()
+    };
+    emit(
+        hir,
+        name,
+        options,
+        facts,
+        false,
+        None,
+        debug_locations,
+        Some((filter, &tag)),
+    )
+    .0
+}
+
+/// Which unit a function body belongs to.
+///
+/// A vector rather than a map: `SourceMap` numbers files from zero without
+/// gaps, so `assignment[file.index()]` is total, and `FileId` deliberately
+/// implements neither `Hash` nor `Ord`.
+struct UnitFilter<'a> {
+    assignment: &'a [usize],
+    unit: usize,
+}
+
+impl UnitFilter<'_> {
+    /// Whether this item's body is emitted by the unit being written. An item
+    /// whose file belongs to no unit goes to unit zero, the entry's, so a
+    /// synthetic item is emitted exactly once.
+    fn owns(&self, file: FileId) -> bool {
+        self.assignment
+            .get(file.index() as usize)
+            .copied()
+            .unwrap_or(0)
+            == self.unit
+    }
+}
+
+/// One past the highest file number the units name.
+fn source_count(units: &[(FileId, String)]) -> usize {
+    units
+        .iter()
+        .map(|(file, _)| file.index() as usize + 1)
+        .max()
+        .unwrap_or(0)
 }
 
 /// Emit a whole program with statement-span markers for the debug pass.
@@ -163,7 +303,7 @@ pub fn emit_program_with_debug(
     options: CodegenOptions,
     facts: &yashy_common::ProofFacts,
 ) -> String {
-    emit(hir, entry, options, facts, false, None, true).0
+    emit(hir, entry, options, facts, false, None, true, None).0
 }
 
 /// Emit a whole program whose `fn main` uses `entry_symbol` instead of `@main`.
@@ -179,7 +319,17 @@ pub fn emit_program_with_entry(
     facts: &yashy_common::ProofFacts,
     entry_symbol: &str,
 ) -> String {
-    emit(hir, entry, options, facts, false, Some(entry_symbol), false).0
+    emit(
+        hir,
+        entry,
+        options,
+        facts,
+        false,
+        Some(entry_symbol),
+        false,
+        None,
+    )
+    .0
 }
 
 /// Emit a whole program and the reasons behind every decision that survived.
@@ -193,7 +343,7 @@ pub fn emit_program_with_notes(
     options: CodegenOptions,
     facts: &yashy_common::ProofFacts,
 ) -> (String, module::OptReport) {
-    emit(hir, entry, options, facts, true, None, false)
+    emit(hir, entry, options, facts, true, None, false, None)
 }
 
 fn emit(
@@ -204,10 +354,14 @@ fn emit(
     record: bool,
     entry_symbol: Option<&str>,
     debug_locations: bool,
+    unit: Option<(UnitFilter<'_>, &str)>,
 ) -> (String, module::OptReport) {
     let mut module = Module::new();
     module.set_debug_locations(debug_locations);
     module.set_source_filename(entry);
+    if let Some((_, tag)) = &unit {
+        module.set_unit_tag(tag);
+    }
     module.set_target(options.target);
     module.set_fp_contract(options.fp_contract);
     module.set_report(record);
@@ -305,6 +459,14 @@ fn emit(
     for item in &hir.items {
         match item {
             HirItem::Fn(f) => {
+                if let Some((filter, _)) = &unit {
+                    if !filter.owns(f.file) {
+                        // Another unit emits this body. All this one needs is
+                        // the signature, so the call can be lowered.
+                        gen_fn_decl(&mut module, f);
+                        continue;
+                    }
+                }
                 // The entry point is the one function whose signature the
                 // operating system dictates, so it is emitted through its own
                 // path. The test harness renames each test's `main` to a unique

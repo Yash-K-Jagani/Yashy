@@ -164,8 +164,7 @@ fn a_second_build_reuses_the_binary_without_linking() {
     );
 }
 
-fn verify_with_cache(dir: &std::path::Path, cache: &std::path::Path, file: &str) -> String {
-    let output = Command::new(yashyc())
+fn verify_with_cache(dir: &std::path::Path, cache: &std::path::Path, file: &str) -> String {    let output = Command::new(yashyc())
         .args(["cache", "verify", file])
         .current_dir(dir)
         .env("YASHY_CACHE_DIR", cache)
@@ -177,4 +176,119 @@ fn verify_with_cache(dir: &std::path::Path, cache: &std::path::Path, file: &str)
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+/// A ten-module fixture: `main.ya` plus nine modules it imports.
+///
+/// Every module holds one function, because the thing under test is how many
+/// *objects* a build has to produce when one of them changes.
+fn ten_modules(dir: &std::path::Path) {
+    let mut main = String::new();
+    for index in 0..9 {
+        main.push_str(&format!("import m{index};\n"));
+    }
+    main.push_str("fn main() {\n    let total = 0;\n");
+    for index in 0..9 {
+        main.push_str(&format!("    total = total + m{index}({index});\n"));
+    }
+    main.push_str("    print(total);\n}\n");
+    write(dir, "main.ya", &main);
+    for index in 0..9 {
+        write(
+            dir,
+            &format!("m{index}.ya"),
+            &format!("pub fn m{index}(int x) -> int {{\n    return x + {index};\n}}\n"),
+        );
+    }
+}
+
+#[test]
+fn a_one_function_edit_rebuilds_one_module_object() {
+    // One object per source file: a build that changed one function must
+    // compile that file and link the nine it did not touch.
+    let dir = work_dir("incremental-modules");
+    let cache = dir.join("cache");
+    let out = common::exe(&dir, "modules");
+    ten_modules(&dir);
+
+    let build = || {
+        Command::new(yashyc())
+            .args(["build", "main.ya", "-o", "modules", "--timings"])
+            .current_dir(&dir)
+            .env("YASHY_CACHE_DIR", &cache)
+            .output()
+            .expect("the build must run")
+    };
+
+    let cold = build();
+    assert!(
+        cold.status.success(),
+        "the ten-module build must pass:\n{}",
+        String::from_utf8_lossy(&cold.stderr)
+    );
+    let cold_log = String::from_utf8_lossy(&cold.stderr).into_owned();
+    assert!(
+        cold_log.contains("timing: modules 10 rebuilt, 0 cached"),
+        "a cold build must compile all ten modules:\n{cold_log}"
+    );
+
+    // The objects are not merely counted: the binary they link must be the
+    // program the edit describes. `m_i(i)` is `i + i`, so the original total is
+    // 2 * (0 + .. + 8) = 72; turning `m3`'s `+ 3` into `+ 40` moves it to 109.
+    let before = common::launch_output(&out).expect("the built program must start");
+    assert!(before.status.success(), "the built program must exit 0");
+    assert!(
+        String::from_utf8_lossy(&before.stdout).contains("72"),
+        "the unedited binary must print its own total: {}",
+        String::from_utf8_lossy(&before.stdout)
+    );
+
+    write(
+        &dir,
+        "m3.ya",
+        "pub fn m3(int x) -> int {\n    return x + 40;\n}\n",
+    );
+    let edited = build();
+    assert!(
+        edited.status.success(),
+        "the build after one edit must pass:\n{}",
+        String::from_utf8_lossy(&edited.stderr)
+    );
+    let edited_log = String::from_utf8_lossy(&edited.stderr).into_owned();
+    assert!(
+        edited_log.contains("timing: modules 1 rebuilt, 9 cached"),
+        "a one-function edit must rebuild one object:\n{edited_log}"
+    );
+
+    // The objects are not merely counted: the binary they link must be the
+    // program the edit describes. 2 * (0 + .. + 8) = 72 before the edit and
+    // 73 after it, because 3 became 40 in place of 3.
+    let run = common::launch_output(&out).expect("the built program must start");
+    assert!(run.status.success(), "the built program must exit 0");
+    let stdout = String::from_utf8_lossy(&run.stdout).into_owned();
+    assert!(
+        stdout.contains("109"),
+        "the rebuilt binary must print the edited total: {stdout}"
+    );
+
+    // Nothing changed, so nothing is emitted and nothing is compiled.
+    let unchanged = build();
+    assert!(
+        unchanged.status.success(),
+        "a no-change build must pass:\n{}",
+        String::from_utf8_lossy(&unchanged.stderr)
+    );
+    let unchanged_log = String::from_utf8_lossy(&unchanged.stderr).into_owned();
+    assert!(
+        unchanged_log.contains("ir_cache=hit"),
+        "a no-change build must reuse the emitted IR:\n{unchanged_log}"
+    );
+    assert!(
+        !unchanged_log.contains("timing: modules"),
+        "a no-change build must not compile any module:\n{unchanged_log}"
+    );
+    assert!(
+        unchanged_log.contains("timing: emit 0 ms"),
+        "a no-change build must not emit:\n{unchanged_log}"
+    );
 }

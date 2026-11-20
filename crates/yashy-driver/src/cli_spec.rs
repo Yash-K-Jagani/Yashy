@@ -529,7 +529,12 @@ pub fn render_help() -> String {
         .map(|command| command.name.len())
         .max()
         .unwrap_or(0);
-    let mut out = String::from("usage: yashyc <command> [options]\n\ncommands:\n");
+    let mut out = String::from(
+        "usage: yashyc <command> [options]\n\n\
+         A program is a `.ya` file, for example:\n  \
+         yashyc build <file.ya> [-o <out>]\n\n\
+         commands:\n",
+    );
     for command in COMMANDS {
         out.push_str(&format!(
             "  {:<width$}  {}\n",

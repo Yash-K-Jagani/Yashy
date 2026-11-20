@@ -125,24 +125,28 @@ compiler grows more phases to measure.
 - Modify: `crates/yashy-query/src/db.rs` (module-level queries)
 - Test: `crates/yashy-driver/tests/incremental.rs`
 
-- [ ] **Step 1: Write the failing test.** Build a 10-module fixture; change one
+- [x] **Step 1: Write the failing test.** Build a 10-module fixture; change one
   function; assert only that module's object is rebuilt and the link reuses the
   rest. Build with no change; assert `cache_hits == modules` and no `clang`
   invocation for IR.
-  *Current:* `incremental.rs` proves the whole-program IR cache and the runtime
-  object cache, not per-module user objects. A one-function edit misses the
-  program key and re-emits the whole IR; only the runtime objects are reused.
+  *Current:* `incremental.rs` builds a ten-module fixture and asserts
+  `timing: module_objects rebuilt=1 cached=9` after one function edit, and
+  `rebuilt=0` on the no-change build. `parallel_determinism.rs` asserts that
+  the unit files are identical at `--jobs 1` and `--jobs 4`.
 - [x] **Step 2: Extend the key.** Source bytes, flags, compiler version, target,
   runtime hash, package versions, features and the relevant environment. A
   `yashyc cache verify` recomputes and reports a mismatch.
-- [ ] **Step 3: Cache per-module objects.** Emit one object per module where
+- [x] **Step 3: Cache per-module objects.** Emit one object per module where
   the language allows it; link with the cached runtime object and the fast
   linker if present (`lld`, `mold`, `ld64.lld`, fallback to the default).
   A no-change build returns the cached binary in < 50 ms.
-  *Current:* the runtime objects are cached and the fast linker is preferred,
-  but user code is still one whole-program IR/binary cache hit. No-change
-  builds are fast; a one-function edit rebuilds the entire program IR. This is
-  an owned follow-up, not a shipped per-module object cache.
+  *Current:* a multi-file build emits one LLVM module per source file
+  (`<out>.uN.ll`), compiles each to a content-addressed object, and links the
+  objects with the cached runtime. ThinLTO, `--pgo`, `--debug-info` and a
+  one-file program keep the whole-program path. The binary and each object
+  short-circuit before emit, so a no-change build links only. The fast linker
+  clause is a recorded no: `docs/performance-improvements.md` item 4 measures
+  `-fuse-ld=lld` inside the noise.
 - [x] **Step 4: Never serve a stale binary.** A stale hit is a P0. The test
   mutates every key input in turn and asserts a miss.
 - [x] **Step 5: Commit.**
@@ -157,12 +161,14 @@ compiler grows more phases to measure.
 - [x] **Step 1: Write the failing test.** Check a 20-module fixture with
   `--jobs 1` and `--jobs 4`; assert byte-identical JSON and `frontend_threads
   > 1` in the latter.
-- [ ] **Step 2: Shard the query database per file.** Parse and check in
+- [x] **Step 2: Shard the query database per file.** Parse and check in
   parallel; codegen per module in parallel; merge in source order so diagnostics
   and IR are deterministic.
-  *Current:* parsing and checking shard across threads and the output is
-  byte-deterministic (`parallel_determinism.rs`). Codegen remains one
-  whole-program `emit_program` call, so this step's second clause is not done.
+  *Current:* parsing and checking shard across threads, and unit codegen runs
+  on a bounded worker pool (`in_parallel`, `worker_count`, `--jobs`). Units and
+  diagnostics merge in sorted source order, and
+  `parallel_determinism.rs` asserts byte-identical output at `--jobs 1` and
+  `--jobs 4`.
 - [x] **Step 3: Commit.**
 
 ### Task 6: An honest compile-time regression row
@@ -257,13 +263,12 @@ a claim that is not true.
 
 | Task | Claimed | Shipped | Follow-up |
 |---|---|---|---|
-| 4.1 / 4.3 | A one-function edit rebuilds one module object; a no-change build hits per-module objects | Whole-program IR and binary cache plus a cached runtime object per runtime source; one-function edit re-emits the whole IR | Per-module user objects behind the existing cache key. The incremental test stays honest about what it measures |
-| 5.2 | Parse/check and codegen shard per module in parallel | Front end parses/checks in parallel and output is byte-deterministic; `emit_program` remains whole-program | Parallel per-module codegen after 4.3 lands |
+| 4.3 | The fast linker is used when present | `lld`/`mold`/`ld64.lld` are not selected: the measured difference is inside the noise (4%) and `docs/performance-improvements.md` item 4 records the no | Revisit only with a benchmark row that shows a win |
 | 6.2 | Compile rows gate at 20% on the normalized ratio | `fib_compile_ratio` (Yashy's compile over clang's in the same run) is a `Kind::Ratio` row gated at 20%, and `fib_wrap_ratio` keeps its absolute 1.20 bound; raw `*_compile_ms` rows are a 100% tripwire for shared-runner noise | Nothing outstanding |
 | Gates | All acceptance commands run and pass on Windows and Linux | Driver checks are green with the documented runtime build-script detach; the runtime build script and freshly linked binaries are blocked by Windows Application Control, so the full workspace check and runtime gates are CI-only | CI is deferred by the project owner; re-run the full gate set when CI is unblocked |
 
-The phase is therefore **functionally complete except CI and the per-module
-object/codegen follow-up**, not complete against every literal sentence above.
+The phase is therefore **complete except CI and the fast-linker measurement**,
+not complete against every literal sentence above.
 
 ## Out of scope
 

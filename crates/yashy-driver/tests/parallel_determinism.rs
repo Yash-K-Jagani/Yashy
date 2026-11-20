@@ -204,8 +204,7 @@ fn test_jobs_one_and_jobs_four_produce_identical_json() {
 }
 
 #[test]
-fn one_files_errors_are_reported_in_span_order() {
-    let dir = work_dir("parallel-span-order");
+fn one_files_errors_are_reported_in_span_order() {    let dir = work_dir("parallel-span-order");
     write(
         &dir,
         "main.ya",
@@ -230,5 +229,65 @@ fn one_files_errors_are_reported_in_span_order() {
         lines.windows(2).all(|pair| pair[0] <= pair[1]),
         "the errors must be in span order, got {lines:?}:\n{}",
         stdout(&output)
+    );
+}
+
+#[test]
+fn parallel_codegen_writes_identical_units() {
+    // Codegen runs on the same pool the front end uses: a multi-file program is
+    // emitted as one module per file, each on its own thread, and the files must
+    // be the same bytes whatever order the threads finished in.
+    let dir = work_dir("parallel-codegen");
+    let modules = 8;
+    for module in 0..modules {
+        write(
+            &dir,
+            &format!("m{module}.ya"),
+            &format!("pub fn f{module}(int x) -> int {{\n    return x + {module};\n}}\n"),
+        );
+    }
+    let mut main = String::new();
+    for module in 0..modules {
+        main.push_str(&format!("import m{module};\n"));
+    }
+    main.push_str("\nfn main() {\n    let total = 0;\n");
+    for module in 0..modules {
+        main.push_str(&format!("    total = total + f{module}({module});\n"));
+    }
+    main.push_str("    print(total);\n}\n");
+    write(&dir, "main.ya", &main);
+
+    let serial = run(&dir, &["build", "main.ya", "-o", "one.bin", "--jobs", "1"]);
+    assert_eq!(
+        serial.status.code(),
+        Some(0),
+        "the serial build must pass:\n{}",
+        stderr(&serial)
+    );
+    let parallel = run(&dir, &["build", "main.ya", "-o", "four.bin", "--jobs", "4"]);
+    assert_eq!(
+        parallel.status.code(),
+        Some(0),
+        "the parallel build must pass:\n{}",
+        stderr(&parallel)
+    );
+
+    // One unit per source file: `main.ya` and the eight modules, so the last
+    // unit is `u8` and there is no `u9`.
+    for unit in 0..=modules {
+        let one = dir.join(format!("one.u{unit}.ll"));
+        let four = dir.join(format!("four.u{unit}.ll"));
+        let serial_text = std::fs::read(&one)
+            .unwrap_or_else(|_| panic!("the serial build must write {}", one.display()));
+        let parallel_text = std::fs::read(&four)
+            .unwrap_or_else(|_| panic!("the parallel build must write {}", four.display()));
+        assert_eq!(
+            serial_text, parallel_text,
+            "unit {unit} must be byte-identical at `--jobs 1` and `--jobs 4`"
+        );
+    }
+    assert!(
+        !dir.join(format!("one.u{}.ll", modules + 1)).exists(),
+        "a build must write exactly one module per source file"
     );
 }

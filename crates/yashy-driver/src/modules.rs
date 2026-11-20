@@ -218,7 +218,9 @@ pub const STDLIB_VERSION: &str = "1.0.0";
 ///
 /// Two stdlibs with the same version but different bytes must never share an
 /// IR cache entry. The hash is canonical (`hash_tree`), so a checkout's line
-/// endings or mtimes cannot change it.
+/// endings or mtimes cannot change it. The package version is a separate input
+/// to the IR key: it lives in `yashy.toml` beside the module tree and a version
+/// bump with byte-identical modules must still invalidate the entry.
 pub fn stdlib_fingerprint() -> String {
     let Some(root) = default_stdlib_root() else {
         return STDLIB_VERSION.to_string();

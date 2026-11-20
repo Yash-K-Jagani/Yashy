@@ -940,6 +940,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         lto: release && !no_lto,
         pgo,
         async_,
+        jobs,
         ir_cache: !stdlib_source,
         target,
         reproducible,
@@ -3514,6 +3515,11 @@ fn set_timings(report: &mut Json, timings: Option<&[TimingRow]>) {
                             entry.set("phase", Json::string("stdlib_modules"));
                             entry.set("modules", Json::number(*count as i64));
                         }
+                        TimingRow::ModuleObjects { rebuilt, cached } => {
+                            entry.set("phase", Json::string("module_objects"));
+                            entry.set("rebuilt", Json::number(*rebuilt as i64));
+                            entry.set("cached", Json::number(*cached as i64));
+                        }
                     }
                     entry
                 })
@@ -3550,6 +3556,9 @@ fn report_timings(timings: &[TimingRow]) {
                 eprintln!("ir_cache={}", if *hit { "hit" } else { "miss" })
             }
             TimingRow::StdlibModules { count } => eprintln!("stdlib_modules={count}"),
+            TimingRow::ModuleObjects { rebuilt, cached } => {
+                eprintln!("timing: modules {rebuilt} rebuilt, {cached} cached")
+            }
         }
     }
 }

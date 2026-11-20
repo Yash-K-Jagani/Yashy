@@ -706,6 +706,23 @@ imports, so `hello` reports `stdlib_modules=0` and an `import JSON;` reports
 one. A stdlib module is typechecked only because it was imported, not because
 the compiler was installed with one.
 
+A program spread over several files is emitted as one LLVM module per file, and
+a build that emits reads one cached object per module:
+
+```text
+timing: modules 1 rebuilt, 9 cached
+```
+
+`rebuilt` counts the modules this build had to compile and `cached` the ones it
+found by content. Editing one function therefore rebuilds one object and links
+the rest unchanged; the sum is always the number of files the build read. A
+no-change build reuses the binary and prints no `modules` line at all, so its
+absence is the cheapest possible report.
+
+The split is only taken where it cannot change what the artifacts say: a
+release build (`lto=thin`), a `--pgo` build and a `--debug` build keep the
+whole-program emission, and a one-file program has nothing to split.
+
 `test --timings` prints one total for the whole suite rather than five lines per
 test, so the report answers where the run's wall time went.
 
@@ -799,7 +816,9 @@ stdout; `--json` implies no color and no prompt.
   stdlib count is `{"phase":"stdlib_modules","modules":1}`; the first appears
   only on a command that runs the backend (`build`, `run`, `test`), never for
   `check`, `verify` or `--emit-ir`, while the second appears on every command
-  that loads sources. `test --json --timings` carries the suite's totals.
+  that loads sources. A multi-file build that emitted adds
+  `{"phase":"module_objects","rebuilt":1,"cached":9}`.
+  `test --json --timings` carries the suite's totals.
 
 `test --json` uses the same envelope plus `tests` and a test summary:
 

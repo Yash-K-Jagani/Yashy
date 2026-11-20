@@ -259,6 +259,37 @@ it fuses. The earlier conclusion that this would require teaching codegen an
 `llvm.fmuladd` intrinsic was therefore wrong: the flag is enough, and no intrinsic
 is emitted.
 
+### 7. Emit one object per source file, not one per program - done
+
+A build used to emit one IR module for the whole program and had exactly two
+cache entries to reuse: the IR text and the linked binary. Both are keyed on the
+whole program, so editing one function in a ten-file project missed both — the
+build re-emitted every file's functions and recompiled all of it, even though
+nine files were untouched.
+
+**What changed.** A multi-file program is now emitted as one LLVM module per
+source file. Each unit carries every declaration and type definition the program
+has — so a unit's text depends on the whole program's *interfaces* and only its
+own *bodies* — and each is compiled to its own object, cached by the object's
+content. Editing one function changes one module's text, so one object misses
+and the other nine are read from the cache and linked unchanged. The IR cache
+stores the per-unit texts (format 2), and `<output>.ll` becomes
+`<output>.u0.ll`, `<output>.u1.ll`, …, one file per unit, because those are the
+texts the linker actually saw.
+
+**What it costs.** A cold build of a multi-file program now starts `clang` once
+per unit instead of once per program. On a ten-module fixture that is nine extra
+process starts; the win is the second and every later build, where the same nine
+objects are reused. The build reports the trade: `timing: modules 1 rebuilt, 9
+cached`. No measurement of the cold-path delta is claimed here, because the row
+that matters — objects reused per edit — is a contract the incremental test
+pins, not a number that stays put across machines.
+
+**Where the split is not taken.** A release build (`lto=thin`) needs bitcode from
+every translation unit at once, a `--pgo` build asks the compiler for different
+instrumentation on its two passes, and a `--debug` build annotates one text at a
+time. Those keep the whole-program emission, as does a one-file program.
+
 ## Measured and deliberately not done
 
 Each of these was measured in the form it would ship, and the measurement said

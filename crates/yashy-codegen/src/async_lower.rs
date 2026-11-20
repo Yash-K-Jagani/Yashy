@@ -1003,7 +1003,9 @@ fn gen_spawn_sync(
     // The synthesized poll function: load the arguments from the frame,
     // call the worker, store the result, run no further statements.
     let index = ctx.module.next_thread_entry();
-    let poll_name = format!("yashy_spawn_poll_{index}");
+    // The counter is per module, so a program split across units would emit
+    // `yashy_spawn_poll_0` more than once; the unit tag keeps each one its own.
+    let poll_name = ctx.module.tagged(&format!("yashy_spawn_poll_{index}"));
     let mut lines = Vec::new();
     lines.push(format!("define i8* @{poll_name}(i8* %task.frame) {{"));
     lines.push("entry:".to_string());
