@@ -38,7 +38,7 @@ fn selection_prefers_the_highest_satisfying_version() {
         .max();
     assert_eq!(
         candidates.map(|version| version.to_string()).as_deref(),
-        Some("1.9.0")
+        Some("1.10.0")
     );
 }
 
