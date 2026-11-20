@@ -1,11 +1,15 @@
 // Two built-in derives, expanded as ordinary methods before checking.
-// Debug renders the fields in declaration order; Eq compares them pairwise.
+// Debug renders the fields in declaration order; Eq compares them pairwise;
+// Hash folds the same fields into a stable integer.
 
-struct Point derive(Debug, Eq) { x: int, y: int }
+struct Point derive(Debug, Eq, Hash) { x: int, y: int }
 
 fn main() {
     let a = Point { x: 1, y: 2 };
     let b = Point { x: 1, y: 2 };
+    let c = Point { x: 1, y: 3 };
     print(a.debug());
     print(a.eq(b));
+    print(a.hash() == b.hash());
+    print(a.hash() == c.hash());
 }

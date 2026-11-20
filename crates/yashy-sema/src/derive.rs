@@ -7,9 +7,9 @@
 //! as hand-written ones, and the expansion order is the declaration order with
 //! no hash-map iteration, so the bytes are stable across runs and platforms.
 //!
-//! Only `Debug` and `Eq` are expanded today, and only over fields whose types
-//! the generated body can express. An unsupported field is reported with its
-//! name rather than silently producing a method that cannot work.
+//! `Debug`, `Eq` and `Hash` are expanded today, and only over fields whose
+//! types the generated body can express. An unsupported field is reported with
+//! its name rather than silently producing a method that cannot work.
 
 use yashy_common::Span;
 use yashy_lexer::StringLit;
@@ -69,7 +69,22 @@ fn binary(op: BinOp, lhs: Expr, rhs: Expr, span: Span) -> Expr {
     }
 }
 
-fn method(method_name: &str, params: Vec<Param>, ret: &str, body: Expr, span: Span) -> Item {
+/// The receiver every generated method takes.
+///
+/// The parser reads a bare `self` as a parameter whose type is `Self`, and the
+/// checker resolves that name to the `impl` block's type. Building the same
+/// shape here is what makes a generated method a method rather than an
+/// associated function.
+fn receiver(span: Span) -> Param {
+    Param {
+        name: "self".to_string(),
+        ty: TypeExpr::Name("Self".to_string(), span),
+        span,
+        default: None,
+    }
+}
+
+fn method(method_name: &str, params: Vec<Param>, ret: &str, stmts: Vec<Stmt>, span: Span) -> Item {
     Item::Fn {
         name: method_name.to_string(),
         type_params: Vec::new(),
@@ -77,12 +92,14 @@ fn method(method_name: &str, params: Vec<Param>, ret: &str, body: Expr, span: Sp
         ret: Some(TypeExpr::Name(ret.to_string(), span)),
         requires: Vec::new(),
         ensures: Vec::new(),
-        body: Block {
-            stmts: vec![Stmt::Return(Some(body), span)],
-            span,
-        },
+        body: Block { stmts, span },
         span,
     }
+}
+
+/// Wrap a single expression as the body of a generated method.
+fn returning(body: Expr, span: Span) -> Vec<Stmt> {
+    vec![Stmt::Return(Some(body), span)]
 }
 
 /// Return the program with one synthesized impl per derive name. Errors name
@@ -140,7 +157,13 @@ pub fn expand(program: &Program) -> Result<Program, Vec<(Span, String)>> {
                     added.push(Item::Impl {
                         type_name: name.clone(),
                         trait_name: None,
-                        methods: vec![method("debug", Vec::new(), "string", body, *span)],
+                        methods: vec![method(
+                            "debug",
+                            vec![receiver(*span)],
+                            "string",
+                            returning(body, *span),
+                            *span,
+                        )],
                         span: *span,
                     });
                 }
@@ -175,14 +198,69 @@ pub fn expand(program: &Program) -> Result<Program, Vec<(Span, String)>> {
                     }
                     let other = Param {
                         name: "other".to_string(),
-                        ty: TypeExpr::Name("Self".to_string(), *span),
+                        // The concrete type, not `Self`: `Self` names a type
+                        // only in the receiver position, so a value parameter
+                        // has to spell the name the `impl` block is for.
+                        ty: TypeExpr::Name(name.clone(), *span),
                         span: *span,
                         default: None,
                     };
                     added.push(Item::Impl {
                         type_name: name.clone(),
                         trait_name: None,
-                        methods: vec![method("eq", vec![other], "bool", body, *span)],
+                        methods: vec![method(
+                            "eq",
+                            vec![receiver(*span), other],
+                            "bool",
+                            returning(body, *span),
+                            *span,
+                        )],
+                        span: *span,
+                    });
+                }
+                "Hash" => {
+                    if let Some(unsupported) = fields.iter().find(|field| !supported(field)) {
+                        errors.push((
+                            unsupported.span,
+                            format!(
+                                "cannot derive `Hash`: field `{}` is not an `int`",
+                                unsupported.name
+                            ),
+                        ));
+                        continue;
+                    }
+                    // A fixed polynomial over the fields in declaration order.
+                    // Every step uses the checked integer operations ordinary
+                    // code uses, and the only iteration is over source fields,
+                    // so two expansions produce the same bytes.
+                    let mut stmts = vec![Stmt::Let {
+                        name: "hash".to_string(),
+                        ty: Some(TypeExpr::Name("int".to_string(), *span)),
+                        init: Expr::Literal(Literal::I64(17), *span),
+                        span: *span,
+                    }];
+                    for field_def in fields {
+                        stmts.push(Stmt::Assign {
+                            target: ident_expr("hash", *span),
+                            value: binary(
+                                BinOp::Add,
+                                binary(
+                                    BinOp::Mul,
+                                    ident_expr("hash", *span),
+                                    Expr::Literal(Literal::I64(1_000_003), *span),
+                                    *span,
+                                ),
+                                field(ident_expr("self", *span), &field_def.name, *span),
+                                *span,
+                            ),
+                            span: *span,
+                        });
+                    }
+                    stmts.push(Stmt::Return(Some(ident_expr("hash", *span)), *span));
+                    added.push(Item::Impl {
+                        type_name: name.clone(),
+                        trait_name: None,
+                        methods: vec![method("hash", vec![receiver(*span)], "int", stmts, *span)],
                         span: *span,
                     });
                 }

@@ -7,6 +7,6 @@ fn main() {
         let p = alloc_uninit(4);
         p[0] = 7;
         print(p[0]);
-        dealloc(p);
+        p.free();
     }
 }

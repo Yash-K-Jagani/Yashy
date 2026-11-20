@@ -1,0 +1,32 @@
+// A compile-time/run-time differential for `const fn`.
+//
+// A `const fn` cannot be called at run time (E1524), so the comparison uses a
+// paired ordinary function with the same body. The first line is the value the
+// compiler folded into the IR; the second line is what the emitted loop
+// computes. A disagreement in either evaluator becomes a failed golden.
+
+const fn sum_const(int n) -> int {
+    let int total = 0;
+    let i = 1;
+    while i <= n {
+        total += i;
+        i += 1;
+    }
+    return total;
+}
+
+fn sum_runtime(int n) -> int {
+    let int total = 0;
+    let i = 1;
+    while i <= n {
+        total += i;
+        i += 1;
+    }
+    return total;
+}
+
+fn main() {
+    const at_compile_time = sum_const(10);
+    print(at_compile_time);
+    print(sum_runtime(10));
+}

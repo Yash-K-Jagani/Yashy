@@ -189,16 +189,20 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 - Test: `crates/yashy-sema/tests/derive.rs`, `crates/yashy-sema/tests/closures.rs`
 
 - [ ] **Step 1: Write the failing test.** `struct Point derive(Debug, Eq, Hash) { x: int, y: int }` and an enum with `Encode`/`Decode`. Assert the generated impls are deterministic (same bytes across runs), visible in `index --json`, and refused when a field does not implement the requirement (naming the field).
-  *Current:* `derive(Debug, Eq)` now synthesizes inherent `debug()` and `eq()`
-  methods, checked by the same two passes as hand-written ones; the names and
-  order are pinned by `crates/yashy-sema/tests/derive.rs` and an e2e program.
-  `Hash`, `Encode` and `Decode` are still owed, as is a field-bound failure for
-  a type the expansion cannot render.
+  *Current:* `derive(Debug, Eq, Hash)` now synthesizes inherent `debug()`,
+  `eq()` and `hash()` methods, checked by the same two passes as hand-written
+  ones; the names, order and receiver shape are pinned by
+  `crates/yashy-sema/tests/derive.rs`, the generated methods are named in
+  `crates/yashy-driver/tests/index.rs`, and an e2e program runs all three. A
+  second expansion of the same declaration produces the same typed program.
+  `Encode` and `Decode` are still owed (they need Phase 7's codec interface),
+  as is an enum with a derived impl.
 - [ ] **Step 2: Derives are compiler-known, not macros.** Each derive is a built-in expansion over HIR with a stable order: fields in declaration order, variants in declaration order, no hash-map iteration. `derive(Debug)` renders a stable, readable form; `Encode`/`Decode` use the Phase 7 codec interface.
   *Current:* expansion synthesizes AST methods in declaration order, with no
-  hash-map iteration, so `Debug` renders fields in source order and `Eq`
-  compares them pairwise. `Hash`, `Encode`/`Decode` and trait-based dispatch are
-  still owed, so the step stays open.
+  hash-map iteration, so `Debug` renders fields in source order, `Eq` compares
+  them pairwise and `Hash` folds them with a fixed integer polynomial.
+  `Encode`/`Decode`, enum derives and trait-based dispatch are still owed, so
+  the step stays open.
 - [ ] **Step 3: Capture modes are in the type.** A closure writes `move` / value / by-pointer captures; the closure's type records each captured binding and its mode, the verifier sees every capture, and a `move` closure cannot outlive a value it moved. A capture mode that cannot be honoured is a diagnostic, not a silent copy.
 - [x] **Step 4: `defer expr;` and scoped release.** `defer expr;` and
   `defer a(), b();` parse into the same `Stmt::Defer` body a braced block
@@ -467,6 +471,12 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   and compares the values. A mismatch is a compiler bug, not a language
   difference. A `const fn` that is only used at compile time is not emitted; one
   that is also called at run time is emitted once.
+  *Current:* `crates/yashy-driver/tests/programs/const_fn_differential.ya`
+  runs a loop-based sum through the constant evaluator and through a paired
+  ordinary function with the same body, and the e2e test asserts the two lines
+  are equal. The language cannot call a `const fn` at run time (E1524), so a
+  paired body is the available differential; the general "for every `const fn`"
+  claim and the two-emission rule are still owed.
 - [ ] **Step 5: The evaluator is not a second compiler.** It consumes HIR and
   the layout table, reports through the same diagnostics, and is covered by the
   `never_panics` suite. `--emit-ir` shows the folded constant and the source
@@ -616,10 +626,10 @@ does not build on a claim that is not true.
 | 5.1-5.6 | `unsafe` gates deref and pointer arithmetic; `Option[*const T]` null niche; alias corpus per rule | `unsafe { }` parses, checks, is inventoried and gates both `alloc_uninit` (`E1405`) and C-pointer dereference (`E1406`, ALIAS-2). ALIAS-1, ALIAS-3 and ALIAS-5 have codes. Pointer arithmetic is still ungated, there is no null niche. `crates/yashy-verify/tests/unsafe.rs` pins the inventory, not the
 niche | Owed work, not excluded: pointer arithmetic, the null niche,
 ALIAS-4 and the attribute-justification gate |
-| 4.1, 4.2 | Deterministic derive impls, visible in `index`, field-bound diagnostics | `derive(Debug, Eq)` expands to inherent methods in declaration order, visible as functions in the index; an unsupported field or unknown derive is refused with the field/name it concerns. `Hash`, `Encode`/`Decode`, trait dispatch and determinism byte-proof are owed | Owed work: remaining derives and trait-based impls |
+| 4.1, 4.2 | Deterministic derive impls, visible in `index`, field-bound diagnostics | `derive(Debug, Eq, Hash)` expands to inherent methods in declaration order, visible as functions in the index; an unsupported field or unknown derive is refused with the field/name it concerns, and a second expansion of one declaration gives the same typed program. Enum derives and `Encode`/`Decode` are owed | Owed work: enum derives and Phase 7's codec interface |
 | 6.5, 7.1-7.5 | `size_of[T]()` bracket spelling; `const N` parameters | `sizeof(T)` / `alignof(T)` / `offsetof(T, f)` and the underscore spellings fold from the shared layout table; the bracket spelling needs const generics, which do not exist | Owed work; the checker/layout/IR agreement is pinned by `crates/yashy-driver/tests/layout.rs` |
 | 8.1, 8.2 | `Range[T]` value type with `start`/`end`/`len`/`is_empty`/`contains`/`step_by` | `..` and `..=` parse as a `for` head and as a pattern; a float bound is `E1518`; there is no range value or method surface | Owed work; `in` over a range waits on it |
-| 9.1, 9.4, 9.5 | Compile-time/run-time differential test, evaluator consumes typed HIR | The evaluator consumes the parser AST and folds arithmetic, `if`, `let`/assignment, loops, fixed arrays and nested calls; `const_assert` rejects a false compile-time fact; the table's IR-literal assertion is pinned by `crates/yashy-driver/tests/const_fn_ir.rs`. The compile-time/run-time differential is owed | Owed work; the AST choice is why `switch` and method calls are still refused rather than wrong |
+| 9.1, 9.4, 9.5 | Compile-time/run-time differential test, evaluator consumes typed HIR | The evaluator consumes the parser AST and folds arithmetic, `if`, `let`/assignment, loops, fixed arrays and nested calls; `const_assert` rejects a false compile-time fact; the table's IR-literal assertion is pinned by `crates/yashy-driver/tests/const_fn_ir.rs`. `const_fn_differential.ya` compares a folded loop with a paired run-time function, but a `const fn` itself cannot be called at run time (E1524) | Owed work; the AST choice is why `switch` and method calls are still refused rather than wrong |
 | 10.1, 10.2, 10.5 | BPE audit over this phase's keywords in `o200k`, `cl100k` and a Llama tokenizer | `yashyc tokens --bpe` reports one tokenizer and counts; `docs/bpe.md` records the measured Yashy-lexer half and the missing external half | Needs the three vocabularies vendored (Phase 2 Task 8 owes the same files) |
 | Gates | Every acceptance row is a command that exists and passes on Windows and Linux | Rows name the test file that exists; the rows whose file is owed say so. Driver checks are green with the documented runtime build-script detach; freshly linked binaries are blocked by Windows Application Control, so the runtime, e2e and IR gates are CI-only | CI is deferred by the project owner; re-run the full gate set when CI is unblocked |
 

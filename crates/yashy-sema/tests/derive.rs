@@ -26,7 +26,9 @@ fn generated_names(program: &HirProgram) -> Vec<String> {
             HirItem::Fn(function) => Some(function.name.clone()),
             _ => None,
         })
-        .filter(|name| name.contains("debug") || name.contains("eq"))
+        .filter(|name| {
+            name.contains("debug") || name.contains("eq") || name.contains("hash")
+        })
         .collect()
 }
 
@@ -55,6 +57,72 @@ fn generated_methods_appear_in_declaration_order() {
         .expect("the program checks");
     let names = generated_names(&program);
     assert_eq!(names.len(), 2, "one method per derive: {names:?}");
+}
+
+#[test]
+fn generated_methods_take_a_self_receiver() {
+    // A generated function without a receiver is an associated function, so
+    // `a.debug()` would be refused. The `self` parameter is what makes the
+    // generated item a method, and that is what this pins.
+    let program = check(
+        "struct Point derive(Debug, Eq) { x: int, y: int }\n\
+         fn main() { let a = Point { x: 1, y: 2 }; let b = Point { x: 1, y: 2 }; \
+                     print(a.debug()); print(a.eq(b)); }",
+    )
+    .expect("the generated methods type-check");
+    let mut checked = 0;
+    for item in &program.items {
+        let HirItem::Fn(function) = item else {
+            continue;
+        };
+        if !function.name.contains("debug") && !function.name.contains("eq") {
+            continue;
+        }
+        assert_eq!(
+            function.params.first().map(|param| param.name.as_str()),
+            Some("self"),
+            "`{}` must be a method, not an associated function: {:?}",
+            function.name,
+            function.params
+        );
+        checked += 1;
+    }
+    assert_eq!(checked, 2, "both derived methods were inspected");
+}
+
+#[test]
+fn hash_generates_a_deterministic_method() {
+    let first = check(
+        "struct Point derive(Hash) { x: int, y: int }\n\
+         fn main() { let a = Point { x: 1, y: 2 }; print(a.hash()); }",
+    )
+    .expect("the generated method type-checks");
+    let second = check(
+        "struct Point derive(Hash) { x: int, y: int }\n\
+         fn main() { let a = Point { x: 1, y: 2 }; print(a.hash()); }",
+    )
+    .expect("the second expansion type-checks");
+    let names = generated_names(&first);
+    assert_eq!(names.len(), 1, "one hash method: {names:?}");
+    assert!(names[0].contains("hash"), "the method is named hash");
+    // The expansion is pure AST data in declaration order, so two runs give
+    // the same typed program byte for byte.
+    assert_eq!(
+        format!("{first:?}"),
+        format!("{second:?}"),
+        "two expansions must produce the same program"
+    );
+}
+
+#[test]
+fn all_three_derives_are_declaration_ordered() {
+    let program = check("struct Pair derive(Debug, Eq, Hash) { a: int, b: int } fn main() {}")
+        .expect("the program checks");
+    let names = generated_names(&program);
+    assert_eq!(names.len(), 3, "one method per derive: {names:?}");
+    assert!(names[0].contains("debug"), "first derive first: {names:?}");
+    assert!(names[1].contains("eq"), "second derive second: {names:?}");
+    assert!(names[2].contains("hash"), "third derive third: {names:?}");
 }
 
 #[test]

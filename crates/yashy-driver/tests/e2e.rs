@@ -732,9 +732,22 @@ fn a_const_fn_is_computed_by_the_compiler() {
 }
 
 #[test]
+fn const_and_run_time_evaluation_agree() {
+    let output = build_and_run("const_fn_differential");
+    assert_eq!(
+        stdout_of(&output),
+        "55\n55\n",
+        "the folded value and the emitted loop must agree"
+    );
+}
+
+#[test]
 fn derived_methods_render_and_compare() {
     let output = build_and_run("derive");
-    assert_eq!(stdout_of(&output), "Point { x: 1, y: 2 }\ntrue\n");
+    assert_eq!(
+        stdout_of(&output),
+        "Point { x: 1, y: 2 }\ntrue\ntrue\nfalse\n"
+    );
 }
 
 #[test]

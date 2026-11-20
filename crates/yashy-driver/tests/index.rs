@@ -2,7 +2,7 @@
 
 mod common;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 fn yashyc() -> &'static str {
@@ -30,13 +30,19 @@ fn an_index_shows_the_derive_clause_on_a_type() {
     common::write(
         &dir,
         "main.ya",
-        "struct Point derive(Debug, Eq) { x: int }\nfn main() {}",
+        "struct Point derive(Debug, Eq, Hash) { x: int }\nfn main() {}",
     );
     let output = index_of(&dir);
     assert!(
-        output.contains("\"signature\": \"struct Point derive(Debug, Eq)\""),
+        output.contains("\"signature\": \"struct Point derive(Debug, Eq, Hash)\""),
         "the derive clause must be visible in the index: {output}"
     );
+    for method in ["Point.debug", "Point.eq", "Point.hash"] {
+        assert!(
+            output.contains(&format!("\"name\": \"{method}\"")),
+            "the generated method {method} must be indexed: {output}"
+        );
+    }
 }
 
 #[test]
