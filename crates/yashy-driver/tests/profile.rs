@@ -133,7 +133,7 @@ fn a_recorded_report_has_the_same_model_as_json() {
         "\"program\"",
         "\"overhead_pct\"",
         "\"functions\"",
-        "\"name\": \"hot\"",
+        "\"name\":\"hot\"",
         "\"self_ns\"",
     ] {
         assert!(stdout.contains(field), "missing {field}: {stdout}");
