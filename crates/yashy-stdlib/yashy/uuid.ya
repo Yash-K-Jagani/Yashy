@@ -88,7 +88,7 @@ fn uuid_error(UuidError problem) -> Result[string, UuidError] {
 ///
 /// The byte array is consumed: like `csv.record`, this function hands it to a
 /// helper that releases it on both the success and the error path.
-pub fn from_bytes([]char bytes) -> Result[string, UuidError] {
+pub fn format_bytes([]char bytes) -> Result[string, UuidError] {
     const Result[string, UuidError] result = switch hex_encode(bytes) {
         case Ok(hex) {
             ok_text(hex.slice(0, 8) + "-" + hex.slice(8, 12) + "-" + hex.slice(12, 16) + "-" + hex.slice(16, 20) + "-" + hex.slice(20, 32))
@@ -118,5 +118,5 @@ pub fn v4() -> Result[string, UuidError] {
     };
     const char ninth_byte = ((ninth & 63) | 128).to_char();
     bytes.set(8, ninth_byte);
-    return from_bytes(bytes);
+    return format_bytes(bytes);
 }

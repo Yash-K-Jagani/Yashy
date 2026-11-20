@@ -27,7 +27,7 @@ fn report_failure() {
 fn main() {
     print(uuid.is_valid(uuid.nil()));
     print(uuid.is_valid("not-a-uuid"));
-    switch uuid.from_bytes(sixteen_bytes()) {
+    switch uuid.format_bytes(sixteen_bytes()) {
         case Ok(text) { print(text == "00010203-0405-0607-0809-0a0b0c0d0e0f"); }
         case Err(_) { print(false); }
     };

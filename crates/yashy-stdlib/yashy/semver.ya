@@ -19,7 +19,7 @@ pub struct Semver {
 }
 
 /// Parse `major.minor.patch[-pre][+build]`.
-pub fn parse(string text) -> Result[Semver, SemverError] {
+pub fn parse_version(string text) -> Result[Semver, SemverError] {
     const plus = find_from(text, "+", 0);
     let with_build = text;
     if plus >= 0 { with_build = text.slice(0, plus); }

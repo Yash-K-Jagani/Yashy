@@ -779,10 +779,10 @@ fn is_text(Mime mime) -> bool
 
 Whether the type is textual: `text/*`, or one of the text-like applications.
 
-### `parse`
+### `parse_media_type`
 
 ```yashy
-fn parse(string text) -> Result[Mime, MimeError]
+fn parse_media_type(string text) -> Result[Mime, MimeError]
 ```
 
 Parse `type/subtype`, ignoring anything after a semicolon.
@@ -1157,10 +1157,10 @@ fn compare(Semver a, Semver b) -> int
 
 Compare two versions: negative when `a` is older, positive when newer.
 
-### `parse`
+### `parse_version`
 
 ```yashy
-fn parse(string text) -> Result[Semver, SemverError]
+fn parse_version(string text) -> Result[Semver, SemverError]
 ```
 
 Parse `major.minor.patch[-pre][+build]`.
@@ -1388,10 +1388,10 @@ fn origin(Url url) -> string
 
 The `scheme://host` prefix, without port or path.
 
-### `parse`
+### `parse_url`
 
 ```yashy
-fn parse(string text) -> Result[Url, UrlError]
+fn parse_url(string text) -> Result[Url, UrlError]
 ```
 
 Parse `scheme://host[:port]/path`.
@@ -1430,10 +1430,10 @@ enum UuidError
 
 Why a UUID could not be built from bytes.
 
-### `from_bytes`
+### `format_bytes`
 
 ```yashy
-fn from_bytes([]char bytes) -> Result[string, UuidError]
+fn format_bytes([]char bytes) -> Result[string, UuidError]
 ```
 
 Format sixteen bytes as canonical lowercase UUID text.

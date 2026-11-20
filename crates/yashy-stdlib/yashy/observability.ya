@@ -42,13 +42,7 @@ pub enum Level {
 /// A trace span as a stable JSON line. `parent_id` is empty for a root span.
 /// The duration is microseconds; the shape is fixed so a sink does not have to
 /// guess which field is which.
-pub fn trace_json(
-    string trace_id,
-    string span_id,
-    string parent_id,
-    string operation,
-    int duration_us,
-) -> string {
+pub fn trace_json(string trace_id, string span_id, string parent_id, string operation, int duration_us) -> string {
     return "{\"kind\":\"trace\",\"trace_id\":" + JSON.quote(trace_id)
         + ",\"span_id\":" + JSON.quote(span_id)
         + ",\"parent_id\":" + JSON.quote(parent_id)
@@ -66,25 +60,12 @@ pub fn metric_json(string name, string kind, string value, string labels) -> str
 }
 
 /// Send one trace span to the caller-supplied writer.
-pub fn trace(
-    fn(string) -> void writer,
-    string trace_id,
-    string span_id,
-    string parent_id,
-    string operation,
-    int duration_us,
-) {
+pub fn trace(fn(string) -> void writer, string trace_id, string span_id, string parent_id, string operation, int duration_us) {
     writer(trace_json(trace_id, span_id, parent_id, operation, duration_us));
 }
 
 /// Send one metric sample to the caller-supplied writer.
-pub fn metric(
-    fn(string) -> void writer,
-    string name,
-    string kind,
-    string value,
-    string labels,
-) {
+pub fn metric(fn(string) -> void writer, string name, string kind, string value, string labels) {
     writer(metric_json(name, kind, value, labels));
 }
 

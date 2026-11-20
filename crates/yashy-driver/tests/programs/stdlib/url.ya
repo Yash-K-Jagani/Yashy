@@ -7,7 +7,7 @@ fn report(Url u) {
 }
 
 fn main() {
-    switch url.parse("https://example.org:8443/docs/index.md") {
+    switch url.parse_url("https://example.org:8443/docs/index.md") {
         case Ok(u) { report(u); }
         case Err(_) { print("bad url"); }
     };

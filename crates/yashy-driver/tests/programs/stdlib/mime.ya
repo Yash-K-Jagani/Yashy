@@ -7,11 +7,11 @@ fn report(Mime m) {
 }
 
 fn main() {
-    switch mime.parse("application/json; charset=utf-8") {
+    switch mime.parse_media_type("application/json; charset=utf-8") {
         case Ok(m) { report(m); }
         case Err(_) { print("bad media type"); }
     };
-    switch mime.parse("noslash") {
+    switch mime.parse_media_type("noslash") {
         case Ok(_) { print("accepted"); }
         case Err(_) { print("rejected"); }
     };

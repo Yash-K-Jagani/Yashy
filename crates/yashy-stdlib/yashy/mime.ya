@@ -20,7 +20,7 @@ pub struct Mime {
 ///
 /// Both halves must be non-empty. A string with no `/`, more than one `/`, or
 /// an empty kind or subtype is `Err(Invalid)`.
-pub fn parse(string text) -> Result[Mime, MimeError] {
+pub fn parse_media_type(string text) -> Result[Mime, MimeError] {
     // `-1` is only a local "not found" marker; the function never answers with
     // a sentinel, only `Err(Invalid)`.
     const at = switch text.index_of("/") {

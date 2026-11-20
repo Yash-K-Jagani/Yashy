@@ -22,7 +22,7 @@ pub struct Url {
 ///
 /// A missing scheme separator or an empty scheme or host is `Err(Invalid)`.
 /// A port that is not a decimal integer is also refused.
-pub fn parse(string text) -> Result[Url, UrlError] {
+pub fn parse_url(string text) -> Result[Url, UrlError] {
     const at = switch text.index_of("://") {
         case Some(index) { index }
         case None { 0 - 1 }
