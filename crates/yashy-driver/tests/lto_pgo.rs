@@ -120,7 +120,9 @@ fn pgo_trains_and_rebuilds_when_the_profile_runtime_exists() {
     );
     let report = stderr(&output);
     if !output.status.success()
-        && (report.contains("libclang_rt.profile") || report.contains("profile runtime"))
+        && (report.contains("libclang_rt.profile")
+            || report.contains("profile runtime")
+            || report.contains("llvm-profdata"))
     {
         // The clang on this host has no profiler runtime for the target triple
         // (a Windows GNU install ships the MSVC profile library only). The
