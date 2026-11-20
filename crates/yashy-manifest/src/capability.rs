@@ -136,7 +136,7 @@ mod tests {
 
     #[test]
     fn union_and_restriction_are_deterministic() {
-        let left = set(&[("net", &[]), ("fs.read", &["a/*"])]);
+        let left = set(&[("net", &["*"]), ("fs.read", &["a/*"])]);
         let right = set(&[("fs.read", &["b/*"])]);
         let union = CapabilitySet::union(&[left, right]);
         assert_eq!(union.entries().len(), 2);

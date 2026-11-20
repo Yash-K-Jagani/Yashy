@@ -1098,8 +1098,9 @@ mod migration_tests {
                   source = \"registry+file:///r\"\nhash = \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n\
                   dependencies = []\n";
         let lock = Lockfile::parse(v1).expect("v1 still parses");
+        // `render` opens with the generated-file header before the version.
         assert!(lock
             .render()
-            .starts_with(&format!("version = {LOCKFILE_VERSION}\n")));
+            .contains(&format!("version = {LOCKFILE_VERSION}\n")));
     }
 }

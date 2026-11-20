@@ -214,7 +214,11 @@ mod tests {
 
     #[test]
     fn build_metadata_is_ignored_but_round_trips() {
-        assert_eq!(v("1.0.0+a"), v("1.0.0+b"));
+        // Build metadata is ignored for precedence, not for identity.
+        assert_eq!(
+            v("1.0.0+a").cmp(&v("1.0.0+b")),
+            std::cmp::Ordering::Equal
+        );
         assert_eq!(v("1.0.0-rc.1+build.7").to_string(), "1.0.0-rc.1+build.7");
     }
 
