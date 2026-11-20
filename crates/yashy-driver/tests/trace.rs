@@ -11,7 +11,7 @@ fn trace_events_reports_allocations_frees_and_io() {
     common::write(
         &dir,
         "main.ya",
-        "fn main() {\n    let buf = alloc(16);\n    buf.free();\n    print(\"done\");\n}\n",
+        "fn main() {\n    let xs = []int {};\n    xs.push(1);\n    xs.free();\n    print(\"done\");\n}\n",
     );
     let output = Command::new(common::yashyc())
         .args(["trace", "--events", "--json", "main.ya"])
@@ -36,8 +36,12 @@ fn trace_events_reports_allocations_frees_and_io() {
 
 #[test]
 fn trace_without_events_still_prints_the_rule_matrix() {
+    // The static matrix reads repository documentation, so it has to run from
+    // the repository root rather than the crate's test working directory.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let output = Command::new(common::yashyc())
         .args(["trace", "--json"])
+        .current_dir(root)
         .output()
         .expect("yashyc must run");
     assert!(output.status.success());
