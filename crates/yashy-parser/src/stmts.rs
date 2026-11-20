@@ -240,10 +240,11 @@ impl<'src> Parser<'src> {
         if self.identifier_is("_") && self.peek_second() == TokenKind::Eq {
             return true;
         }
-        // A tuple-variant pattern (`let Some(x) = opt;`): a type-first
-        // binding head is `Type name`, so an identifier followed by `(`
-        // after `let`/`const` can only be a pattern.
-        if self.check(TokenKind::Ident) && self.peek_second() == TokenKind::LParen {
+        // A tuple-variant pattern (`let Some(x) = opt;`) or an `@` binding
+        // (`let whole @ [a, b] = xs;`): neither has a type-first spelling.
+        if self.check(TokenKind::Ident)
+            && matches!(self.peek_second(), TokenKind::LParen | TokenKind::At)
+        {
             return true;
         }
         self.check(TokenKind::Ident)

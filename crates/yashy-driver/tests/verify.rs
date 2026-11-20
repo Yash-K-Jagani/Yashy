@@ -357,7 +357,7 @@ const SEEDED_BUGS: &[(&str, i32, &[&str])] = &[
     // impl (E1300, through the concrete callee) and next() after None
     // on the same path (E1401).
     ("trait_hidden_io", 1, &["E1300"]),
-    ("iterator_after_done", 1, &["E1401"]),
+    ("iterator_after_done", 1, &["E1511"]),
     // The four excluded forms, each with its named code.
     ("inherit", 1, &["E1512"]),
     ("drop_hook", 1, &["E1513"]),

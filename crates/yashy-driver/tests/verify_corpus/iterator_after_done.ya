@@ -1,4 +1,6 @@
-// E1401: next() after the iterator returned None on the same path.
+// E1511: `Iterator` is the compiler-known `for` protocol and cannot be
+// re-declared as a user trait. The sealed protocol is what keeps the typestate
+// rule about calling `next()` after `None` honest.
 trait Iterator { fn next(self: *mut Self) -> Option[int]; }
 
 struct Counter { n: int }
