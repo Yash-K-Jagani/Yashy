@@ -48,6 +48,7 @@ fn build_threads_program() -> PathBuf {
         root.join("runtime.c"),
         root.join("hashmap.c"),
         root.join("src").join("executor.c"),
+        root.join("src").join("platform.c"),
     ];
 
     let compiler = cc::Build::new().cargo_metadata(false).get_compiler();

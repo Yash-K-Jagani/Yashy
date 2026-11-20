@@ -1,3 +1,9 @@
+/* `realpath` is POSIX.1-2008; without a feature-test macro the C11 mode used
+ * by the runtime tests hides its declaration and the call fails to compile. */
+#if !defined(_WIN32) && !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 #include "yashy_runtime.h"
 
 #include <ctype.h>
@@ -27,6 +33,9 @@
 #else
 #include <pthread.h>
 #include <unistd.h>
+/* Some C libraries hide realpath behind feature macros even when POSIX 2008
+ * is requested. The prototype is stable, so declare it explicitly. */
+extern char *realpath(const char *path, char *resolved_path);
 #endif
 
 /* `yashy_str_data`, defined with the string type further down, gives the bytes
