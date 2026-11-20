@@ -11,9 +11,13 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 fn run(dir: &Path, args: &[&str]) -> Output {
+    // Each test owns its cache. The LTO row is printed by the link, so a
+    // binary reused from another suite's cache would hide it and make these
+    // assertions depend on test order.
     Command::new(yashyc())
         .args(args)
         .current_dir(dir)
+        .env("YASHY_CACHE_DIR", dir.join("cache"))
         .output()
         .expect("the yashyc CLI must be runnable")
 }
