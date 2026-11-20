@@ -126,8 +126,8 @@ fn files(template: &str, name: &str) -> Result<Vec<(&'static str, String)>, Stri
 import safe;
 
 fn main() {
-    print(show(checked_add(1, 2)));
-    print(show(checked_add(9223372036854775807, 1)));
+    print(show(safe_add(1, 2)));
+    print(show(safe_add(9223372036854775807, 1)));
 }
 
 /// The text of a checked sum. `None` is the wrapper's refusal, not a
@@ -170,7 +170,7 @@ import bindings;
 /// The C function is a `long long` addition, which wraps on overflow.
 /// The guard is what makes the call safe: an overflowing pair never
 /// reaches C, so the answer is a value and not undefined behaviour.
-pub fn checked_add(int a, int b) -> Option[int] {
+pub fn safe_add(int a, int b) -> Option[int] {
     if a > 0 && b > 9223372036854775807 - a {
         return None;
     }
@@ -220,7 +220,7 @@ fn main() {
                      compiles the C source with the program, so `yashyc build` and\n\
                      `yashyc test` need no separate `cc` step. A system library keeps\n\
                      the library spelling, such as `link \"m\"`.\n\n\
-                     The wrapper is the package's contract. `checked_add` refuses a\n\
+                     The wrapper is the package's contract. `safe_add` refuses a\n\
                      pair whose sum would overflow, so `raw_add` is the only path to\n\
                      the unchecked ABI.\n"
                 ),
