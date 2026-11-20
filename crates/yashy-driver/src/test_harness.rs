@@ -733,7 +733,13 @@ fn link_harness(
 
     let mut inputs: Vec<String> = vec![harness_object.to_string_lossy().into_owned()];
     for (_, object) in entries {
-        inputs.push(object.to_string_lossy().into_owned());
+        // A merged suite puts every test in one object. Linking that object
+        // once per test gives the linker duplicate definitions, so keep one
+        // copy of each input.
+        let object = object.to_string_lossy().into_owned();
+        if !inputs.contains(&object) {
+            inputs.push(object);
+        }
     }
     if runtime_inputs.is_empty() {
         for name in [

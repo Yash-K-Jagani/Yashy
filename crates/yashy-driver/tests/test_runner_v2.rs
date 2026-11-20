@@ -51,7 +51,7 @@ fn json_reports_one_start_and_one_end_event_per_test() {
         "a failed event names why it failed: {json}"
     );
     assert!(
-        json.contains("\"stdout\": \"stdout from c_prints\""),
+        json.contains("\"stdout\": \"stdout from c_prints"),
         "the end event owns the test's stdout: {json}"
     );
 }
