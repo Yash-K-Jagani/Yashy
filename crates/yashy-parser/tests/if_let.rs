@@ -262,8 +262,15 @@ fn if_let_chain_nests_the_tests_in_source_order() {
 }
 
 #[test]
-fn a_chain_needs_a_let_after_each_and() {
-    assert!(!parse_err("fn main() { if let Some(x) = a && b { } }").is_empty());
+fn a_bare_and_is_the_if_let_value() {
+    // Without a second `let`, `&&` is the ordinary boolean operator inside the
+    // value, not a chain separator. The checker decides whether that value is
+    // acceptable; parsing keeps the whole expression.
+    let program = parse_ok("fn main() { if let Some(x) = a && b { } }");
+    let Item::Fn { body, .. } = &program.items[0] else {
+        panic!("expected fn main");
+    };
+    assert!(matches!(body.stmts[0], Stmt::IfLet { .. }));
 }
 
 #[test]
@@ -282,8 +289,7 @@ fn let_else_records_the_diverging_block() {
 #[test]
 fn an_irrefutable_binding_has_no_else() {
     let stmt = "let Point { x: x, y: y } = p;";
-    let (_, statement) = first_main_stmt(&format!("struct Point {{ x: int, y: int }} {stmt}"));
-    // The struct declaration is first, so look at the last statement.
+    // The struct is a top-level item; only `fn main` holds statements.
     let program = parse_ok(&format!(
         "struct Point {{ x: int, y: int }} fn main() {{ {stmt} }}"
     ));
