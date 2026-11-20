@@ -331,6 +331,12 @@ fn parse_primary(string source, string tokens, int at, int depth) -> Result[stri
     return Err(fail("an expression", tokens, at));
 }
 
+/// Whether a dotted path starts with a constructor or module name.
+fn starts_upper(string path) -> bool {
+    const first = path.byte_at(0).to_int();
+    return first >= 65 && first <= 90;
+}
+
 /// The postfix chain: calls, field access, indexing. `?`, `.await`, `::` and
 /// method calls on computed receivers are outside the subset.
 fn parse_postfix(string source, string tokens, int at, int depth) -> Result[string, string] {
@@ -369,11 +375,19 @@ fn parse_postfix(string source, string tokens, int at, int depth) -> Result[stri
                 return Err(fail("a field name", tokens, token_next(tokens, cursor)));
             }
             const field = token_text(source, field_record);
-            expr = "(field " + expr + " " + field + ")";
-            cursor = token_next(tokens, token_next(tokens, cursor));
-            if path != "" {
+            // A dotted name whose head is an item (an upper-case constructor
+            // or module) is one name in the Rust parser too: `Level.Warn`.
+            // A lower-case head is a local, so `.field` is a field access.
+            if path != "" && starts_upper(path) {
                 path = path + " " + field;
+                expr = "(name " + path + ")";
+            } else {
+                expr = "(field " + expr + " " + field + ")";
+                if path != "" {
+                    path = path + " " + field;
+                }
             }
+            cursor = token_next(tokens, token_next(tokens, cursor));
             continue;
         }
         if kind == "Question" {

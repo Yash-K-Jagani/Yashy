@@ -329,6 +329,13 @@ fn keyword(string text) -> string {
     if text == "invariant" { return "Invariant"; }
     if text == "repr" { return "Repr"; }
     if text == "cfg" { return "Cfg"; }
+    if text == "and" { return "KwAnd"; }
+    if text == "or" { return "KwOr"; }
+    if text == "not" { return "KwNot"; }
+    if text == "is" { return "KwIs"; }
+    if text == "matches" { return "Matches"; }
+    if text == "type" { return "Type"; }
+    if text == "crate" { return "Crate"; }
     return "";
 }
 
