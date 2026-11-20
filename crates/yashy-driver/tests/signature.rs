@@ -40,13 +40,16 @@ fn publishing_writes_a_tarball_signature_and_sbom() {
         yashy_driver::registry::publish_signed(&package_dir, &registry_dir, "release", &SEED)
             .expect("signed publish");
     assert_eq!(entry.name, "demo");
-    for expected in ["demo-1.0.0.tar.gz", "index.sig"] {
+    // The tarball is content-addressed, so its file name is the digest rather
+    // than `demo-1.0.0.tar.gz`; what matters is that one tarball was written
+    // beside the signature and the index signature.
+    for suffix in [".tar", "index.sig"] {
         assert!(
             files.iter().any(|file| file
                 .file_name()
                 .and_then(|name| name.to_str())
-                .is_some_and(|name| name == expected)),
-            "{expected} must be published: {files:?}"
+                .is_some_and(|name| name.ends_with(suffix))),
+            "{suffix} must be published: {files:?}"
         );
     }
     assert!(
