@@ -154,3 +154,39 @@ fn a_folded_layout_query_emits_the_same_literal_as_a_written_number() {
         "sizeof/alignof/offsetof must fold to the literals the layout table reports"
     );
 }
+
+#[test]
+fn a_const_generic_query_emits_the_instantiated_literal() {
+    let src = "struct Buffer[const N: int] { data: [int; N] }\n\
+               fn main() {\n\
+                   const small = size_of[Buffer[2]]();\n\
+                   const large = size_of[Buffer[7]]();\n\
+                   print(small);\n\
+                   print(large);\n\
+               }";
+    let program = check(src);
+    let written = "fn main() {\n\
+                   const small = 16;\n\
+                   const large = 56;\n\
+                   print(small);\n\
+                   print(large);\n\
+               }";
+    let literal_program = check(written);
+    let body = |program: &HirProgram| {
+        let ir = yashy_codegen::emit_program(
+            program,
+            "main",
+            Default::default(),
+            &yashy_common::ProofFacts::empty(),
+        );
+        let at = ir
+            .find("define i32 @main")
+            .expect("the entry point is emitted");
+        ir[at..].to_string()
+    };
+    assert_eq!(
+        body(&program),
+        body(&literal_program),
+        "size_of[Buffer[N]]() must fold to the size of that instantiation"
+    );
+}

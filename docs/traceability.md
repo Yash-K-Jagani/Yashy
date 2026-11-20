@@ -168,6 +168,7 @@ Tests:
 
 - `crates/yashy-sema/tests/const_assert.rs`
 - `crates/yashy-sema/tests/const_fn.rs`
+- `crates/yashy-sema/tests/const_generics.rs`
 
 ## `CONST-6`
 
@@ -765,6 +766,7 @@ Codes: `E1505`
 
 Tests:
 
+- `crates/yashy-sema/tests/const_generics.rs`
 - `crates/yashy-sema/tests/instantiation_budget.rs`
 
 ## `TRAIT-7`

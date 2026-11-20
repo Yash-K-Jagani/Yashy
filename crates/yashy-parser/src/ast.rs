@@ -535,6 +535,9 @@ pub struct TypeParam {
     /// The traits a value of this parameter's type must implement, in the
     /// order written. Empty for an unbounded parameter.
     pub bounds: Vec<String>,
+    /// A `const N: int` parameter carries a compile-time integer rather than a
+    /// type. Its value participates in monomorphisation and array lengths.
+    pub is_const: bool,
     pub span: Span,
 }
 
@@ -642,6 +645,24 @@ pub enum PtrKind {
 /// model in M3 and the C pointer spellings in M5; slices and maps arrive in
 /// M6, function types arrive with first-class functions, and adding a variant
 /// is additive for the parser and a recompile for everyone else.
+/// The length written in `[T; N]`.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ArrayLength {
+    /// A literal count, written in decimal.
+    Literal(usize),
+    /// The name of a `const` type parameter, e.g. `N` in `struct Buf[const N: int]`.
+    Name(String, Span),
+}
+
+impl fmt::Display for ArrayLength {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ArrayLength::Literal(n) => write!(f, "{n}"),
+            ArrayLength::Name(name, _) => write!(f, "{name}"),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum TypeExpr {
     /// A named type, primitive or declared: `i64`, `f64`, `P`.
@@ -658,11 +679,10 @@ pub enum TypeExpr {
     },
     /// `[T; N]` — a fixed-size array of `N` elements of `T`.
     ///
-    /// The length is part of the type and is a literal: `[i64; 3]` and
-    /// `[i64; 4]` are different types, and a function that takes the first
-    /// cannot be given the second. Storage is in the enclosing frame, so a
-    /// fixed array has no owner and no `free`.
-    FixedArray(Box<TypeExpr>, usize, Span),
+    /// The length is part of the type: `[i64; 3]` and `[i64; 4]` are different
+    /// types. It may be a literal or the name of a `const` type parameter,
+    /// which the checker substitutes with the value at the use site.
+    FixedArray(Box<TypeExpr>, ArrayLength, Span),
     /// `[T]` — a borrowed view of a run of `T` from an array.
     ///
     /// A view owns nothing: it is a length and a pointer into storage that
@@ -1188,6 +1208,13 @@ pub enum Expr {
     /// call in one keyword an extra level of tree to walk.
     Call {
         callee: Vec<String>,
+        /// Explicit type and const arguments written `f[T](..)` or `f[16](..)`.
+        ///
+        /// Empty for an ordinary call, where the arguments are inferred from
+        /// the value arguments. A const parameter that appears only in the
+        /// result, like `fn zeroed[const N: int]() -> [int; N]`, has to be
+        /// written at the call site because inference has nothing to read.
+        type_args: Vec<TypeExpr>,
         args: Vec<CallArg>,
         /// True only when the source wrote `unsafe` before this call.
         unsafe_call: bool,

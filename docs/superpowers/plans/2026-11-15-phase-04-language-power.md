@@ -308,8 +308,14 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   type cannot accept is now refused at that field with E0607 (`LAYOUT-1`),
   pinned by sema tests; a packed struct whose fields happen to stay aligned
   still checks. `repr(C)` fields are never reordered.
-- [ ] **Step 5: Layout is a compiler fact with a surface.** `size_of`, `align_of` and `offset_of` are const-evaluable and agree with the IR; a mismatch is a compiler bug caught by the layout test. `inspect --layout` (Phase 11A) renders the same table.
-  *Current:* the checker folds `sizeof(T)`, `alignof(T)` and `offsetof(T, f)` from the shared HIR layout walk, and `inspect --layout` reads that table. The underscore spellings `size_of(T)`, `align_of(T)` and `offset_of(T, f)` are now accepted as aliases, pinned by a sema test. The bracket spelling `size_of[T]()` still needs const generics (Task 7). `crates/yashy-driver/tests/layout.rs` now folds the queries, reads the same layout table and compares the emitted `@main` body with one written with those literal numbers, so the checker, the layout table and the IR agree.
+- [x] **Step 5: Layout is a compiler fact with a surface.** `size_of`, `align_of` and `offset_of` are const-evaluable and agree with the IR; a mismatch is a compiler bug caught by the layout test. `inspect --layout` (Phase 11A) renders the same table.
+  *Current:* the checker folds `sizeof(T)`, `alignof(T)` and `offsetof(T, f)`
+  from the shared HIR layout walk, and `inspect --layout` reads that table. The
+  underscore spellings are accepted, and the bracket spelling
+  `size_of[Buffer[16]]()` now names a const-generic instantiation.
+  `crates/yashy-driver/tests/layout.rs` folds the queries, reads the same layout
+  table and compares the emitted `@main` body with one written with those
+  literal numbers, so the checker, the layout table and the IR agree.
 - [ ] **Step 6: Commit.**
 
 ### Task 7: Const generics for array lengths and fixed buffers
@@ -326,22 +332,35 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 - `fn zeroed[const N: int]() -> [u8; N]`
 - `N` is an `int` const-evaluable expression; an array length is `N` or a literal
 
-- [ ] **Step 1: Write the failing test.** A `Buffer[16]` and a `Buffer[64]`
+- [x] **Step 1: Write the failing test.** A `Buffer[16]` and a `Buffer[64]`
   are distinct monomorphic types with distinct sizes; a generic function over
   `N` instantiates per value; `size_of[Buffer[16]]()` is 16 plus the length;
   a non-constant length is a diagnostic naming the expression; a const argument
   that cannot be evaluated is a diagnostic, not a compiler panic.
-- [ ] **Step 2: Const evaluation is total.** The evaluator has a step and depth
+- [x] **Step 2: Const evaluation is total.** The evaluator has a step and depth
   cap, an overflow rule that matches runtime arithmetic, and no division by zero;
   every failure is a diagnostic at the expression. A const generic whose value
   depends on a runtime value is refused.
-- [ ] **Step 3: Instantiation is capped.** A const parameter is part of the
+  *Current:* the shared evaluator keeps its 1,000,000 step/call caps, 32-level
+  depth cap and checked arithmetic; a generic argument is read from a decimal
+  literal or a symbolic name, and a name that is not a const in scope is
+  `E1524` rather than a panic. A full const expression such as `Buffer[1 + 2]`
+  is not a const-argument spelling yet: it is refused at parse time.
+- [x] **Step 3: Instantiation is capped.** A const parameter is part of the
   monomorphisation key and counts against the existing 64/4096 caps (`E1505`);
   a substitution explosion names the function and the values that grew it.
-- [ ] **Step 4: Layout reads the instantiated value.** `size_of`, `align_of`
+  *Current:* each const value is mangled into the key as a `cintN` placeholder
+  and goes through `queue_instantiation`, so the existing per-function and
+  program-wide budgets apply unchanged. A test instantiates one const-generic
+  function 65 times and expects `E1505`.
+- [x] **Step 4: Layout reads the instantiated value.** `size_of`, `align_of`
   and the IR agree for every `N`; `repr(C)` fixed buffers keep their ABI shape;
   a zero-length array is legal and has size 0.
-- [ ] **Step 5: Commit.**
+  *Current:* both `sizeof(Buffer[n])` and `size_of[Buffer[n]]()` fold through
+  the shared layout walk, and the driver layout test compares the emitted
+  `main` body with one written using the literal sizes. A declared `[T; 0]`
+  field is legal and folds to size 0.
+- [x] **Step 5: Commit.**
 
 ### Task 8: Ranges, membership, identity, and word-form logic
 

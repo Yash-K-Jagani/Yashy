@@ -1876,7 +1876,7 @@ fn the_three_bracket_types_parse_apart() {
     );
     match &fields[1].ty {
         TypeExpr::FixedArray(element, length, span) => {
-            assert_eq!(*length, 3);
+            assert_eq!(*length, yashy_parser::ast::ArrayLength::Literal(3));
             assert!(matches!(**element, TypeExpr::Name(ref name, _) if name == "int"));
             assert_eq!(*span, span_of(src, "[int; 3]"));
         }
@@ -1890,15 +1890,23 @@ fn the_three_bracket_types_parse_apart() {
 }
 
 #[test]
-fn a_fixed_array_length_must_be_a_and_fit_in_a_machine_word() {
-    assert!(
-        all_messages(&parse_err("struct S { a: [int; n] }")).contains("array length"),
-        "a length is a literal, not a name"
-    );
+fn a_fixed_array_length_is_a_literal_or_a_const_name_and_fits_in_a_machine_word() {
+    // A name in the length is the const-parameter spelling; the parser carries
+    // it symbolically and the checker decides whether it is in scope.
+    let program = parse_ok("struct S[const n: int] { a: [int; n] }");
+    let Item::Struct { fields, .. } = &program.items[0] else {
+        panic!("expected a struct");
+    };
+    match &fields[0].ty {
+        TypeExpr::FixedArray(_, yashy_parser::ast::ArrayLength::Name(name, _), _) => {
+            assert_eq!(name, "n");
+        }
+        other => panic!("`[int; n]` is a symbolic length, got {other:?}"),
+    }
     assert!(
         all_messages(&parse_err("struct S { a: [int; 99999999999999999999999] }"))
             .contains("machine word"),
-        "a length that cannot be stored is reported, not truncated"
+        "a literal length that cannot be stored is reported, not truncated"
     );
 }
 

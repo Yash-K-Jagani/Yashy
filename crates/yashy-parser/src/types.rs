@@ -31,7 +31,7 @@
 use yashy_common::Span;
 use yashy_lexer::TokenKind;
 
-use crate::ast::{PtrKind, TypeExpr};
+use crate::ast::{ArrayLength, PtrKind, TypeExpr};
 use crate::error::ParseError;
 use crate::parser::{cover, Parser};
 
@@ -157,20 +157,22 @@ impl<'src> Parser<'src> {
     ///
     /// It is a plain decimal literal, not a constant expression: the length is
     /// part of the type, and a type has no run time at which to evaluate one.
-    fn array_length(&mut self) -> Result<usize, ParseError> {
+    fn array_length(&mut self) -> Result<ArrayLength, ParseError> {
         let span = self.peek_span();
+        if self.peek() == TokenKind::Ident {
+            let (name, name_span) = self.identifier()?;
+            return Ok(ArrayLength::Name(name, name_span));
+        }
         if self.peek() != TokenKind::I64 {
             return Err(ParseError::new(
                 span,
-                "an array length must be a decimal literal: it is part of the type, so there is \
-                 no run time at which it could be computed"
-                    .to_string(),
+                "an array length must be a decimal literal or a `const` type parameter".to_string(),
             ));
         }
         self.advance();
         let text = self.text(span)?;
         match text.parse::<usize>() {
-            Ok(length) => Ok(length),
+            Ok(length) => Ok(ArrayLength::Literal(length)),
             Err(_) => Err(ParseError::new(
                 span,
                 "an array length has to fit in a machine word".to_string(),
@@ -372,7 +374,17 @@ impl<'src> Parser<'src> {
                 let mut args = Vec::new();
                 if !self.check(TokenKind::RBracket) {
                     loop {
-                        args.push(self.parse_type_expr()?);
+                        if self.peek() == TokenKind::I64 {
+                            // A const argument is carried as a numeric `Name`;
+                            // the checker knows which parameters are const and
+                            // parses the digits back into an integer there.
+                            let span = self.peek_span();
+                            self.advance();
+                            let text = self.text(span)?;
+                            args.push(TypeExpr::Name(text, span));
+                        } else {
+                            args.push(self.parse_type_expr()?);
+                        }
                         if !self.eat(TokenKind::Comma) {
                             break;
                         }
@@ -401,7 +413,7 @@ impl<'src> Parser<'src> {
     }
 
     /// The `]` that closes an `Option[..]` or a `Result[.., ..]`.
-    fn close_bracket(&mut self) -> Result<(), ParseError> {
+    pub(crate) fn close_bracket(&mut self) -> Result<(), ParseError> {
         self.expect(TokenKind::RBracket)?;
         self.close_open(TokenKind::RBracket);
         Ok(())

@@ -183,9 +183,10 @@ fn a_fixed_array_cannot_hold_a_reference() {
 }
 
 #[test]
-fn a_fixed_array_needs_a_length() {
-    assert_error(
-        "fn main() { const [int; 0] xs = [1]; }",
-        "a fixed array needs at least one element",
-    );
+fn a_zero_length_array_is_legal_and_has_size_zero() {
+    check_source(
+        "struct Empty { data: [int; 0] }\n\
+         fn main() { const int n = sizeof(Empty); if n == 0 { } }",
+    )
+    .expect("a zero-length array has a layout of size 0");
 }

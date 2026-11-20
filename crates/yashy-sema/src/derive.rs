@@ -47,6 +47,7 @@ fn field(base: Expr, field_name: &str, span: Span) -> Expr {
 fn call(callee: &str, args: Vec<Expr>, span: Span) -> Expr {
     Expr::Call {
         callee: vec![callee.to_string()],
+        type_args: Vec::new(),
         args: args
             .into_iter()
             .map(|value| CallArg {

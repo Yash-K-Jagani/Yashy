@@ -446,6 +446,57 @@ fn mangled_generic_name(name: &str, subst: &[Type]) -> String {
     mangled
 }
 
+/// The value of a const type argument, written as a decimal type argument such
+/// as `Buffer[16]`. A const parameter is checked for arity in the same pass as
+/// a type parameter, so the value is always a literal at the use site.
+fn const_arg_value(arg: &TypeExpr) -> Option<usize> {
+    match arg {
+        TypeExpr::Name(text, _) => text.parse::<usize>().ok(),
+        _ => None,
+    }
+}
+
+/// Read the bracketed part of `Buffer[16]` in an expression as a type argument.
+///
+/// A non-literal argument becomes a symbolic `Name`; it is still the checker's
+/// job to say that a run-time value is not a constant, which it does with
+/// `E1524` rather than a parse error.
+fn expression_as_type_arg(expr: &Expr) -> Option<TypeExpr> {
+    match expr {
+        Expr::Literal(Literal::I64(value), span) => Some(TypeExpr::Name(value.to_string(), *span)),
+        Expr::Ident(path, span) if path.len() == 1 => Some(TypeExpr::Name(path[0].clone(), *span)),
+        Expr::Index { base, index, span } => {
+            let Expr::Ident(path, _) = &**base else {
+                return None;
+            };
+            if path.len() != 1 {
+                return None;
+            }
+            Some(TypeExpr::Generic {
+                name: path[0].clone(),
+                args: vec![expression_as_type_arg(index)?],
+                span: *span,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn const_placeholder(value: usize, span: Span) -> Type {
+    Type {
+        kind: TypeKind::CInt(u32::try_from(value).unwrap_or(u32::MAX)),
+        span,
+    }
+}
+
+/// Read a const argument back out of the placeholder a monomorph key stores.
+fn const_of_placeholder(ty: &Type) -> Option<usize> {
+    match ty.kind {
+        TypeKind::CInt(value) => Some(value as usize),
+        _ => None,
+    }
+}
+
 fn mangled_type_name(ty: &Type) -> String {
     match &ty.kind {
         TypeKind::I64 => "i64".to_string(),
@@ -523,11 +574,18 @@ fn collect_type_names(ty: &TypeExpr, out: &mut Vec<String>) {
             }
         }
         TypeExpr::Ptr { pointee, .. }
-        | TypeExpr::FixedArray(pointee, _, _)
         | TypeExpr::View(pointee, _)
         | TypeExpr::Slice(pointee, _)
         | TypeExpr::Option(pointee, _)
         | TypeExpr::Channel(pointee, _) => collect_type_names(pointee, out),
+        TypeExpr::FixedArray(pointee, length, _) => {
+            // A const parameter written as the length is a use of that
+            // parameter, even though it names a value rather than a type.
+            if let yashy_parser::ast::ArrayLength::Name(name, _) = length {
+                out.push(name.clone());
+            }
+            collect_type_names(pointee, out);
+        }
         TypeExpr::Result(ok, err, _) | TypeExpr::Map(ok, err, _) => {
             collect_type_names(ok, out);
             collect_type_names(err, out);
@@ -553,6 +611,31 @@ fn collect_type_names(ty: &TypeExpr, out: &mut Vec<String>) {
 /// Used to store a monomorph enum's variants in terms of its arguments, so
 /// a pattern resolves its payloads against the monomorph rather than the
 /// scheme.
+/// Replace a symbolic array length with its const argument, if the name is bound.
+///
+/// A const argument is carried as a numeric [`TypeExpr::Name`] — the same shape
+/// a bare literal takes in a type argument list — so it is turned back into the
+/// literal the layout walk expects.
+fn substitute_length(
+    length: &yashy_parser::ast::ArrayLength,
+    subst: &[(String, TypeExpr)],
+) -> yashy_parser::ast::ArrayLength {
+    use yashy_parser::ast::ArrayLength;
+    let ArrayLength::Name(name, _) = length else {
+        return length.clone();
+    };
+    let Some((_, arg)) = subst.iter().find(|(param, _)| param == name) else {
+        return length.clone();
+    };
+    let TypeExpr::Name(text, span) = arg else {
+        return length.clone();
+    };
+    match text.parse::<usize>() {
+        Ok(value) => ArrayLength::Literal(value),
+        Err(_) => ArrayLength::Name(name.clone(), *span),
+    }
+}
+
 fn substitute_type_expr(ty: &TypeExpr, subst: &[(String, TypeExpr)]) -> TypeExpr {
     match ty {
         TypeExpr::Name(name, span) if subst.iter().any(|(param, _)| param == name) => subst
@@ -571,7 +654,7 @@ fn substitute_type_expr(ty: &TypeExpr, subst: &[(String, TypeExpr)]) -> TypeExpr
         },
         TypeExpr::FixedArray(element, length, span) => TypeExpr::FixedArray(
             Box::new(substitute_type_expr(element, subst)),
-            *length,
+            substitute_length(length, subst),
             *span,
         ),
         TypeExpr::View(element, span) => {
@@ -788,6 +871,9 @@ pub struct Checker<'src> {
     /// types, which is what makes `T` mean the instantiation's type inside a
     /// generic body and nowhere else.
     type_subst: HashMap<String, Type>,
+    /// The integer values of `const N: int` parameters in force while a
+    /// monomorph is being checked. Array lengths spelled with `N` resolve here.
+    const_subst: HashMap<String, usize>,
     /// The parameter bindings whose type is a type parameter of the generic
     /// function being checked, with the bounds in force.
     ///
@@ -1273,6 +1359,7 @@ impl<'src> Checker<'src> {
             fns: HashMap::new(),
             generics: HashMap::new(),
             type_subst: HashMap::new(),
+            const_subst: HashMap::new(),
             bound_context: Vec::new(),
             pending_generics: Vec::new(),
             instantiated: HashSet::new(),
@@ -2361,14 +2448,21 @@ impl<'src> Checker<'src> {
             return;
         }
         let mut arg_tys = Vec::with_capacity(args.len());
-        for arg in args {
+        for (param, arg) in params.iter().zip(args.iter()) {
             // Deeper generics first, so their monomorphs exist before the
             // fields of this one resolve through them.
             self.intern_generics_in(arg);
-            match self.resolve_type(arg) {
-                Ok(ty) => arg_tys.push(ty),
-                // The pure resolution reports this once; nothing to intern.
-                Err(_) => return,
+            if param.is_const {
+                match const_arg_value(arg) {
+                    Some(value) => arg_tys.push(const_placeholder(value, span)),
+                    None => return,
+                }
+            } else {
+                match self.resolve_type(arg) {
+                    Ok(ty) => arg_tys.push(ty),
+                    // The pure resolution reports this once; nothing to intern.
+                    Err(_) => return,
+                }
             }
         }
         // Bounds fire at every use, whether or not the monomorph is new.
@@ -2423,7 +2517,17 @@ impl<'src> Checker<'src> {
             params
                 .iter()
                 .zip(arg_tys.iter())
+                .filter(|(param, _)| !param.is_const)
                 .map(|(param, arg)| (param.name.clone(), arg.clone()))
+                .collect(),
+        );
+        let outer_const = std::mem::replace(
+            &mut self.const_subst,
+            params
+                .iter()
+                .zip(args.iter())
+                .filter(|(param, _)| param.is_const)
+                .filter_map(|(param, arg)| const_arg_value(arg).map(|v| (param.name.clone(), v)))
                 .collect(),
         );
         if is_struct {
@@ -2529,6 +2633,7 @@ impl<'src> Checker<'src> {
             );
         }
         self.type_subst = outer_subst;
+        self.const_subst = outer_const;
         self.file = outer_file;
         self.instantiating.pop();
         self.instantiated_types.push(mangled);
@@ -3962,7 +4067,13 @@ impl<'src> Checker<'src> {
             | TypeExpr::Slice(pointee, _)
             | TypeExpr::Channel(pointee, _)
             | TypeExpr::Option(pointee, _) => Self::type_expr_mentions(pointee, name),
-            TypeExpr::FixedArray(element, _, _) => Self::type_expr_mentions(element, name),
+            TypeExpr::FixedArray(element, length, _) => {
+                let in_length = match length {
+                    yashy_parser::ast::ArrayLength::Name(found, _) => found == name,
+                    yashy_parser::ast::ArrayLength::Literal(_) => false,
+                };
+                in_length || Self::type_expr_mentions(element, name)
+            }
             TypeExpr::Result(ok, err, _) => {
                 Self::type_expr_mentions(ok, name) || Self::type_expr_mentions(err, name)
             }
@@ -4035,8 +4146,19 @@ impl<'src> Checker<'src> {
             .with_code(codes::WRONG_TYPE_ARG_COUNT));
         }
         let mut arg_tys = Vec::with_capacity(args.len());
-        for arg in args {
-            arg_tys.push(self.resolve_type_in(arg, false)?);
+        for (param, arg) in params.iter().zip(args.iter()) {
+            if param.is_const {
+                let value = const_arg_value(arg).ok_or_else(|| {
+                    TypeError::new(
+                        span,
+                        format!("`{}` needs a constant integer, found `{arg:?}`", param.name),
+                    )
+                    .with_code(codes::CONST_NOT_CONSTANT)
+                })?;
+                arg_tys.push(const_placeholder(value, span));
+            } else {
+                arg_tys.push(self.resolve_type_in(arg, false)?);
+            }
         }
         let mangled = mangled_generic_name(name, &arg_tys);
         let kind = if is_enum {
@@ -4313,16 +4435,23 @@ impl<'src> Checker<'src> {
                         ),
                     ));
                 }
-                if *length == 0 {
-                    return Err(TypeError::new(
-                        *span,
-                        "a fixed array needs at least one element: its length is part of its \
-                         type, and a zero-length array has no value to store"
-                            .to_string(),
-                    ));
-                }
+                let count = match length {
+                    yashy_parser::ast::ArrayLength::Literal(n) => *n,
+                    yashy_parser::ast::ArrayLength::Name(name, name_span) => {
+                        match self.const_subst.get(name) {
+                            Some(n) => *n,
+                            None => {
+                                return Err(TypeError::new(
+                                    *name_span,
+                                    format!("`{name}` is not a constant in scope"),
+                                )
+                                .with_code(codes::CONST_NOT_CONSTANT))
+                            }
+                        }
+                    }
+                };
                 Ok(Type {
-                    kind: TypeKind::FixedArray(Box::new(inner), *length),
+                    kind: TypeKind::FixedArray(Box::new(inner), count),
                     span: *span,
                 })
             }
@@ -4565,7 +4694,13 @@ impl<'src> Checker<'src> {
     /// type is what the call is trying to discover. Each argument's type is
     /// then unified with the parameter's declared type, which binds the type
     /// parameters; a parameter that stays unbound is an error at the call.
-    fn check_generic_call(&mut self, name: &str, args: &[Expr], span: Span) -> Option<HirExpr> {
+    fn check_generic_call(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        explicit_type_args: &[TypeExpr],
+        span: Span,
+    ) -> Option<HirExpr> {
         let Some(generic) = self.generics.get(name).cloned() else {
             return None;
         };
@@ -4581,7 +4716,43 @@ impl<'src> Checker<'src> {
             );
             return None;
         }
+        if !explicit_type_args.is_empty() && explicit_type_args.len() != generic.type_params.len() {
+            self.error_code(
+                span,
+                codes::WRONG_ARGUMENT_COUNT,
+                format!(
+                    "`{name}` takes {} type arguments, found {}",
+                    generic.type_params.len(),
+                    explicit_type_args.len()
+                ),
+            );
+            return None;
+        }
         let mut subst: HashMap<String, Type> = HashMap::new();
+        let mut const_args: HashMap<String, usize> = HashMap::new();
+        for (param, arg) in generic.type_params.iter().zip(explicit_type_args.iter()) {
+            if param.is_const {
+                match const_arg_value(arg) {
+                    Some(value) => {
+                        const_args.insert(param.name.clone(), value);
+                    }
+                    None => {
+                        self.error_code(
+                            type_expr_span(arg),
+                            codes::CONST_NOT_CONSTANT,
+                            format!(
+                                "`{}` is a const parameter: its argument must be an integer literal",
+                                param.name
+                            ),
+                        );
+                        return None;
+                    }
+                }
+            } else {
+                let ty = self.resolve_or_report(arg, type_expr_span(arg));
+                subst.insert(param.name.clone(), ty);
+            }
+        }
         let mut checked_args = Vec::with_capacity(args.len());
         for (arg, param) in args.iter().zip(generic.params.iter()) {
             // An inferred lambda parameter cannot be typed here: the type
@@ -4607,7 +4778,13 @@ impl<'src> Checker<'src> {
             }
             let checked = self.check_expr(arg)?;
             let actual = expr_ty(&checked);
-            if !self.unify_type(&param.ty, &generic.type_params, &mut subst, &actual) {
+            // A declared `[int; N]` parameter names the const argument, not a
+            // type variable. Install it while unifying so the declared array
+            // length can be compared with the argument's literal length.
+            let outer_const = std::mem::replace(&mut self.const_subst, const_args.clone());
+            let unifies = self.unify_type(&param.ty, &generic.type_params, &mut subst, &actual);
+            self.const_subst = outer_const;
+            if !unifies {
                 self.mismatch_message(
                     expr_span(&checked),
                     format!("expected `{}`, found `{actual}`", type_expr_name(&param.ty)),
@@ -4615,10 +4792,28 @@ impl<'src> Checker<'src> {
             }
             checked_args.push(checked);
         }
-        // Every type parameter has to be pinned down by an argument. One that
-        // appears only in the return type, or nowhere at all, has no answer.
+        // Every parameter has to be pinned down by an argument or written
+        // explicitly. One that appears only in the return type, or nowhere at
+        // all, has no answer: a type parameter is inferred from a value
+        // argument, and a const parameter is written at the call.
         let mut ordered = Vec::with_capacity(generic.type_params.len());
         for param in &generic.type_params {
+            if param.is_const {
+                match const_args.get(&param.name) {
+                    Some(value) => ordered.push(const_placeholder(*value, span)),
+                    None => {
+                        self.error(
+                            span,
+                            format!(
+                                "cannot infer const parameter `{}`: write `{}[{}]` at the call",
+                                param.name, name, param.name
+                            ),
+                        );
+                        return None;
+                    }
+                }
+                continue;
+            }
             match subst.get(&param.name) {
                 Some(concrete) => ordered.push(concrete.clone()),
                 None => {
@@ -4642,8 +4837,11 @@ impl<'src> Checker<'src> {
             .type_params
             .iter()
             .zip(ordered.iter())
+            .filter(|(param, _)| !param.is_const)
             .map(|(param, concrete)| (param.name.clone(), concrete.clone()))
             .collect();
+        let outer_const = std::mem::take(&mut self.const_subst);
+        self.const_subst = const_args.clone();
         let param_tys: Vec<Type> = generic
             .params
             .iter()
@@ -4659,6 +4857,7 @@ impl<'src> Checker<'src> {
             ret_inner
         };
         self.type_subst = outer_subst;
+        self.const_subst = outer_const;
         // A parameter of linear type takes ownership, exactly as it does in an
         // ordinary call: passing a bare name moves it out. A field access is a
         // header the struct does not own, so it is not a move and its last
@@ -4744,7 +4943,13 @@ impl<'src> Checker<'src> {
             },
             TypeExpr::FixedArray(element, length, _) => match &actual.kind {
                 TypeKind::FixedArray(actual_element, actual_length) => {
-                    actual_length == length
+                    let declared_length = match length {
+                        yashy_parser::ast::ArrayLength::Literal(n) => Some(*n),
+                        yashy_parser::ast::ArrayLength::Name(name, _) => {
+                            self.const_subst.get(name).copied()
+                        }
+                    };
+                    declared_length == Some(*actual_length)
                         && self.unify_type(element, params, subst, actual_element)
                 }
                 _ => false,
@@ -4918,7 +5123,17 @@ impl<'src> Checker<'src> {
                 .type_params
                 .iter()
                 .zip(job.subst.iter())
+                .filter(|(param, _)| !param.is_const)
                 .map(|(param, concrete)| (param.name.clone(), concrete.clone()))
+                .collect();
+            self.const_subst = generic
+                .type_params
+                .iter()
+                .zip(job.subst.iter())
+                .filter(|(param, _)| param.is_const)
+                .filter_map(|(param, concrete)| {
+                    const_of_placeholder(concrete).map(|value| (param.name.clone(), value))
+                })
                 .collect();
             // The parameter bindings whose declared type is a type parameter
             // resolve through the bounds in force, so method calls on them
@@ -4975,6 +5190,7 @@ impl<'src> Checker<'src> {
             );
             self.active_generics.pop();
             self.type_subst.clear();
+            self.const_subst.clear();
             self.bound_context = outer_bound_context;
             if let Some(hir) = checked {
                 items.push(HirItem::Fn(hir));
@@ -6868,6 +7084,7 @@ impl<'src> Checker<'src> {
         };
         let next_value = Expr::Call {
             callee: vec![fresh.clone(), "next".to_string()],
+            type_args: Vec::new(),
             args: Vec::new(),
             unsafe_call: false,
             span,
@@ -11605,6 +11822,7 @@ impl<'src> Checker<'src> {
             }
             Expr::Call {
                 callee,
+                type_args,
                 args,
                 unsafe_call,
                 span,
@@ -11658,6 +11876,7 @@ impl<'src> Checker<'src> {
                         }
                         let single = Expr::Call {
                             callee: vec![name],
+                            type_args: Vec::new(),
                             args: args.clone(),
                             unsafe_call: *unsafe_call,
                             span: *span,
@@ -11834,7 +12053,7 @@ impl<'src> Checker<'src> {
                         "offset_of" => "offsetof",
                         other => other,
                     };
-                    return self.check_layout_query(canonical, &arg_vals, *span);
+                    return self.check_layout_query(canonical, type_args, &arg_vals, *span);
                 }
                 // A generic function is found by name like an ordinary one, but
                 // its signature has type variables: the substitution comes from
@@ -11844,7 +12063,7 @@ impl<'src> Checker<'src> {
                     // A generic function is an item, so it is private to the
                     // module that declares it unless it is `pub`.
                     self.check_visibility(&name, *span);
-                    return self.check_generic_call(&name, &arg_vals, *span);
+                    return self.check_generic_call(&name, &arg_vals, type_args, *span);
                 }
                 // The method surface replaced these free-function spellings.
                 // They are not aliases: a call written this way points at the
@@ -13327,6 +13546,7 @@ impl<'src> Checker<'src> {
                 ty: Some(out_ty_expr.clone()),
                 init: Expr::Call {
                     callee: vec!["map_new".to_string()],
+                    type_args: Vec::new(),
                     args: Vec::new(),
                     unsafe_call: false,
                     span,
@@ -13337,6 +13557,7 @@ impl<'src> Checker<'src> {
         let push = if array {
             Expr::Call {
                 callee: vec![out_name.clone(), "push".to_string()],
+                type_args: Vec::new(),
                 args: vec![CallArg {
                     name: None,
                     value: expr.clone(),
@@ -13349,6 +13570,7 @@ impl<'src> Checker<'src> {
             let (key, value) = pair.expect("a map comprehension carries key and value");
             Expr::Call {
                 callee: vec![out_name.clone(), "insert".to_string()],
+                type_args: Vec::new(),
                 args: vec![
                     CallArg {
                         name: None,
@@ -13748,33 +13970,64 @@ impl<'src> Checker<'src> {
     /// The result is `int`: it is a count of bytes, and `int` is the
     /// language's number. It is also the type a `print` accepts, which a
     /// `usize` is not yet.
-    fn check_layout_query(&mut self, name: &str, args: &[Expr], span: Span) -> Option<HirExpr> {
-        let ty = match name {
-            "sizeof" | "alignof" => {
-                if args.len() != 1 {
-                    self.error_code(
-                        span,
-                        codes::SIZE_OF_UNKNOWN,
-                        format!("`{name}` takes one type name"),
-                    );
-                    return None;
-                }
-                self.layout_query_type(name, &args[0], span)?
+    fn check_layout_query(
+        &mut self,
+        name: &str,
+        type_args: &[TypeExpr],
+        args: &[Expr],
+        span: Span,
+    ) -> Option<HirExpr> {
+        let ty = if !type_args.is_empty() {
+            // `size_of[Buffer[16]]()` names the type as an explicit argument.
+            // `offsetof[B, f]` still takes the field name as its one value
+            // argument, so the arity differs by query.
+            let expected = if name == "offsetof" { 1 } else { 0 };
+            if type_args.len() != 1 {
+                self.error_code(
+                    span,
+                    codes::SIZE_OF_UNKNOWN,
+                    format!("`{name}` takes one type"),
+                );
+                return None;
             }
-            _ => {
-                if args.len() != 2 {
-                    self.error_code(
-                        span,
-                        codes::OFFSET_OF_NOT_REPR_C,
-                        "`offsetof` takes a type name and a field name",
-                    );
-                    return None;
+            if args.len() != expected {
+                self.error_code(
+                    span,
+                    codes::SIZE_OF_UNKNOWN,
+                    format!("`{name}[T]` takes {expected} value argument(s)"),
+                );
+                return None;
+            }
+            self.layout_query_explicit_type(name, &type_args[0], span)?
+        } else {
+            match name {
+                "sizeof" | "alignof" => {
+                    if args.len() != 1 {
+                        self.error_code(
+                            span,
+                            codes::SIZE_OF_UNKNOWN,
+                            format!("`{name}` takes one type name"),
+                        );
+                        return None;
+                    }
+                    self.layout_query_type(name, &args[0], span)?
                 }
-                self.layout_query_type(name, &args[0], span)?
+                _ => {
+                    if args.len() != 2 {
+                        self.error_code(
+                            span,
+                            codes::OFFSET_OF_NOT_REPR_C,
+                            "`offsetof` takes a type name and a field name",
+                        );
+                        return None;
+                    }
+                    self.layout_query_type(name, &args[0], span)?
+                }
             }
         };
         if name == "offsetof" {
-            return self.check_offsetof(&ty, &args[1], span);
+            let field_index = if type_args.is_empty() { 1 } else { 0 };
+            return self.check_offsetof(&ty, &args[field_index], span);
         }
         let Some(layout) = self.layout_of(&ty) else {
             self.error_code(
@@ -13804,28 +14057,112 @@ impl<'src> Checker<'src> {
     /// `module.Type` spelling in the language -- and anything that is not a
     /// name is a value, which these queries do not take.
     fn layout_query_type(&mut self, query: &str, arg: &Expr, call_span: Span) -> Option<Type> {
-        let Expr::Ident(path, span) = arg else {
-            self.error_code(
-                call_span,
-                codes::SIZE_OF_UNKNOWN,
-                format!("`{query}` takes the name of a type, not a value"),
-            );
-            return None;
+        // A layout query names a type. A bare `P` is a named type; `Buffer[16]`
+        // arrives as an index expression because the expression grammar has no
+        // generic spelling, and it names the instantiation `Buffer[16]`.
+        let (type_expr, span) = match arg {
+            Expr::Ident(path, span) if path.len() == 1 => {
+                (TypeExpr::Name(path[0].clone(), *span), *span)
+            }
+            Expr::Index { base, index, span } => {
+                let Expr::Ident(path, _) = &**base else {
+                    self.error_code(
+                        call_span,
+                        codes::SIZE_OF_UNKNOWN,
+                        format!("`{query}` takes the name of a type, not a value"),
+                    );
+                    return None;
+                };
+                if path.len() != 1 {
+                    self.error_code(
+                        call_span,
+                        codes::SIZE_OF_UNKNOWN,
+                        format!("`{query}` takes the name of a type, not a value"),
+                    );
+                    return None;
+                }
+                let Some(arg_expr) = expression_as_type_arg(index) else {
+                    self.error_code(
+                        call_span,
+                        codes::SIZE_OF_UNKNOWN,
+                        format!("`{query}` takes the name of a type, not a value"),
+                    );
+                    return None;
+                };
+                let name = path[0].clone();
+                (
+                    TypeExpr::Generic {
+                        name: name.clone(),
+                        args: vec![arg_expr],
+                        span: *span,
+                    },
+                    *span,
+                )
+            }
+            Expr::Ident(path, span) => {
+                self.error_code(
+                    *span,
+                    codes::SIZE_OF_UNKNOWN,
+                    format!(
+                        "`{query}` names no known type: `{}` is not a type",
+                        path.join(".")
+                    ),
+                );
+                return None;
+            }
+            Expr::FieldAccess { base, field, span } => {
+                let path = match &**base {
+                    Expr::Ident(parts, _) => {
+                        let mut parts = parts.clone();
+                        parts.push(field.clone());
+                        parts.join(".")
+                    }
+                    _ => field.clone(),
+                };
+                self.error_code(
+                    *span,
+                    codes::SIZE_OF_UNKNOWN,
+                    format!("`{query}` names no known type: `{path}` is not a type"),
+                );
+                return None;
+            }
+            _ => {
+                self.error_code(
+                    call_span,
+                    codes::SIZE_OF_UNKNOWN,
+                    format!("`{query}` takes the name of a type, not a value"),
+                );
+                return None;
+            }
         };
-        if path.len() != 1 {
-            self.error_code(
-                *span,
-                codes::SIZE_OF_UNKNOWN,
-                format!(
-                    "`{query}` names no known type: `{}` is not a type",
-                    path.join(".")
-                ),
-            );
-            return None;
+        if let TypeExpr::Generic { name, .. } = &type_expr {
+            self.intern_generics_in(&type_expr);
+            self.check_visibility(name, span);
+            return match self.resolve_type_in(&type_expr, true) {
+                Ok(ty) => Some(ty),
+                Err(error) => {
+                    // A generic instantiation has its own diagnostics (a bad
+                    // const argument, a wrong arity). They are more specific
+                    // than "not a declared type", so keep them instead of
+                    // masking them with the layout query's code.
+                    if let Some(code) = error.code {
+                        self.error_code(error.span, code, error.message.clone());
+                    } else {
+                        self.error_code(
+                            span,
+                            codes::SIZE_OF_UNKNOWN,
+                            format!("`{query}` names no known type: `{name}` is not declared"),
+                        );
+                    }
+                    None
+                }
+            };
         }
-        let type_name = &path[0];
-        self.check_visibility(type_name, *span);
-        match self.resolve_type_in(&TypeExpr::Name(type_name.clone(), *span), true) {
+        let TypeExpr::Name(type_name, _) = &type_expr else {
+            unreachable!("the shapes above are the only ones built here");
+        };
+        self.check_visibility(type_name, span);
+        match self.resolve_type_in(&type_expr, true) {
             Ok(ty) => Some(ty),
             Err(_) => {
                 // The resolution failure is not reported as its own diagnostic:
@@ -13833,9 +14170,33 @@ impl<'src> Checker<'src> {
                 // the query's code names the question that could not be
                 // answered rather than the type lookup that failed under it.
                 self.error_code(
-                    *span,
+                    span,
                     codes::SIZE_OF_UNKNOWN,
                     format!("`{query}` names no known type: `{type_name}` is not declared"),
+                );
+                None
+            }
+        }
+    }
+
+    /// The type an explicit layout-query type argument names, `size_of[T]()`.
+    fn layout_query_explicit_type(
+        &mut self,
+        query: &str,
+        ty: &TypeExpr,
+        span: Span,
+    ) -> Option<Type> {
+        self.intern_generics_in(ty);
+        if let TypeExpr::Name(name, name_span) = ty {
+            self.check_visibility(name, *name_span);
+        }
+        match self.resolve_type_in(ty, true) {
+            Ok(resolved) => Some(resolved),
+            Err(_) => {
+                self.error_code(
+                    span,
+                    codes::SIZE_OF_UNKNOWN,
+                    format!("`{query}` names no known type: `{ty}` is not declared"),
                 );
                 None
             }
@@ -14883,9 +15244,11 @@ fn type_to_expr(ty: &Type) -> TypeExpr {
             span,
         },
         TypeKind::Slice(element) => TypeExpr::Slice(Box::new(type_to_expr(element)), span),
-        TypeKind::FixedArray(element, length) => {
-            TypeExpr::FixedArray(Box::new(type_to_expr(element)), *length, span)
-        }
+        TypeKind::FixedArray(element, length) => TypeExpr::FixedArray(
+            Box::new(type_to_expr(element)),
+            yashy_parser::ast::ArrayLength::Literal(*length),
+            span,
+        ),
         TypeKind::View(element) => TypeExpr::View(Box::new(type_to_expr(element)), span),
         TypeKind::Map(key, value) => TypeExpr::Map(
             Box::new(type_to_expr(key)),

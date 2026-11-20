@@ -110,7 +110,7 @@ fn fixed_array_variant(name: &str) -> VariantDef {
         fields: vec![VariantField::Positional {
             ty: TypeExpr::FixedArray(
                 Box::new(TypeExpr::Name("int".to_string(), span())),
-                2,
+                yashy_parser::ast::ArrayLength::Literal(2),
                 span(),
             ),
             span: span(),

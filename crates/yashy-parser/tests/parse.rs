@@ -226,6 +226,7 @@ fn full_block(spans: &mut Spans) -> Block {
                 ty: None,
                 init: Expr::Call {
                     callee: vec!["f".to_string()],
+                    type_args: Vec::new(),
                     args: Vec::new(),
                     unsafe_call: false,
                     span: spans.take(),
@@ -430,6 +431,7 @@ fn full_expr_tail(spans: &mut Spans) -> Expr {
     });
     ops.push(Expr::Call {
         callee: vec!["print".to_string()],
+        type_args: Vec::new(),
         args: vec![CallArg {
             name: None,
             value: int(1, spans.take()),
@@ -461,6 +463,7 @@ fn full_expr_tail(spans: &mut Spans) -> Expr {
     ops.push(Expr::Try {
         expr: bx(Expr::Call {
             callee: vec!["f".to_string()],
+            type_args: Vec::new(),
             args: Vec::new(),
             unsafe_call: false,
             span: spans.take(),
@@ -1035,6 +1038,7 @@ fn an_if_binding_is_its_own_init_node() {
             ty: None,
             init: Expr::Call {
                 callee: vec!["f".to_string()],
+                type_args: Vec::new(),
                 args: Vec::new(),
                 unsafe_call: false,
                 span: call_span,
@@ -1118,6 +1122,7 @@ fn an_if_binding_is_its_own_init_node() {
             ty: None,
             init: Expr::Call {
                 callee: vec!["g".to_string()],
+                type_args: Vec::new(),
                 args: Vec::new(),
                 unsafe_call: false,
                 span: call_span,
@@ -1156,6 +1161,7 @@ fn a_call_records_whether_the_source_wrote_unsafe() {
     // `f(1)`
     let ordinary = Expr::Call {
         callee: vec!["puts".to_string()],
+        type_args: Vec::new(),
         args: vec![CallArg {
             name: None,
             value: int(1, arg_span),
@@ -1167,6 +1173,7 @@ fn a_call_records_whether_the_source_wrote_unsafe() {
     // `unsafe f(1)`
     let marked = Expr::Call {
         callee: vec!["puts".to_string()],
+        type_args: Vec::new(),
         args: vec![CallArg {
             name: None,
             value: int(1, marked_arg_span),
@@ -1199,6 +1206,7 @@ fn a_call_records_whether_the_source_wrote_unsafe() {
     // differs from `ordinary` in the bool and nothing else.
     let same_parts = Expr::Call {
         callee: vec!["puts".to_string()],
+        type_args: Vec::new(),
         args: vec![CallArg {
             name: None,
             value: int(1, arg_span),
@@ -1216,6 +1224,7 @@ fn a_call_records_whether_the_source_wrote_unsafe() {
     // itself ordinary, so the marker survives one level down and stops there.
     let nested = Expr::Call {
         callee: vec!["wrapper".to_string()],
+        type_args: Vec::new(),
         args: vec![CallArg {
             name: None,
             value: marked.clone(),
@@ -1697,6 +1706,7 @@ fn debug_names_every_expr_variant_and_its_fields() {
             "Expr::Call",
             Expr::Call {
                 callee: vec!["f".to_string()],
+                type_args: Vec::new(),
                 args: Vec::new(),
                 unsafe_call: false,
                 span: here(),

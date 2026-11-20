@@ -15,8 +15,8 @@
 
 use yashy_common::{codes, Diagnostic, FileId, Severity, Span};
 use yashy_hir::exhaustive::{
-    covering_arm, missing_witnesses, reachable_arms, FixedArrayElement, Pattern, TypeExpr,
-    VariantDef, VariantField,
+    covering_arm, missing_witnesses, reachable_arms, ArrayLength, FixedArrayElement, Pattern,
+    TypeExpr, VariantDef, VariantField,
 };
 use yashy_hir::hir::{
     expr_ty, HirBlock, HirExpr, HirFn, HirItem, HirPattern, HirProgram, HirStmt, HirSwitchArm,
@@ -479,7 +479,11 @@ fn type_expr_of(ty: &Type) -> TypeExpr {
             TypeExpr::Tuple(elements.iter().map(type_expr_of).collect(), span)
         }
         TypeKind::FixedArray(element, length) => {
-            TypeExpr::FixedArray(Box::new(type_expr_of(element)), *length, span)
+            TypeExpr::FixedArray(
+                Box::new(type_expr_of(element)),
+                ArrayLength::Literal(*length),
+                span,
+            )
         }
         _ => TypeExpr::Name("?".to_string(), span),
     }

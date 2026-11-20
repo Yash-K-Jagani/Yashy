@@ -614,6 +614,7 @@ impl<'src> Parser<'src> {
                             callee.push(field.clone());
                             expr = Expr::Call {
                                 callee,
+                                type_args: Vec::new(),
                                 args,
                                 unsafe_call: false,
                                 span,
@@ -638,6 +639,7 @@ impl<'src> Parser<'src> {
                             callee.push(field.clone());
                             expr = Expr::Call {
                                 callee,
+                                type_args: Vec::new(),
                                 args: vec![CallArg {
                                     name: None,
                                     value: lambda,
@@ -690,6 +692,7 @@ impl<'src> Parser<'src> {
                 }
                 expr = Expr::Call {
                     callee,
+                    type_args: Vec::new(),
                     args,
                     unsafe_call: false,
                     span,
@@ -709,6 +712,38 @@ impl<'src> Parser<'src> {
                     }
                 }
                 continue;
+            }
+            if self.check(TokenKind::LBracket) && self.type_arg_call_ahead() {
+                if let Expr::Ident(path, _) = &expr {
+                    if path.len() == 1 {
+                        let callee = path.clone();
+                        let type_args = self.parse_bracket_type_args()?;
+                        let open = self.expect(TokenKind::LParen)?;
+                        let _ = self.push_open(TokenKind::LParen, open.span)?;
+                        let mut args = self.parse_call_args()?;
+                        let close = self.expect(TokenKind::RParen)?;
+                        self.close_open(TokenKind::RParen);
+                        let mut span = cover(expr_span(&expr), close.span);
+                        if self.has_trailing_block() {
+                            let lambda = self.parse_trailing_lambda()?;
+                            span = cover(span, expr_span(&lambda));
+                            args.push(CallArg {
+                                name: None,
+                                value: lambda,
+                                span,
+                            });
+                        }
+                        expr = Expr::Call {
+                            callee,
+                            type_args,
+                            args,
+                            unsafe_call: false,
+                            span,
+                        };
+                        continue;
+                    }
+                }
+                break;
             }
             if self.check(TokenKind::LBracket) {
                 let open = self.expect(TokenKind::LBracket)?;
@@ -743,6 +778,62 @@ impl<'src> Parser<'src> {
             break;
         }
         Ok(expr)
+    }
+
+    /// Whether the `[` at the cursor closes immediately before a `(`.
+    ///
+    /// A call's explicit type arguments are written `f[T](..)`, and the
+    /// expression grammar already reads `f[T]` as an index. The two spellings
+    /// are told apart by one token of lookahead: an index is not followed by a
+    /// call, and a call's type arguments always are.
+    fn type_arg_call_ahead(&self) -> bool {
+        let tokens = self.rest();
+        let mut depth = 0usize;
+        for (index, token) in tokens.iter().enumerate() {
+            match token.kind {
+                TokenKind::LBracket => depth += 1,
+                TokenKind::RBracket => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        return tokens
+                            .get(index + 1)
+                            .is_some_and(|next| next.kind == TokenKind::LParen);
+                    }
+                }
+                TokenKind::Eof => return false,
+                _ => {}
+            }
+        }
+        false
+    }
+
+    /// `[T, 16]` — a call's explicit type and const arguments.
+    ///
+    /// A type argument is a type; a const argument is a decimal literal, which
+    /// is carried as a numeric [`TypeExpr::Name`] exactly as it is in a type
+    /// position. The checker knows which parameters are const and reads the
+    /// digits back.
+    fn parse_bracket_type_args(&mut self) -> Result<Vec<TypeExpr>, ParseError> {
+        let open = self.expect(TokenKind::LBracket)?;
+        let _ = self.push_open(TokenKind::LBracket, open.span)?;
+        let mut args = Vec::new();
+        if !self.check(TokenKind::RBracket) {
+            loop {
+                if self.peek() == TokenKind::I64 {
+                    let span = self.peek_span();
+                    self.advance();
+                    let text = self.text(span)?;
+                    args.push(TypeExpr::Name(text, span));
+                } else {
+                    args.push(self.parse_type_expr()?);
+                }
+                if !self.eat(TokenKind::Comma) {
+                    break;
+                }
+            }
+        }
+        self.close_bracket()?;
+        Ok(args)
     }
 
     fn parse_primary(&mut self) -> Result<Expr, ParseError> {
@@ -1052,6 +1143,7 @@ impl<'src> Parser<'src> {
                     let span = cover(first_span, expr_span(&lambda));
                     return Ok(Expr::Call {
                         callee: path,
+                        type_args: Vec::new(),
                         args: vec![CallArg {
                             name: None,
                             value: lambda,
@@ -1107,6 +1199,7 @@ impl<'src> Parser<'src> {
                 let _ = start_span;
                 Ok(Expr::Call {
                     callee,
+                    type_args: Vec::new(),
                     args,
                     unsafe_call: true,
                     span,

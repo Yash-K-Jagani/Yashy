@@ -29,6 +29,20 @@ A non-`repr(C)` struct may have its fields reordered to remove padding when
 that is free to do so. The reordering is a compiler choice and must not be
 observable outside `offsetof`, which is only allowed on `repr(C)` types.
 
+## Const arguments
+
+A type may carry a compile-time integer:
+`struct Buffer[const N: int] { data: [u8; N] }`. Each value names one
+monomorphic type, so `Buffer[16]` and `Buffer[64]` have separate layouts and
+count separately against the instantiation budget. A function writes its const
+argument at the call — `first[4]([1, 2, 3, 4])` — because a value that appears
+only in a result cannot be inferred.
+
+Both `sizeof(Buffer[16])` and `size_of[Buffer[16]]()` ask the same table. A
+const argument must be a literal or a name in scope at compile time; a run-time
+value is [E1524](../errors/E1524.md), not a silent zero. A declared `[T; 0]`
+is legal and contributes zero bytes.
+
 ## Numeric spellings
 
 The C spellings `u8`, `i32` and their siblings are licensed only by `repr(C)`.

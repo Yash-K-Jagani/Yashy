@@ -299,6 +299,17 @@ impl<'src> Parser<'src> {
         self.significant_kind(offset)
     }
 
+    /// The tokens from the cursor onward, for a caller that has to scan a
+    /// bracketed run before deciding which production it is in.
+    ///
+    /// The slice starts at the next token, so index `0` is what [`Self::peek`]
+    /// would return. It is used to tell a call's explicit type arguments
+    /// (`f[T](..)`) from an index (`f[i]`): the two are identical until the
+    /// token after the matching `]`.
+    pub(crate) fn rest(&self) -> &[Token] {
+        &self.tokens[self.pos..]
+    }
+
     /// The `offset`-th significant token from the cursor (0 is the next
     /// token), or `Eof` past the end.
     fn significant_kind(&self, offset: usize) -> TokenKind {

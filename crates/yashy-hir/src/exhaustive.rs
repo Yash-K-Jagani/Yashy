@@ -27,7 +27,9 @@
 //! unchecked indexing here.
 
 use yashy_parser::ast::Literal;
-pub use yashy_parser::ast::{FixedArrayElement, Pattern, TypeExpr, VariantDef, VariantField};
+pub use yashy_parser::ast::{
+    ArrayLength, FixedArrayElement, Pattern, TypeExpr, VariantDef, VariantField,
+};
 
 /// The names of the enum variants no arm covers, in declaration order.
 /// Empty means the arms are exhaustive.
@@ -359,7 +361,13 @@ impl Ctx<'_> {
                     .collect(),
             ),
             TypeExpr::FixedArray(element, length, _) => {
-                Ty::FixedArray(Box::new(self.shape(element, depth + 1)), *length)
+                // A symbolic length is resolved by sema before a pattern is
+                // checked; exhaustiveness sees only the literal form.
+                let n = match length {
+                    yashy_parser::ast::ArrayLength::Literal(n) => *n,
+                    yashy_parser::ast::ArrayLength::Name(_, _) => return Ty::Other,
+                };
+                Ty::FixedArray(Box::new(self.shape(element, depth + 1)), n)
             }
             _ => Ty::Other,
         }

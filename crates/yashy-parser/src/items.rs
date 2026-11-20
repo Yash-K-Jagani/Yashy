@@ -1208,7 +1208,30 @@ impl<'src> Parser<'src> {
         let _ = self.push_open(TokenKind::LBracket, open.span)?;
         let mut params = Vec::new();
         loop {
+            let is_const = self.eat(TokenKind::Const);
             let (name, name_span) = self.identifier()?;
+            if is_const {
+                // The annotation is fixed to `int` today: a const parameter is
+                // an integer used as an array length or an instantiation key.
+                self.expect(TokenKind::Colon)?;
+                let (ty, _) = self.identifier()?;
+                if ty != "int" {
+                    return Err(self.error(
+                        self.previous_span(),
+                        "a const type parameter must be `const N: int`".to_string(),
+                    ));
+                }
+                params.push(TypeParam {
+                    name,
+                    bounds: Vec::new(),
+                    is_const: true,
+                    span: cover(name_span, self.previous_span()),
+                });
+                if !self.eat(TokenKind::Comma) {
+                    break;
+                }
+                continue;
+            }
             let (bounds, span) = if self.eat(TokenKind::Colon) {
                 let mut bounds = vec![self.identifier()?.0];
                 while self.eat(TokenKind::Plus) {
@@ -1219,7 +1242,12 @@ impl<'src> Parser<'src> {
             } else {
                 (Vec::new(), name_span)
             };
-            params.push(TypeParam { name, bounds, span });
+            params.push(TypeParam {
+                name,
+                bounds,
+                is_const: false,
+                span,
+            });
             if !self.eat(TokenKind::Comma) {
                 break;
             }
