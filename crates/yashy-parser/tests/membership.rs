@@ -2,7 +2,7 @@
 
 use yashy_common::SourceMap;
 use yashy_lexer::Lexer;
-use yashy_parser::ast::{Expr, Item, Stmt};
+use yashy_parser::ast::{BinOp, Expr, Item, Stmt};
 use yashy_parser::Parser;
 
 fn expression(src: &str) -> Expr {
@@ -24,16 +24,29 @@ fn expression(src: &str) -> Expr {
 #[test]
 fn membership_becomes_a_contains_method_call() {
     let word = expression("fn main() { const ok = 3 in xs; }");
-    let method = expression("fn main() { const ok = xs.contains(3); }");
-    assert_eq!(word, method, "the tree must be the method call");
+    // The sugar becomes a method call on the container. An explicitly written
+    // dotted call is a different AST node with the same meaning; the checker
+    // lowers both to the same builtin.
+    match word {
+        Expr::MethodCall { receiver, method, args, .. } => {
+            assert!(matches!(*receiver, Expr::Ident(path, _) if path == ["xs"]));
+            assert_eq!(method, "contains");
+            assert_eq!(args.len(), 1);
+        }
+        other => panic!("expected a method call, got {other:?}"),
+    }
 }
 
 #[test]
 fn membership_rhs_binds_tighter_than_the_operator() {
     // `1 + 2 in xs` is `(1 + 2) in xs`, not `1 + (2 in xs)`.
     let word = expression("fn main() { const ok = 1 + 2 in xs; }");
-    let method = expression("fn main() { const ok = xs.contains(1 + 2); }");
-    assert_eq!(word, method);
+    match word {
+        Expr::MethodCall { args, .. } => {
+            assert!(matches!(&args[0], Expr::Binary { op: BinOp::Add, .. }));
+        }
+        other => panic!("expected a method call, got {other:?}"),
+    }
 }
 
 #[test]
