@@ -11436,6 +11436,17 @@ impl<'src> Checker<'src> {
                 args,
                 span,
             } => {
+                // Sugar such as `needle in xs` becomes a method-shaped node.
+                // When the container is a plain name, take the same path as an
+                // explicitly written `xs.contains(needle)` so builtin methods
+                // (including a string's or a map's `contains`) are reachable.
+                if let Expr::Ident(path, _) = receiver.as_ref() {
+                    let mut callee = path.clone();
+                    callee.push(method.clone());
+                    if let Some(checked) = self.check_builtin_method(&callee, args, *span) {
+                        return checked;
+                    }
+                }
                 // A method called on a value: the result of a call, say. The
                 // method is found by the receiver's type, exactly as it is
                 // when the receiver is a binding.
@@ -11451,17 +11462,27 @@ impl<'src> Checker<'src> {
                 match self.check_user_method_on(receiver_checked, method, args, *span) {
                     Some(checked) => checked,
                     None => {
-                        // The receiver is a value, not a binding. The builtin
-                        // methods -- an array's, a map's -- need a binding they
-                        // can update, and a user's method needs a value of the
-                        // type it belongs to.
-                        self.error(
-                            *span,
-                            format!(
-                                "a method needs a binding as the receiver, not a value \
-                                 of type `{receiver_ty}`"
-                            ),
-                        );
+                        // A membership test always reports the rule it broke,
+                        // whether the container is a name or an expression.
+                        if method == "contains" {
+                            self.error_code(
+                                *span,
+                                codes::MEMBERSHIP_UNSUPPORTED,
+                                format!("`in` needs a `contains` method on `{receiver_ty}`"),
+                            );
+                        } else {
+                            // The receiver is a value, not a binding. The builtin
+                            // methods -- an array's, a map's -- need a binding they
+                            // can update, and a user's method needs a value of the
+                            // type it belongs to.
+                            self.error(
+                                *span,
+                                format!(
+                                    "a method needs a binding as the receiver, not a value \
+                                     of type `{receiver_ty}`"
+                                ),
+                            );
+                        }
                         None
                     }
                 }

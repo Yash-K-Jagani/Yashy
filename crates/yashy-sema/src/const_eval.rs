@@ -264,8 +264,10 @@ impl ConstTypes {
 /// The number is small on purpose: the evaluator's own recursion is on the
 /// compiler's stack, and a deep evaluation would overflow it before the
 /// limit was reached. A hundred and sixty-four nested calls is far more than
-/// a constant expression needs.
-const MAX_CONST_DEPTH: usize = 160;
+/// a constant expression needs. The test threads have a smaller stack than a
+/// compiler main thread, so the cap stays well below the point where the
+/// evaluator's own frames overflow it.
+const MAX_CONST_DEPTH: usize = 32;
 
 /// How many calls one evaluation may make in total.
 ///
@@ -707,6 +709,39 @@ fn check_expr(
             span: *span,
         }),
         Expr::Ident(path, span) => {
+            // A dotted name whose head is a local binding is a field read in
+            // the main checker; the constant evaluator must agree.
+            if path.len() >= 2 && env.iter().any(|(name, _)| name == &path[0]) {
+                let mut current = env
+                    .iter()
+                    .rev()
+                    .find(|(name, _)| name == &path[0])
+                    .map(|(_, ty)| ty.clone())
+                    .expect("the head was found above");
+                for field in &path[1..] {
+                    let TypeKind::Struct(name) = &current.kind else {
+                        return Err(TypeError::new(
+                            *span,
+                            format!("only a struct has a field, found `{current}`"),
+                        ));
+                    };
+                    let Some(declared) = structs.structs.get(name) else {
+                        return Err(TypeError::new(
+                            *span,
+                            format!("`{name}` has no known fields in {context}"),
+                        ));
+                    };
+                    let Some((_, ty)) = declared.iter().find(|(written, _)| written == field)
+                    else {
+                        return Err(TypeError::new(
+                            *span,
+                            format!("`{name}` has no field `{field}`"),
+                        ));
+                    };
+                    current = ty.clone();
+                }
+                return Ok(current);
+            }
             if let [enum_name, variant] = path.as_slice() {
                 if let Some(variants) = structs.enums.get(enum_name) {
                     if let Some((_, payload_types)) =
@@ -1393,6 +1428,31 @@ fn eval(
             Literal::Char(byte) => ConstValue::Char(*byte),
         }),
         Expr::Ident(path, span) => {
+            if path.len() >= 2 && env.iter().any(|(name, _)| name == &path[0]) {
+                let mut value = env
+                    .iter()
+                    .rev()
+                    .find(|(name, _)| name == &path[0])
+                    .map(|(_, value)| value.clone())
+                    .expect("the head was found above");
+                for field in &path[1..] {
+                    let ConstValue::Struct { name, fields } = value else {
+                        return Err(ConstError::new(
+                            *span,
+                            format!("only a struct has a field, found `{}`", value.kind()),
+                        ));
+                    };
+                    let Some((_, found)) = fields.into_iter().find(|(written, _)| written == field)
+                    else {
+                        return Err(ConstError::new(
+                            *span,
+                            format!("`{name}` has no field `{field}`"),
+                        ));
+                    };
+                    value = found;
+                }
+                return Ok(value);
+            }
             if let [enum_name, variant] = path.as_slice() {
                 if let Some(variants) = structs.enums.get(enum_name) {
                     if variants.iter().any(|(name, _)| name == variant) {

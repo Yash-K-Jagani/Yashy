@@ -23,7 +23,7 @@ fn check(src: &str) -> Result<HirProgram, Vec<Diagnostic>> {
 
 #[test]
 fn alloc_uninit_outside_unsafe_is_e1405() {
-    let diagnostics = check("fn main() { let p = alloc_uninit(4); dealloc(p); }")
+    let diagnostics = check("fn main() { let p = alloc_uninit(4); p.free(); }")
         .expect_err("safe code cannot ask for uninitialised memory");
     assert!(
         diagnostics
@@ -35,7 +35,7 @@ fn alloc_uninit_outside_unsafe_is_e1405() {
 
 #[test]
 fn alloc_uninit_inside_unsafe_checks_like_alloc() {
-    let program = check("fn main() { unsafe { let p = alloc_uninit(4); p[0] = 1; dealloc(p); } }")
+    let program = check("fn main() { unsafe { let p = alloc_uninit(4); p[0] = 1; p.free(); } }")
         .expect("an unsafe block licenses the call");
     let text = format!("{:?}", program.items);
     assert!(
@@ -49,12 +49,12 @@ fn a_nested_unsafe_block_still_licenses_the_call_after_the_inner_one_ends() {
     // Depth, not a boolean: leaving the inner block must not turn the outer
     // one off while its remaining statements are checked.
     let program =
-        check("fn main() { unsafe { unsafe { print(1); } let p = alloc_uninit(4); dealloc(p); } }")
+        check("fn main() { unsafe { unsafe { print(1); }; let p = alloc_uninit(4); p.free(); } }")
             .expect("the outer unsafe block is still in force");
     assert!(!format!("{:?}", program.items).is_empty());
 }
 
 #[test]
 fn safe_alloc_is_still_accepted_without_unsafe() {
-    check("fn main() { let p = alloc(4); dealloc(p); }").expect("safe allocation did not change");
+    check("fn main() { let p = alloc(4); p.free(); }").expect("safe allocation did not change");
 }
