@@ -26,6 +26,17 @@ fn expr_of(statements: &[Stmt]) -> Expr {
     }
 }
 
+/// The operator tree without spans: a word and its symbol occupy a different
+/// number of bytes, so their spans cannot be equal even when the tree is.
+fn shape(expr: &Expr) -> String {
+    match expr {
+        Expr::Binary { op, lhs, rhs, .. } => format!("({op:?} {} {})", shape(lhs), shape(rhs)),
+        Expr::Unary { op, operand, .. } => format!("({op:?} {})", shape(operand)),
+        Expr::Ident(path, _) => path.join("."),
+        other => format!("{other:?}"),
+    }
+}
+
 #[test]
 fn word_forms_lex_to_their_own_keyword_kinds() {
     let tokens = Lexer::new("and or not").tokenize().expect("must lex");
@@ -46,8 +57,8 @@ fn and_equals_symbolic_and() {
     let words = body("fn main() { a and b; }");
     let symbols = body("fn main() { a && b; }");
     assert_eq!(
-        expr_of(&words),
-        expr_of(&symbols),
+        shape(&expr_of(&words)),
+        shape(&expr_of(&symbols)),
         "the tree must not know which spelling was used"
     );
 }
@@ -56,14 +67,14 @@ fn and_equals_symbolic_and() {
 fn or_equals_symbolic_or() {
     let words = body("fn main() { a or b; }");
     let symbols = body("fn main() { a || b; }");
-    assert_eq!(expr_of(&words), expr_of(&symbols));
+    assert_eq!(shape(&expr_of(&words)), shape(&expr_of(&symbols)));
 }
 
 #[test]
 fn not_equals_symbolic_not() {
     let words = body("fn main() { not a; }");
     let symbols = body("fn main() { !a; }");
-    assert_eq!(expr_of(&words), expr_of(&symbols));
+    assert_eq!(shape(&expr_of(&words)), shape(&expr_of(&symbols)));
 }
 
 #[test]
@@ -71,7 +82,7 @@ fn word_forms_keep_symbolic_precedence() {
     // `a or b and c` is `a || (b && c)`, exactly as with the symbols.
     let words = body("fn main() { a or b and c; }");
     let symbols = body("fn main() { a || b && c; }");
-    assert_eq!(expr_of(&words), expr_of(&symbols));
+    assert_eq!(shape(&expr_of(&words)), shape(&expr_of(&symbols)));
 }
 
 #[test]
