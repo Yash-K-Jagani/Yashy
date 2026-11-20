@@ -276,22 +276,26 @@ shape. A pattern over one names positions rather than testing a tag:
 ```yashy
 fn main() {
     const values = [1, 2, 3, 4];
-    let [first, ..middle, last] = values;
+    // `..` with no name skips the middle run; a named `..rest` runs to the
+    // end, so the two spellings cannot be combined in one pattern.
+    let [first, .., last] = values;
     print(first);
     print(last);
-    print(middle.len());
+    let [head, ..rest] = values;
+    print(rest.len());
 
     let [a, b, c, d] = values;
     print(a + b + c + d);
     // => 1
-    //    4
-    //    2
-    //    10
+    // => 4
+    // => 3
+    // => 10
 }
 ```
 
 Elements written before the `..` count up from zero and those after it count
-down from the end, so `middle` above is the view over the two inner elements.
+down from the end. A named `..rest` binds the run to the end as a view; the
+bare `..` above only skips the middle, so it cannot also bind that run.
 `..name` binds that run as a `[]T` view: it borrows the array, owns nothing,
 and cannot outlive the frame the array lives in. A bare `..` just skips the
 run. With no `..` the pattern must name all `N` elements (`E0606` otherwise),
@@ -520,14 +524,13 @@ fn classify(Option[int] value) -> string {
 }
 
 fn main() {
-    const xs = []int { 1, 2, 3 };
     print(classify(Some(1)));
-    if 2 in xs {
-        print("has two");
-    }
     // => some
-    // => has two
 }
+
+// `needle in container` is sugar for `container.contains(needle)`. Today that
+// method exists on maps, so a map is the container to use for membership; a
+// slice has no `contains` and the checker says so rather than guessing.
 ```
 
 ## How it works

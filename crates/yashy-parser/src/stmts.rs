@@ -222,6 +222,21 @@ impl<'src> Parser<'src> {
         if self.check(TokenKind::LParen) && self.paren_opens_destructure() {
             return true;
         }
+        // A fixed-array pattern (`let [a, .., b] = xs;`) starts with `[`, but
+        // so does a type-first binding of an array (`let [int; 3] g = ...`).
+        // The bracket is a pattern only when the tokens inside do not read as
+        // a type: `[]T`, `[T]` and `[T; N]` are all type heads.
+        if self.check(TokenKind::LBracket) {
+            if self.peek_second() == TokenKind::RBracket {
+                return false;
+            }
+            if self.peek_second() == TokenKind::Ident
+                && matches!(self.peek_third(), TokenKind::Semi | TokenKind::RBracket)
+            {
+                return false;
+            }
+            return true;
+        }
         if self.identifier_is("_") && self.peek_second() == TokenKind::Eq {
             return true;
         }

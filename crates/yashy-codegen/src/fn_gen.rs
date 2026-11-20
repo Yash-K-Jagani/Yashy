@@ -313,7 +313,14 @@ fn gen_body(module: &mut Module, f: &HirFn, entry_point: bool, env: Option<&str>
                     // trailing `panic`); the block is unreachable, so `undef`
                     // is the honest constant. `0` is not a value of an
                     // aggregate type and does not assemble.
-                    TypeKind::Slice(_)
+                    TypeKind::Str
+                    | TypeKind::Ptr(_)
+                    | TypeKind::CPtr(_)
+                    | TypeKind::Map(_, _)
+                    | TypeKind::Channel(_)
+                    | TypeKind::Mutex
+                    | TypeKind::Task(_)
+                    | TypeKind::Slice(_)
                     | TypeKind::Tuple(_)
                     | TypeKind::Func(_, _)
                     | TypeKind::Option(_)
