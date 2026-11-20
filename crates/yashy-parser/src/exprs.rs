@@ -2,8 +2,8 @@ use yashy_common::Span;
 use yashy_lexer::{Lexer, StringPiece, Token, TokenKind};
 
 use crate::ast::{
-    BinOp, CallArg, Expr, InterpFormat, InterpPart, LambdaParam, Literal, Pattern, SliceElement,
-    StringLit, SwitchArm, TypeExpr, UnOp,
+    BinOp, CallArg, CaptureMode, Expr, InterpFormat, InterpPart, LambdaParam, Literal, Pattern,
+    SliceElement, StringLit, SwitchArm, TypeExpr, UnOp,
 };
 use crate::error::{self, ParseError};
 use crate::parser::{cover, Parser, MAX_NESTING_DEPTH};
@@ -398,6 +398,21 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_move(&mut self) -> Result<Expr, ParseError> {
+        // `move |x| ...` is a lambda with transfer captures, not a `move` of a
+        // lambda value: the keyword is consumed here before the pipe can be
+        // read as the lambda's head.
+        if self.check(TokenKind::Move)
+            && matches!(self.peek_nth(1), TokenKind::Pipe | TokenKind::OrOr)
+        {
+            let move_span = self.peek_span();
+            self.advance();
+            let mut lambda = self.parse_lambda()?;
+            if let Expr::Lambda { mode, span, .. } = &mut lambda {
+                *mode = CaptureMode::Move;
+                *span = cover(move_span, *span);
+            }
+            return Ok(lambda);
+        }
         if self.check(TokenKind::Move) {
             let move_span = self.peek_span();
             self.advance();
@@ -1130,6 +1145,7 @@ impl<'src> Parser<'src> {
         Ok(Expr::Lambda {
             params,
             ret,
+            mode: CaptureMode::Value,
             span: cover(bars, body.span),
             body: Box::new(body),
         })
@@ -1219,6 +1235,7 @@ impl<'src> Parser<'src> {
         Ok(Expr::Lambda {
             params,
             ret,
+            mode: CaptureMode::Value,
             span: cover(open.span, body.span),
             body: Box::new(body),
         })

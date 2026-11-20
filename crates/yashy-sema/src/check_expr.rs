@@ -27,9 +27,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use yashy_common::{codes, Applicability, Diagnostic, FileId, SourceMap, Span, Suggestion};
 use yashy_hir::layout::{self as type_layout, Decls, Layout, NamedType};
 use yashy_parser::ast::{
-    BinOp, BindingKeyword, Block, CallArg, Contract, Expr, ExternDecl, FieldDef, InterpFormat,
-    InterpPart, Item, LambdaParam, Literal, Param, Pattern, PtrKind, SliceElement, Stmt, StringLit,
-    SwitchArm, TypeExpr, TypeParam, VariantDef, VariantField,
+    BinOp, BindingKeyword, Block, CallArg, CaptureMode as AstCaptureMode, Contract, Expr,
+    ExternDecl, FieldDef, InterpFormat, InterpPart, Item, LambdaParam, Literal, Param, Pattern,
+    PtrKind, SliceElement, Stmt, StringLit, SwitchArm, TypeExpr, TypeParam, VariantDef, VariantField,
 };
 
 use crate::check_pat::{check_pattern, hir_pattern_span, is_irrefutable};
@@ -730,6 +730,8 @@ struct ClosureFrame {
     /// A name that resolves *above* this depth belongs to an enclosing scope
     /// and is a capture; a name at or below it is the closure's own.
     scope_depth: usize,
+    /// How this closure acquires the values it captures.
+    mode: CaptureMode,
     /// The captures, in the order the environment holds them.
     captures: Vec<HirCapture>,
 }
@@ -1642,14 +1644,28 @@ impl<'src> Checker<'src> {
     /// value the program still owns, and Yashy has no way to say which of the
     /// two owners releases it.
     fn capture(&mut self, name: &str, depth: usize, ty: &Type, span: Span) -> usize {
-        if matches!(linearity_of(&ty.kind), Linearity::Linear) {
+        let frame_index = self.closures.len() - 1;
+        let mode = self.closures[frame_index].mode;
+        if mode == CaptureMode::Value && matches!(linearity_of(&ty.kind), Linearity::Linear) {
             self.error(
                 span,
-                format!("a linear value cannot be captured yet: `{name}`"),
+                format!("a linear value cannot be captured yet: `{name}`; write `move |..|` to transfer it"),
             );
         }
-        let frame_index = self.closures.len() - 1;
-        self.capture_in(frame_index, name, depth, ty)
+        if mode == CaptureMode::Move {
+            // A move has to take the value from the binding that owns it. A
+            // value held by an enclosing closure's environment has no name in
+            // this scope to move, so that case stays refused.
+            if frame_index > 0 && depth < self.closures[frame_index - 1].scope_depth {
+                self.error(
+                    span,
+                    format!("a move closure cannot capture `{name}` from another closure"),
+                );
+            } else if let Err(error) = self.move_out(name, span) {
+                self.report(error);
+            }
+        }
+        self.capture_in(frame_index, name, depth, ty, mode)
     }
 
     /// Record a capture in a particular closure, and return its index.
@@ -1657,7 +1673,14 @@ impl<'src> Checker<'src> {
     /// The closure that is being checked captures the name; the closures
     /// between it and the scope the name belongs to capture it too, so that
     /// the value is there to be copied.
-    fn capture_in(&mut self, frame_index: usize, name: &str, depth: usize, ty: &Type) -> usize {
+    fn capture_in(
+        &mut self,
+        frame_index: usize,
+        name: &str,
+        depth: usize,
+        ty: &Type,
+        mode: CaptureMode,
+    ) -> usize {
         if let Some(index) = self.closures[frame_index]
             .captures
             .iter()
@@ -1670,6 +1693,7 @@ impl<'src> Checker<'src> {
             name: name.to_string(),
             ty: ty.clone(),
             source,
+            mode,
         });
         self.closures[frame_index].captures.len() - 1
     }
@@ -1701,7 +1725,8 @@ impl<'src> Checker<'src> {
         } else {
             // The enclosing closure captured the name too, so the value is
             // copied out of that closure's environment.
-            let parent_index = self.capture_in(parent, name, depth, ty);
+            let parent_mode = self.closures[parent].mode;
+            let parent_index = self.capture_in(parent, name, depth, ty, parent_mode);
             CaptureSource::Enclosing(parent_index)
         }
     }
@@ -7800,6 +7825,7 @@ impl<'src> Checker<'src> {
         if let Expr::Lambda {
             params,
             ret,
+            mode,
             body,
             span,
         } = expr
@@ -7808,6 +7834,7 @@ impl<'src> Checker<'src> {
                 return self.check_lambda(
                     params,
                     ret,
+                    Self::hir_capture_mode(*mode),
                     body,
                     *span,
                     Some((exp_params.as_slice(), Some(exp_ret.as_ref()))),
@@ -9703,10 +9730,20 @@ impl<'src> Checker<'src> {
     /// expected type. The return type works the same way, except that an
     /// expected signature with no return type (the `map` callback) leaves the
     /// return to be inferred from the body's first `return`.
+    /// The parser's spelling and the HIR's record of how captures are acquired
+    /// are separate types: sema owns neither AST nor HIR, so it translates.
+    fn hir_capture_mode(mode: AstCaptureMode) -> CaptureMode {
+        match mode {
+            AstCaptureMode::Value => CaptureMode::Value,
+            AstCaptureMode::Move => CaptureMode::Move,
+        }
+    }
+
     fn check_lambda(
         &mut self,
         params: &[LambdaParam],
         ret: &Option<TypeExpr>,
+        mode: CaptureMode,
         body: &Block,
         span: Span,
         expected: Option<(&[Type], Option<&Type>)>,
@@ -9794,6 +9831,7 @@ impl<'src> Checker<'src> {
         // and only an enclosing local is a capture.
         self.closures.push(ClosureFrame {
             scope_depth: self.scope.depth() - 1,
+            mode,
             captures: Vec::new(),
         });
         if infer_ret {
@@ -9811,6 +9849,7 @@ impl<'src> Checker<'src> {
         };
         let frame = self.closures.pop().unwrap_or(ClosureFrame {
             scope_depth: 0,
+            mode,
             captures: Vec::new(),
         });
         self.scope.pop();
@@ -9866,12 +9905,20 @@ impl<'src> Checker<'src> {
                 Expr::Lambda {
                     params,
                     ret,
+                    mode,
                     body,
                     span: lambda_span,
                 },
                 Some((exp_params, exp_ret)),
             ) if params.len() == exp_params.len() => {
-                self.check_lambda(params, ret, body, *lambda_span, Some((exp_params, exp_ret)))?
+                self.check_lambda(
+                    params,
+                    ret,
+                    Self::hir_capture_mode(*mode),
+                    body,
+                    *lambda_span,
+                    Some((exp_params, exp_ret)),
+                )?
             }
             // A wrong arity is the higher-order method's own diagnostic: let
             // it check the lambda on its own and report the shape.
@@ -13054,9 +13101,17 @@ impl<'src> Checker<'src> {
             Expr::Lambda {
                 params,
                 ret,
+                mode,
                 body,
                 span,
-            } => self.check_lambda(params, ret, body, *span, None),
+            } => self.check_lambda(
+                params,
+                ret,
+                Self::hir_capture_mode(*mode),
+                body,
+                *span,
+                None,
+            ),
             Expr::ArrayComp {
                 expr,
                 pattern,

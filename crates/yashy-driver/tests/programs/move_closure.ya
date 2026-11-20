@@ -1,0 +1,9 @@
+// `move` transfers captured values into the closure environment.
+// The original binding is used up at the point the closure is made, so a
+// later read of `x` would be E0500; the environment carries the 7.
+
+fn main() {
+    let int x = 7;
+    const f = move || -> int { return x; };
+    print(f());
+}

@@ -732,6 +732,12 @@ fn a_const_fn_is_computed_by_the_compiler() {
 }
 
 #[test]
+fn a_move_closure_carries_its_capture() {
+    let output = build_and_run("move_closure");
+    assert_eq!(stdout_of(&output), "7\n");
+}
+
+#[test]
 fn const_and_run_time_evaluation_agree() {
     let output = build_and_run("const_fn_differential");
     assert_eq!(

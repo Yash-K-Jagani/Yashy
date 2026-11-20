@@ -1119,6 +1119,17 @@ pub enum Literal {
 }
 
 /// An expression: the things that can appear where a value is expected.
+/// How a lambda's environment acquires a value from the enclosing scope.
+///
+/// A plain lambda copies the names it reads. A `move` lambda transfers them:
+/// the original binding is used up at the point the lambda is made, which is
+/// what a linear value such as a pointer needs before it can be captured.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CaptureMode {
+    Value,
+    Move,
+}
+
 /// One element of a slice literal: a value, or a `..xs` spread.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SliceElement {
@@ -1377,6 +1388,8 @@ pub enum Expr {
         /// The declared return type. `None` when the source wrote no arrow,
         /// which means the lambda returns unit.
         ret: Option<TypeExpr>,
+        /// How the environment acquires each captured name.
+        mode: CaptureMode,
         body: Box<Block>,
         span: Span,
     },

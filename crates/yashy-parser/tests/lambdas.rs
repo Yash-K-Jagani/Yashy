@@ -8,7 +8,7 @@
 
 use yashy_common::SourceMap;
 use yashy_lexer::Lexer;
-use yashy_parser::ast::{Expr, Item, Stmt, TypeExpr};
+use yashy_parser::ast::{CaptureMode, Expr, Item, Stmt, TypeExpr};
 use yashy_parser::Parser;
 
 /// Parse `fn main() { <stmt> }` and return the statement.
@@ -59,6 +59,18 @@ fn lambda(src: &str) -> (Vec<(String, Option<TypeExpr>)>, Option<TypeExpr>) {
                 ret,
             )
         }
+        other => panic!("expected a lambda, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_move_lambda_records_its_capture_mode() {
+    match const_init("fn main() { const f = move |int x| -> int { return x; }; }") {
+        Expr::Lambda { mode, .. } => assert_eq!(mode, CaptureMode::Move),
+        other => panic!("expected a lambda, got {other:?}"),
+    }
+    match const_init("fn main() { const f = |int x| -> int { return x; }; }") {
+        Expr::Lambda { mode, .. } => assert_eq!(mode, CaptureMode::Value),
         other => panic!("expected a lambda, got {other:?}"),
     }
 }

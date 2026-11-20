@@ -173,6 +173,17 @@ pub struct HirCapture {
     pub ty: Type,
     /// Where the value comes from when the closure is made.
     pub source: CaptureSource,
+    /// Whether the environment copies or transfers the value.
+    pub mode: CaptureMode,
+}
+
+/// How a closure environment acquires a captured value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CaptureMode {
+    /// The value is copied into the environment; the original stays live.
+    Value,
+    /// The original binding is used up when the environment is made.
+    Move,
 }
 
 /// Where a captured value is read from at the point the closure is made.

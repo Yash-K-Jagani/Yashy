@@ -204,6 +204,14 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   `Encode`/`Decode`, enum derives and trait-based dispatch are still owed, so
   the step stays open.
 - [ ] **Step 3: Capture modes are in the type.** A closure writes `move` / value / by-pointer captures; the closure's type records each captured binding and its mode, the verifier sees every capture, and a `move` closure cannot outlive a value it moved. A capture mode that cannot be honoured is a diagnostic, not a silent copy.
+  *Current:* `move |x| ...` parses as a lambda with `CaptureMode::Move`; the
+  checker marks each captured binding moved at the point the environment is
+  made and records the mode on every `HirCapture`, so the verifier and code
+  generator read the same fact. Plain lambdas keep `Value`. Capturing a value
+  held by an enclosing closure, or a linear value without `move`, is a
+  diagnostic. By-pointer captures are still not a spelling, and neither the
+  outliving rule for a moved value nor the full capture-mode type is proved
+  beyond the recorded mode, so the step stays open.
 - [x] **Step 4: `defer expr;` and scoped release.** `defer expr;` and
   `defer a(), b();` parse into the same `Stmt::Defer` body a braced block
   produces, one `Stmt::Expr` per release in source order, so the verifier's
