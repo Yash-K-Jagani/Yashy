@@ -2482,7 +2482,13 @@ fn inspect_cmd(args: &[String]) -> ExitCode {
         println!("{}", report.render());
         return exit_code(EXIT_OK);
     }
-    let root = path.parent().unwrap_or(Path::new("."));
+    // `Path::new("main.ya").parent()` is the empty path, not `.`: indexing an
+    // empty root collects no files, so a relative source name would report
+    // "no symbol" for every symbol it has.
+    let root = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
     let model = match yashy_driver::index::build_index(root) {
         Ok(model) => model,
         Err(error) => {
