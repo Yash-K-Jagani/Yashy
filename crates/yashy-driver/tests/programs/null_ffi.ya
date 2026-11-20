@@ -1,0 +1,24 @@
+// A C pointer is the one null-carrying value at the ABI boundary. `getenv`
+// answers null for an unset name and a real address for a set one; the former
+// must reach Yashy as `None`, the latter as `Some`.
+
+extern "C" {
+    unsafe fn getenv_opt(*const u8 name) -> Option[*const u8] link_name "getenv";
+    unsafe fn free_opt(Option[*mut u8] p) -> void link_name "free";
+}
+
+fn report(string name) {
+    switch getenv_opt(name) {
+        case None { print("none"); }
+        case Some(_) { print("some"); }
+    };
+}
+
+fn main() {
+    report("YASHY_NULL_FFI_UNSET_VALUE");
+    report("PATH");
+    // The other direction: `None` crosses as a null pointer, which libc's
+    // `free` accepts as a no-op.
+    free_opt(None);
+    print("freed none");
+}

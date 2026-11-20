@@ -2251,7 +2251,7 @@ fn gen_call(
                         None,
                     );
                 }
-                let value = crate::ffi::gen_ffi_call(ctx, &decl, &lowered, unsafe_call);
+                let value = crate::ffi::gen_ffi_call(ctx, &decl, &lowered, unsafe_call, &ty);
                 // A C function's `string` return is a fresh reference the caller
                 // owns, exactly like a Yashy call's. Without this the binding
                 // would retain a second reference and the callee's own would

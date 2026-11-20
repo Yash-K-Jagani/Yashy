@@ -22,8 +22,23 @@
 use yashy_sema::{HirExternDecl, TypeKind};
 
 use crate::expr_gen::{FnCtx, GenValue};
-use crate::fn_gen::fn_return_repr;
 use crate::ir::repr_type;
+
+/// The C type of a declared parameter or return. An `Option` whose payload is
+/// a pointer crosses as that pointer: null is `None`, a non-null address is
+/// `Some`. The aggregate Yashy uses internally never appears in a C signature.
+fn c_type(ty: &TypeKind) -> String {
+    if let TypeKind::Option(inner) = ty {
+        if matches!(inner.kind, TypeKind::Ptr(_) | TypeKind::CPtr(_)) {
+            return "i8*".to_string();
+        }
+    }
+    repr_type(ty)
+}
+
+fn is_ptr_option(ty: &TypeKind) -> bool {
+    matches!(ty, TypeKind::Option(inner) if matches!(inner.kind, TypeKind::Ptr(_) | TypeKind::CPtr(_)))
+}
 
 /// Lower a call to a C declaration, applying the boundary rules.
 ///
@@ -35,6 +50,7 @@ pub fn gen_ffi_call(
     decl: &HirExternDecl,
     args: &[GenValue],
     unsafe_call: bool,
+    expected: &TypeKind,
 ) -> String {
     let mut operands = Vec::new();
     // Buffers the callee was given and that this call still owns.
@@ -65,6 +81,30 @@ pub fn gen_ffi_call(
                 consumed.push(arg.value.clone());
             }
             operands.push(format!("i8* {data}"));
+        } else if is_ptr_option(&arg.ty)
+            && decl
+                .params
+                .get(index)
+                .is_some_and(|param| is_ptr_option(&param.ty.kind))
+        {
+            // Yashy's `{ i8, i8* }` becomes one C pointer: `None` is null and
+            // `Some(p)` is p. The null check selects between them without a
+            // branch, so the aggregate never reaches C.
+            let tag = ctx.tmp();
+            let payload = ctx.tmp();
+            let not_none = ctx.tmp();
+            let pointer = ctx.tmp();
+            let option_repr = repr_type(&arg.ty);
+            ctx.push(format!("{tag} = extractvalue {option_repr} {}, 0", arg.value));
+            ctx.push(format!(
+                "{payload} = extractvalue {option_repr} {}, 1",
+                arg.value
+            ));
+            ctx.push(format!("{not_none} = icmp ne i8 {tag}, 0"));
+            ctx.push(format!(
+                "{pointer} = select i1 {not_none}, i8* {payload}, i8* null"
+            ));
+            operands.push(format!("i8* {pointer}"));
         } else {
             // Everything else -- integers, floats, raw pointers -- is already
             // the machine value C wants.
@@ -72,7 +112,7 @@ pub fn gen_ffi_call(
         }
     }
 
-    let ret = fn_return_repr(&decl.ret.kind);
+    let ret = c_type(&decl.ret.kind);
     // LLVM needs the full function type at a vararg call site, because the
     // arguments after the fixed ones carry no types of their own:
     // `call i32 (i8*, ...) @printf(i8* %fmt, i64 %n)`. A non-variadic call
@@ -104,6 +144,23 @@ pub fn gen_ffi_call(
         for value in &consumed {
             ctx.release_owned(value);
         }
+    }
+
+    if !result.is_empty() && is_ptr_option(&decl.ret.kind) && is_ptr_option(expected) {
+        // The C callee returned a bare pointer. null is `None`; any other
+        // address is `Some`. Rebuild the aggregate the Yashy caller expects.
+        let present = ctx.tmp();
+        let tag = ctx.tmp();
+        let tagged = ctx.tmp();
+        let option = ctx.tmp();
+        let repr = repr_type(expected);
+        ctx.push(format!("{present} = icmp ne i8* {result}, null"));
+        ctx.push(format!("{tag} = zext i1 {present} to i8"));
+        ctx.push(format!("{tagged} = insertvalue {repr} undef, i8 {tag}, 0"));
+        ctx.push(format!(
+            "{option} = insertvalue {repr} {tagged}, i8* {result}, 1"
+        ));
+        return option;
     }
 
     result

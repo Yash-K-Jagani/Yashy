@@ -265,8 +265,11 @@ A pure computation is a function of its arguments. The determinism rules are:
 
 The enforced alias rules are ALIAS-1 (`E1005`), ALIAS-2 (`E1406`: a C pointer
 may only be dereferenced inside `unsafe`), ALIAS-3 (`E1403`) and ALIAS-5
-(`E1404`). ALIAS-4, DET-2, DET-3 and DET-5 remain obligations on later phases
-and are reported as unenforced rules by `yashyc trace --fail-orphans`.
+(`E1404`). A pointer-valued `Option` crosses the C boundary as one nullable
+pointer: `None` is null and `Some(p)` is p; the tagged aggregate is a Yashy
+implementation detail, not an ABI shape. ALIAS-4, DET-2, DET-3 and DET-5
+remain obligations on later phases and are reported as unenforced rules by
+`yashyc trace --fail-orphans`.
 
 DET-1 and DET-4 have enforcing diagnostics (`E1302` and `E1405`: a safe
 `alloc` is zeroed and `alloc_uninit` needs `unsafe`).

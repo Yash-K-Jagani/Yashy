@@ -732,6 +732,12 @@ fn a_const_fn_is_computed_by_the_compiler() {
 }
 
 #[test]
+fn a_null_c_pointer_round_trips_as_none() {
+    let output = build_and_run("null_ffi");
+    assert_eq!(stdout_of(&output), "none\nsome\nfreed none\n");
+}
+
+#[test]
 fn a_move_closure_carries_its_capture() {
     let output = build_and_run("move_closure");
     assert_eq!(stdout_of(&output), "7\n");
