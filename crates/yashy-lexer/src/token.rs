@@ -999,6 +999,8 @@ impl TokenKind {
         matches!(
             self,
             TokenKind::Fn
+                | TokenKind::Type
+                | TokenKind::Crate
                 | TokenKind::Struct
                 | TokenKind::Enum
                 | TokenKind::Const
@@ -1513,11 +1515,11 @@ mod tests {
 
     #[test]
     fn a_multi_byte_character_survives_decoding() {
-        let lit = match StringLit::decode("\"hÃ©llo\"") {
+        let lit = match StringLit::decode("\"hällo\"") {
             Ok(lit) => lit,
             Err(e) => panic!("must decode: {}", e.message),
         };
-        assert_eq!(lit.value, "hÃ©llo");
+        assert_eq!(lit.value, "hällo");
         assert_eq!(lit.bytes.len(), 6, "five characters, six bytes");
     }
 

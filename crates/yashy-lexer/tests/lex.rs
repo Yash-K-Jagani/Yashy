@@ -388,7 +388,7 @@ fn the_keyword_table_has_the_documented_length() {
     // language-server test instead of failing silently in an editor.
     assert_eq!(
         yashy_lexer::TokenKind::KEYWORDS.len(),
-        39,
+        46,
         "the keyword list changed; the editor grammars must change with it"
     );
 }
