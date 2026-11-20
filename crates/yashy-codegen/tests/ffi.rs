@@ -142,7 +142,7 @@ fn a_raw_pointer_argument_is_passed_unchanged() {
     };
     {
         let mut ctx = FnCtx::new(&mut module, TypeKind::Unit);
-        let _ = gen_ffi_call(&mut ctx, &decl, &[arg], true);
+        let _ = gen_ffi_call(&mut ctx, &decl, &[arg], true, &TypeKind::Unit);
     }
     let ir = module.finish();
     assert!(
