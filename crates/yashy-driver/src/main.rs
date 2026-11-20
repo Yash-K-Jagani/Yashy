@@ -7727,9 +7727,16 @@ fn self_update_cmd(args: &[String]) -> ExitCode {
 
 fn sbom_cmd(args: &[String]) -> ExitCode {
     let mut directory: Option<PathBuf> = None;
-    for argument in args {
+    let mut arguments = args.iter();
+    while let Some(argument) = arguments.next() {
         match argument.as_str() {
-            "--format" | "--json" => {}
+            // The format name is accepted for compatibility, but the only
+            // rendering is SPDX JSON. Its value still has to be consumed or
+            // it would be read as the directory to inspect.
+            "--format" => {
+                let _ = arguments.next();
+            }
+            "--json" => {}
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown option `{other}` for `sbom`"));
             }
