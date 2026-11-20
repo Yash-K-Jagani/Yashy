@@ -40,6 +40,7 @@ fn explain_json(code: &codes::Code) -> String {
     object.set("code", Json::string(code.id));
     object.set("title", Json::string(code.title));
     object.set("summary", Json::string(code.summary));
+    object.set("rule", Json::string(codes::rule_for(code.id)));
     object.set("page", Json::string(code.page));
     object.set("docs_url", Json::string(codes::docs_url(code.id)));
     object.render()
