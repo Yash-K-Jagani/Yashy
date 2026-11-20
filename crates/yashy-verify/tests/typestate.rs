@@ -106,26 +106,32 @@ struct Counter { n: int }\n\
 impl Iterator for Counter { fn next(self: *mut Self) -> Option[int] { if self[0].n <= 0 { return None; } self[0].n = self[0].n - 1; return Some(self[0].n); } }\n";
 
 #[test]
-fn next_after_none_on_the_same_path_is_rejected() {
+fn a_user_iterator_trait_is_reserved_e1511() {
     let source = format!(
         "{ITERATOR}\
 fn main() {{ let c = Counter {{ n: 1 }}; if let None = c.next() {{ if let Some(z) = c.next() {{ print(z); }} }} }}"
     );
-    assert!(codes(&verify_source(&source)).contains(&"E1401"), "{:?}", codes(&verify_source(&source)));
+    // A user trait may not claim the compiler-known `Iterator` protocol, so
+    // the reserved-name diagnostic is the result rather than a typestate one.
+    assert!(codes(&verify_source(&source)).contains(&"E1511"), "{:?}", codes(&verify_source(&source)));
 }
 
 #[test]
-fn next_after_none_on_a_different_branch_is_not_rejected() {
+fn a_user_iterator_trait_is_reserved_on_every_branch() {
     let source = format!(
         "{ITERATOR}\
 fn main() {{ let c = Counter {{ n: 1 }}; if let Some(x) = c.next() {{ if let Some(z) = c.next() {{ print(z); }} }} }}"
     );
     let report = verify_source(&source);
-    assert!(report.diagnostics.is_empty(), "{:?}", report.diagnostics);
+    assert!(
+        report.diagnostics.iter().any(|d| d.code.as_deref() == Some("E1511")),
+        "the reserved Iterator name is refused on every branch: {:?}",
+        report.diagnostics
+    );
 }
 
 #[test]
-fn next_after_a_none_only_path_is_rejected_after_the_if_let() {
+fn a_user_iterator_trait_is_reserved_after_an_if_let() {
     // The `Some` path returns, so only the `None` (else) path falls
     // through: the iterator is definitely closed at the join.
     let source = format!(
@@ -133,5 +139,5 @@ fn next_after_a_none_only_path_is_rejected_after_the_if_let() {
 fn use_it(Counter c) -> int {{ let d = c; if let Some(x) = d.next() {{ return x; }} else {{ }} if let Some(z) = d.next() {{ return z; }} return 0; }}\n\
 fn main() {{ let c = Counter {{ n: 1 }}; use_it(c); }}"
     );
-    assert!(codes(&verify_source(&source)).contains(&"E1401"), "{:?}", verify_source(&source).diagnostics);
+    assert!(codes(&verify_source(&source)).contains(&"E1511"), "{:?}", verify_source(&source).diagnostics);
 }

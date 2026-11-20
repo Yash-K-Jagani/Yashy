@@ -689,6 +689,7 @@ Tests:
 
 - `crates/yashy-driver/tests/verify.rs`
 - `crates/yashy-sema/tests/traits.rs`
+- `crates/yashy-verify/tests/typestate.rs`
 
 ## `TRAIT-13`
 
