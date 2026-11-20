@@ -1,0 +1,18 @@
+import mime;
+
+fn report(Mime m) {
+    print(mime.essence(m));
+    print(mime.is_json(m));
+    print(mime.is_text(m));
+}
+
+fn main() {
+    switch mime.parse("application/json; charset=utf-8") {
+        case Ok(m) { report(m); }
+        case Err(_) { print("bad media type"); }
+    };
+    switch mime.parse("noslash") {
+        case Ok(_) { print("accepted"); }
+        case Err(_) { print("rejected"); }
+    };
+}

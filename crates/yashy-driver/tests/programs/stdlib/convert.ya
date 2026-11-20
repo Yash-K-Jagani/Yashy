@@ -13,7 +13,7 @@ fn main() {
     print(convert.bool_to_string(false));
     print(convert.trunc(1.9));
     print(convert.floor(1.9));
-    print(convert.floor(0 - 1.1));
+    print(convert.floor(0.0 - 1.1));
     print(convert.ceil(1.1));
     print(convert.round(2.5));
     print(convert.try_from_float(3.0) matches Ok(3));

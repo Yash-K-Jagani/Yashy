@@ -193,6 +193,8 @@ fn set_remove[T]([]T items, T value) -> []T
 enum ConvertError
 ```
 
+Why a conversion could not produce a value.
+
 ### `bool_to_string`
 
 ```yashy
@@ -480,10 +482,10 @@ struct Metadata
 
 ## `glob`
 
-### `matches`
+### `glob_matches`
 
 ```yashy
-fn matches(string pattern, string path) -> bool
+fn glob_matches(string pattern, string path) -> bool
 ```
 
 Whether `path` matches `pattern` under the glob rules in the module head.
@@ -562,14 +564,6 @@ being spelled out in every implementor.
 
 ## `json_scan`
 
-### `Event`
-
-```yashy
-struct Event
-```
-
-One token and the byte range it covers.
-
 ### `JsonError`
 
 ```yashy
@@ -577,14 +571,6 @@ enum JsonError
 ```
 
 Why the text is not well-formed at the byte level.
-
-### `Limits`
-
-```yashy
-struct Limits
-```
-
-Explicit caps for a streaming read. A non-positive value is unbounded.
 
 ### `StreamError`
 
@@ -602,10 +588,22 @@ enum Token
 
 A token kind in the streaming reader.
 
+### `TokenList.free`
+
+```yashy
+fn free(TokenList self) -> void
+```
+
+### `TokenList.len`
+
+```yashy
+fn len(TokenList self) -> int
+```
+
 ### `at`
 
 ```yashy
-fn at([]Event events, int index) -> Option[Event]
+fn at(TokenList events, int index) -> Option[Event]
 ```
 
 The token at `index`, or `None` past the end. The event is copied out so
@@ -622,7 +620,7 @@ Remove whitespace outside strings, keeping string bytes unchanged.
 ### `tokens`
 
 ```yashy
-fn tokens(string text, Limits limits) -> Result[[]Event, StreamError]
+fn tokens(string text, Limits limits) -> Result[TokenList, StreamError]
 ```
 
 Stream a document into tokens. The token list is flat: no object or array
@@ -635,6 +633,30 @@ fn validate(string text) -> Result[int, JsonError]
 ```
 
 Check string closure and bracket balance; return the maximum depth.
+
+### `Event`
+
+```yashy
+struct Event
+```
+
+One token and the byte range it covers.
+
+### `Limits`
+
+```yashy
+struct Limits
+```
+
+Explicit caps for a streaming read. A non-positive value is unbounded.
+
+### `TokenList`
+
+```yashy
+struct TokenList
+```
+
+A flat token list: one row per token, in source order.
 
 ## `log`
 
@@ -725,14 +747,6 @@ Set the gauge named `name` to `value`.
 
 ## `mime`
 
-### `Mime`
-
-```yashy
-struct Mime
-```
-
-A parsed media type, without parameters.
-
 ### `MimeError`
 
 ```yashy
@@ -776,6 +790,14 @@ Parse `type/subtype`, ignoring anything after a semicolon.
 Both halves must be non-empty. A string with no `/`, more than one `/`, or
 an empty kind or subtype is `Err(Invalid)`.
 
+### `Mime`
+
+```yashy
+struct Mime
+```
+
+A parsed media type, without parameters.
+
 ## `observability`
 
 ### `Level`
@@ -789,7 +811,7 @@ The three event levels as stable spellings.
 ### `emit`
 
 ```yashy
-fn emit(fn(string) -> void writer, string level, string message)
+fn emit(fn(string) -> void writer, string level, string message) -> void
 ```
 
 Send an event to the caller-supplied writer.
@@ -797,7 +819,7 @@ Send an event to the caller-supplied writer.
 ### `emit_stderr`
 
 ```yashy
-fn emit_stderr(string level, string message)
+fn emit_stderr(string level, string message) -> void
 ```
 
 Emit an event to the default stderr sink.
@@ -821,7 +843,7 @@ The spelling a level uses in a JSON event.
 ### `metric`
 
 ```yashy
-fn metric(fn(string) -> void writer, string name, string kind, string value, string labels)
+fn metric(fn(string) -> void writer, string name, string kind, string value, string labels) -> void
 ```
 
 Send one metric sample to the caller-supplied writer.
@@ -838,7 +860,7 @@ shape works for counters, gauges and histograms without a numeric surprise.
 ### `stderr_sink`
 
 ```yashy
-fn stderr_sink(string line)
+fn stderr_sink(string line) -> void
 ```
 
 The default sink: one structured line to stderr.
@@ -850,7 +872,7 @@ test can pass its own writer instead.
 ### `trace`
 
 ```yashy
-fn trace(fn(string) -> void writer, string trace_id, string span_id, string parent_id, string operation, int duration_us)
+fn trace(fn(string) -> void writer, string trace_id, string span_id, string parent_id, string operation, int duration_us) -> void
 ```
 
 Send one trace span to the caller-supplied writer.
@@ -873,11 +895,15 @@ guess which field is which.
 enum Arch
 ```
 
+The host CPU architecture.
+
 ### `Platform`
 
 ```yashy
 enum Platform
 ```
+
+The host operating system.
 
 ### `arch`
 
@@ -1026,6 +1052,8 @@ Run `argv` in `cwd` with `env` (`NAME=VALUE` records).
 struct Child
 ```
 
+A child that has already exited.
+
 ## `rand`
 
 ### `fill`
@@ -1113,14 +1141,6 @@ struct Regex
 
 ## `semver`
 
-### `Semver`
-
-```yashy
-struct Semver
-```
-
-A parsed version. `pre` and `build` are empty when absent.
-
 ### `SemverError`
 
 ```yashy
@@ -1152,6 +1172,14 @@ fn to_string(Semver version) -> string
 ```
 
 The full spelling, with build metadata but no normalization.
+
+### `Semver`
+
+```yashy
+struct Semver
+```
+
+A parsed version. `pre` and `build` are empty when absent.
 
 ## `string`
 
@@ -1264,6 +1292,12 @@ Reset, `""` when disabled.
 
 ## `text`
 
+### `StringError`
+
+```yashy
+enum StringError
+```
+
 ### `TextError`
 
 ```yashy
@@ -1338,14 +1372,6 @@ Nanoseconds since the Unix epoch, from the wall clock.
 
 ## `url`
 
-### `Url`
-
-```yashy
-struct Url
-```
-
-A parsed URL: scheme, host, port (0 when absent) and path.
-
 ### `UrlError`
 
 ```yashy
@@ -1386,15 +1412,34 @@ escape produces exactly one byte. The `+` spelling is left alone: it is a
 literal plus in a path and a space only in form bodies, which this module
 does not parse.
 
+### `Url`
+
+```yashy
+struct Url
+```
+
+A parsed URL: scheme, host, port (0 when absent) and path.
+
 ## `uuid`
+
+### `UuidError`
+
+```yashy
+enum UuidError
+```
+
+Why a UUID could not be built from bytes.
 
 ### `from_bytes`
 
 ```yashy
-fn from_bytes([]char bytes) -> Result[string, text.TextError]
+fn from_bytes([]char bytes) -> Result[string, UuidError]
 ```
 
 Format sixteen bytes as canonical lowercase UUID text.
+
+The byte array is consumed: like `csv.record`, this function hands it to a
+helper that releases it on both the success and the error path.
 
 ### `is_valid`
 
@@ -1415,7 +1460,7 @@ The nil UUID, all zeroes.
 ### `v4`
 
 ```yashy
-fn v4() -> Result[string, text.TextError]
+fn v4() -> Result[string, UuidError]
 ```
 
 Generate a version-4 UUID from sixteen OS-random bytes.
@@ -1424,4 +1469,3 @@ The version nibble is set to `4` and the variant bits to `10`, so the text
 this produces is a valid RFC 4122 UUID. The entropy comes from `rand.fill`,
 which reads the OS source; a deterministic build fixes that source at the
 process edge.
-

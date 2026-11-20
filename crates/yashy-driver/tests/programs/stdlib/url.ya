@@ -1,0 +1,19 @@
+import url;
+
+fn report(Url u) {
+    print(url.origin(u));
+    print(u.port);
+    print(u.path);
+}
+
+fn main() {
+    switch url.parse("https://example.org:8443/docs/index.md") {
+        case Ok(u) { report(u); }
+        case Err(_) { print("bad url"); }
+    };
+    switch url.percent_decode("a%20b%2Fc") {
+        case Ok(decoded) { print(decoded); }
+        case Err(_) { print("bad escapes"); }
+    };
+    print(url.percent_decode("%zz") matches Err(_));
+}

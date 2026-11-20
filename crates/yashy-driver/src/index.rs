@@ -186,6 +186,33 @@ pub fn generic_functions(program: &yashy_parser::ast::Program) -> Vec<GenericFn>
     found
 }
 
+/// The doc block above each `struct` and `enum` declaration, keyed by name.
+///
+/// Type documentation is an AST fact for the same reason `pub` is: the HIR
+/// keeps the declaration's shape and drops the wrapper that carried the prose.
+/// A name appears only when the declaration had a doc block.
+pub fn type_docs(program: &yashy_parser::ast::Program) -> BTreeMap<String, String> {
+    fn walk(item: &Item, docs: Vec<String>, out: &mut BTreeMap<String, String>) {
+        match item {
+            Item::Public { item, .. } => walk(item, docs, out),
+            Item::Effect { item, .. } => walk(item, docs, out),
+            Item::Cfg { item, .. } => walk(item, docs, out),
+            Item::Documented { docs, item, .. } => walk(item, docs.clone(), out),
+            Item::Struct { name, .. } | Item::Enum { name, .. } => {
+                if !docs.is_empty() {
+                    out.insert(name.clone(), docs.join("\n"));
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut found = BTreeMap::new();
+    for item in &program.items {
+        walk(item, Vec::new(), &mut found);
+    }
+    found
+}
+
 /// Every name this function body calls, in first-use order, deduplicated.
 fn calls_of(f: &HirFn, out: &mut Vec<String>) {
     fn walk(e: &HirExpr, out: &mut Vec<String>) {
@@ -576,25 +603,67 @@ pub fn build_index(root: &Path) -> Result<IndexModel, String> {
                     .tokenize()
                     .unwrap_or_default();
                 if let Ok(program) = Parser::new(tokens, &sources, file).parse_program() {
-                    for item in &program.items {
-                        let (name, span, kind) = match item {
-                            Item::Fn { name, span, .. } => (name.clone(), *span, "fn"),
-                            Item::Struct { name, span, .. } => (name.clone(), *span, "struct"),
-                            Item::Enum { name, span, .. } => (name.clone(), *span, "enum"),
-                            _ => continue,
+                    // The AST fallback describes the declaration as written:
+                    // the wrapper carries `pub`, the item carries the name,
+                    // the span and, for a type, its `derive` clause. The HIR
+                    // path renders the same facts from the checked program,
+                    // so a file that does not check is indexed, not skipped.
+                    fn walk(
+                        item: &Item,
+                        pubbed: bool,
+                        path: &Path,
+                        out: &mut Vec<Symbol>,
+                    ) {
+                        let (pubbed, item) = match item {
+                            Item::Public { item, .. } => (true, item.as_ref()),
+                            Item::Effect { item, .. }
+                            | Item::Documented { item, .. }
+                            | Item::Cfg { item, .. } => (pubbed, item.as_ref()),
+                            other => (pubbed, other),
                         };
-                        model.symbols.push(Symbol {
-                            name: name.clone(),
+                        let (name, span, kind, signature) = match item {
+                            Item::Fn { name, span, .. } => {
+                                (name.clone(), *span, "fn", format!("fn {name}"))
+                            }
+                            Item::Struct {
+                                name,
+                                span,
+                                derives,
+                                ..
+                            } => (
+                                name.clone(),
+                                *span,
+                                "struct",
+                                format!("struct {name}{}", derive_suffix(derives)),
+                            ),
+                            Item::Enum {
+                                name,
+                                span,
+                                derives,
+                                ..
+                            } => (
+                                name.clone(),
+                                *span,
+                                "enum",
+                                format!("enum {name}{}", derive_suffix(derives)),
+                            ),
+                            _ => return,
+                        };
+                        out.push(Symbol {
+                            name,
                             kind: kind.to_string(),
                             file: path.to_string_lossy().replace('\\', "/"),
                             span,
-                            signature: format!("{kind} {name}"),
+                            signature,
                             effects: None,
                             contracts: Vec::new(),
                             typestate: None,
-                            visibility: "private".to_string(),
+                            visibility: if pubbed { "pub" } else { "private" }.to_string(),
                             docs: None,
                         });
+                    }
+                    for item in &program.items {
+                        walk(item, false, path, &mut model.symbols);
                     }
                 }
             }

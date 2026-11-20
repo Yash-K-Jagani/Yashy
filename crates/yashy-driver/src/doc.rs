@@ -177,16 +177,25 @@ fn doc_module(
     // A generic function has no HIR item: the checker keeps it as a scheme
     // until a call says what its type parameters are. The reference still has
     // to show it, so it is rendered from the AST -- the declaration as the
-    // source wrote it.
-    for function in generic_functions(source) {
-        items.push(DocItem {
-            name: function.name,
-            kind: "fn".to_string(),
-            signature: function.signature,
-            docs: function.docs,
-            effects: None,
-            contracts: Vec::new(),
-        });
+    // source wrote it. The same parse carries the doc block above each struct
+    // and enum, which the HIR also drops.
+    if let Some(program) = parse_source(source) {
+        for function in crate::index::generic_functions(&program) {
+            items.push(DocItem {
+                name: function.name,
+                kind: "fn".to_string(),
+                signature: function.signature,
+                docs: function.docs,
+                effects: None,
+                contracts: Vec::new(),
+            });
+        }
+        let type_docs = crate::index::type_docs(&program);
+        for item in &mut items {
+            if item.docs.is_none() {
+                item.docs = type_docs.get(&item.name).cloned();
+            }
+        }
     }
     items.sort_by(|a, b| (&a.kind, &a.name).cmp(&(&b.kind, &b.name)));
     DocModule {
@@ -195,22 +204,17 @@ fn doc_module(
     }
 }
 
-/// The public generic functions a source file declares.
+/// The parsed source, or `None` when it does not parse.
 ///
-/// The AST is parsed again here: the HIR has no item for a generic function,
-/// because the checker keeps it as a scheme until a call says what its type
-/// parameters are. A file that does not parse has no generic functions to
-/// report -- the checker has already said why.
-fn generic_functions(source: &str) -> Vec<crate::index::GenericFn> {
+/// A file that does not parse has no generic functions and no type doc blocks
+/// to report; the checker has already said why.
+fn parse_source(source: &str) -> Option<yashy_parser::ast::Program> {
     let mut sources = SourceMap::new();
     let file = sources.add_file("stdlib.ya".to_string(), source.to_string());
     let tokens = Lexer::with_file(source, file)
         .tokenize()
         .unwrap_or_default();
-    let Ok(program) = Parser::new(tokens, &sources, file).parse_program() else {
-        return Vec::new();
-    };
-    crate::index::generic_functions(&program)
+    Parser::new(tokens, &sources, file).parse_program().ok()
 }
 
 /// The JSON form of the model.

@@ -1,0 +1,38 @@
+import uuid;
+
+/// Bytes 0 through 15, in order: the canonical UUID `00010203-...`.
+fn sixteen_bytes() -> []char {
+    let bytes = []char {};
+    let index = 0;
+    while index < 16 {
+        bytes.push(index.to_char());
+        index = index + 1;
+    }
+    return bytes;
+}
+
+fn report_generated(string generated) {
+    print(uuid.is_valid(generated));
+    print(generated.byte_at(14).to_int() == 52);
+    const variant = generated.byte_at(19).to_int();
+    print(variant == 56 || variant == 57 || variant == 97 || variant == 98);
+}
+
+fn report_failure() {
+    print(false);
+    print(false);
+    print(false);
+}
+
+fn main() {
+    print(uuid.is_valid(uuid.nil()));
+    print(uuid.is_valid("not-a-uuid"));
+    switch uuid.from_bytes(sixteen_bytes()) {
+        case Ok(text) { print(text == "00010203-0405-0607-0809-0a0b0c0d0e0f"); }
+        case Err(_) { print(false); }
+    };
+    switch uuid.v4() {
+        case Ok(generated) { report_generated(generated); }
+        case Err(_) { report_failure(); }
+    };
+}

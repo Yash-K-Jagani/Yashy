@@ -126,6 +126,6 @@ fn matches_here(string pattern, string path, int at, int start) -> bool {
 }
 
 /// Whether `path` matches `pattern` under the glob rules in the module head.
-pub fn matches(string pattern, string path) -> bool {
+pub fn glob_matches(string pattern, string path) -> bool {
     return matches_here(pattern, path, 0, 0);
 }

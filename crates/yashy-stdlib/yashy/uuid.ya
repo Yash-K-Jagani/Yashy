@@ -5,8 +5,49 @@
 // length, a misplaced dash or a non-hex digit is answered by `is_valid`
 // returning `false`, never by a sentinel string.
 
-import text;
 import rand;
+
+/// The lowercase hexadecimal spelling of a byte.
+fn hex_digit(int value) -> char {
+    if value < 10 {
+        return (48 + value).to_char();
+    }
+    return (value - 10 + 97).to_char();
+}
+
+/// Why a UUID could not be built from bytes.
+pub enum UuidError {
+    /// The byte slice is not exactly sixteen bytes.
+    Invalid,
+}
+
+/// Sixteen bytes as thirty-two lowercase hexadecimal characters, when there
+/// are sixteen. The byte array is consumed and released on both paths; there
+/// is no `return` before the `free`, so no second owner can exist.
+fn hex_encode([]char bytes) -> Result[string, UuidError] {
+    let bool valid = bytes.len() == 16;
+    let out = "";
+    if valid {
+        let index = 0;
+        while index < bytes.len() {
+            const byte = bytes[index];
+            const value = switch byte {
+                case Some(found) { found.to_int() }
+                case None { 0 }
+            };
+            const char high = hex_digit(value / 16);
+            const char low = hex_digit(value % 16);
+            out = out + high.to_string();
+            out = out + low.to_string();
+            index = index + 1;
+        }
+    }
+    bytes.free();
+    if !valid {
+        return Err(UuidError.Invalid);
+    }
+    return Ok(out);
+}
 
 /// The nil UUID, all zeroes.
 pub fn nil() -> string {
@@ -32,13 +73,29 @@ pub fn is_valid(string value) -> bool {
     return true;
 }
 
+/// Wrap the formatted text with a known result type. A bare `Ok(...)` in a
+/// switch arm has no expected type to infer its error half from.
+fn ok_text(string text) -> Result[string, UuidError] {
+    return Ok(text);
+}
+
+/// The error arm of the same switch.
+fn uuid_error(UuidError problem) -> Result[string, UuidError] {
+    return Err(problem);
+}
+
 /// Format sixteen bytes as canonical lowercase UUID text.
-pub fn from_bytes([]char bytes) -> Result[string, text.TextError] {
-    if bytes.len() != 16 {
-        return Err(text.TextError.Invalid);
-    }
-    const hex = text.hex_encode(bytes);
-    return Ok(hex[0..8] + "-" + hex[8..12] + "-" + hex[12..16] + "-" + hex[16..20] + "-" + hex[20..32]);
+///
+/// The byte array is consumed: like `csv.record`, this function hands it to a
+/// helper that releases it on both the success and the error path.
+pub fn from_bytes([]char bytes) -> Result[string, UuidError] {
+    const Result[string, UuidError] result = switch hex_encode(bytes) {
+        case Ok(hex) {
+            ok_text(hex.slice(0, 8) + "-" + hex.slice(8, 12) + "-" + hex.slice(12, 16) + "-" + hex.slice(16, 20) + "-" + hex.slice(20, 32))
+        }
+        case Err(problem) { uuid_error(problem) }
+    };
+    return result;
 }
 
 /// Generate a version-4 UUID from sixteen OS-random bytes.
@@ -47,17 +104,19 @@ pub fn from_bytes([]char bytes) -> Result[string, text.TextError] {
 /// this produces is a valid RFC 4122 UUID. The entropy comes from `rand.fill`,
 /// which reads the OS source; a deterministic build fixes that source at the
 /// process edge.
-pub fn v4() -> Result[string, text.TextError] {
+pub fn v4() -> Result[string, UuidError] {
     let bytes = rand.fill(16);
     const sixth = switch bytes[6] {
         case Some(value) { value.to_int() }
         case None { 0 }
     };
-    bytes.set(6, ((sixth & 15) | 64).to_char());
+    const char sixth_byte = ((sixth & 15) | 64).to_char();
+    bytes.set(6, sixth_byte);
     const ninth = switch bytes[8] {
         case Some(value) { value.to_int() }
         case None { 0 }
     };
-    bytes.set(8, ((ninth & 63) | 128).to_char());
+    const char ninth_byte = ((ninth & 63) | 128).to_char();
+    bytes.set(8, ninth_byte);
     return from_bytes(bytes);
 }

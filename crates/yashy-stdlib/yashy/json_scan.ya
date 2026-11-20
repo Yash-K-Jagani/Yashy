@@ -6,6 +6,14 @@
 // greatest nesting depth. `tokens` streams the same byte grammar into a flat
 // token list with explicit depth and size limits. No value tree is built, so
 // a large document can be scanned before a caller decides what to keep.
+//
+// The token list is parallel `[]int` columns rather than an array of structs:
+// the language's arrays hold numbers, `bool` and `string`, so a token's kind
+// and byte span are encoded as ints. `at` decodes one column entry back into
+// an `Event` for the caller.
+//
+// `tokens` validates the whole document before it allocates a column, so a
+// malformed read answers `Err` without owning anything to release.
 
 /// Why the text is not well-formed at the byte level.
 pub enum JsonError {
@@ -35,6 +43,31 @@ pub struct Event {
     pub end: int,
 }
 
+/// A flat token list: one row per token, in source order.
+pub struct TokenList {
+    kinds: []int,
+    starts: []int,
+    ends: []int,
+}
+
+impl TokenList {
+    /// The number of tokens.
+    pub fn len(self) -> int {
+        const []int kinds = self.kinds;
+        return kinds.len();
+    }
+
+    /// Release the three columns.
+    pub fn free(self) {
+        const []int kinds = self.kinds;
+        const []int starts = self.starts;
+        const []int ends = self.ends;
+        kinds.free();
+        starts.free();
+        ends.free();
+    }
+}
+
 /// Explicit caps for a streaming read. A non-positive value is unbounded.
 pub struct Limits {
     pub max_depth: int,
@@ -58,8 +91,9 @@ pub fn minify(string text) -> Result[string, JsonError] {
     let index = 0;
     while index < text.len() {
         const byte = text.byte_at(index).to_int();
+        const char symbol = byte.to_char();
         if quoted {
-            out = out + byte.to_char().to_string();
+            out = out + symbol.to_string();
             if escaped {
                 escaped = false;
             } else if byte == 92 {
@@ -71,7 +105,7 @@ pub fn minify(string text) -> Result[string, JsonError] {
             quoted = true;
             out = out + "\"";
         } else if byte != 32 && byte != 9 && byte != 10 && byte != 13 {
-            out = out + byte.to_char().to_string();
+            out = out + symbol.to_string();
         }
         index = index + 1;
     }
@@ -162,13 +196,12 @@ fn at_word(string text, int start, string word) -> bool {
     return text.slice(start, start + word.len()) == word;
 }
 
-/// Stream a document into tokens. The token list is flat: no object or array
-/// value is built, and the caller sees each token with its byte span.
-pub fn tokens(string text, Limits limits) -> Result[[]Event, StreamError] {
+/// Validate the byte grammar without allocating. A success means the filling
+/// pass cannot fail.
+fn check_tokens(string text, Limits limits) -> Option[StreamError] {
     if limits.max_bytes > 0 && text.len() > limits.max_bytes {
-        return Err(StreamError.TooLarge(limits.max_bytes, text.len()));
+        return Some(StreamError.TooLarge(limits.max_bytes, text.len()));
     }
-    let events = []Event {};
     let depth = 0;
     let index = 0;
     while index < text.len() {
@@ -180,13 +213,7 @@ pub fn tokens(string text, Limits limits) -> Result[[]Event, StreamError] {
         if byte == 91 || byte == 123 {
             depth = depth + 1;
             if limits.max_depth > 0 && depth > limits.max_depth {
-                events.free();
-                return Err(StreamError.TooDeep(limits.max_depth, depth));
-            }
-            if byte == 91 {
-                events.push(Event { kind: Token.LeftBracket, start: index, end: index + 1 });
-            } else {
-                events.push(Event { kind: Token.LeftBrace, start: index, end: index + 1 });
+                return Some(StreamError.TooDeep(limits.max_depth, depth));
             }
             index = index + 1;
             continue;
@@ -194,74 +221,197 @@ pub fn tokens(string text, Limits limits) -> Result[[]Event, StreamError] {
         if byte == 93 || byte == 125 {
             depth = depth - 1;
             if depth < 0 {
-                events.free();
-                return Err(StreamError.Invalid(index));
-            }
-            if byte == 93 {
-                events.push(Event { kind: Token.RightBracket, start: index, end: index + 1 });
-            } else {
-                events.push(Event { kind: Token.RightBrace, start: index, end: index + 1 });
+                return Some(StreamError.Invalid(index));
             }
             index = index + 1;
             continue;
         }
-        if byte == 58 {
-            events.push(Event { kind: Token.Colon, start: index, end: index + 1 });
-            index = index + 1;
-            continue;
-        }
-        if byte == 44 {
-            events.push(Event { kind: Token.Comma, start: index, end: index + 1 });
+        if byte == 58 || byte == 44 {
             index = index + 1;
             continue;
         }
         if byte == 34 {
             const end = scan_string(text, index);
             if end < 0 {
-                events.free();
-                return Err(StreamError.Invalid(index));
+                return Some(StreamError.Invalid(index));
             }
-            events.push(Event { kind: Token.String, start: index, end: end });
             index = end;
             continue;
         }
         if at_word(text, index, "true") {
-            events.push(Event { kind: Token.True, start: index, end: index + 4 });
             index = index + 4;
             continue;
         }
         if at_word(text, index, "false") {
-            events.push(Event { kind: Token.False, start: index, end: index + 5 });
             index = index + 5;
             continue;
         }
         if at_word(text, index, "null") {
-            events.push(Event { kind: Token.Null, start: index, end: index + 4 });
             index = index + 4;
             continue;
         }
         if byte == 45 || (byte >= 48 && byte <= 57) {
-            const end = scan_number(text, index);
-            events.push(Event { kind: Token.Number, start: index, end: end });
+            index = scan_number(text, index);
+            continue;
+        }
+        return Some(StreamError.Invalid(index));
+    }
+    if depth != 0 {
+        return Some(StreamError.Invalid(text.len()));
+    }
+    return None;
+}
+
+/// Stream a document into tokens. The token list is flat: no object or array
+/// value is built, and the caller sees each token with its byte span.
+pub fn tokens(string text, Limits limits) -> Result[TokenList, StreamError] {
+    let index = 0;
+    const Option[StreamError] problem = check_tokens(text, limits);
+    if problem matches Some(_) {
+        const StreamError failure = switch problem {
+            case Some(value) { value }
+            case None { StreamError.Invalid(0) }
+        };
+        return Err(failure);
+    }
+    let kinds = []int {};
+    let starts = []int {};
+    let ends = []int {};
+    while index < text.len() {
+        const byte = text.byte_at(index).to_int();
+        if byte == 32 || byte == 9 || byte == 10 || byte == 13 {
+            index = index + 1;
+            continue;
+        }
+        if byte == 91 || byte == 123 {
+            if byte == 91 {
+                kinds.push(3);
+            } else {
+                kinds.push(0);
+            }
+            starts.push(index);
+            ends.push(index + 1);
+            index = index + 1;
+            continue;
+        }
+        if byte == 93 || byte == 125 {
+            if byte == 93 {
+                kinds.push(4);
+            } else {
+                kinds.push(1);
+            }
+            starts.push(index);
+            ends.push(index + 1);
+            index = index + 1;
+            continue;
+        }
+        if byte == 58 {
+            kinds.push(5);
+            starts.push(index);
+            ends.push(index + 1);
+            index = index + 1;
+            continue;
+        }
+        if byte == 44 {
+            kinds.push(6);
+            starts.push(index);
+            ends.push(index + 1);
+            index = index + 1;
+            continue;
+        }
+        if byte == 34 {
+            const end = scan_string(text, index);
+            kinds.push(7);
+            starts.push(index);
+            ends.push(end);
             index = end;
             continue;
         }
-        events.free();
-        return Err(StreamError.Invalid(index));
+        if at_word(text, index, "true") {
+            kinds.push(8);
+            starts.push(index);
+            ends.push(index + 4);
+            index = index + 4;
+            continue;
+        }
+        if at_word(text, index, "false") {
+            kinds.push(9);
+            starts.push(index);
+            ends.push(index + 5);
+            index = index + 5;
+            continue;
+        }
+        if at_word(text, index, "null") {
+            kinds.push(10);
+            starts.push(index);
+            ends.push(index + 4);
+            index = index + 4;
+            continue;
+        }
+        const end = scan_number(text, index);
+        kinds.push(2);
+        starts.push(index);
+        ends.push(end);
+        index = end;
     }
-    if depth != 0 {
-        events.free();
-        return Err(StreamError.Invalid(text.len()));
+    return Ok(TokenList { kinds: kinds, starts: starts, ends: ends });
+}
+
+/// Decode one stored kind back into its enum.
+fn kind_of(int stored) -> Token {
+    if stored == 1 {
+        return Token.RightBrace;
     }
-    return Ok(events);
+    if stored == 3 {
+        return Token.LeftBracket;
+    }
+    if stored == 4 {
+        return Token.RightBracket;
+    }
+    if stored == 5 {
+        return Token.Colon;
+    }
+    if stored == 6 {
+        return Token.Comma;
+    }
+    if stored == 7 {
+        return Token.String;
+    }
+    if stored == 2 {
+        return Token.Number;
+    }
+    if stored == 8 {
+        return Token.True;
+    }
+    if stored == 9 {
+        return Token.False;
+    }
+    if stored == 10 {
+        return Token.Null;
+    }
+    return Token.LeftBrace;
 }
 
 /// The token at `index`, or `None` past the end. The event is copied out so
 /// the caller does not have to retain the token slice.
-pub fn at([]Event events, int index) -> Option[Event] {
-    const found = switch events[index] {
-        case Some(event) { event }
-        case None { return None; }
+pub fn at(TokenList events, int index) -> Option[Event] {
+    if index < 0 || index >= events.len() {
+        return None;
+    }
+    const Option[int] stored = events.kinds[index];
+    const Option[int] start = events.starts[index];
+    const Option[int] end = events.ends[index];
+    const int code = switch stored {
+        case Some(value) { value }
+        case None { 0 }
     };
-    return Some(Event { kind: found.kind, start: found.start, end: found.end });
+    const int first = switch start {
+        case Some(value) { value }
+        case None { 0 }
+    };
+    const int last = switch end {
+        case Some(value) { value }
+        case None { 0 }
+    };
+    return Some(Event { kind: kind_of(code), start: first, end: last });
 }

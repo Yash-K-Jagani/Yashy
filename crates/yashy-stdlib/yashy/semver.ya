@@ -21,47 +21,53 @@ pub struct Semver {
 /// Parse `major.minor.patch[-pre][+build]`.
 pub fn parse(string text) -> Result[Semver, SemverError] {
     const plus = find_from(text, "+", 0);
-    const with_build = if plus >= 0 { text.slice(0, plus) } else { text };
-    const build = if plus >= 0 {
-        text.slice(plus + 1, text.len())
-    } else {
-        ""
-    };
+    let with_build = text;
+    if plus >= 0 { with_build = text.slice(0, plus); }
+    let build = "";
+    if plus >= 0 { build = text.slice(plus + 1, text.len()); }
     if plus >= 0 && !valid_identifiers(build, false) {
         return Err(SemverError.Invalid);
     }
 
     const dash = find_from(with_build, "-", 0);
-    const core = if dash >= 0 {
-        with_build.slice(0, dash)
-    } else {
-        with_build
-    };
-    const pre = if dash >= 0 {
-        with_build.slice(dash + 1, with_build.len())
-    } else {
-        ""
-    };
+    let core = with_build;
+    if dash >= 0 { core = with_build.slice(0, dash); }
+    let pre = "";
+    if dash >= 0 { pre = with_build.slice(dash + 1, with_build.len()); }
     if dash >= 0 && !valid_identifiers(pre, true) {
         return Err(SemverError.Invalid);
     }
 
-    const parts = core.split(".");
-    if parts.len() != 3 {
-        parts.free();
+    // Locate the two dots rather than calling `split`: that builtin returns an
+    // owned array which this total parser would have to release on every exit,
+    // including the three error paths below. Slices are views, so the three
+    // components borrow `core` and own nothing.
+    const first_dot = find_from(core, ".", 0);
+    if first_dot < 0 {
         return Err(SemverError.Invalid);
     }
-    const a = component(parts, 0);
-    const b = component(parts, 1);
-    const c = component(parts, 2);
-    if a matches None || b matches None || c matches None {
-        parts.free();
+    const second_dot = find_from(core, ".", first_dot + 1);
+    if second_dot < 0 {
         return Err(SemverError.Invalid);
     }
-    const major = switch a { case Some(value) { value } case None { 0 } };
-    const minor = switch b { case Some(value) { value } case None { 0 } };
-    const patch = switch c { case Some(value) { value } case None { 0 } };
-    parts.free();
+    if find_from(core, ".", second_dot + 1) >= 0 {
+        return Err(SemverError.Invalid);
+    }
+    const string sa = core.slice(0, first_dot);
+    const string sb = core.slice(first_dot + 1, second_dot);
+    const string sc = core.slice(second_dot + 1, core.len());
+    const Option[int] na = sa.parse_i64();
+    const Option[int] nb = sb.parse_i64();
+    const Option[int] nc = sc.parse_i64();
+    if na is None || nb is None || nc is None {
+        return Err(SemverError.Invalid);
+    }
+    const int major = switch na { case Some(value) { value } case None { 0 } };
+    const int minor = switch nb { case Some(value) { value } case None { 0 } };
+    const int patch = switch nc { case Some(value) { value } case None { 0 } };
+    if major < 0 || minor < 0 || patch < 0 {
+        return Err(SemverError.Invalid);
+    }
     return Ok(Semver {
         major: major,
         minor: minor,
@@ -95,11 +101,13 @@ fn find_from(string text, string needle, int start) -> int {
     if start >= text.len() || needle.len() == 0 {
         return 0 - 1;
     }
-    const at = text.slice(start, text.len()).index_of(needle);
-    switch at {
-        case Some(index) { return start + index; }
-        case None { return 0 - 1; }
-    }
+    const string rest = text.slice(start, text.len());
+    const at = rest.index_of(needle);
+    const int found = switch at {
+        case Some(index) { start + index }
+        case None { 0 - 1 }
+    };
+    return found;
 }
 
 /// Dot-separated identifiers: letters, digits and hyphens, each non-empty.
@@ -111,7 +119,8 @@ fn valid_identifiers(string text, bool no_leading_zero) -> bool {
     let start = 0;
     while start < text.len() {
         const dot = find_from(text, ".", start);
-        const end = if dot >= 0 { dot } else { text.len() };
+        let end = text.len();
+    if dot >= 0 { end = dot; }
         const part = text.slice(start, end);
         if part.len() == 0 {
             return false;
@@ -160,12 +169,18 @@ fn compare_identifier(string a, string b) -> int {
             return 1;
         }
     }
-    if a < b {
-        return 0 - 1;
+    let index = 0;
+    while index < a.len() && index < b.len() {
+        const left = a.byte_at(index);
+        const right = b.byte_at(index);
+        if left != right {
+            if left < right { return 0 - 1; }
+            return 1;
+        }
+        index = index + 1;
     }
-    if a > b {
-        return 1;
-    }
+    if a.len() < b.len() { return 0 - 1; }
+    if a.len() > b.len() { return 1; }
     return 0;
 }
 
@@ -193,8 +208,10 @@ pub fn compare(Semver a, Semver b) -> int {
     if a.patch < b.patch { return 0 - 1; }
     if a.patch > b.patch { return 1; }
 
-    const a_empty = a.pre.len() == 0;
-    const b_empty = b.pre.len() == 0;
+    const string a_pre = a.pre;
+    const string b_pre = b.pre;
+    const a_empty = a_pre.len() == 0;
+    const b_empty = b_pre.len() == 0;
     if a_empty && b_empty { return 0; }
     if a_empty { return 1; }
     if b_empty { return 0 - 1; }
@@ -202,12 +219,14 @@ pub fn compare(Semver a, Semver b) -> int {
     let a_start = 0;
     let b_start = 0;
     while true {
-        const a_dot = find_from(a.pre, ".", a_start);
-        const b_dot = find_from(b.pre, ".", b_start);
-        const a_end = if a_dot >= 0 { a_dot } else { a.pre.len() };
-        const b_end = if b_dot >= 0 { b_dot } else { b.pre.len() };
-        const a_id = a.pre.slice(a_start, a_end);
-        const b_id = b.pre.slice(b_start, b_end);
+        const a_dot = find_from(a_pre, ".", a_start);
+        const b_dot = find_from(b_pre, ".", b_start);
+        let a_end = a_pre.len();
+        if a_dot >= 0 { a_end = a_dot; }
+        let b_end = b_pre.len();
+        if b_dot >= 0 { b_end = b_dot; }
+        const a_id = a_pre.slice(a_start, a_end);
+        const b_id = b_pre.slice(b_start, b_end);
         const order = compare_identifier(a_id, b_id);
         if order != 0 {
             return order;
@@ -224,16 +243,19 @@ pub fn compare(Semver a, Semver b) -> int {
         a_start = a_dot + 1;
         b_start = b_dot + 1;
     }
+    return 0;
 }
 
 /// The full spelling, with build metadata but no normalization.
 pub fn to_string(Semver version) -> string {
     let text = str_from_i64(version.major) + "." + str_from_i64(version.minor) + "." + str_from_i64(version.patch);
-    if version.pre.len() > 0 {
-        text = text + "-" + version.pre;
+    const string pre = version.pre;
+    if pre.len() > 0 {
+        text = text + "-" + pre;
     }
-    if version.build.len() > 0 {
-        text = text + "+" + version.build;
+    const string build = version.build;
+    if build.len() > 0 {
+        text = text + "+" + build;
     }
     return text;
 }

@@ -295,7 +295,8 @@ pub fn hex_decode(string text) -> Result[[]char, TextError] {
 /// Bytes to unpadded base64url text (RFC 4648 section 5).
 pub fn base64url_encode([]char data) -> string {
     const standard = base64_encode(data);
-    const swapped = standard.replace("+", "-").replace("/", "_");
+    const first = standard.replace("+", "-");
+    const swapped = first.replace("/", "_");
     let end = swapped.len();
     while end > 0 && swapped.byte_at(end - 1).to_int() == 61 {
         end = end - 1;
@@ -305,7 +306,8 @@ pub fn base64url_encode([]char data) -> string {
 
 /// Decode unpadded or padded base64url text.
 pub fn base64url_decode(string text) -> Result[[]char, TextError] {
-    const swapped = text.replace("-", "+").replace("_", "/");
+    const first = text.replace("-", "+");
+    const swapped = first.replace("_", "/");
     const missing = (4 - (swapped.len() % 4)) % 4;
     let padded = swapped;
     let index = 0;

@@ -12,10 +12,10 @@ pub enum UrlError {
 
 /// A parsed URL: scheme, host, port (0 when absent) and path.
 pub struct Url {
-    scheme: string,
-    host: string,
-    port: int,
-    path: string,
+    pub scheme: string,
+    pub host: string,
+    pub port: int,
+    pub path: string,
 }
 
 /// Parse `scheme://host[:port]/path`.
@@ -30,20 +30,20 @@ pub fn parse(string text) -> Result[Url, UrlError] {
     if at < 0 {
         return Err(UrlError.Invalid);
     }
-    const scheme = text[0..at];
-    const after = text[at + 3..text.len()];
+    const scheme = text.slice(0, at);
+    const after = text.slice(at + 3, text.len());
     const slash = after.index_of("/");
     const authority = switch slash {
-        case Some(index) { after[0..index] }
+        case Some(index) { after.slice(0, index) }
         case None { after }
     };
     const path = switch slash {
-        case Some(index) { after[index..after.len()] }
+        case Some(index) { after.slice(index, after.len()) }
         case None { "" }
     };
     const colon = authority.index_of(":");
     const host = switch colon {
-        case Some(index) { authority[0..index] }
+        case Some(index) { authority.slice(0, index) }
         case None { authority }
     };
     const port = switch colon {
@@ -58,7 +58,7 @@ pub fn parse(string text) -> Result[Url, UrlError] {
 
 /// The port after a colon, parsed as a positive decimal integer.
 fn port_of(string authority, int colon) -> Result[int, UrlError] {
-    const text = authority[colon + 1..authority.len()];
+    const text = authority.slice(colon + 1, authority.len());
     const parsed = switch text.parse_i64() {
         case Some(value) { value }
         case None { 0 - 1 }
@@ -93,10 +93,12 @@ pub fn percent_decode(string text) -> Result[string, UrlError] {
             if hi < 0 || lo < 0 {
                 return Err(UrlError.Invalid);
             }
-            out = out + (hi * 16 + lo).to_char().to_string();
+            const char decoded = (hi * 16 + lo).to_char();
+            out = out + decoded.to_string();
             index = index + 3;
         } else {
-            out = out + text.byte_at(index).to_char().to_string();
+            const char byte = text.byte_at(index);
+            out = out + byte.to_string();
             index = index + 1;
         }
     }

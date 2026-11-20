@@ -29,20 +29,38 @@ pub fn parse_bool(string text) -> Result[bool, ConvertError] {
     return Err(ConvertError.Invalid);
 }
 
-/// Parse a decimal integer. This is the `Result` spelling of `parse_i64`.
-pub fn parse_int(string text) -> Result[int, ConvertError] {
-    return switch parse_i64(text) {
-        case Some(value) { Ok(value) }
-        case None { Err(ConvertError.Invalid) }
-    };
+fn ok_int(int value) -> Result[int, ConvertError] {
+    return Ok(value);
 }
 
+fn err_int() -> Result[int, ConvertError] {
+    return Err(ConvertError.Invalid);
+}
+/// Parse a decimal integer. This is the `Result` spelling of `parse_i64`.
+pub fn parse_int(string text) -> Result[int, ConvertError] {
+    const Option[int] parsed = text.parse_i64();
+    const Result[int, ConvertError] answer = switch parsed {
+        case Some(value) { ok_int(value) }
+        case None { err_int() }
+    };
+    return answer;
+}
+
+fn ok_float(float value) -> Result[float, ConvertError] {
+    return Ok(value);
+}
+
+fn err_float() -> Result[float, ConvertError] {
+    return Err(ConvertError.Invalid);
+}
 /// Parse a decimal float. This is the `Result` spelling of `parse_f64`.
 pub fn parse_float(string text) -> Result[float, ConvertError] {
-    return switch parse_f64(text) {
-        case Some(value) { Ok(value) }
-        case None { Err(ConvertError.Invalid) }
+    const Option[float] parsed = text.parse_f64();
+    const Result[float, ConvertError] answer = switch parsed {
+        case Some(value) { ok_float(value) }
+        case None { err_float() }
     };
+    return answer;
 }
 
 /// Parse an unsigned magnitude in a radix from 2 through 36.
@@ -54,12 +72,13 @@ pub fn parse_radix(string text, int radix) -> Result[int, ConvertError] {
     if radix < 2 || radix > 36 {
         return Err(ConvertError.Invalid);
     }
-    const bytes = text.to_bytes();
-    if bytes.len() == 0 {
+    const count = text.len();
+    if count == 0 {
         return Err(ConvertError.Invalid);
     }
     let value = 0;
-    for ch in bytes {
+    for index in 0..count {
+        const ch = text.byte_at(index);
         let digit = 0;
         if ch >= '0' && ch <= '9' {
             digit = ch.to_int() - 48;

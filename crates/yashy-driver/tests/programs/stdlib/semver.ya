@@ -1,0 +1,37 @@
+import semver;
+
+fn compare_versions(string left, string right) -> int {
+    const a = semver.parse(left);
+    const b = semver.parse(right);
+    return switch a {
+        case Ok(x) {
+            switch b {
+                case Ok(y) { semver.compare(x, y) }
+                case Err(_) { 99 }
+            }
+        }
+        case Err(_) { 99 }
+    };
+}
+
+fn report(Semver v) {
+    print(semver.to_string(v));
+    print(semver.compare(v, v));
+}
+
+fn main() {
+    switch semver.parse("1.2.3") {
+        case Ok(v) { report(v); }
+        case Err(_) { print("bad version"); }
+    };
+    print(semver.parse("1.x.3") matches Err(_));
+    switch semver.parse("1.0.0-alpha.1") {
+        case Ok(v) { print(semver.to_string(v)); }
+        case Err(_) { print("bad version"); }
+    };
+    print(compare_versions("1.0.0-alpha", "1.0.0"));
+    print(compare_versions("1.0.0-alpha.1", "1.0.0-alpha.beta"));
+    print(compare_versions("1.0.0+build", "1.0.0"));
+    print(compare_versions("1.0.0-alpha.2", "1.0.0-alpha.10"));
+    print(semver.parse("1.0.0-01") matches Err(_));
+}

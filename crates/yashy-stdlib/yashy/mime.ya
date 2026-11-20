@@ -30,13 +30,13 @@ pub fn parse(string text) -> Result[Mime, MimeError] {
     if at < 0 {
         return Err(MimeError.Invalid);
     }
-    const after = text[at + 1..text.len()];
+    const after = text.slice(at + 1, text.len());
     const semi = after.index_of(";");
     const subtype = switch semi {
-        case Some(index) { after[0..index] }
+        case Some(index) { after.slice(0, index) }
         case None { after }
     };
-    const kind = text[0..at];
+    const kind = text.slice(0, at);
     if kind.len() == 0 || subtype.len() == 0 || subtype.index_of("/") matches Some(_) {
         return Err(MimeError.Invalid);
     }
@@ -67,5 +67,6 @@ pub fn is_json(Mime mime) -> bool {
     if mime.kind == "application" && mime.subtype == "json" {
         return true;
     }
-    return mime.subtype.ends_with("+json");
+    const subtype_value = mime.subtype;
+    return subtype_value.ends_with("+json");
 }

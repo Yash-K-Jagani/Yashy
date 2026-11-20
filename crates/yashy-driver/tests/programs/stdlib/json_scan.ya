@@ -1,5 +1,20 @@
 import json_scan;
 
+fn report_event(Event event) {
+    print(event.start);
+    print(event.end);
+}
+
+fn report_tokens(TokenList events) {
+    print(events.len());
+    const first = json_scan.at(events, 0);
+    switch first {
+        case Some(event) { report_event(event); }
+        case None { print("no token"); }
+    };
+    events.free();
+}
+
 fn main() {
     const text = "{ \"a\" : [ 1 , 2 ], \"b\" : \"x y\" }";
     switch json_scan.minify(text) {
@@ -7,26 +22,15 @@ fn main() {
         case Err(_) { print("bad json"); }
     };
     switch json_scan.validate(text) {
-        case Some(depth) { print(depth); }
-        case None { print("bad json"); }
+        case Ok(depth) { print(depth); }
+        case Err(_) { print("bad json"); }
     };
     print(json_scan.minify("\"unterminated") matches Err(_));
-    print(json_scan.validate("[1,]") matches Some(_));
+    print(json_scan.validate("[1,]") matches Ok(_));
 
     const limits = json_scan.Limits { max_depth: 8, max_bytes: 1024 };
     switch json_scan.tokens(text, limits) {
-        case Ok(events) {
-            print(events.len());
-            const first = json_scan.at(events, 0);
-            switch first {
-                case Some(event) {
-                    print(event.start);
-                    print(event.end);
-                }
-                case None { print("no token"); }
-            };
-            events.free();
-        }
+        case Ok(events) { report_tokens(events); }
         case Err(_) { print("bad tokens"); }
     };
     const deep = json_scan.Limits { max_depth: 2, max_bytes: 100 };

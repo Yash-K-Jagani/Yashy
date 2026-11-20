@@ -34,9 +34,9 @@ fn main() {
     deque = deque_push_back(deque, 3);
     const peeked = deque_front(deque);
     const peeked_items = peeked.items;
-    const back_peek = deque_back(deque);
     print("front ${unwrap(peeked.value)} len ${peeked_items.len()}");
-    const front = deque_pop_front(peeked_items);
+    const back_peek = deque_back(peeked_items);
+    const front = deque_pop_front(back_peek.items);
     const after_front = front.items;
     const back = deque_pop_back(after_front);
     const rest = back.items;
