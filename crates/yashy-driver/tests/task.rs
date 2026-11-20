@@ -28,7 +28,7 @@ fn a_task_runs_named_verbs() {
     let dir = work_dir("task-run");
     project(
         &dir,
-        "check = [\"check\", \"main.ya\"]\nfirst = [\"--list-not-a-verb\"]\n",
+        "check = [\"check main.ya\"]\nfirst = [\"--list-not-a-verb\"]\n",
     );
     let listed = run(&dir, &["task", "--list"]);
     assert!(listed.status.success());
@@ -57,7 +57,7 @@ fn a_task_cannot_name_an_unknown_verb() {
 #[test]
 fn an_unknown_task_is_a_diagnostic() {
     let dir = work_dir("task-missing");
-    project(&dir, "check = [\"check\", \"main.ya\"]\n");
+    project(&dir, "check = [\"check main.ya\"]\n");
     let output = run(&dir, &["task", "nonesuch"]);
     assert!(!output.status.success());
     assert_eq!(output.status.code(), Some(2));
