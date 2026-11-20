@@ -18,14 +18,14 @@ fn fixture(dir: &Path) {
             name: "app".to_string(),
             version: "0.1.0".to_string(),
             source: "path+.".to_string(),
-            hash: "sha256:aaa".to_string(),
+            hash: format!("sha256:{}", "a".repeat(64)),
             dependencies: vec!["lib 1.0.0".to_string()],
         },
         LockedPackage {
             name: "lib".to_string(),
             version: "1.0.0".to_string(),
             source: "path+lib".to_string(),
-            hash: "sha256:bbb".to_string(),
+            hash: format!("sha256:{}", "b".repeat(64)),
             dependencies: Vec::new(),
         },
     ]);
@@ -66,7 +66,7 @@ fn info_reports_link_values_and_not_the_abi() {
     fixture(&dir);
     common::write(
         &dir,
-        "bindings.ya",
+        "lib/bindings.ya",
         "extern \"C\" link \"m\" {\n    unsafe fn c_sqrt(f64 x) -> f64 link_name \"sqrt\";\n}\n\n\
          extern \"C\" link \"fixture.c\" {\n    unsafe fn add(int a, int b) -> int;\n}\n",
     );
@@ -120,7 +120,7 @@ fn tree_marks_duplicates_and_enabled_features() {
             version: "0.1.0".into(),
             source: "path+.".into(),
             hash: "sha256:a".into(),
-            dependencies: vec![],
+            dependencies: vec!["lib 1.0.0".to_string(), "lib 2.0.0".to_string()],
         },
         LockedPackage {
             name: "lib".into(),
