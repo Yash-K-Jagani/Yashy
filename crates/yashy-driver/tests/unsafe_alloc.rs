@@ -23,7 +23,7 @@ fn ir(src: &str) -> String {
 
 #[test]
 fn alloc_uninit_calls_the_uninitialised_runtime_entry_point() {
-    let text = ir("fn main() { unsafe { let p = alloc_uninit(4); dealloc(p); } }");
+    let text = ir("fn main() { unsafe { let p = alloc_uninit(4); p.free(); } }");
     assert!(
         text.contains("declare i8* @yashy_alloc_uninit(i64, i64)"),
         "the runtime symbol must be declared: {text}"
@@ -36,7 +36,7 @@ fn alloc_uninit_calls_the_uninitialised_runtime_entry_point() {
 
 #[test]
 fn safe_alloc_still_calls_the_zeroing_entry_point() {
-    let text = ir("fn main() { let p = alloc(4); dealloc(p); }");
+    let text = ir("fn main() { let p = alloc(4); p.free(); }");
     assert!(
         text.contains("call i8* @yashy_alloc("),
         "safe allocation kept its entry point: {text}"
