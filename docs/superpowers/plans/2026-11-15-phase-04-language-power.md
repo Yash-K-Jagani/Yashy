@@ -360,7 +360,7 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   the shared layout walk, and the driver layout test compares the emitted
   `main` body with one written using the literal sizes. A declared `[T; 0]`
   field is legal and folds to size 0.
-- [x] **Step 5: Commit.**
+- [x] **Step 5: Commit.** Landed as `29d2925`.
 
 ### Task 8: Ranges, membership, identity, and word-form logic
 
