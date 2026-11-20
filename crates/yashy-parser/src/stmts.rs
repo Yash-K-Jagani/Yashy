@@ -228,7 +228,9 @@ impl<'src> Parser<'src> {
         // a type: `[]T`, `[T]` and `[T; N]` are all type heads.
         if self.check(TokenKind::LBracket) {
             if self.peek_second() == TokenKind::RBracket {
-                return false;
+                // `[] = xs` is the empty fixed-array pattern; `[]T` is a slice
+                // type. The token after the closing bracket decides.
+                return self.peek_third() == TokenKind::Eq;
             }
             if self.peek_second() == TokenKind::Ident
                 && matches!(self.peek_third(), TokenKind::Semi | TokenKind::RBracket)

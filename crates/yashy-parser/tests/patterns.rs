@@ -94,11 +94,11 @@ fn a_guard_stays_on_the_arm_and_not_in_the_pattern() {
 }
 
 #[test]
-fn a_float_range_is_rejected_as_e0602() {
+fn a_float_range_is_rejected_as_e1518() {
     let diags = parse_err("fn main() { switch n { case 1.0..2.0 { 0 } default { 1 } } }");
     assert!(
-        diags.iter().any(|d| d.code.as_deref() == Some("E0602")),
-        "expected E0602, got {diags:?}"
+        diags.iter().any(|d| d.code.as_deref() == Some("E1518")),
+        "expected E1518, got {diags:?}"
     );
 }
 
@@ -125,7 +125,7 @@ fn a_struct_pattern_may_write_the_rest_marker() {
 
 #[test]
 fn at_binding_wraps_a_nested_pattern() {
-    let program = parse_ok("enum Shape { Circle(int) } fn main() { switch Shape.Circle(1) { case whole @ Circle(n) { print(n); } default { } } }");
+    let program = parse_ok("enum Shape { Circle(int) } fn main() { switch Shape.Circle(1) { case whole @ Circle(n) { print(n); } default { 0 } } }");
     assert!(
         format!("{program:?}").contains("BindAt"),
         "the AST must keep the @ form"
