@@ -31,7 +31,7 @@ fn lint_reports_a_removed_keyword_and_an_unused_binding() {
     write(
         &dir,
         "main.ya",
-        "fn main() {\n    var int unused = 1;\n    const int used = 2;\n    print(used);\n}\n",
+        "fn main() {\n    var int old = 1;\n    let int unused = 2;\n    const int used = 3;\n    print(used);\n}\n",
     );
     let output = run(&dir, &["lint", "--json", "main.ya"]);
     assert!(output.status.success());
@@ -78,7 +78,7 @@ fn the_var_lint_carries_a_machine_applicable_fix() {
     let output = run(&dir, &["lint", "--json", "main.ya"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("\"replacement\": \"let\""), "{stdout}");
-    assert!(stdout.contains("MachineApplicable"), "{stdout}");
+    assert!(stdout.contains("\"applicability\": \"machine-applicable\""), "{stdout}");
 }
 
 #[test]
