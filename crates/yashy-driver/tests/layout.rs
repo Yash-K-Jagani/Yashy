@@ -86,7 +86,7 @@ fn the_human_report_lists_every_type_with_field_offsets() {
 
 #[test]
 fn the_report_and_the_queries_name_every_field_offset() {
-    let src = "struct Triple { a: int, b: char, c: int }\n\
+    let src = "repr(C) struct Triple { a: int, b: char, c: int }\n\
                fn main() {\n\
                    const first = offsetof(Triple, a);\n\
                    const third = offsetof(Triple, c);\n\
