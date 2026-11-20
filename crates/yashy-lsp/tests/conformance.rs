@@ -84,26 +84,26 @@ fn every_feature_answers_with_a_stable_range() {
     let messages = vec![
         did_open(&uri, SOURCE),
         request(1, "textDocument/documentSymbol", at(&uri, 0, 0, &[])),
-        request(2, "textDocument/references", at(&uri, 2, 32, &[])),
-        request(3, "textDocument/prepareRename", at(&uri, 2, 32, &[])),
+        request(2, "textDocument/references", at(&uri, 2, 22, &[])),
+        request(3, "textDocument/prepareRename", at(&uri, 2, 22, &[])),
         request(
             4,
             "textDocument/rename",
-            at(&uri, 2, 32, &[("newName", string("sum"))]),
+            at(&uri, 2, 22, &[("newName", string("sum"))]),
         ),
         request(5, "textDocument/foldingRange", at(&uri, 0, 0, &[])),
-        request(6, "textDocument/selectionRange", at(&uri, 2, 32, &[])),
-        request(7, "textDocument/documentHighlight", at(&uri, 2, 32, &[])),
+        request(6, "textDocument/selectionRange", at(&uri, 2, 22, &[])),
+        request(7, "textDocument/documentHighlight", at(&uri, 2, 22, &[])),
         request(8, "textDocument/diagnostic", at(&uri, 0, 0, &[])),
-        request(9, "textDocument/codeAction", at(&uri, 2, 32, &[])),
+        request(9, "textDocument/codeAction", at(&uri, 2, 22, &[])),
         request(
             10,
             "textDocument/formatting",
             at(&uri, 0, 0, &[("options", object([("tabSize", number(4))]))]),
         ),
-        request(11, "textDocument/hover", at(&uri, 2, 32, &[])),
-        request(12, "textDocument/definition", at(&uri, 2, 32, &[])),
-        request(13, "textDocument/completion", at(&uri, 2, 32, &[])),
+        request(11, "textDocument/hover", at(&uri, 2, 22, &[])),
+        request(12, "textDocument/definition", at(&uri, 2, 22, &[])),
+        request(13, "textDocument/completion", at(&uri, 2, 22, &[])),
         request(14, "textDocument/signatureHelp", at(&uri, 2, 24, &[])),
         request(15, "textDocument/inlayHint", at(&uri, 2, 0, &[])),
         request(16, "workspace/symbol", object([("query", string("Poi"))])),
@@ -139,7 +139,7 @@ fn every_feature_answers_with_a_stable_range() {
     let rendered = to_string(&Value::Arr(symbols.to_vec()));
     assert!(rendered.contains("Point"), "{rendered}");
     assert!(rendered.contains("add"), "{rendered}");
-    assert!(rendered.contains("\"line\": 0"), "{rendered}");
+    assert!(rendered.contains("\"line\":0"), "{rendered}");
 
     // rename produces a WorkspaceEdit rather than a formatted string.
     let rename = replies
