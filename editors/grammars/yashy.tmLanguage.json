@@ -73,7 +73,7 @@
     },
     "keywords": {
       "name": "keyword.control.yashy",
-      "match": "\\b(?:invariant|continue|requires|default|ensures|extern|import|object|return|struct|switch|unsafe|async|await|break|const|defer|false|macro|trait|while|case|else|enum|impl|move|pure|repr|true|cfg|for|let|pub|var|and|not|as|fn|if|in|io|is|matches|or|type|crate)\\b"
+      "match": "\\b(?:invariant|continue|requires|default|ensures|matches|extern|import|object|return|struct|switch|unsafe|async|await|break|const|crate|defer|false|macro|trait|while|case|else|enum|impl|move|pure|repr|true|type|and|cfg|for|let|not|pub|var|as|fn|if|in|io|is|or)\\b"
     },
     "types": {
       "name": "support.type.yashy",

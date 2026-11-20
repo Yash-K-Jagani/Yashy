@@ -1,7 +1,7 @@
 {
   "name": "yashy",
   "displayName": "Yashy",
-  "description": "Yashy language support: LSP, DAP, tasks, snippets and doctor",
+  "description": "Yashy language support: LSP (yashyc lsp --stdio), DAP, tasks, snippets and doctor",
   "version": "0.1.0",
   "publisher": "yashy",
   "license": "MIT",

@@ -13,6 +13,20 @@ fn editors() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../editors")
 }
 
+/// The TextMate and tree-sitter renderers escape regex metacharacters in a
+/// literal spelling (`..` becomes `\.\.`), so a vocabulary word may appear in
+/// either form. The check is about presence, not about which renderer escapes.
+fn escaped(word: &str) -> String {
+    let mut out = String::new();
+    for character in word.chars() {
+        if "\\.^$|?*+()[]{}".contains(character) {
+            out.push('\\');
+        }
+        out.push(character);
+    }
+    out
+}
+
 #[test]
 fn every_committed_grammar_is_the_rendered_one() {
     let model = vocabulary::model();
@@ -102,13 +116,19 @@ fn every_vocabulary_word_has_exactly_one_highlight_class() {
         .chain(model.operators.iter())
         .chain(model.delimiters.iter())
     {
-        assert!(textmate.contains(word), "{word} is missing from TextMate");
+        let json_escaped = escaped(word).replace('\\', "\\\\");
         assert!(
-            tree_sitter.contains(word),
+            textmate.contains(word)
+                || textmate.contains(&escaped(word))
+                || textmate.contains(&json_escaped),
+            "{word} is missing from TextMate"
+        );
+        assert!(
+            tree_sitter.contains(word) || tree_sitter.contains(&escaped(word)),
             "{word} is missing from tree-sitter"
         );
         assert!(
-            emacs.contains(&format!("\\\"{word}\\\"")),
+            emacs.contains(&format!("\"{word}\"")),
             "{word} is missing from Emacs"
         );
     }
