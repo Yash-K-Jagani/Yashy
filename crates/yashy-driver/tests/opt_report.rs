@@ -129,6 +129,46 @@ fn a_promoted_allocation_reports_its_placement() {
 }
 
 #[test]
+fn emitted_parameter_attributes_name_the_fact_behind_them() {
+    // A read-only pointer parameter that never escapes earns noalias, nonnull,
+    // readonly and align. Each is a promise the optimizer may rely on, so the
+    // report must name the fact that licensed it (ALIAS-5).
+    const SOURCE: &str = "\
+fn read(*mut int p, int n) -> int {
+    let sum = 0;
+    let i = 0;
+    while i < n {
+        sum += p[i];
+        i += 1;
+    }
+    return sum;
+}
+fn main() { }
+";
+    let text = report("opt-report-attributes", SOURCE, &[]);
+    assert!(
+        text.contains("parameter attribute"),
+        "the report names the attribute kind:\n{text}"
+    );
+    assert!(
+        text.contains("noalias") && text.contains("ALIAS-1"),
+        "noalias must name ALIAS-1:\n{text}"
+    );
+    assert!(
+        text.contains("nonnull"),
+        "nonnull must be explained:\n{text}"
+    );
+    assert!(
+        text.contains("readonly"),
+        "readonly must be explained:\n{text}"
+    );
+    assert!(
+        text.contains("align 8") && text.contains("DET-5"),
+        "align must name DET-5:\n{text}"
+    );
+}
+
+#[test]
 fn the_json_report_is_stable_and_carries_the_schema() {
     let first = report("opt-report-json-a", UNPROVEN, &["--opt-report=json"]);
     let second = report("opt-report-json-b", UNPROVEN, &["--opt-report=json"]);
