@@ -127,6 +127,60 @@ The name is `nth`, not `get`, because every module's items share one root
 scope: `env.get` already owns `get`, and two modules imported together may
 not declare the same name.
 
+## `casing`
+
+### `eq_ignore_ascii_case`
+
+```yashy
+fn eq_ignore_ascii_case(string a, string b) -> bool
+```
+
+Compare two strings by bytes, folding ASCII letters only.
+
+Lengths must be equal and each byte either identical or an ASCII letter
+pair differing only in case. Non-ASCII bytes are compared as-is, so this is
+explicitly not Unicode case folding.
+
+### `is_ascii_alpha`
+
+```yashy
+fn is_ascii_alpha(char value) -> bool
+```
+
+Whether `value` is an ASCII letter of either case.
+
+### `is_ascii_lower`
+
+```yashy
+fn is_ascii_lower(char value) -> bool
+```
+
+Whether `value` is an ASCII lowercase letter `a`..`z`.
+
+### `is_ascii_upper`
+
+```yashy
+fn is_ascii_upper(char value) -> bool
+```
+
+Whether `value` is an ASCII uppercase letter `A`..`Z`.
+
+### `to_ascii_lower`
+
+```yashy
+fn to_ascii_lower(string text) -> string
+```
+
+Map `A`..`Z` to lowercase, leaving every other byte unchanged.
+
+### `to_ascii_upper`
+
+```yashy
+fn to_ascii_upper(string text) -> string
+```
+
+Map `a`..`z` to uppercase, leaving every other byte unchanged.
+
 ## `collections`
 
 ### `deque_back`

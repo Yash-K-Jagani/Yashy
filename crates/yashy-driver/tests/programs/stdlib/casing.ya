@@ -1,0 +1,23 @@
+import casing;
+
+fn main() {
+    // ASCII mapping and non-ASCII pass-through.
+    const upper = casing.to_ascii_upper("Hello, Yashy!");
+    const lower = casing.to_ascii_lower("Hello, Yashy!");
+    print("${upper}|${lower}");
+    print(casing.to_ascii_upper("aBc123_é"));
+
+    // Predicates.
+    print(casing.is_ascii_upper('A'));
+    print(casing.is_ascii_upper('a'));
+    print(casing.is_ascii_lower('a'));
+    print(casing.is_ascii_lower('A'));
+    print(casing.is_ascii_alpha('Z'));
+    print(casing.is_ascii_alpha('7'));
+
+    // ASCII-case-insensitive equality; non-ASCII bytes compare as-is.
+    print(casing.eq_ignore_ascii_case("Hello", "hELLO"));
+    print(casing.eq_ignore_ascii_case("Grüße", "GRÜßE"));
+    print(casing.eq_ignore_ascii_case("abc", "abd"));
+    print(casing.eq_ignore_ascii_case("abc", "abcd"));
+}

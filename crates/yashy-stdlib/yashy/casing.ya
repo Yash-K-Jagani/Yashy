@@ -1,0 +1,72 @@
+// ASCII case operations with an explicit Unicode-debt contract.
+//
+// Yashy's `to_upper` / `to_lower` builtins are byte operations that map `a`..`z`
+// and `A`..`Z` and leave every other byte alone. This module names that
+// behaviour and adds the predicates and equality a caller needs, without
+// pretending it is full Unicode case folding.
+//
+// Owed (Phase 5 Task 3 Step 2): vendored `CaseFolding.txt`, Turkish dotted and
+// dotless `i`, multi-character folds such as `ß` -> `ss`, and NFC/NFD/NFKC/NFKD
+// normalization, all from a pinned Unicode release with an offline generator.
+// Until that data ships, a non-ASCII byte passes through unchanged and
+// `eq_ignore_ascii_case` compares only the ASCII letters.
+
+/// Map `a`..`z` to uppercase, leaving every other byte unchanged.
+pub fn to_ascii_upper(string text) -> string {
+    return text.to_upper();
+}
+
+/// Map `A`..`Z` to lowercase, leaving every other byte unchanged.
+pub fn to_ascii_lower(string text) -> string {
+    return text.to_lower();
+}
+
+/// Whether `value` is an ASCII uppercase letter `A`..`Z`.
+pub fn is_ascii_upper(char value) -> bool {
+    const int code = value.to_int();
+    return code >= 65 && code <= 90;
+}
+
+/// Whether `value` is an ASCII lowercase letter `a`..`z`.
+pub fn is_ascii_lower(char value) -> bool {
+    const int code = value.to_int();
+    return code >= 97 && code <= 122;
+}
+
+/// Whether `value` is an ASCII letter of either case.
+pub fn is_ascii_alpha(char value) -> bool {
+    return is_ascii_upper(value) || is_ascii_lower(value);
+}
+
+/// Compare two strings by bytes, folding ASCII letters only.
+///
+/// Lengths must be equal and each byte either identical or an ASCII letter
+/// pair differing only in case. Non-ASCII bytes are compared as-is, so this is
+/// explicitly not Unicode case folding.
+pub fn eq_ignore_ascii_case(string a, string b) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let i = 0;
+    while i < a.len() {
+        const int left = a.byte_at(i).to_int();
+        const int right = b.byte_at(i).to_int();
+        if left != right {
+            const int folded_left = fold_ascii(left);
+            const int folded_right = fold_ascii(right);
+            if folded_left != folded_right {
+                return false;
+            }
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+/// Fold one byte value to its lowercase ASCII letter, or leave it alone.
+fn fold_ascii(int code) -> int {
+    if code >= 65 && code <= 90 {
+        return code + 32;
+    }
+    return code;
+}

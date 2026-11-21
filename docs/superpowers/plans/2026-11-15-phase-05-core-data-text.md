@@ -93,6 +93,15 @@ is a capability rather than an ambient read.
 - [ ] **Step 1: Write the failing test.** NFC/NFD/NFKC/NFKD round-trips for the Unicode test file, Turkish dotless `i` case folding, a family emoji counted as one grapheme, a CJK string's display width, and `format("{:>8.2}", 3.14159)`.
 - [ ] **Step 2: Unicode data is vendored and versioned.** The tables are generated from a pinned Unicode release, recorded in the SBOM, and updated by a script with a diff. No network at build time.
 - [ ] **Step 3: Formatting is one engine.** `print`, `format`, `Debug` and the error renderer share width, precision, alignment and float rules. Float formatting is shortest-round-trip and locale-independent. A format string error is a compile-time diagnostic where the string is a literal, and a `Result` otherwise.
+  *Current:* `crates/yashy-stdlib/yashy/casing.ya` provides ASCII case
+  operations with an explicit Unicode-debt contract: `to_ascii_upper` /
+  `to_ascii_lower` (delegating to the ASCII-only builtins), `is_ascii_upper` /
+  `is_ascii_lower` / `is_ascii_alpha`, and `eq_ignore_ascii_case`. Non-ASCII
+  bytes pass through unchanged; `stdlib/casing.ya` pins upper/lower, pass-through,
+  predicates and equality in its golden with zero leaks. NFC/NFD/NFKC/NFKD,
+  Turkish dotless `i`, multi-character folds, display width and the format
+  engine remain owed — they need vendored Unicode data, an offline generator,
+  and compiler support respectively, so the step stays open.
 - [ ] **Step 4: Commit.**
 
 ### Task 4: Encodings — JSON, TOML, YAML, CSV, XML
