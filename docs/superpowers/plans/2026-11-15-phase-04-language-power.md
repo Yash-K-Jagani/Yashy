@@ -328,6 +328,7 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   `*mut u8`/`Option`, because `u8` is a `repr(C)`/FFI-only spelling and the real
   allocator hands out `*mut int`. A collection *parameter* and `--alloc-report`
   (Phase 11A) are still owed, so the step stays open.
+  Landed as `8f1092a` (allocator interface).
 - [x] **Step 4: `repr` stays a keyword form.** `repr(C)`, `repr(packed)`, `repr(align(N))`, `repr(transparent)` and an integer enum repr are clauses, not attributes; `repr(C)` is never reordered; a packed field that would be misaligned is a diagnostic at the field, not a silent unaligned load.
   *Current:* all five clauses parse; a non-power-of-two align is refused. The
   layout walk uses packed (alignment 1, summed sizes) and align(N) (rounded
