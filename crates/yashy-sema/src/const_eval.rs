@@ -1215,6 +1215,7 @@ fn expression_kind(expr: &Expr) -> &'static str {
         Expr::FixedArrayLit { .. } => "a fixed-size array literal",
         Expr::TupleLit { .. } => "a tuple literal",
         Expr::IndexRange { .. } => "a range",
+        Expr::Range { .. } => "a range",
         Expr::Interp { .. } => "an interpolation",
         Expr::Cast { .. } => "a cast",
         Expr::Try { .. } => "a `?`",
@@ -1249,6 +1250,7 @@ fn expr_span(expr: &Expr) -> Span {
         | Expr::FixedArrayLit { span, .. }
         | Expr::TupleLit { span, .. }
         | Expr::IndexRange { span, .. }
+        | Expr::Range { span, .. }
         | Expr::Interp { span, .. }
         | Expr::Cast { span, .. }
         | Expr::Try { span, .. }
@@ -1279,6 +1281,9 @@ pub fn mentions_const_fn(expr: &Expr, consts: &ConstFns) -> bool {
             operands.iter().any(|operand| mentions_const_fn(operand, consts))
         }
         Expr::Is { lhs, .. } => mentions_const_fn(lhs, consts),
+        Expr::Range { start, end, .. } => {
+            mentions_const_fn(start, consts) || mentions_const_fn(end, consts)
+        }
         Expr::Unary { operand, .. } => mentions_const_fn(operand, consts),
         Expr::Move(inner, _) => mentions_const_fn(inner, consts),
         Expr::Call { callee, args, .. } => {

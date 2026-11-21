@@ -13,6 +13,29 @@ impl<'src> Parser<'src> {
         self.parse_or()
     }
 
+    /// An infix range, bound tighter than comparison so `x in 0..10` parses
+    /// the range as the membership container.
+    ///
+    /// A for head and an index bracket suppress the top-level range so they
+    /// can keep their own `..` spelling; a parenthesised subexpression turns
+    /// it back on.
+    fn parse_range(&mut self) -> Result<Expr, ParseError> {
+        let first = self.parse_cmp()?;
+        if self.no_range || !self.check(TokenKind::DotDot) {
+            return Ok(first);
+        }
+        self.advance();
+        let inclusive = self.eat(TokenKind::Eq);
+        let end = self.parse_cmp()?;
+        let span = cover(expr_span(&first), expr_span(&end));
+        Ok(Expr::Range {
+            start: Box::new(first),
+            end: Box::new(end),
+            inclusive,
+            span,
+        })
+    }
+
     /// Arguments of a call: positional or `name: value` (named). A named
     /// argument is recognised by an identifier followed by `:`.
     fn parse_call_args(&mut self) -> Result<Vec<CallArg>, ParseError> {
@@ -135,7 +158,7 @@ impl<'src> Parser<'src> {
         // Equality and ordering share one collector, so a chain of any mix is
         // one node: `a < b <= c` is a `CompareChain`, and a single comparison
         // stays a plain `Binary` exactly as before.
-        let first = self.parse_shift()?;
+        let first = self.parse_range()?;
         let mut operands = vec![first];
         let mut ops = Vec::new();
         loop {
@@ -157,7 +180,7 @@ impl<'src> Parser<'src> {
             match op {
                 Some(op) => {
                     ops.push(op);
-                    operands.push(self.parse_shift()?);
+                    operands.push(self.parse_range()?);
                 }
                 None => break,
             }
@@ -196,7 +219,7 @@ impl<'src> Parser<'src> {
         // of the form is the receiver and the needle the single argument, so
         // the checker needs no second membership rule and no operator overload.
         if self.eat(TokenKind::In) {
-            let container = self.parse_shift()?;
+            let container = self.parse_range()?;
             let span = cover(expr_span(&value), expr_span(&container));
             value = Expr::MethodCall {
                 receiver: Box::new(container),
@@ -751,9 +774,9 @@ impl<'src> Parser<'src> {
                 // `a[0..2]` is a view, not an index whose value is a range:
                 // the range is read here, where the brackets are, so no range
                 // expression has to exist on its own.
-                let start = self.parse_expr()?;
+                let start = self.without_range(|p| p.parse_expr())?;
                 if self.eat(TokenKind::DotDot) {
-                    let end = self.parse_expr()?;
+                    let end = self.without_range(|p| p.parse_expr())?;
                     let close = self.expect(TokenKind::RBracket)?;
                     self.close_open(TokenKind::RBracket);
                     let span = cover(expr_span(&expr), close.span);
@@ -1039,7 +1062,7 @@ impl<'src> Parser<'src> {
                     // unit not an expr; return? error
                     return Err(self.error(open.span, "expected an expression".to_string()));
                 }
-                let first = self.parse_expr()?;
+                let first = self.with_range(|p| p.parse_expr())?;
                 if !self.eat(TokenKind::Comma) {
                     // No comma: the parentheses only grouped.
                     self.expect(TokenKind::RParen)?;
@@ -1598,6 +1621,7 @@ pub fn expr_span(expr: &Expr) -> Span {
         Expr::Literal(_, s) => *s,
         Expr::Ident(_, s) => *s,
         Expr::Binary { span, .. } => *span,
+        Expr::Range { span, .. } => *span,
         Expr::CompareChain { span, .. } => *span,
         Expr::Is { span, .. } => *span,
         Expr::UnsafeBlock { span, .. } => *span,

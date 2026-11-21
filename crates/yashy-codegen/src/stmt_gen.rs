@@ -772,9 +772,10 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             name,
             start,
             end,
+            step,
             body,
             ..
-        } => gen_for_range(ctx, name, start, end, body),
+        } => gen_for_range(ctx, name, start, end, step.as_ref(), body),
         HirStmt::ForIn {
             pattern,
             iterable,
@@ -937,10 +938,12 @@ fn gen_for_range(
     name: &str,
     start: &HirExpr,
     end: &HirExpr,
+    step: Option<&HirExpr>,
     body: &HirBlock,
 ) -> Flow {
     let start_value = gen_expr(ctx, start);
     let end_value = gen_expr(ctx, end);
+    let step_value = step.map(|expr| gen_expr(ctx, expr).value);
 
     let end_slot = ctx.alloc_slot();
     ctx.push_alloca(format!("{end_slot} = alloca i64"));
@@ -948,6 +951,12 @@ fn gen_for_range(
     let index_slot = ctx.alloc_slot();
     ctx.push_alloca(format!("{index_slot} = alloca i64"));
     ctx.push(format!("store i64 {}, ptr {index_slot}", start_value.value));
+    let step_slot = step_value.map(|value| {
+        let slot = ctx.alloc_slot();
+        ctx.push_alloca(format!("{slot} = alloca i64"));
+        ctx.push(format!("store i64 {value}, ptr {slot}"));
+        slot
+    });
 
     let cond_label = ctx.alloc_label_base() + "_cond";
     let body_label = ctx.alloc_label_base() + "_body";
@@ -996,7 +1005,14 @@ fn gen_for_range(
     let previous = ctx.tmp();
     ctx.push(format!("{previous} = load i64, ptr {index_slot}"));
     let next = ctx.tmp();
-    ctx.push(format!("{next} = add i64 {previous}, 1"));
+    match &step_slot {
+        Some(slot) => {
+            let stride = ctx.tmp();
+            ctx.push(format!("{stride} = load i64, ptr {slot}"));
+            ctx.push(format!("{next} = add i64 {previous}, {stride}"));
+        }
+        None => ctx.push(format!("{next} = add i64 {previous}, 1")),
+    }
     ctx.push(format!("store i64 {next}, ptr {index_slot}"));
     ctx.push(format!("br label %{cond_label}"));
 

@@ -436,6 +436,8 @@ pub enum HirStmt {
         name: String,
         start: HirExpr,
         end: HirExpr,
+        /// The increment written by `(0..10).step_by(2)`; `None` is `+1`.
+        step: Option<HirExpr>,
         body: HirBlock,
         span: Span,
     },

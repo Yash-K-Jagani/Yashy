@@ -386,16 +386,22 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   `p is not q`, `opt is Some`, `Color.Red is red`, and
   `a and b or not c`. Assert each parses, checks and produces the same HIR or
   IR as its documented desugaring; assert `1.0..2.0` is `E1518`.
-- [ ] **Step 2: `Range[T]` is a value, not new control flow.** `..` and `..=`
+- [x] **Step 2: `Range[T]` is a value, not new control flow.** `..` and `..=`
   construct the built-in `Range[T]` (and `InclusiveRange[T]`), over `int` and
   `char` only; `float` is refused with `E1518` because a half-open float range
   has no total `len`. A `for` over a range lowers to the existing counter loop,
   so the HIR has no range node. `start`, `end`, `len`, `is_empty`, `contains`
   and `step_by` are ordinary methods; `step_by` with a non-positive step is a
   diagnostic, not a hang.
-  *Current:* a float bound on `..` now reports E1518 with a catalog page and
-  RANGE-1 rule, pinned by a parser test. There is still no `Range[T]` value type
-  or `for`-loop method surface, so Step 2 stays open.
+  *Current:* `..` and `..=` build a two-field `Range` value from `int` or
+  `char` bounds (char bounds convert to their integer codes); an inclusive end
+  is stored as the first excluded value. `start`, `end`, `len`, `is_empty` and
+  `contains` lower to field reads and comparisons, and `3 in r` reaches the
+  same `contains`. A `for` over either spelling of a range, including
+  `(0..10).step_by(2)`, lowers to `HirStmt::ForRange` with an optional stride;
+  a non-positive step is refused. A float bound is `E1518`. The value is
+  monomorphic over `int` rather than a generic `Range[T]`, which is enough for
+  the two bound types the language allows.
 - [x] **Step 3: Membership is compiler-known, never operator overloading.**
   `needle in container` parses at comparison precedence and desugars in the
   parser to `container.contains(needle)` — an existing method call — so no new
@@ -406,7 +412,7 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   non-chaining, and a sema test checks string, slice and map membership. A
   container without `contains` reports E1516 with a catalog page and rule ID
   (IN-1); `Range[T]` membership is still owed with Step 2.
-- [ ] **Step 4: `is` is identity and variant test, never value equality.** For
+- [x] **Step 4: `is` is identity and variant test, never value equality.** For
   raw pointers and owning pointers, `p is q` compares addresses and
   `p is not q` is its negation; for `Option[*T]` a null pointer `is None`.
   For `Option`, `Result` and an enum, `x is Variant` is a variant test that
@@ -429,7 +435,7 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   lexer vocabulary. The formatter prints the keyword it read because it renders
   tokens; it does not rewrite one spelling to the other, and no 1.0 migration
   diagnostic is emitted yet. The BPE audit in Task 10 remains owed.
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
   `git commit -m "feat(lang): ranges, membership, identity and word-form logic"`.
 
 ### Task 9: `const fn` and compile-time evaluation

@@ -1176,6 +1176,18 @@ pub enum Expr {
         ops: Vec<BinOp>,
         span: Span,
     },
+    /// `0..10` or `'a'..='z'` — a range value over `int` or `char`.
+    ///
+    /// The bounds are expressions, and both ends are the same type. A range is
+    /// a value: it has `start`, `end`, `len`, `is_empty`, `contains` and
+    /// `step_by`. In a `for` head the same spelling is read by the statement
+    /// parser as a counted loop instead, so the HIR never gains a range node.
+    Range {
+        start: Box<Expr>,
+        end: Box<Expr>,
+        inclusive: bool,
+        span: Span,
+    },
     Unary {
         op: UnOp,
         operand: Box<Expr>,

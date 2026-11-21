@@ -1,0 +1,14 @@
+// A range is a value: its methods read the two fields the parser built, and
+// `step_by` turns a counted loop into one with a stride.
+
+fn main() {
+    const r = 0..5;
+    print(r.start());
+    print(r.end());
+    print(r.len());
+    print(r.is_empty());
+    print(r.contains(3));
+    for n in (0..6).step_by(2) {
+        print(n);
+    }
+}

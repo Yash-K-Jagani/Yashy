@@ -489,7 +489,7 @@ impl<'src> Parser<'src> {
         if element_pattern {
             let pattern = self.parse_pattern()?;
             self.expect(TokenKind::In)?;
-            let first = self.without_block_arg(|p| p.parse_expr())?;
+            let first = self.without_range(|p| p.without_block_arg(|p| p.parse_expr()))?;
             if !self.check(TokenKind::DotDot) {
                 let body = self.parse_loop_body()?;
                 let body_span = body.span;

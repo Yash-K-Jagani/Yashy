@@ -110,6 +110,14 @@ complete set of valid indices, and it makes the length of `a..b` equal to
 `b - a` without a `+ 1` to forget. An inverted range such as `3..1` is empty;
 it is not an error and it does not count down.
 
+A range is also a value. `const r = 0..10;` builds the same two fields a
+`for` head reads, so `r.start()`, `r.end()`, `r.len()`, `r.is_empty()` and
+`r.contains(3)` are ordinary calls, and `3 in r` is the same `contains` call in
+sugar form. `'a'..='z'` converts character bounds to their integer codes;
+a `float` bound is refused because a half-open float range has no total
+length. `for n in (0..10).step_by(2)` walks `0, 2, 4, 6, 8`: the step has to
+be a positive literal, so a loop cannot silently never finish.
+
 ## The forms
 
 | Form | What it does | Notes |

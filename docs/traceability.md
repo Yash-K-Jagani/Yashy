@@ -596,6 +596,7 @@ Codes: `E1518`
 Tests:
 
 - `crates/yashy-parser/tests/patterns.rs`
+- `crates/yashy-sema/tests/expressions.rs`
 
 ## `RUNTIME-1`
 
@@ -826,6 +827,7 @@ Tests:
 - `crates/yashy-sema/tests/async_effect.rs`
 - `crates/yashy-sema/tests/chained.rs`
 - `crates/yashy-sema/tests/defaults.rs`
+- `crates/yashy-sema/tests/expressions.rs`
 - `crates/yashy-sema/tests/indexed_for.rs`
 - `crates/yashy-sema/tests/let_patterns.rs`
 - `crates/yashy-sema/tests/spread.rs`

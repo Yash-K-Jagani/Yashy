@@ -763,6 +763,12 @@ fn derived_methods_render_and_compare() {
 }
 
 #[test]
+fn range_values_and_stepped_loops_run() {
+    let output = build_and_run("ranges");
+    assert_eq!(stdout_of(&output), "0\n5\n5\nfalse\ntrue\n0\n2\n4\n");
+}
+
+#[test]
 fn an_unsafe_allocation_runs_and_frees_its_block() {
     // `alloc_uninit` is the explicit unsafe opt-out. The program writes the one
     // element it reads, and `verify` still has to see the release.

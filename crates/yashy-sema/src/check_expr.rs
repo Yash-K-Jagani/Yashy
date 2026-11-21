@@ -1352,9 +1352,30 @@ impl<'src> Checker<'src> {
                 },
             );
         }
+        let mut structs = HashMap::new();
+        // A range is an ordinary two-field struct; the parser's `..` builds one
+        // and the range methods read its fields. Keeping it in the same table
+        // as declared structs means layout, field access and field order all
+        // come from the one source of truth.
+        let range_ty = prim(TypeKind::I64);
+        structs.insert(
+            "Range".to_string(),
+            StructSig {
+                fields: vec![
+                    ("start".to_string(), range_ty.clone()),
+                    ("end".to_string(), range_ty),
+                ],
+                derives: Vec::new(),
+                field_public: vec![true, true],
+                defaults: vec![None, None],
+                repr_c: false,
+                repr: None,
+                origin: ItemOrigin { file, public: true },
+            },
+        );
         Self {
             scope,
-            structs: HashMap::new(),
+            structs,
             enums: builtin_enums(),
             fns: HashMap::new(),
             generics: HashMap::new(),
@@ -5800,12 +5821,14 @@ impl<'src> Checker<'src> {
                 name,
                 start,
                 end,
+                step,
                 body,
                 span,
             } => HirStmt::ForRange {
                 name,
                 start,
                 end,
+                step,
                 body: HirBlock {
                     stmts: with_checks,
                     span: body.span,
@@ -6023,6 +6046,56 @@ impl<'src> Checker<'src> {
             },
         }
         self.file = outer;
+    }
+
+    /// Check the body of a counted loop and build its HIR.
+    ///
+    /// Both `for n in 0..10` and `for n in r` (where `r` is a `Range` value)
+    /// end here, so the two spellings cannot drift apart.
+    fn check_for_range(
+        &mut self,
+        name: &str,
+        start: HirExpr,
+        end: HirExpr,
+        step: Option<HirExpr>,
+        body: &Block,
+        label: &Option<String>,
+        span: Span,
+        ret: &Type,
+    ) -> Option<HirStmt> {
+        self.scope.push();
+        let _ = self.scope.declare(
+            name.to_string(),
+            Binding {
+                ty: prim(TypeKind::I64),
+                mutability: Mutability::Const,
+                span,
+                ownership: Ownership::Live,
+                visibility: Visibility::Private,
+            },
+        );
+        self.push_loop_label(label, span);
+        if label.is_some() {
+            self.labeled_loops.push(label.clone().unwrap());
+        }
+        let body = self.check_block_with_ret(body, ret)?;
+        self.pop_loop_label();
+        if label.is_some() {
+            self.labeled_loops.pop();
+        }
+        self.scope.pop();
+        Some(self.wrap_loop(
+            label,
+            HirStmt::ForRange {
+                name: name.to_string(),
+                start,
+                end,
+                step,
+                body,
+                span,
+            },
+            span,
+        ))
     }
 
     fn check_stmt(&mut self, stmt: &Stmt, ret: &Type) -> Option<HirStmt> {
@@ -6561,35 +6634,7 @@ impl<'src> Checker<'src> {
                         format!("expected `int`, found `{}`", expr_ty(&end_expr)),
                     );
                 }
-                self.scope.push();
-                let _ = self.scope.declare(
-                    name.clone(),
-                    Binding {
-                        ty: prim(TypeKind::I64),
-                        mutability: Mutability::Const,
-                        span: *span,
-                        ownership: Ownership::Live,
-                        visibility: Visibility::Private,
-                    },
-                );
-                self.push_loop_label(label, *span);
-                if label.is_some() {
-                    self.labeled_loops.push(label.clone().unwrap());
-                }
-                let body = self.check_block_with_ret(body, ret)?;
-                self.pop_loop_label();
-                if label.is_some() {
-                    self.labeled_loops.pop();
-                }
-                self.scope.pop();
-                let loop_stmt = HirStmt::ForRange {
-                    name: name.clone(),
-                    start: start_expr,
-                    end: end_expr,
-                    body,
-                    span: *span,
-                };
-                Some(self.wrap_loop(label, loop_stmt, *span))
+                self.check_for_range(name, start_expr, end_expr, None, body, label, *span, ret)
             }
             Stmt::ForIn {
                 pattern,
@@ -6605,7 +6650,34 @@ impl<'src> Checker<'src> {
                     }
                     _ => None,
                 };
-                let iterable_expr = match self.check_expr(iterable) {
+                // `(0..10).step_by(2)` is a counted loop with a stride, not a
+                // range value with an iterator method. Read the stride first so
+                // the rest of the loop still goes through the same lowering.
+                let (iterable_for_check, step_expr) = match iterable {
+                    Expr::MethodCall {
+                        receiver,
+                        method,
+                        args,
+                        ..
+                    } if method == "step_by" && matches!(&**receiver, Expr::Range { .. }) => {
+                        if args.len() != 1 {
+                            self.error(*span, "`step_by` takes one positive integer");
+                            return None;
+                        }
+                        let step = self.check_expr(&args[0])?;
+                        let HirExpr::Literal(Literal::I64(value), ..) = &step else {
+                            self.error(*span, "`step_by` needs a literal positive integer");
+                            return None;
+                        };
+                        if *value <= 0 {
+                            self.error(*span, "`step_by` needs a positive step: a non-positive one would not terminate");
+                            return None;
+                        }
+                        (&**receiver, Some(step))
+                    }
+                    other => (other, None),
+                };
+                let iterable_expr = match self.check_expr(iterable_for_check) {
                     Some(checked) => checked,
                     None => return None,
                 };
@@ -6614,6 +6686,39 @@ impl<'src> Checker<'src> {
                     TypeKind::Slice(element)
                     | TypeKind::FixedArray(element, _)
                     | TypeKind::View(element) => (**element).clone(),
+                    TypeKind::Struct(name) if name == "Range" => {
+                        if index.is_some() {
+                            self.error(*span, "a range `for` binds one name");
+                            return None;
+                        }
+                        let Pattern::Binding {
+                            name: loop_name, ..
+                        } = pattern
+                        else {
+                            self.error(
+                                *span,
+                                "a range `for` binds one name; a destructuring pattern needs a `for ... in` over an array",
+                            );
+                            return None;
+                        };
+                        let field = |index: usize, name: &str| HirExpr::FieldAccess {
+                            base: Box::new(iterable_expr.clone()),
+                            field: name.to_string(),
+                            index,
+                            span: *span,
+                            ty: prim(TypeKind::I64),
+                        };
+                        return self.check_for_range(
+                            loop_name,
+                            field(0, "start"),
+                            field(1, "end"),
+                            step_expr,
+                            body,
+                            label,
+                            *span,
+                            ret,
+                        );
+                    }
                     TypeKind::Struct(name) | TypeKind::Enum(name) => {
                         return self.check_iterator_for_in(
                             match iterable {
@@ -6741,6 +6846,7 @@ impl<'src> Checker<'src> {
                                 ty: prim(TypeKind::I64),
                             },
                         },
+                        step: None,
                         body: HirBlock {
                             stmts,
                             span: body.span,
@@ -8094,6 +8200,120 @@ impl<'src> Checker<'src> {
     ///
     /// The outer `Option` says "this was a method-shaped call"; the inner one
     /// is the checked expression, `None` after a reported error.
+    /// The methods of the built-in `Range` value.
+    ///
+    /// Every method lowers to field reads and comparisons that the rest of the
+    /// compiler already knows: there is no range HIR node and no runtime helper.
+    fn check_range_method(
+        &mut self,
+        receiver: &str,
+        method: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<Option<HirExpr>> {
+        let ident = || {
+            HirExpr::Ident(
+                vec![receiver.to_string()],
+                span,
+                prim(TypeKind::Struct("Range".to_string())),
+            )
+        };
+        let field = |base: HirExpr, index: usize, name: &str| HirExpr::FieldAccess {
+            base: Box::new(base),
+            field: name.to_string(),
+            index,
+            span,
+            ty: prim(TypeKind::I64),
+        };
+        match method {
+            "start" | "end" => {
+                if !args.is_empty() {
+                    self.error(span, format!("`{method}` takes no arguments"));
+                    return Some(None);
+                }
+                let index = if method == "start" { 0 } else { 1 };
+                Some(Some(field(ident(), index, method)))
+            }
+            "len" => {
+                if !args.is_empty() {
+                    self.error(span, "`len` takes no arguments");
+                    return Some(None);
+                }
+                Some(Some(HirExpr::Binary {
+                    op: BinOp::Sub,
+                    lhs: Box::new(field(ident(), 1, "end")),
+                    rhs: Box::new(field(ident(), 0, "start")),
+                    span,
+                    ty: prim(TypeKind::I64),
+                    fault: None,
+                }))
+            }
+            "is_empty" => {
+                if !args.is_empty() {
+                    self.error(span, "`is_empty` takes no arguments");
+                    return Some(None);
+                }
+                Some(Some(HirExpr::Binary {
+                    op: BinOp::Ge,
+                    lhs: Box::new(field(ident(), 0, "start")),
+                    rhs: Box::new(field(ident(), 1, "end")),
+                    span,
+                    ty: prim(TypeKind::Bool),
+                    fault: None,
+                }))
+            }
+            "contains" => {
+                if args.len() != 1 {
+                    self.error(span, "`contains` takes one value");
+                    return Some(None);
+                }
+                let checked = self.check_expr(&args[0])?;
+                let ty = expr_ty(&checked);
+                if !matches!(ty.kind, TypeKind::I64 | TypeKind::Char) {
+                    self.error(
+                        span,
+                        format!("a range can only contain `int` or `char`, not `{ty}`"),
+                    );
+                    return Some(None);
+                }
+                let value = if matches!(ty.kind, TypeKind::Char) {
+                    HirExpr::Cast {
+                        expr: Box::new(checked),
+                        ty: prim(TypeKind::I64),
+                        span,
+                    }
+                } else {
+                    checked
+                };
+                let lower = HirExpr::Binary {
+                    op: BinOp::Le,
+                    lhs: Box::new(field(ident(), 0, "start")),
+                    rhs: Box::new(value.clone()),
+                    span,
+                    ty: prim(TypeKind::Bool),
+                    fault: None,
+                };
+                let upper = HirExpr::Binary {
+                    op: BinOp::Lt,
+                    lhs: Box::new(value),
+                    rhs: Box::new(field(ident(), 1, "end")),
+                    span,
+                    ty: prim(TypeKind::Bool),
+                    fault: None,
+                };
+                Some(Some(HirExpr::Binary {
+                    op: BinOp::And,
+                    lhs: Box::new(lower),
+                    rhs: Box::new(upper),
+                    span,
+                    ty: prim(TypeKind::Bool),
+                    fault: None,
+                }))
+            }
+            _ => None,
+        }
+    }
+
     fn check_builtin_method(
         &mut self,
         callee: &[String],
@@ -8132,6 +8352,13 @@ impl<'src> Checker<'src> {
         // declares it unless it is `pub`.
         if let TypeKind::Struct(name) = &receiver_ty.kind {
             self.check_visibility(name, span);
+        }
+        if let TypeKind::Struct(name) = &receiver_ty.kind {
+            if name == "Range" {
+                if let Some(checked) = self.check_range_method(receiver, method, args, span) {
+                    return Some(checked);
+                }
+            }
         }
         if matches!(
             receiver_ty.kind,
@@ -12863,6 +13090,69 @@ impl<'src> Checker<'src> {
                         kind: TypeKind::Tuple(element_types),
                         span: *span,
                     },
+                })
+            }
+            Expr::Range {
+                start,
+                end,
+                inclusive,
+                span,
+            } => {
+                let start_hir = self.check_expr(start)?;
+                let end_hir = self.check_expr(end)?;
+                let start_ty = expr_ty(&start_hir);
+                let end_ty = expr_ty(&end_hir);
+                if matches!(start_ty.kind, TypeKind::F64) || matches!(end_ty.kind, TypeKind::F64) {
+                    self.error_code(
+                        *span,
+                        codes::FLOAT_RANGE,
+                        "a range over `float` has no total length",
+                    );
+                    return None;
+                }
+                if !start_ty.eq_ignoring_span(&end_ty) {
+                    self.mismatch(expr_span(&end_hir), &start_ty, &end_ty);
+                    return None;
+                }
+                let as_int = |value: HirExpr, ty: &Type, span: Span| {
+                    if matches!(ty.kind, TypeKind::Char) {
+                        HirExpr::Cast {
+                            expr: Box::new(value),
+                            ty: prim(TypeKind::I64),
+                            span,
+                        }
+                    } else {
+                        value
+                    }
+                };
+                let start_int = as_int(start_hir.clone(), &start_ty, *span);
+                let end_int = as_int(end_hir.clone(), &end_ty, *span);
+                // An inclusive end is stored as the first excluded value, so
+                // every method can use the same half-open arithmetic.
+                let end_int = if *inclusive {
+                    HirExpr::Binary {
+                        op: BinOp::Add,
+                        lhs: Box::new(end_int),
+                        rhs: Box::new(HirExpr::Literal(
+                            Literal::I64(1),
+                            *span,
+                            prim(TypeKind::I64),
+                        )),
+                        span: *span,
+                        ty: prim(TypeKind::I64),
+                        fault: None,
+                    }
+                } else {
+                    end_int
+                };
+                Some(HirExpr::StructLit {
+                    path: vec!["Range".to_string()],
+                    fields: vec![
+                        ("start".to_string(), start_int, *span),
+                        ("end".to_string(), end_int, *span),
+                    ],
+                    span: *span,
+                    ty: prim(TypeKind::Struct("Range".to_string())),
                 })
             }
             Expr::IndexRange {

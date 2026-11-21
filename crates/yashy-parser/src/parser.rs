@@ -127,6 +127,10 @@ pub struct Parser<'src> {
     /// is being parsed, a `{` belongs to the statement, so no trailing lambda
     /// is read. Everywhere else `{` after a call is the last argument.
     pub(crate) no_block_arg: bool,
+    /// True while a top-level `..` belongs to the enclosing for head or index
+    /// bracket rather than to a range value. Nested expressions inside
+    /// parentheses still parse ranges.
+    pub(crate) no_range: bool,
 }
 
 impl<'src> Parser<'src> {
@@ -176,6 +180,7 @@ impl<'src> Parser<'src> {
             open: Vec::new(),
             interp_depth: 0,
             no_block_arg: false,
+            no_range: false,
         }
     }
 
@@ -189,6 +194,31 @@ impl<'src> Parser<'src> {
         self.no_block_arg = true;
         let result = parse(self);
         self.no_block_arg = saved;
+        result
+    }
+
+    /// Parse without treating a top-level `..` as a range value.
+    pub(crate) fn without_range<T>(
+        &mut self,
+        parse: impl FnOnce(&mut Self) -> Result<T, ParseError>,
+    ) -> Result<T, ParseError> {
+        let saved = self.no_range;
+        self.no_range = true;
+        let result = parse(self);
+        self.no_range = saved;
+        result
+    }
+
+    /// Parse a nested expression where `..` is a range even if the caller
+    /// suppresses it at the top level.
+    pub(crate) fn with_range<T>(
+        &mut self,
+        parse: impl FnOnce(&mut Self) -> Result<T, ParseError>,
+    ) -> Result<T, ParseError> {
+        let saved = self.no_range;
+        self.no_range = false;
+        let result = parse(self);
+        self.no_range = saved;
         result
     }
 
