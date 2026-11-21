@@ -46,7 +46,7 @@ use yashy_common::{codes, FileId, Span};
 use yashy_parser::ast::{BinOp, Block, Expr, Literal, Pattern, Stmt, StringLit, UnOp};
 
 use crate::error::TypeError;
-use crate::hir::HirExpr;
+use crate::hir::{HirBlock, HirExpr, HirPattern, HirStmt, HirSwitchArm};
 use crate::ty::{Type, TypeKind};
 
 /// A value a `const fn` can produce.
@@ -223,8 +223,15 @@ pub struct ConstFn {
     pub params: Vec<(String, Type)>,
     /// What the function returns.
     pub ret: Type,
-    /// The body, untyped.
+    /// The body, untyped. Retained as the declaration-time gate: `check_body`
+    /// validates the restricted const language here before any lowering.
     pub body: Block,
+    /// The same body lowered to typed HIR, when the checker has built it.
+    ///
+    /// The HIR evaluator consumes this form. It is optional because a `ConstFn`
+    /// is first collected from its declaration (body only) and lowered later,
+    /// once the checker's type tables are complete.
+    pub hir_body: Option<crate::hir::HirBlock>,
     /// The span of the whole declaration.
     pub span: Span,
     /// The file the declaration is in, so a diagnostic about the body is
@@ -1843,19 +1850,36 @@ fn eval(
                 bound.push((param.clone(), value));
             }
             work.depth = work.depth.saturating_add(1);
-            let outcome = evaluate_block(
-                &function.body,
-                &mut bound,
-                consts,
-                work,
-                false,
-                function.params.len(),
-                structs,
-            );
+            // Prefer the typed HIR body: the whole point of Step 5 is that the
+            // evaluator consumes the same typed tree the checker produces, not
+            // a second untyped AST. The AST body stays as a fallback for a
+            // `const fn` whose body could not be lowered (e.g. an unusual form
+            // the const-mode checker refused), so a valid program never fails
+            // just because lowering is incomplete.
+            let returned = if let Some(hir_body) = &function.hir_body {
+                match evaluate_hir_block(hir_body, &mut bound, consts, work, missing, structs)? {
+                    HirFlow::Returned(value) => Some(value),
+                    HirFlow::Fell => None,
+                    HirFlow::Break | HirFlow::Continue => None,
+                }
+            } else {
+                match evaluate_block(
+                    &function.body,
+                    &mut bound,
+                    consts,
+                    work,
+                    false,
+                    function.params.len(),
+                    structs,
+                )? {
+                    Flow::Returned(value) => Some(value),
+                    Flow::Fell | Flow::Break | Flow::Continue => None,
+                }
+            };
             work.depth = work.depth.saturating_sub(1);
-            let value = match outcome? {
-                Flow::Returned(value) => value,
-                Flow::Fell | Flow::Break | Flow::Continue => {
+            let value = match returned {
+                Some(value) => value,
+                None => {
                     return Err(ConstError::new(
                         *span,
                         format!("`{name}` does not return a value on every path"),
@@ -2311,4 +2335,629 @@ fn shift_out_of_range(span: Span, count: i64) -> ConstError {
         format!("shift amount {count} is out of range for int (0..63)"),
     )
     .with_code(codes::SHIFT_OUT_OF_RANGE)
+}
+
+// ---- The typed-HIR evaluator ---------------------------------------------
+//
+// This is the evaluator the design wants: it consumes the same typed HIR the
+// rest of the compiler uses, not a second, untyped tree. `check_body` still
+// gates the restricted const language at declaration time, and `lower_const_body`
+// in the checker lowers an accepted body to `HirBlock`. `evaluate_hir` runs that
+// typed tree. The AST evaluator (`evaluate`) stays as a differential oracle:
+// until the two are proven equal on the corpus, the checker keeps using the AST
+// path. Nothing here changes the value a program computes.
+
+/// Flow through a lowered const body.
+enum HirFlow {
+    Fell,
+    Returned(ConstValue),
+    Break,
+    Continue,
+}
+
+/// Evaluate one `const fn` both ways and return `(ast_value, hir_value)`.
+///
+/// This is the differential oracle: the AST path is the long-standing one, the
+/// HIR path consumes the typed body the checker lowered. A disagreement means
+/// the typed evaluator drifted from the untyped one and is a compiler bug.
+pub fn differential_evaluate(
+    function: &ConstFn,
+    consts: &ConstFns,
+    structs: &ConstTypes,
+) -> Result<(ConstValue, ConstValue), ConstError> {
+    // Call the function with its parameters' designated values: use 0 for each
+    // int and the equivalent zero for scalars. The two evaluators get the same
+    // environment, so any difference is in evaluation, not the inputs.
+    let env: Vec<(String, ConstValue)> = function
+        .params
+        .iter()
+        .map(|(name, ty)| {
+            let value = match ty.kind {
+                TypeKind::F64 => ConstValue::F64(0.0),
+                TypeKind::Bool => ConstValue::Bool(false),
+                TypeKind::Char => ConstValue::Char(0),
+                TypeKind::Str => ConstValue::Str(String::new()),
+                _ => ConstValue::I64(0),
+            };
+            (name.clone(), value)
+        })
+        .collect();
+
+    let mut ast_work = Work::default();
+    let mut ast_env = env.clone();
+    let ast = evaluate_block(
+        &function.body,
+        &mut ast_env,
+        consts,
+        &mut ast_work,
+        false,
+        function.params.len(),
+        structs,
+    )
+    .and_then(|flow| match flow {
+        Flow::Returned(value) => Ok(value),
+        Flow::Fell => Ok(ConstValue::Bool(true)),
+        Flow::Break | Flow::Continue => Err(ConstError::new(
+            function.span,
+            "a loop jump escaped a const fn",
+        )),
+    });
+
+    let hir = function
+        .hir_body
+        .as_ref()
+        .ok_or_else(|| ConstError::new(function.span, "no typed HIR body for differential"))?;
+    let mut hir_work = Work::default();
+    let mut hir_env = env;
+    let hir = evaluate_hir_block(
+        hir,
+        &mut hir_env,
+        consts,
+        &mut hir_work,
+        Missing::NotConstant,
+        structs,
+    )
+    .and_then(|flow| match flow {
+        HirFlow::Returned(value) => Ok(value),
+        HirFlow::Fell => Ok(ConstValue::Bool(true)),
+        HirFlow::Break | HirFlow::Continue => Err(ConstError::new(
+            function.span,
+            "a loop jump escaped a const fn",
+        )),
+    });
+
+    Ok((ast?, hir?))
+}
+
+/// Evaluate a typed HIR expression to a constant value.
+///
+/// `env` is the current binding stack (innermost last); `consts` supplies other
+/// `const fn` bodies; `work` carries the shared fuel/depth/call caps.
+pub fn evaluate_hir_expr(
+    expr: &HirExpr,
+    env: &mut Vec<(String, ConstValue)>,
+    consts: &ConstFns,
+    work: &mut Work,
+    missing: Missing,
+    structs: &ConstTypes,
+) -> Result<ConstValue, ConstError> {
+    tick_at(expr_span_hir(expr), work)?;
+    match expr {
+        HirExpr::Literal(lit, _, _) => literal_value(lit, expr_span_hir(expr)),
+        HirExpr::Ident(path, span, _) => {
+            if path.len() == 1 {
+                if let Some((_, value)) = env.iter().rev().find(|(name, _)| name == &path[0]) {
+                    return Ok(value.clone());
+                }
+            }
+            Err(
+                ConstError::new(*span, format!("`{}` is not a constant", path.join(".")))
+                    .with_code(codes::CONST_NOT_CONSTANT),
+            )
+        }
+        HirExpr::Move(inner, _, _) | HirExpr::Try { expr: inner, .. } => {
+            evaluate_hir_expr(inner, env, consts, work, missing, structs)
+        }
+        HirExpr::Binary {
+            op, lhs, rhs, span, ..
+        } => {
+            let left = evaluate_hir_expr(lhs, env, consts, work, missing, structs)?;
+            let right = evaluate_hir_expr(rhs, env, consts, work, missing, structs)?;
+            evaluate_binary(*op, &left, &right, *span)
+        }
+        HirExpr::Unary {
+            op, operand, span, ..
+        } => {
+            let inner = evaluate_hir_expr(operand, env, consts, work, missing, structs)?;
+            match (op, &inner) {
+                (UnOp::Neg, ConstValue::I64(value)) => Ok(ConstValue::I64(value.wrapping_neg())),
+                (UnOp::Neg, ConstValue::F64(value)) => Ok(ConstValue::F64(-value)),
+                (UnOp::Not, ConstValue::Bool(value)) => Ok(ConstValue::Bool(!value)),
+                (UnOp::BitNot, ConstValue::I64(value)) => Ok(ConstValue::I64(!value)),
+                (op, other) => Err(ConstError::new(
+                    *span,
+                    format!("cannot apply `{op:?}` to `{}`", other.kind()),
+                )),
+            }
+        }
+        HirExpr::FixedArrayLit { elements, .. } => {
+            let mut values = Vec::with_capacity(elements.len());
+            for element in elements {
+                values.push(evaluate_hir_expr(
+                    element, env, consts, work, missing, structs,
+                )?);
+            }
+            Ok(ConstValue::Array(values))
+        }
+        HirExpr::TupleLit { elements, .. } => {
+            let mut values = Vec::with_capacity(elements.len());
+            for element in elements {
+                values.push(evaluate_hir_expr(
+                    element, env, consts, work, missing, structs,
+                )?);
+            }
+            Ok(ConstValue::Array(values))
+        }
+        HirExpr::Index {
+            base, index, span, ..
+        } => {
+            let base_value = evaluate_hir_expr(base, env, consts, work, missing, structs)?;
+            let index_value = evaluate_hir_expr(index, env, consts, work, missing, structs)?;
+            let at = match index_value {
+                ConstValue::I64(n) => n,
+                other => {
+                    return Err(ConstError::new(
+                        *span,
+                        format!("an index must be `int`, found `{}`", other.kind()),
+                    ))
+                }
+            };
+            match base_value {
+                ConstValue::Array(values) => {
+                    if at < 0 || at as usize >= values.len() {
+                        return Err(ConstError::new(
+                            *span,
+                            format!(
+                                "index {at} is outside a fixed array of length {}",
+                                values.len()
+                            ),
+                        ));
+                    }
+                    Ok(values[at as usize].clone())
+                }
+                other => Err(ConstError::new(
+                    *span,
+                    format!("cannot index `{}`", other.kind()),
+                )),
+            }
+        }
+        HirExpr::StructLit { path, fields, .. } => {
+            let mut values = Vec::with_capacity(fields.len());
+            for (name, value, _) in fields {
+                values.push((
+                    name.clone(),
+                    evaluate_hir_expr(value, env, consts, work, missing, structs)?,
+                ));
+            }
+            Ok(ConstValue::Struct {
+                name: path.last().cloned().unwrap_or_default(),
+                fields: values,
+            })
+        }
+        HirExpr::FieldAccess {
+            base, field, span, ..
+        } => {
+            let value = evaluate_hir_expr(base, env, consts, work, missing, structs)?;
+            if let ConstValue::Struct { fields, .. } = value {
+                if let Some((_, value)) = fields.into_iter().find(|(name, _)| name == field) {
+                    return Ok(value);
+                }
+            }
+            Err(ConstError::new(
+                *span,
+                format!("no field `{field}` on the constant"),
+            ))
+        }
+        HirExpr::Call {
+            callee, args, span, ..
+        } => {
+            // Scalar conversions are lowered by the checker: `to_int` becomes a
+            // Cast, `to_char` a call to `char_from_int`. Handle the latter.
+            if callee.len() == 1 && callee[0] == "char_from_int" {
+                let value = match args.first() {
+                    Some(arg) => evaluate_hir_expr(arg, env, consts, work, missing, structs)?,
+                    None => {
+                        return Err(ConstError::new(*span, "`char_from_int` needs one argument"))
+                    }
+                };
+                return match value {
+                    ConstValue::I64(n) => u8::try_from(n).map(ConstValue::Char).map_err(|_| {
+                        ConstError::new(*span, format!("`{n}` is not a character code"))
+                    }),
+                    other => Err(ConstError::new(
+                        *span,
+                        format!("cannot convert `{}` to char", other.kind()),
+                    )),
+                };
+            }
+            // An enum constructor is a two-segment call: `[Enum, Variant]`.
+            if callee.len() == 2 {
+                let mut payload = Vec::with_capacity(args.len());
+                for arg in args {
+                    payload.push(evaluate_hir_expr(arg, env, consts, work, missing, structs)?);
+                }
+                return Ok(ConstValue::Enum {
+                    name: callee[0].clone(),
+                    variant: callee[1].clone(),
+                    payload,
+                });
+            }
+            // A `const fn` call resolves from the table. Recurse into its typed
+            // body when available, else fall back to the AST evaluator.
+            if callee.len() == 1 {
+                let name = &callee[0];
+                if let Some(function) = consts.get(name) {
+                    if work.depth >= MAX_CONST_DEPTH || work.calls >= MAX_CONST_CALLS {
+                        return Err(ConstError::new(
+                            *span,
+                            format!("`{name}` did not terminate: the evaluation is too deep"),
+                        )
+                        .with_code(codes::CONST_RECURSION));
+                    }
+                    work.calls = work.calls.saturating_add(1);
+                    work.called.push((name.clone(), *span));
+                    let mut inner_env: Vec<(String, ConstValue)> = Vec::new();
+                    for (index, (param, _)) in function.params.iter().enumerate() {
+                        let value = match args.get(index) {
+                            Some(arg) => {
+                                evaluate_hir_expr(arg, env, consts, work, missing, structs)?
+                            }
+                            None => {
+                                return Err(ConstError::new(
+                                    *span,
+                                    format!("missing argument `{param}`"),
+                                ))
+                            }
+                        };
+                        inner_env.push((param.clone(), value));
+                    }
+                    if let Some(body) = &function.hir_body {
+                        work.depth = work.depth.saturating_add(1);
+                        let outcome = evaluate_hir_block(
+                            body,
+                            &mut inner_env,
+                            consts,
+                            work,
+                            missing,
+                            structs,
+                        );
+                        work.depth = work.depth.saturating_sub(1);
+                        return outcome.and_then(|flow| match flow {
+                            HirFlow::Returned(value) => Ok(value),
+                            HirFlow::Fell => Err(ConstError::new(
+                                *span,
+                                format!("`{name}` does not return a value on every path"),
+                            )),
+                            HirFlow::Break | HirFlow::Continue => {
+                                Err(ConstError::new(*span, "a loop jump escaped a const fn"))
+                            }
+                        });
+                    }
+                    // Fallback: no typed body was built, use the AST evaluator.
+                    let ast_args = args
+                        .iter()
+                        .map(|arg| arg_to_ast(arg, *span))
+                        .collect::<Vec<_>>();
+                    let ast_expr = Expr::Call {
+                        callee: vec![name.clone()],
+                        type_args: Vec::new(),
+                        args: ast_args
+                            .into_iter()
+                            .map(|value| yashy_parser::ast::CallArg {
+                                name: None,
+                                value,
+                                span: *span,
+                            })
+                            .collect(),
+                        unsafe_call: false,
+                        span: *span,
+                    };
+                    return evaluate(&ast_expr, &inner_env, consts, work, missing, structs);
+                }
+            }
+            Err(ConstError::new(
+                *span,
+                format!("`{}` has no compile-time value", callee.join(".")),
+            ))
+        }
+        HirExpr::Cast { expr, ty, span } => {
+            let value = evaluate_hir_expr(expr, env, consts, work, missing, structs)?;
+            cast_const(value, &ty.kind, *span)
+        }
+        HirExpr::SwitchExpr {
+            subject,
+            arms,
+            span,
+            ..
+        } => {
+            let value = evaluate_hir_expr(subject, env, consts, work, missing, structs)?;
+            evaluate_hir_switch(&value, arms, env, consts, work, missing, structs, *span)
+        }
+        other => Err(ConstError::new(
+            expr_span_hir(other),
+            format!("{} is not allowed in a const fn", hir_expr_kind(other)),
+        )),
+    }
+}
+
+/// Evaluate a lowered `const fn` block, returning its flow.
+fn evaluate_hir_block(
+    block: &HirBlock,
+    env: &mut Vec<(String, ConstValue)>,
+    consts: &ConstFns,
+    work: &mut Work,
+    missing: Missing,
+    structs: &ConstTypes,
+) -> Result<HirFlow, ConstError> {
+    for stmt in &block.stmts {
+        match evaluate_hir_stmt(stmt, env, consts, work, missing, structs)? {
+            HirFlow::Fell => {}
+            flow => return Ok(flow),
+        }
+    }
+    Ok(HirFlow::Fell)
+}
+
+fn evaluate_hir_stmt(
+    stmt: &HirStmt,
+    env: &mut Vec<(String, ConstValue)>,
+    consts: &ConstFns,
+    work: &mut Work,
+    missing: Missing,
+    structs: &ConstTypes,
+) -> Result<HirFlow, ConstError> {
+    match stmt {
+        HirStmt::Expr(expr, _, _) => {
+            let _ = evaluate_hir_expr(expr, env, consts, work, missing, structs)?;
+            Ok(HirFlow::Fell)
+        }
+        HirStmt::Const { name, init, .. } | HirStmt::Var { name, init, .. } => {
+            let value = evaluate_hir_expr(init, env, consts, work, missing, structs)?;
+            env.push((name.clone(), value));
+            Ok(HirFlow::Fell)
+        }
+        HirStmt::Assign { name, value, .. } => {
+            let value = evaluate_hir_expr(value, env, consts, work, missing, structs)?;
+            if let Some((_, slot)) = env.iter_mut().rev().find(|(n, _)| n == name) {
+                *slot = value;
+                Ok(HirFlow::Fell)
+            } else {
+                Err(ConstError::new(
+                    hir_stmt_span(stmt),
+                    format!("`{name}` is not a constant binding"),
+                ))
+            }
+        }
+        HirStmt::Return(Some(expr), _) => {
+            let value = evaluate_hir_expr(expr, env, consts, work, missing, structs)?;
+            Ok(HirFlow::Returned(value))
+        }
+        HirStmt::Return(None, _) => Ok(HirFlow::Returned(ConstValue::Bool(true))),
+        HirStmt::Break(_) => Ok(HirFlow::Break),
+        HirStmt::Continue(_) => Ok(HirFlow::Continue),
+        HirStmt::If {
+            cond,
+            then_block,
+            else_block,
+            ..
+        } => {
+            let value = evaluate_hir_expr(cond, env, consts, work, missing, structs)?;
+            let take_then = matches!(value, ConstValue::Bool(true));
+            if take_then {
+                evaluate_hir_block(then_block, env, consts, work, missing, structs)
+            } else if let Some(else_block) = else_block {
+                evaluate_hir_block(else_block, env, consts, work, missing, structs)
+            } else {
+                Ok(HirFlow::Fell)
+            }
+        }
+        HirStmt::ForC {
+            init,
+            cond,
+            update,
+            body,
+            span,
+        } => {
+            if let Some(init) = init {
+                evaluate_hir_stmt(init, env, consts, work, missing, structs)?;
+            }
+            loop {
+                tick_at(*span, work)?;
+                if let Some(cond) = cond {
+                    let value = evaluate_hir_expr(cond, env, consts, work, missing, structs)?;
+                    if !matches!(value, ConstValue::Bool(true)) {
+                        break;
+                    }
+                }
+                match evaluate_hir_block(body, env, consts, work, missing, structs)? {
+                    HirFlow::Fell => {}
+                    HirFlow::Break => break,
+                    HirFlow::Returned(value) => return Ok(HirFlow::Returned(value)),
+                    HirFlow::Continue => {}
+                }
+                if let Some(update) = update {
+                    let _ = evaluate_hir_expr(update, env, consts, work, missing, structs)?;
+                }
+            }
+            Ok(HirFlow::Fell)
+        }
+        other => Err(ConstError::new(
+            hir_stmt_span(other),
+            format!("{} is not allowed in a const fn", hir_stmt_kind(other)),
+        )),
+    }
+}
+
+fn evaluate_hir_switch(
+    value: &ConstValue,
+    arms: &[HirSwitchArm],
+    env: &mut Vec<(String, ConstValue)>,
+    consts: &ConstFns,
+    work: &mut Work,
+    missing: Missing,
+    structs: &ConstTypes,
+    span: Span,
+) -> Result<ConstValue, ConstError> {
+    for arm in arms {
+        // Binding names from a pattern must not leak out of a failed arm.
+        let before = env.len();
+        let matches = hir_pattern_matches(&arm.pattern, value, env)?;
+        if matches {
+            if let Some(guard) = &arm.guard {
+                let ok = evaluate_hir_expr(guard, env, consts, work, missing, structs)?;
+                if !matches!(ok, ConstValue::Bool(true)) {
+                    env.truncate(before);
+                    continue;
+                }
+            }
+            let result = evaluate_hir_expr(&arm.body, env, consts, work, missing, structs);
+            env.truncate(before);
+            return result;
+        }
+        env.truncate(before);
+    }
+    let _ = (arm_default(arms), span);
+    Err(ConstError::new(span, "no switch arm matched the constant"))
+}
+
+fn arm_default(arms: &[HirSwitchArm]) -> bool {
+    arms.iter().any(|arm| arm.is_default)
+}
+
+fn hir_pattern_matches(
+    pattern: &HirPattern,
+    value: &ConstValue,
+    env: &mut Vec<(String, ConstValue)>,
+) -> Result<bool, ConstError> {
+    match pattern {
+        HirPattern::Wildcard(_) => Ok(true),
+        HirPattern::Binding { name, .. } => {
+            env.push((name.clone(), value.clone()));
+            Ok(true)
+        }
+        HirPattern::BindAt { name, pattern, .. } => {
+            if hir_pattern_matches(pattern, value, env)? {
+                env.push((name.clone(), value.clone()));
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
+        HirPattern::Literal(lit, ..) => Ok(literal_value(lit, Span::new(0, 0))? == *value),
+        HirPattern::Range {
+            lo, hi, inclusive, ..
+        } => {
+            let n = match value {
+                ConstValue::I64(n) => *n,
+                _ => return Ok(false),
+            };
+            let as_i64 = |lit: &Literal| match lit {
+                Literal::I64(v) => Some(*v),
+                Literal::Char(c) => Some(i64::from(*c)),
+                _ => None,
+            };
+            let (Some(lo), Some(hi)) = (as_i64(lo), as_i64(hi)) else {
+                return Ok(false);
+            };
+            Ok(if *inclusive {
+                lo <= n && n <= hi
+            } else {
+                lo <= n && n < hi
+            })
+        }
+        HirPattern::UnitVariant { path, .. } => Ok(matches!(
+            value,
+            ConstValue::Enum { variant, .. } if variant == path.last().unwrap_or(&String::new())
+        )),
+        _ => Err(ConstError::new(
+            Span::new(0, 0),
+            "this pattern has no compile-time value",
+        )),
+    }
+}
+
+fn literal_value(lit: &Literal, _span: Span) -> Result<ConstValue, ConstError> {
+    match lit {
+        Literal::I64(v) => Ok(ConstValue::I64(*v)),
+        Literal::F64(v) => Ok(ConstValue::F64(*v)),
+        Literal::Bool(v) => Ok(ConstValue::Bool(*v)),
+        Literal::Str(v) => Ok(ConstValue::Str(v.value.clone())),
+        Literal::Char(v) => Ok(ConstValue::Char(*v)),
+    }
+}
+
+fn cast_const(value: ConstValue, target: &TypeKind, span: Span) -> Result<ConstValue, ConstError> {
+    match (value, target) {
+        (ConstValue::Char(byte), TypeKind::I64) => Ok(ConstValue::I64(i64::from(byte))),
+        (ConstValue::I64(n), TypeKind::Char) => u8::try_from(n)
+            .map(ConstValue::Char)
+            .map_err(|_| ConstError::new(span, format!("`{n}` is not a character code"))),
+        (value, _) => Ok(value),
+    }
+}
+
+/// Build a loose AST expression from a typed HIR literal tree, for the fallback
+/// path where no typed const-fn body was built. Only the forms a const argument
+/// can carry are reconstructed.
+fn arg_to_ast(expr: &HirExpr, span: Span) -> Expr {
+    match expr {
+        HirExpr::Literal(lit, _, _) => Expr::Literal(lit.clone(), span),
+        HirExpr::Ident(path, span, _) => Expr::Ident(path.clone(), *span),
+        _ => Expr::Literal(Literal::I64(0), span),
+    }
+}
+
+fn expr_span_hir(expr: &HirExpr) -> Span {
+    match expr {
+        HirExpr::Literal(_, span, _) => *span,
+        HirExpr::Ident(_, span, _) => *span,
+        HirExpr::UnsafeBlock { span, .. } => *span,
+        HirExpr::Binary { span, .. } | HirExpr::Unary { span, .. } => *span,
+        HirExpr::Move(_, span, _) | HirExpr::AddrOf { span, .. } => *span,
+        HirExpr::Call { span, .. } | HirExpr::StructLit { span, .. } => *span,
+        HirExpr::SliceLit { span, .. } | HirExpr::FieldAccess { span, .. } => *span,
+        HirExpr::Index { span, .. } | HirExpr::FixedArrayLit { span, .. } => *span,
+        HirExpr::View { span, .. } | HirExpr::TupleLit { span, .. } => *span,
+        HirExpr::Cast { span, .. } | HirExpr::Try { span, .. } => *span,
+        HirExpr::Await { span, .. } | HirExpr::SwitchExpr { span, .. } => *span,
+        _ => Span::new(0, 0),
+    }
+}
+
+fn hir_stmt_span(stmt: &HirStmt) -> Span {
+    crate::hir::stmt_span(stmt)
+}
+
+fn hir_expr_kind(expr: &HirExpr) -> &'static str {
+    match expr {
+        HirExpr::Literal(..) => "a literal",
+        HirExpr::Ident(..) => "a name",
+        HirExpr::Binary { .. } => "a binary operation",
+        HirExpr::Unary { .. } => "a unary operation",
+        HirExpr::Call { .. } => "a call",
+        HirExpr::SwitchExpr { .. } => "a switch",
+        _ => "this expression",
+    }
+}
+
+fn hir_stmt_kind(stmt: &HirStmt) -> &'static str {
+    match stmt {
+        HirStmt::Return(..) => "a return",
+        HirStmt::Var { .. } => "a let binding",
+        HirStmt::Const { .. } => "a const binding",
+        HirStmt::Assign { .. } => "an assignment",
+        HirStmt::If { .. } => "an if",
+        HirStmt::ForC { .. } => "a loop",
+        _ => "this statement",
+    }
 }

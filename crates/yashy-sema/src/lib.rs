@@ -16,11 +16,14 @@ pub use yashy_hir::{exhaustive, hir, ty};
 pub use yashy_verify::ownership;
 
 pub use check_expr::{
-    check_modules_with, check_program, check_program_with, CheckOptions, MAX_INSTANTIATIONS_PER_FN,
-    MAX_INSTANTIATIONS_TOTAL,
+    check_modules_with, check_program, check_program_with, check_program_with_const_fns,
+    CheckOptions, MAX_INSTANTIATIONS_PER_FN, MAX_INSTANTIATIONS_TOTAL,
 };
 pub use check_pat::check_pattern;
-pub use const_eval::{ConstFn, ConstValue};
+pub use const_eval::{
+    differential_evaluate, evaluate_hir_expr, ConstFn, ConstFns, ConstTypes, ConstValue, Missing,
+    Work,
+};
 pub use error::TypeError;
 pub use exhaustive::{is_exhaustive, missing_cases};
 pub use hir::*;

@@ -556,12 +556,18 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   the layout table, reports through the same diagnostics, and is covered by the
   `never_panics` suite. `--emit-ir` shows the folded constant and the source
   span that produced it.
-  *Current:* the evaluator still consumes the parser AST, so the HIR half is
-  owed. Hostile constant inputs (divide by zero, overflow, unbounded recursion,
-  wrong arity, out-of-range and negative fixed-array index, I/O in a `const fn`,
-  a false `const_assert`) are now part of `crates/yashy-driver/tests/never_panics.rs`
-  and end as diagnostics, not panics. `--emit-ir` shows the folded literal but
-  not yet its source span.
+  *Current:* `ConstFn` now carries a typed `HirBlock` body, lowered by the main
+  checker in a const mode, and `const_eval::evaluate_hir` interprets that typed
+  tree. The AST path is still kept as a fallback and a differential oracle:
+  `crates/yashy-sema/tests/hir_const_eval.rs` proves the two evaluators agree on
+  arithmetic, branching, loops, switch, nested calls, arrays and conversions,
+  and asserts every body is genuinely lowered. `check_program_with_const_fns`
+  exposes the table for that proof. Hostile constant inputs (divide by zero,
+  overflow, unbounded recursion, wrong arity, out-of-range and negative
+  fixed-array index, I/O in a `const fn`, a false `const_assert`) are part of
+  `crates/yashy-driver/tests/never_panics.rs` and end as diagnostics, not panics;
+  the HIR call path carries the same depth/call/fuel caps. `--emit-ir` shows the
+  folded literal but not yet its source span.
 - [ ] **Step 6: Commit.**
 
 ### Task 10: BPE audit, rule ids, and the architecture update
@@ -708,7 +714,7 @@ does not build on a claim that is not true.
 | 4.1, 4.2 | Deterministic derive impls, visible in `index`, field-bound diagnostics | `derive(Debug, Eq, Hash)` expands to inherent methods in declaration order for both `struct` and `enum`, visible as functions in the index; an unsupported field or unknown derive is refused with the field/name it concerns, and a second expansion of one declaration gives the same typed program. Enum Debug/Eq/Hash derives now ship; `Encode`/`Decode` are still owed | Owed work: `Encode`/`Decode` and Phase 7's codec interface |
 | 6.5, 7.1-7.5 | `size_of[T]()` bracket spelling; `const N` parameters | Both spellings fold from the shared layout table; `const N` is a monomorph key and substitutes into array lengths, including values named by a checked `const int`. The bracket call is `size_of[Buffer[16]]()`. | A full const expression such as `Buffer[1 + 2]` is still not a const-argument spelling; the checker/layout/IR agreement is pinned by `crates/yashy-driver/tests/layout.rs` |
 | 8.1, 8.2 | `Range[T]` value type with `start`/`end`/`len`/`is_empty`/`contains`/`step_by` | `..` and `..=` build a two-field `Range` value; the five methods lower to field reads and comparisons, and `step_by` is a stride on a counted `for` loop. A float bound is `E1518`. | The value is monomorphic over `int` rather than a generic `Range[T]`; `Set[int]` membership is still owed |
-| 9.1, 9.4, 9.5 | Compile-time/run-time differential test, evaluator consumes typed HIR | The evaluator consumes the parser AST and folds arithmetic, `if`, `let`/assignment, loops, fixed arrays and nested calls; `const_assert` rejects a false compile-time fact; the table's IR-literal assertion is pinned by `crates/yashy-driver/tests/const_fn_ir.rs`. `const_fn_differential.ya` pairs folded and run-time bodies for a loop, branching, a switch, nested calls and conversions, but a `const fn` itself cannot be called at run time (E1524) | Owed work; the AST choice is why `switch` and method calls are still refused rather than wrong |
+| 9.1, 9.4, 9.5 | Compile-time/run-time differential test, evaluator consumes typed HIR | The evaluator now consumes typed HIR (with an AST fallback and a differential oracle in `hir_const_eval.rs`) and folds arithmetic, `if`, `let`/assignment, loops, fixed arrays, switch and nested calls; `const_assert` rejects a false compile-time fact; the table's IR-literal assertion is pinned by `crates/yashy-driver/tests/const_fn_ir.rs`. `const_fn_differential.ya` pairs folded and run-time bodies for a loop, branching, a switch, nested calls and conversions, but a `const fn` itself cannot be called at run time (E1524) | The typed-HIR path is proven equal to the AST path; the `--emit-ir` folded-constant source span is still owed |
 | 10.1, 10.2, 10.5 | BPE audit over this phase's keywords in `o200k`, `cl100k` and a Llama tokenizer | `yashyc tokens --bpe` reports one tokenizer and counts; `docs/bpe.md` records the measured Yashy-lexer half and the missing external half | Needs the three vocabularies vendored (Phase 2 Task 8 owes the same files) |
 | Gates | Every acceptance row is a command that exists and passes on Windows and Linux | Rows name the test file that exists; the rows whose file is owed say so. Driver checks are green with the documented runtime build-script detach; freshly linked binaries are blocked by Windows Application Control, so the runtime, e2e and IR gates are CI-only | CI is deferred by the project owner; re-run the full gate set when CI is unblocked |
 

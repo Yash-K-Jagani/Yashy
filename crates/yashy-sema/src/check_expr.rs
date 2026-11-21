@@ -1079,6 +1079,14 @@ pub struct Checker<'src> {
     /// An `alloc_uninit` call is only admitted while this is non-zero; the
     /// block itself is still lowered and inventoried as before.
     unsafe_depth: usize,
+    /// True while lowering a `const fn` body to HIR.
+    ///
+    /// The const language is a restricted subset checked first by
+    /// `const_eval::check_body`. That gate stays. This mode lets the main
+    /// checker lower the same body to typed HIR: it permits calls to other
+    /// `const fn`s (which have no run-time symbol and are normally refused)
+    /// so the HIR evaluator can resolve them from the const-fn table.
+    const_mode: bool,
 }
 
 impl<'src> Checker<'src> {
@@ -1430,6 +1438,7 @@ impl<'src> Checker<'src> {
             loop_labels: Vec::new(),
             labeled_loops: Vec::new(),
             unsafe_depth: 0,
+            const_mode: false,
         }
     }
 
@@ -3890,6 +3899,7 @@ impl<'src> Checker<'src> {
                         params: param_types,
                         ret: ret_ty,
                         body: body.clone(),
+                        hir_body: None,
                         span: *span,
                         file: self.file,
                     },
@@ -6049,6 +6059,54 @@ impl<'src> Checker<'src> {
             },
         }
         self.file = outer;
+        // Once the restricted language is validated, lower the same body to
+        // typed HIR so the HIR evaluator has a typed tree to consume. Failure
+        // here is non-fatal: check_body already reported any real error, and
+        // the AST evaluator remains the fallback.
+        self.lower_const_body(name);
+    }
+
+    /// Lower a `const fn` body to typed HIR for the HIR evaluator.
+    ///
+    /// `check_body` has already validated the restricted language; this pass
+    /// runs the normal checker in const mode so the body shares the compiler's
+    /// type rules rather than a second one. Parameters are declared as const
+    /// bindings in a fresh scope, and `const fn` calls resolve from the table.
+    /// The result is stored on the `ConstFn` so `const_eval::evaluate_hir` can
+    /// consume it. A failure leaves the AST path as the fallback.
+    fn lower_const_body(&mut self, name: &str) {
+        let Some(function) = self.const_fns.get(name).cloned() else {
+            return;
+        };
+        if function.hir_body.is_some() {
+            return;
+        }
+        let outer = self.file;
+        let outer_mode = self.const_mode;
+        self.file = function.file;
+        self.const_mode = true;
+        self.scope.push();
+        for (param_name, param_ty) in &function.params {
+            let _ = self.scope.declare(
+                param_name.clone(),
+                Binding {
+                    ty: param_ty.clone(),
+                    mutability: Mutability::Const,
+                    span: function.span,
+                    ownership: Ownership::Live,
+                    visibility: Visibility::Private,
+                },
+            );
+        }
+        let lowered = self.check_block_with_ret(&function.body, &function.ret);
+        self.scope.pop();
+        self.const_mode = outer_mode;
+        self.file = outer;
+        if let Some(block) = lowered {
+            if let Some(function) = self.const_fns.get_mut(name) {
+                function.hir_body = Some(block);
+            }
+        }
     }
 
     /// Check the body of a counted loop and build its HIR.
@@ -12343,7 +12401,7 @@ impl<'src> Checker<'src> {
                 // outside a `const` initializer cannot be compiled: there is
                 // no function of that name to call. The message says so
                 // rather than leaving the reader with "cannot find function".
-                if callee.len() == 1 && self.const_fns.contains_key(&name) {
+                if callee.len() == 1 && self.const_fns.contains_key(&name) && !self.const_mode {
                     self.error(
                         *span,
                         format!(
@@ -12352,6 +12410,51 @@ impl<'src> Checker<'src> {
                         ),
                     );
                     return None;
+                }
+                // A `const fn` call inside another `const fn` body has no
+                // run-time symbol, so it is not in the root scope and `lookup`
+                // would miss. In const mode we lower it directly from the
+                // declaration: check each argument against the parameter type
+                // and build a `HirExpr::Call` carrying the declared return type.
+                // The HIR evaluator resolves the callee from the const-fn table.
+                if self.const_mode {
+                    if let Some(function) = self.const_fns.get(&name).cloned() {
+                        let mut checked_args = Vec::new();
+                        let mut ok = true;
+                        for (index, arg) in args.iter().enumerate() {
+                            let expected = function.params.get(index).map(|(_, ty)| ty.clone());
+                            let value = match &expected {
+                                Some(ty) => self.check_expr_with_expected(&arg.value, ty),
+                                None => self.check_expr(&arg.value),
+                            };
+                            match value {
+                                Some(value) => checked_args.push(value),
+                                None => ok = false,
+                            }
+                        }
+                        if !ok {
+                            return None;
+                        }
+                        if args.len() != function.params.len() {
+                            self.error_code(
+                                *span,
+                                codes::WRONG_ARGUMENT_COUNT,
+                                format!(
+                                    "expected {} arguments, found {}",
+                                    function.params.len(),
+                                    args.len()
+                                ),
+                            );
+                            return None;
+                        }
+                        return Some(HirExpr::Call {
+                            callee: vec![name.clone()],
+                            args: checked_args,
+                            unsafe_call: false,
+                            span: *span,
+                            ty: function.ret.clone(),
+                        });
+                    }
                 }
                 // The callee is resolved *before* the arguments are checked,
                 // because each argument is checked against its parameter's
@@ -15080,6 +15183,22 @@ pub fn check_program_with(
 ) -> Result<HirProgram, Vec<Diagnostic>> {
     let mut checker = Checker::new(sm, file, options);
     checker.check_program(ast)
+}
+
+/// Check a program and return the `const fn` table alongside the HIR.
+///
+/// This exists for the HIR-evaluator differential test: it needs the lowered
+/// `const fn` bodies to compare the typed-HIR evaluator against the AST one.
+/// It runs exactly the same checker as [`check_program_with`].
+pub fn check_program_with_const_fns(
+    ast: &yashy_parser::ast::Program,
+    sm: &SourceMap,
+    file: FileId,
+    options: CheckOptions,
+) -> Result<(HirProgram, ConstFns), Vec<Diagnostic>> {
+    let mut checker = Checker::new(sm, file, options);
+    let program = checker.check_program(ast)?;
+    Ok((program, std::mem::take(&mut checker.const_fns)))
 }
 
 /// The public entry point for checking an import graph.
