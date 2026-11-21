@@ -54,6 +54,18 @@ fn global_alloc(int count) -> *mut int
 Allocate `count` zeroed `int` slots through the global allocator.
 The caller owns the result; release it with `global_free` or `.free()`.
 
+### `global_alloc_value`
+
+```yashy
+fn global_alloc_value() -> GlobalAllocator
+```
+
+A fresh process-wide allocator value. A collection that takes an allocator
+can be given this one to use the global path. A program that wants to record
+calls defines its own type and `impl Allocator for` it, then calls `alloc`
+/ `free` on a local binding of that type — dispatch is static, so each call
+lowers to the concrete type's `Allocator` symbol with no vtable.
+
 ### `global_allocator`
 
 ```yashy
@@ -74,6 +86,16 @@ fn global_free(*mut int pointer) -> void
 ```
 
 Release a block handed out by `global_alloc`. Tolerates a null pointer.
+
+### `GlobalAllocator`
+
+```yashy
+struct GlobalAllocator
+```
+
+The process-wide allocator as a value. Its methods reach the same runtime
+path as `global_alloc` / `global_free`, so a collection given this value
+allocates exactly where a bare `alloc` call does.
 
 ## `args`
 

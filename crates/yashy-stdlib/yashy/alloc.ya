@@ -47,3 +47,44 @@ pub fn global_alloc(int count) -> *mut int {
 pub fn global_free(*mut int pointer) {
     pointer.free();
 }
+
+/// The allocation contract a collection asks for.
+///
+/// Dispatch is static: an `impl Allocator for T` names one concrete type, and
+/// a call resolves to `T.Allocator.alloc` / `T.Allocator.free` in the IR. There
+/// is no trait object and no vtable. `alloc` returns `count` zeroed `int` slots
+/// (the builtin's unit); the plan spells the unit `u8` and answers `Option`,
+/// but `u8` is a `repr(C)`/FFI-only spelling and Yashy's real allocator hands
+/// out `*mut int`, so the interface uses that type. A failed allocation faults
+/// at runtime rather than returning a sentinel.
+pub trait Allocator {
+    /// Hand out `count` zeroed `int` slots. The caller owns the result.
+    fn alloc(self: *mut Self, int count) -> *mut int;
+    /// Release a block this allocator handed out. Tolerates a null pointer.
+    fn free(self: *mut Self, *mut int pointer);
+}
+
+/// The process-wide allocator as a value. Its methods reach the same runtime
+/// path as `global_alloc` / `global_free`, so a collection given this value
+/// allocates exactly where a bare `alloc` call does.
+pub struct GlobalAllocator {
+    id: int,
+}
+
+impl Allocator for GlobalAllocator {
+    fn alloc(self: *mut Self, int count) -> *mut int {
+        return alloc_zeroed(count);
+    }
+    fn free(self: *mut Self, *mut int pointer) {
+        pointer.free();
+    }
+}
+
+/// A fresh process-wide allocator value. A collection that takes an allocator
+/// can be given this one to use the global path. A program that wants to record
+/// calls defines its own type and `impl Allocator for` it, then calls `alloc`
+/// / `free` on a local binding of that type — dispatch is static, so each call
+/// lowers to the concrete type's `Allocator` symbol with no vtable.
+pub fn global_alloc_value() -> GlobalAllocator {
+    return GlobalAllocator { id: 0 };
+}

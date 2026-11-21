@@ -291,6 +291,12 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 - `size_of[T]() -> int`, `align_of[T]() -> int`, `offset_of(T, field) -> int` (const-evaluable)
 
 - [ ] **Step 1: Write the failing test.** `alloc(4)[0]` is `0`; `alloc_uninit(4)` in safe code is refused; a custom allocator records every call; `size_of[Point]()`, `align_of[Point]()` and `offset_of(Point, y)` equal the values the layout table reports; a `repr(packed)` struct has alignment 1 and a `repr(align(16))` struct has alignment 16.
+  *Current:* all halves now have tests: `alloc_zeroed.ya` (`alloc(4)[0]` is 0),
+  `unsafe_alloc.rs` (E1405), `stdlib/alloc.ya` (`LocalRecorder` records every
+  call through the static `Allocator` trait), `layout.rs` (the three queries
+  agree with the table) and sema layout tests (packed alignment 1, align(16)).
+  The step stays open only because the collection allocator parameter from
+  Step 3 is still owed.
 - [ ] **Step 2: Zero by default.** Safe `alloc` zeroes every byte it hands
   out, so uninitialised memory cannot make a program's output differ between
   runs; `crates/yashy-runtime/tests/memory.rs` writes a stale pattern, frees and
@@ -310,9 +316,18 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 - [ ] **Step 3: Every allocation is visible.** The allocator interface is static-dispatch only; collections take an allocator or use the global one; `--alloc-report` (Phase 11A) reads the same hooks. No runtime path allocates behind the language's back.
   *Current:* `crates/yashy-stdlib/yashy/alloc.ya` now exposes
   `global_allocator()`, `global_alloc()` and `global_free()` as the documented
-  process-wide path; `crates/yashy-driver/tests/programs/stdlib/global_alloc.ya`
-  uses it and is covered by the stdlib determinism and leak tests. A collection
-  *parameter* and `--alloc-report` are still owed, so the step stays open.
+  process-wide path, plus a non-generic `pub trait Allocator` with `*mut Self`
+  `alloc`/`free` methods and a `GlobalAllocator` reference impl. A program
+  implements the trait for its own type and calls the methods on a local
+  binding: dispatch is static, lowering to `Type.Allocator.method` with no
+  vtable. `crates/yashy-driver/tests/programs/stdlib/alloc.ya` defines a
+  `LocalRecorder` whose two `int` counters record every call (the string-log
+  `self[0].field` reassignment would leak, so counts are used), and
+  `crates/yashy-sema/tests/allocator.rs` pins static dispatch, impl completeness
+  and a bounded generic. The interface uses `*mut int`, not the plan's
+  `*mut u8`/`Option`, because `u8` is a `repr(C)`/FFI-only spelling and the real
+  allocator hands out `*mut int`. A collection *parameter* and `--alloc-report`
+  (Phase 11A) are still owed, so the step stays open.
 - [x] **Step 4: `repr` stays a keyword form.** `repr(C)`, `repr(packed)`, `repr(align(N))`, `repr(transparent)` and an integer enum repr are clauses, not attributes; `repr(C)` is never reordered; a packed field that would be misaligned is a diagnostic at the field, not a silent unaligned load.
   *Current:* all five clauses parse; a non-power-of-two align is refused. The
   layout walk uses packed (alignment 1, summed sizes) and align(N) (rounded
@@ -591,7 +606,7 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 | Derives | `cargo test -p yashy-sema --test derive` | deterministic bytes; `index --json` shows each impl; a missing field bound names the field |
 | Unsafe and aliasing | `cargo test -p yashy-driver --test alias_corpus` plus `-p yashy-sema --test ffi_deref -p yashy-driver --test ffi_deref` | ALIAS-1, ALIAS-2, ALIAS-3 and ALIAS-5 have positive/negative cases in the corpus; the inventory lists every explicit `unsafe` block. ALIAS-4 is named as unenforced; pointer arithmetic is still owed. Every emitted attribute is explained in `--opt-report` (Task 5 Step 5); the cross-OS corpus gate remains a release obligation |
 | Unsafe inventory | `cargo test -p yashy-verify --test unsafe` | every `extern` declaration and explicit `unsafe` block is listed with a kind and a reason; safe code has none. Pointer `Option`s cross C as nullable pointers (`null_ffi.ya`); the internal tagged aggregate, a `null` literal and the call-site null-to-`Some` diagnostic are still owed (Task 5 Step 4) |
-| Allocation | `cargo test -p yashy-runtime --test memory` (binary execution is CI-only) plus `cargo test -p yashy-sema --test unsafe_alloc -p yashy-driver --test unsafe_alloc` | `alloc` is zeroed on both paths; `alloc_uninit` needs `unsafe` (E1405) and calls a distinct symbol; a custom allocator's call log is owed (Task 6 Step 3) |
+| Allocation | `cargo test -p yashy-runtime --test memory` (binary execution is CI-only) plus `cargo test -p yashy-sema --test unsafe_alloc -p yashy-driver --test unsafe_alloc` | `alloc` is zeroed on both paths; `alloc_uninit` needs `unsafe` (E1405) and calls a distinct symbol; a custom allocator records every call through the static Allocator trait (stdlib/alloc.ya, yashy-sema/tests/allocator.rs); the collection allocator parameter and --alloc-report are still owed (Task 6 Step 3) |
 | Layout | `cargo test -p yashy-driver --test layout` | `size_of`/`align_of`/`offset_of` agree with the IR; `repr(C)` is stable; packed misalignment is diagnosed |
 | Const generics | `cargo test -p yashy-sema --test const_generics` | `const N` parameters are monomorph keys and substitute into array lengths; a non-constant argument is `E1524`, and the budget is `E1505` |
 | Const evaluation | `cargo test -p yashy-sema --test const_fn -p yashy-driver --test const_fn_ir --test const_assert` | folding produces the value the compiler computed (arithmetic, `if`, loops, arrays, nested calls); a const table is a literal in the IR with no emitted function; fuel/depth caps terminate; I/O, allocation, `unsafe` and `extern` are refused; no panic. The compile-time/run-time differential is owed (Task 9 Step 4) |

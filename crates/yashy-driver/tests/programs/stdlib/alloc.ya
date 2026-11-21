@@ -1,5 +1,26 @@
 import alloc;
 
+// A custom allocator records every call through static dispatch. The type and
+// its `impl Allocator` live in this module, so the `*mut Self` methods are
+// called on a local binding and the counts are the program's to read. There
+// is no runtime hook or global registry: each call lowers to
+// `LocalRecorder.Allocator.alloc` / `.free`.
+struct LocalRecorder {
+    allocs: int,
+    frees: int,
+}
+
+impl Allocator for LocalRecorder {
+    fn alloc(self: *mut Self, int count) -> *mut int {
+        self[0].allocs = self[0].allocs + 1;
+        return alloc_zeroed(count);
+    }
+    fn free(self: *mut Self, *mut int pointer) {
+        self[0].frees = self[0].frees + 1;
+        pointer.free();
+    }
+}
+
 fn main() {
     const zeros = alloc_zeroed(3);
     print("zeroed ${zeros[0]} ${zeros[1]} ${zeros[2]}");
@@ -7,4 +28,16 @@ fn main() {
     const one = alloc_one(42);
     print("one ${one[0]}");
     one.free();
+
+    // The global allocator's free functions reach the same runtime path.
+    const g = global_alloc(2);
+    print("global ${g[0]}");
+    global_free(g);
+
+    let recorder = LocalRecorder { allocs: 0, frees: 0 };
+    const block = recorder.alloc(4);
+    block[0] = 9;
+    print("recorded ${block[0]}");
+    recorder.free(block);
+    print("calls ${recorder.allocs} ${recorder.frees}");
 }
