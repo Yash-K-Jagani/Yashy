@@ -273,6 +273,7 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   and the rule id. A pointer with no verified facts gets neither an attribute
   nor a note; `crates/yashy-codegen/tests/attributes.rs` pins both halves. The
   cross-OS alias corpus remains a release gate, not a compiler check.
+   Landed as `6a16e57`.
 - [ ] **Step 6: Commit.**
 
 ### Task 6: Zeroed allocation, the allocator interface, and layout
