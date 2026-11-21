@@ -748,8 +748,8 @@ fn const_and_run_time_evaluation_agree() {
     let output = build_and_run("const_fn_differential");
     assert_eq!(
         stdout_of(&output),
-        "55\n55\n",
-        "the folded value and the emitted loop must agree"
+        "55\n55\n-1\n-1\n20\n20\n50\n50\n65\n65\n",
+        "the folded value and the emitted code must agree for every form"
     );
 }
 

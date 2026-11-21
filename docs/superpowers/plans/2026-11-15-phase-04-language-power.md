@@ -525,11 +525,12 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   difference. A `const fn` that is only used at compile time is not emitted; one
   that is also called at run time is emitted once.
   *Current:* `crates/yashy-driver/tests/programs/const_fn_differential.ya`
-  runs a loop-based sum through the constant evaluator and through a paired
-  ordinary function with the same body, and the e2e test asserts the two lines
-  are equal. The language cannot call a `const fn` at run time (E1524), so a
-  paired body is the available differential; the general "for every `const fn`"
-  claim and the two-emission rule are still owed.
+  pairs a `const fn` and an ordinary function with the same body for a counted
+  loop, branching, a switch, nested const calls and scalar conversions, and the
+  e2e test asserts each folded value equals the emitted one. The language cannot
+  call a `const fn` at run time (E1524), so a paired body is the available
+  differential; the general "for every `const fn`" claim and the two-emission
+  rule are still owed.
 - [ ] **Step 5: The evaluator is not a second compiler.** It consumes HIR and
   the layout table, reports through the same diagnostics, and is covered by the
   `never_panics` suite. `--emit-ir` shows the folded constant and the source
@@ -680,7 +681,7 @@ does not build on a claim that is not true.
 | 4.1, 4.2 | Deterministic derive impls, visible in `index`, field-bound diagnostics | `derive(Debug, Eq, Hash)` expands to inherent methods in declaration order for both `struct` and `enum`, visible as functions in the index; an unsupported field or unknown derive is refused with the field/name it concerns, and a second expansion of one declaration gives the same typed program. Enum Debug/Eq/Hash derives now ship; `Encode`/`Decode` are still owed | Owed work: `Encode`/`Decode` and Phase 7's codec interface |
 | 6.5, 7.1-7.5 | `size_of[T]()` bracket spelling; `const N` parameters | Both spellings fold from the shared layout table; `const N` is a monomorph key and substitutes into array lengths, including values named by a checked `const int`. The bracket call is `size_of[Buffer[16]]()`. | A full const expression such as `Buffer[1 + 2]` is still not a const-argument spelling; the checker/layout/IR agreement is pinned by `crates/yashy-driver/tests/layout.rs` |
 | 8.1, 8.2 | `Range[T]` value type with `start`/`end`/`len`/`is_empty`/`contains`/`step_by` | `..` and `..=` build a two-field `Range` value; the five methods lower to field reads and comparisons, and `step_by` is a stride on a counted `for` loop. A float bound is `E1518`. | The value is monomorphic over `int` rather than a generic `Range[T]`; `Set[int]` membership is still owed |
-| 9.1, 9.4, 9.5 | Compile-time/run-time differential test, evaluator consumes typed HIR | The evaluator consumes the parser AST and folds arithmetic, `if`, `let`/assignment, loops, fixed arrays and nested calls; `const_assert` rejects a false compile-time fact; the table's IR-literal assertion is pinned by `crates/yashy-driver/tests/const_fn_ir.rs`. `const_fn_differential.ya` compares a folded loop with a paired run-time function, but a `const fn` itself cannot be called at run time (E1524) | Owed work; the AST choice is why `switch` and method calls are still refused rather than wrong |
+| 9.1, 9.4, 9.5 | Compile-time/run-time differential test, evaluator consumes typed HIR | The evaluator consumes the parser AST and folds arithmetic, `if`, `let`/assignment, loops, fixed arrays and nested calls; `const_assert` rejects a false compile-time fact; the table's IR-literal assertion is pinned by `crates/yashy-driver/tests/const_fn_ir.rs`. `const_fn_differential.ya` pairs folded and run-time bodies for a loop, branching, a switch, nested calls and conversions, but a `const fn` itself cannot be called at run time (E1524) | Owed work; the AST choice is why `switch` and method calls are still refused rather than wrong |
 | 10.1, 10.2, 10.5 | BPE audit over this phase's keywords in `o200k`, `cl100k` and a Llama tokenizer | `yashyc tokens --bpe` reports one tokenizer and counts; `docs/bpe.md` records the measured Yashy-lexer half and the missing external half | Needs the three vocabularies vendored (Phase 2 Task 8 owes the same files) |
 | Gates | Every acceptance row is a command that exists and passes on Windows and Linux | Rows name the test file that exists; the rows whose file is owed say so. Driver checks are green with the documented runtime build-script detach; freshly linked binaries are blocked by Windows Application Control, so the runtime, e2e and IR gates are CI-only | CI is deferred by the project owner; re-run the full gate set when CI is unblocked |
 

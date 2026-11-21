@@ -1,10 +1,11 @@
-// A compile-time/run-time differential for `const fn`.
+// A compile-time/run-time differential for `const fn` over several forms.
 //
-// A `const fn` cannot be called at run time (E1524), so the comparison uses a
-// paired ordinary function with the same body. The first line is the value the
-// compiler folded into the IR; the second line is what the emitted loop
-// computes. A disagreement in either evaluator becomes a failed golden.
+// A `const fn` cannot be called at run time (E1524), so each pair is a `const
+// fn` and an ordinary function with the same body. The first line of each pair
+// is the value the compiler folded into the IR; the second is what the emitted
+// code computes. A disagreement in either evaluator becomes a failed golden.
 
+// Arithmetic and a counted loop.
 const fn sum_const(int n) -> int {
     let int total = 0;
     let i = 1;
@@ -25,8 +26,65 @@ fn sum_runtime(int n) -> int {
     return total;
 }
 
+// Branching.
+const fn sign_const(int n) -> int {
+    if n < 0 { return -1; }
+    if n == 0 { return 0; }
+    return 1;
+}
+
+fn sign_runtime(int n) -> int {
+    if n < 0 { return -1; }
+    if n == 0 { return 0; }
+    return 1;
+}
+
+// A switch with a literal, a range and a default arm.
+const fn classify_const(int n) -> int {
+    return switch n {
+        case 0 { 10 }
+        case 1..=5 { 20 }
+        default { 30 }
+    };
+}
+
+fn classify_runtime(int n) -> int {
+    return switch n {
+        case 0 { 10 }
+        case 1..=5 { 20 }
+        default { 30 }
+    };
+}
+
+// Nested const calls: `quad` calls `square`, which must itself fold.
+const fn square_const(int n) -> int { return n * n; }
+const fn quad_const(int n) -> int { return square_const(n) + square_const(n); }
+
+fn square_runtime(int n) -> int { return n * n; }
+fn quad_runtime(int n) -> int { return square_runtime(n) + square_runtime(n); }
+
+// Scalar conversions.
+const fn code_const() -> int { return 'A'.to_int(); }
+fn code_runtime() -> int { return 'A'.to_int(); }
+
 fn main() {
-    const at_compile_time = sum_const(10);
-    print(at_compile_time);
+    const s = sum_const(10);
+    print(s);
     print(sum_runtime(10));
+
+    const g = sign_const(-3);
+    print(g);
+    print(sign_runtime(-3));
+
+    const c = classify_const(3);
+    print(c);
+    print(classify_runtime(3));
+
+    const q = quad_const(5);
+    print(q);
+    print(quad_runtime(5));
+
+    const code = code_const();
+    print(code);
+    print(code_runtime());
 }
