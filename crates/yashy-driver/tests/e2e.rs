@@ -754,6 +754,12 @@ fn const_and_run_time_evaluation_agree() {
 }
 
 #[test]
+fn alloc_zeroes_every_element_it_hands_out() {
+    let output = build_and_run("alloc_zeroed");
+    assert_eq!(stdout_of(&output), "0\n0\n7\n");
+}
+
+#[test]
 fn derived_methods_render_and_compare() {
     let output = build_and_run("derive");
     assert_eq!(

@@ -180,6 +180,29 @@ fn an_arena_hands_out_writable_independent_blocks() {
 }
 
 #[test]
+fn an_arena_hands_out_zeroed_blocks() {
+    // Safe `alloc` and `arena_alloc` promise zeroed bytes even when escape
+    // analysis places the block in an arena rather than calling the heap path.
+    unsafe {
+        let arena = yashy_runtime::yashy_arena_new();
+        assert!(!arena.is_null());
+        for size in [1usize, 8, 97, 4096] {
+            let pointer = yashy_runtime::yashy_arena_alloc(arena, size as i64, 8);
+            assert!(
+                !pointer.is_null(),
+                "arena allocation of {size} must succeed"
+            );
+            let bytes = std::slice::from_raw_parts(pointer as *const u8, size);
+            assert!(
+                bytes.iter().all(|byte| *byte == 0),
+                "a fresh arena block of {size} bytes must be zeroed"
+            );
+        }
+        yashy_runtime::yashy_arena_free_all(arena);
+    }
+}
+
+#[test]
 fn an_arena_allocates_more_than_a_default_block() {
     unsafe {
         let arena = yashy_runtime::yashy_arena_new();

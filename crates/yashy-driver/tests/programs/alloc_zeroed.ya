@@ -1,0 +1,14 @@
+// Safe `alloc` zeroes every byte it hands out (Phase 4 Task 6 Step 2).
+// The runtime writes a stale pattern, frees and reallocates in its C test;
+// this program checks the same guarantee through the language surface: a
+// freshly allocated block reads as zero at every element before the program
+// writes anything. The pointer is linear, so the block is released once.
+
+fn main() {
+    let p = alloc(4);
+    print(p[0]);
+    print(p[3]);
+    p[2] = 7;
+    print(p[2]);
+    p.free();
+}

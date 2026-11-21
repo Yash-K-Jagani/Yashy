@@ -298,10 +298,13 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   an `unsafe` block. The verifier inventory counts only the sites that exist today.
   *Current:* `yashy_alloc_with` in `yashy_runtime.h` memsets every byte when its
   `zero` bit is set, and both the normal and small allocation paths go through
-  it. The stale-pattern/leak test needs binary execution and is CI-only.
-  `yashy_alloc_uninit` clears that bit, the checker admits it only inside
-  `unsafe { }`, codegen calls a distinct runtime symbol and never promotes it
-  to a stack slot; `crates/yashy-sema/tests/unsafe_alloc.rs` and
+  it. The promoted paths are zeroed too: the stack path stores a
+  `zeroinitializer` into the frame slot, and `yashy_arena_alloc` memsets the
+  bytes it hands out. `crates/yashy-driver/tests/programs/alloc_zeroed.ya` and
+  `crates/yashy-runtime/tests/memory.rs` pin all three paths. `alloc_uninit`
+  clears that bit, the checker admits it only inside `unsafe { }`, codegen calls
+  a distinct runtime symbol and never promotes it to a stack slot;
+  `crates/yashy-sema/tests/unsafe_alloc.rs` and
   `crates/yashy-driver/tests/unsafe_alloc.rs` pin both halves.
 - [ ] **Step 3: Every allocation is visible.** The allocator interface is static-dispatch only; collections take an allocator or use the global one; `--alloc-report` (Phase 11A) reads the same hooks. No runtime path allocates behind the language's back.
   *Current:* `crates/yashy-stdlib/yashy/alloc.ya` now exposes

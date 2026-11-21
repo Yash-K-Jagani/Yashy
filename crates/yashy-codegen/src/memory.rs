@@ -84,6 +84,13 @@ pub fn gen_alloc(ctx: &mut FnCtx<'_>, args: &[HirExpr], ret: &TypeKind, span: Sp
             if let Some(count) = constant_count(args) {
                 let slot = ctx.alloc_slot();
                 ctx.push_alloca(format!("{slot} = alloca [{count} x i64], align 8"));
+                // Safe `alloc` zeroes every byte it hands out. Escape analysis
+                // moved this block into the frame, but that does not change the
+                // promise: without this store the promoted path would hand back
+                // uninitialised stack memory, which safe code must never read.
+                ctx.push(format!(
+                    "store [{count} x i64] zeroinitializer, ptr {slot}, align 8"
+                ));
                 let ptr = ctx.tmp();
                 ctx.push(format!(
                     "{ptr} = getelementptr [{count} x i64], ptr {slot}, i64 0, i64 0"

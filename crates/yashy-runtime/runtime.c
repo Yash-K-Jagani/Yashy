@@ -587,6 +587,11 @@ void *yashy_arena_alloc(yashy_arena *arena, long long size, long long align) {
         size_t offset = (size_t)(cursor - base);
         if (offset <= block->capacity && wanted <= block->capacity - offset) {
             block->used = offset + wanted;
+            /* Safe `alloc` (and `arena_alloc`) promise zeroed bytes, including
+             * when escape analysis placed the block in an arena. */
+            if (size > 0) {
+                memset((void *)cursor, 0, (size_t)size);
+            }
             return (void *)cursor;
         }
     }
@@ -611,6 +616,9 @@ void *yashy_arena_alloc(yashy_arena *arena, long long size, long long align) {
     uintptr_t base = (uintptr_t)fresh + YASHY_ARENA_HEADER;
     uintptr_t cursor = (base + (alignment - 1)) & ~(uintptr_t)(alignment - 1);
     fresh->used = (size_t)(cursor - base) + wanted;
+    if (size > 0) {
+        memset((void *)cursor, 0, (size_t)size);
+    }
     return (void *)cursor;
 }
 
