@@ -568,6 +568,7 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   `crates/yashy-driver/tests/never_panics.rs` and end as diagnostics, not panics;
   the HIR call path carries the same depth/call/fuel caps. `--emit-ir` shows the
   folded literal but not yet its source span.
+  Landed as `c04413b`.
 - [ ] **Step 6: Commit.**
 
 ### Task 10: BPE audit, rule ids, and the architecture update
