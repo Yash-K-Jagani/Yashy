@@ -1,0 +1,23 @@
+// An enum's derived methods are ordinary inherent methods: `Debug` renders the
+// matched variant and its payload in declaration order, `Eq` compares the same
+// payload, and `Hash` folds the variant's position and payload into one int.
+
+enum Shape derive(Debug, Eq, Hash) {
+    Circle(int),
+    Rect { w: int, h: int },
+    Empty,
+}
+
+fn main() {
+    let a = Shape.Circle(2);
+    let b = Shape.Circle(2);
+    let square = Shape.Rect { w: 3, h: 4 };
+    let empty = Shape.Empty;
+    print(a.debug());
+    print(square.debug());
+    print(empty.debug());
+    print(a.eq(b));
+    print(a.eq(square));
+    print(a.hash() == b.hash());
+    print(a.hash() == empty.hash());
+}

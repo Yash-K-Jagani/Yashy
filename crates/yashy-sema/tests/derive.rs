@@ -26,9 +26,7 @@ fn generated_names(program: &HirProgram) -> Vec<String> {
             HirItem::Fn(function) => Some(function.name.clone()),
             _ => None,
         })
-        .filter(|name| {
-            name.contains("debug") || name.contains("eq") || name.contains("hash")
-        })
+        .filter(|name| name.contains("debug") || name.contains("eq") || name.contains("hash"))
         .collect()
 }
 
@@ -145,5 +143,77 @@ fn an_unknown_derive_is_named() {
     assert!(
         diagnostics.iter().any(|d| d.message.contains("`Show`")),
         "the failure names the derive: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn an_enum_derives_one_method_per_name() {
+    let program = check(
+        "enum Shape derive(Debug, Eq, Hash) { Circle(int), Rect { w: int, h: int }, Empty }\n\
+         fn main() {\n\
+             let a = Shape.Circle(2);\n\
+             let b = Shape.Circle(2);\n\
+             print(a.debug());\n\
+             print(a.eq(b));\n\
+             print(a.hash());\n\
+         }",
+    )
+    .expect("enum derives type-check");
+    let names = generated_names(&program);
+    assert_eq!(names.len(), 3, "one method per derive: {names:?}");
+    assert!(names[0].contains("debug"), "first derive first: {names:?}");
+    assert!(names[1].contains("eq"), "second derive second: {names:?}");
+    assert!(names[2].contains("hash"), "third derive third: {names:?}");
+}
+
+#[test]
+fn an_enum_derive_switches_over_every_variant_in_order() {
+    // The generated body is a `switch self`, so it names the same variants the
+    // declaration does and has no other control flow to review. The outer arm
+    // order is the variant order; a second expansion is byte-identical.
+    let first = check(
+        "enum Shape derive(Debug) { Circle(int), Rect { w: int, h: int }, Empty }\n\
+         fn main() { let e = Shape.Empty; print(e.debug()); }",
+    )
+    .expect("the generated enum method type-checks");
+    let second = check(
+        "enum Shape derive(Debug) { Circle(int), Rect { w: int, h: int }, Empty }\n\
+         fn main() { let e = Shape.Empty; print(e.debug()); }",
+    )
+    .expect("the second expansion type-checks");
+    assert_eq!(
+        format!("{first:?}"),
+        format!("{second:?}"),
+        "two expansions must produce the same program"
+    );
+}
+
+#[test]
+fn an_enum_derive_names_the_variant_field_it_cannot_handle() {
+    let diagnostics = check(
+        "enum Shape derive(Eq) { Circle(string) }\n\
+         fn main() { print(Shape.Circle(\"a\").debug()); }",
+    )
+    .expect_err("a string payload cannot be compared by this expansion");
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.message.contains("field 0") && d.message.contains("`Circle`")),
+        "the failure names the variant and the field: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn a_generic_enum_derive_is_refused_with_a_reason() {
+    let diagnostics = check(
+        "enum Maybe[T] derive(Debug) { Nothing, Just(T) }\n\
+         fn main() {}",
+    )
+    .expect_err("a generic enum has no one concrete type to expand for");
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.message.contains("generic enum")),
+        "the failure explains the limitation: {diagnostics:?}"
     );
 }

@@ -763,6 +763,15 @@ fn derived_methods_render_and_compare() {
 }
 
 #[test]
+fn derived_enum_methods_render_and_compare() {
+    let output = build_and_run("enum_derive");
+    assert_eq!(
+        stdout_of(&output),
+        "Circle(2)\nRect { w: 3, h: 4 }\nEmpty\ntrue\nfalse\ntrue\nfalse\n"
+    );
+}
+
+#[test]
 fn range_values_and_stepped_loops_run() {
     let output = build_and_run("ranges");
     assert_eq!(stdout_of(&output), "0\n5\n5\nfalse\ntrue\n0\n2\n4\n");

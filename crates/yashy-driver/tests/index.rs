@@ -46,6 +46,27 @@ fn an_index_shows_the_derive_clause_on_a_type() {
 }
 
 #[test]
+fn an_index_shows_derived_methods_on_an_enum() {
+    let dir = common::work_dir("index-enum-derives");
+    common::write(
+        &dir,
+        "main.ya",
+        "enum Shape derive(Debug, Eq, Hash) { Circle(int), Empty }\nfn main() {}",
+    );
+    let output = index_of(&dir);
+    assert!(
+        output.contains("\"signature\": \"enum Shape derive(Debug, Eq, Hash)\""),
+        "the derive clause must be visible in the index: {output}"
+    );
+    for method in ["Shape.debug", "Shape.eq", "Shape.hash"] {
+        assert!(
+            output.contains(&format!("\"name\": \"{method}\"")),
+            "the generated enum method {method} must be indexed: {output}"
+        );
+    }
+}
+
+#[test]
 fn an_index_of_examples_contains_every_top_level_symbol() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
     let output = index_of(&root);
