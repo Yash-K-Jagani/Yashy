@@ -7765,12 +7765,24 @@ fn sbom_cmd(args: &[String]) -> ExitCode {
             ));
         }
     }
+    // The vendored Unicode tables are pinned third-party data. Their exact
+    // bytes and release travel in the SBOM so the pin is auditable.
+    packages.push(yashy_manifest::sbom::vendored_data(
+        "unicode-character-database",
+        yashy_runtime::UNICODE_VERSION,
+        yashy_runtime::UNICODE_DATA_HEADER.as_bytes(),
+        "Unicode-3.0",
+    ));
     let mut metadata = std::collections::BTreeMap::new();
     metadata.insert(
         "compiler_version".to_string(),
         env!("CARGO_PKG_VERSION").to_string(),
     );
     metadata.insert("target".to_string(), host_target_triple().to_string());
+    metadata.insert(
+        "unicode_version".to_string(),
+        yashy_runtime::UNICODE_VERSION.to_string(),
+    );
     println!(
         "{}",
         yashy_manifest::spdx_json_with_metadata(&packages, &metadata).render()

@@ -47,7 +47,7 @@ use yashy_runtime::{
     EXECUTOR_C_SOURCE, EXECUTOR_SOURCE_NAME, GRAPHEME_DATA_HEADER, GRAPHEME_DATA_HEADER_PATH,
     HASHMAP_C_SOURCE, HASHMAP_SOURCE_NAME, NET_C_SOURCE, NET_SOURCE_NAME, PLATFORM_C_SOURCE,
     PLATFORM_SOURCE_NAME, RUNTIME_C_SOURCE, RUNTIME_HEADER, RUNTIME_HEADER_NAME,
-    RUNTIME_SOURCE_NAME,
+    RUNTIME_SOURCE_NAME, UNICODE_DATA_HEADER, UNICODE_DATA_HEADER_PATH,
 };
 use yashy_sema::{check_program_with, CheckOptions, HirItem, HirProgram};
 use yashy_verify::{verify, VerifyOptions, VerifyReport};
@@ -612,6 +612,7 @@ pub(crate) fn runtime_cache_key(tool: &Path, triple: &str, opt: OptLevel) -> u64
     // The Unicode tables are compiled into the runtime object too, so a table
     // change has to invalidate it rather than leave a stale object behind.
     fnv1a(&mut state, GRAPHEME_DATA_HEADER.as_bytes());
+    fnv1a(&mut state, UNICODE_DATA_HEADER.as_bytes());
     fnv1a(&mut state, triple.as_bytes());
     fnv1a(&mut state, opt.flag().as_bytes());
     fnv1a(&mut state, tool.to_string_lossy().as_bytes());
@@ -749,6 +750,7 @@ fn cache_extras(options: &BuildOptions) -> Vec<(&'static str, String)> {
         NET_C_SOURCE,
         PLATFORM_C_SOURCE,
         GRAPHEME_DATA_HEADER,
+        UNICODE_DATA_HEADER,
     ] {
         fnv1a(&mut runtime, source.as_bytes());
     }
@@ -2139,6 +2141,13 @@ pub fn compile_hir_timed(
         ensure_dir(parent, entry_name)?;
     }
     write_or_report(&grapheme_path, GRAPHEME_DATA_HEADER.as_bytes(), entry_name)?;
+    // The case-fold/width tables travel beside the runtime sources for the
+    // same reason: `runtime.c` includes them at `src/unicode_data.h`.
+    let unicode_path = runtime_dir.join(UNICODE_DATA_HEADER_PATH);
+    if let Some(parent) = unicode_path.parent() {
+        ensure_dir(parent, entry_name)?;
+    }
+    write_or_report(&unicode_path, UNICODE_DATA_HEADER.as_bytes(), entry_name)?;
 
     let target = options.target;
 

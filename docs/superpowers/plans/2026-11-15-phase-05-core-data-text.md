@@ -92,6 +92,19 @@ is a capability rather than an ambient read.
 
 - [ ] **Step 1: Write the failing test.** NFC/NFD/NFKC/NFKD round-trips for the Unicode test file, Turkish dotless `i` case folding, a family emoji counted as one grapheme, a CJK string's display width, and `format("{:>8.2}", 3.14159)`.
 - [ ] **Step 2: Unicode data is vendored and versioned.** The tables are generated from a pinned Unicode release, recorded in the SBOM, and updated by a script with a diff. No network at build time.
+  *Current:* Unicode 18.0.0 UCD files (`UnicodeData`, `CaseFolding`,
+  `CompositionExclusions`, `EastAsianWidth`, `NormalizationTest`, `ReadMe`) are
+  checked in under `crates/yashy-runtime/data/unicode/` with their SHA-256 pins
+  in a README. `scripts/gen_unicode_data.py` is an offline generator that emits
+  `crates/yashy-runtime/src/unicode_data.h` (case-fold and East-Asian-width
+  tables, plus input hashes). The header is embedded, hashed into both runtime
+  cache keys and written beside the runtime sources by the driver. The SBOM
+  lists `unicode-character-database` 18.0.0 keyed by the header bytes, with a
+  `unicode_version` metadata field. `tests/unicode_data.rs` verifies the
+  recorded hashes match the files, validates all 1606 fold mappings and the
+  width lookups against the source, and pins CJK=2/ASCII=1/control=0. Full NFC/
+  NFD/NFKC/NFKD generation and the stdlib `text/{normalize,case,width}` wrappers
+  are still owed, so the step stays open.
 - [ ] **Step 3: Formatting is one engine.** `print`, `format`, `Debug` and the error renderer share width, precision, alignment and float rules. Float formatting is shortest-round-trip and locale-independent. A format string error is a compile-time diagnostic where the string is a literal, and a `Result` otherwise.
   *Current:* `crates/yashy-stdlib/yashy/casing.ya` provides ASCII case
   operations with an explicit Unicode-debt contract: `to_ascii_upper` /

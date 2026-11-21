@@ -3238,6 +3238,46 @@ void yashy_chan_free(yashy_chan *chan) {
     free(chan);
 }
 
+/* ---- Unicode case folding and display width -------------------------- */
+
+#include "src/unicode_data.h"
+
+/* Binary search the sorted full case-fold table. Returns the number of
+ * code points written to `out` (0 when `cp` has no fold), at most 3. */
+int yashy_ucd_case_fold(unsigned cp, unsigned *out) {
+    int lo = 0;
+    int hi = UCD_CASE_FOLD_count - 1;
+    while (lo <= hi) {
+        int mid = lo + (hi - lo) / 2;
+        unsigned from = UCD_CASE_FOLD[mid].from;
+        if (from == cp) {
+            unsigned n = UCD_CASE_FOLD[mid].count;
+            for (unsigned i = 0; i < n; i++) out[i] = UCD_CASE_FOLD[mid].to[i];
+            return (int)n;
+        }
+        if (from < cp) lo = mid + 1;
+        else hi = mid - 1;
+    }
+    return 0;
+}
+
+/* The display width of a code point in cells: 2 for East Asian Wide/Full,
+ * 1 otherwise. Control characters have width 0. */
+int yashy_ucd_width(unsigned cp) {
+    if (cp < 0x20 || (cp >= 0x7F && cp < 0xA0)) return 0;
+    int lo = 0;
+    int hi = UCD_EAW_WIDE_count - 1;
+    while (lo <= hi) {
+        int mid = lo + (hi - lo) / 2;
+        unsigned range_lo = UCD_EAW_WIDE[mid].lo;
+        unsigned range_hi = UCD_EAW_WIDE[mid].hi;
+        if (cp < range_lo) hi = mid - 1;
+        else if (cp > range_hi) lo = mid + 1;
+        else return 2;
+    }
+    return 1;
+}
+
 /* ---- Grapheme clusters (UAX #29, extended) ---------------------------- */
 
 #include "src/grapheme_data.h"

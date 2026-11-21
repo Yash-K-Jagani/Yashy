@@ -37,6 +37,9 @@ fn sbom_lists_the_package_and_the_compiler() {
     assert!(stdout.contains("SPDX-2.3"), "{stdout}");
     assert!(stdout.contains("demo"), "{stdout}");
     assert!(stdout.contains("yashyc"), "{stdout}");
+    // Vendored Unicode data is pinned third-party content in the SBOM.
+    assert!(stdout.contains("unicode-character-database"), "{stdout}");
+    assert!(stdout.contains("18.0.0"), "{stdout}");
 }
 
 #[test]

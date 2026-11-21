@@ -144,6 +144,22 @@ pub fn compiler(exe: &[u8], version: &str) -> SbomPackage {
     }
 }
 
+/// Vendored third-party data, keyed by its exact bytes.
+///
+/// The Unicode Character Database files are pinned and checked in so builds
+/// are offline. Their hash and version travel in the SBOM, making the pin
+/// auditable rather than a comment in a generated header.
+pub fn vendored_data(name: &str, version: &str, bytes: &[u8], license: &str) -> SbomPackage {
+    SbomPackage {
+        name: name.to_string(),
+        version: version.to_string(),
+        hash: sha256_hex(bytes),
+        license: license.to_string(),
+        supplier: "Unicode, Inc.".to_string(),
+        dependencies: Vec::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

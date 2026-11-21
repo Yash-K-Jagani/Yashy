@@ -17,7 +17,7 @@
 //! None of them writes a newline. A program prints one explicitly, as the
 //! `print("\n")` calls in the plan's examples do.
 
-use std::ffi::{c_char, c_double, c_int, c_longlong, c_uchar, c_void};
+use std::ffi::{c_char, c_double, c_int, c_longlong, c_uchar, c_uint, c_void};
 
 /// The runtime's refcounted string value, as C lays it out:
 /// `struct yashy_str { long long refcount; long long len; long long cap; char *data; }`.
@@ -81,6 +81,16 @@ pub const RUNTIME_HEADER_NAME: &str = "yashy_runtime.h";
 /// The path `runtime.c` includes the Unicode tables at, relative to the build
 /// directory the driver writes the runtime into.
 pub const GRAPHEME_DATA_HEADER_PATH: &str = "src/grapheme_data.h";
+
+/// The generated Unicode case-fold and display-width tables, written beside
+/// the runtime sources by the driver like `GRAPHEME_DATA_HEADER`.
+pub const UNICODE_DATA_HEADER: &str = include_str!("../src/unicode_data.h");
+
+/// The path `runtime.c` includes the case-fold/width tables at.
+pub const UNICODE_DATA_HEADER_PATH: &str = "src/unicode_data.h";
+
+/// The pinned Unicode release the vendored tables were generated from.
+pub const UNICODE_VERSION: &str = "18.0.0";
 
 /// The source file's file name, used when the driver writes it to disk.
 pub const RUNTIME_SOURCE_NAME: &str = "runtime.c";
@@ -374,6 +384,15 @@ unsafe extern "C" {
     /// the byte a NUL contributes, so callers that care about the difference
     /// must compare against [`yashy_str_len`] first.
     pub fn yashy_str_byte_at(s: *const YashyStr, index: c_longlong) -> c_longlong;
+}
+
+unsafe extern "C" {
+    /// Full Unicode case folding: writes up to three folded code points to
+    /// `out` and returns the count (0 when `cp` does not fold).
+    pub fn yashy_ucd_case_fold(cp: c_uint, out: *mut c_uint) -> c_int;
+    /// Display width in cells: 0 for controls, 2 for East Asian Wide/Full,
+    /// 1 otherwise.
+    pub fn yashy_ucd_width(cp: c_uint) -> c_int;
 }
 
 unsafe extern "C" {

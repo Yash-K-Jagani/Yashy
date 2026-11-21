@@ -299,6 +299,13 @@ long long yashy_str_len(const yashy_str *s);
 long long yashy_str_byte_at(const yashy_str *s, long long index);
 yashy_str *yashy_str_concat(const yashy_str *a, const yashy_str *b);
 
+/* Unicode case folding and display width from the vendored 18.0.0 tables.
+ * `yashy_ucd_case_fold` writes up to three folded code points to `out` and
+ * returns how many were written (0 when `cp` has no fold).
+ * `yashy_ucd_width` returns 0 for controls, 2 for East Asian Wide/Full, else 1. */
+int yashy_ucd_case_fold(unsigned cp, unsigned *out);
+int yashy_ucd_width(unsigned cp);
+
 /* Grapheme clusters (UAX #29 extended): `yashy_str_grapheme_count` counts
  * clusters; `yashy_str_grapheme_at` returns the cluster at an index or NULL
  * when out of range; `yashy_str_grapheme_slice` returns the clusters in a

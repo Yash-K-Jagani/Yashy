@@ -14,6 +14,7 @@ cc = "1"
 # already relies on.
 [dev-dependencies]
 cc = "1"
+yashy-manifest = { path = "../yashy-manifest" }
 
 # The print tests re-run this binary as a child process to capture stdout, so
 # they need to own `main`.

@@ -40,6 +40,13 @@ fuzz/corpus/**             -text
 crates/yashy-stdlib/yashy/*.ya text eol=lf
 docs/stdlib.md text eol=lf
 
+# Vendored Unicode data files are hashed byte for byte and recorded in the
+# generated header and SBOM. A checkout that rewrote their line endings would
+# change their hash and make the currency check fail for a reason unrelated to
+# the data, so they are stored verbatim like the fuzz corpus.
+crates/yashy-runtime/data/unicode/*.txt -text
+crates/yashy-runtime/src/unicode_data.h text eol=lf
+
 # The schema goldens pin the exact stdout of `yashyc check`, `verify`, `index`
 # and `context`. The payload is assembled with `\n` in Rust, so the golden has
 # to be LF no matter what the checkout would otherwise do.
