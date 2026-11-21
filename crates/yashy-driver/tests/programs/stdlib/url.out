@@ -2,4 +2,12 @@ https://example.org
 8443
 /docs/index.md
 a b/c
-true
+bad escapes detected
+alice:pw
+[::1]
+8080
+/v1
+q=a%20b
+frag
+[2001:db8::1]
+bad bracket detected

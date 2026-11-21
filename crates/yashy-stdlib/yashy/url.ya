@@ -1,59 +1,146 @@
 // The small, total part of RFC 3986: an absolute hierarchical URL.
 //
-// This parser handles `scheme://authority/path` with an optional port. It does
-// not decode percent-escapes, resolve relative references or parse userinfo:
-// those belong to a fuller grammar. A malformed spelling is `Err(Invalid)`,
-// never a half-filled value with a sentinel host.
+// The parser handles `scheme://[userinfo@]host[:port]/path[?query][#fragment]`.
+// A bracketed host is IPv6 and the port follows the closing bracket. It does
+// not resolve relative references: those need a base URL and belong to a fuller
+// grammar. A malformed spelling is `Err(Invalid)`, never a half-filled value
+// with a sentinel host.
 
 /// Why a text is not an absolute hierarchical URL.
 pub enum UrlError {
     Invalid,
 }
 
-/// A parsed URL: scheme, host, port (0 when absent) and path.
+/// A parsed URL: its scheme, authority parts, path, query and fragment.
+/// `userinfo`, `query` and `fragment` are empty when absent; `port` is 0 when
+/// absent. Bracketed IPv6 hosts keep their brackets in `host`.
 pub struct Url {
     pub scheme: string,
+    pub userinfo: string,
     pub host: string,
     pub port: int,
     pub path: string,
+    pub query: string,
+    pub fragment: string,
 }
 
-/// Parse `scheme://host[:port]/path`.
-///
-/// A missing scheme separator or an empty scheme or host is `Err(Invalid)`.
-/// A port that is not a decimal integer is also refused.
-pub fn parse_url(string text) -> Result[Url, UrlError] {
-    const at = switch text.index_of("://") {
+/// The index of `needle` in `text`, or `-1` when absent.
+fn index_of_or(string text, string needle) -> int {
+    const found = text.index_of(needle);
+    return switch found {
         case Some(index) { index }
         case None { 0 - 1 }
     };
+}
+
+/// The index of `needle` at or after `start`, or `-1`.
+fn find_from(string text, string needle, int start) -> int {
+    if start >= text.len() || needle.len() == 0 {
+        return 0 - 1;
+    }
+    const string rest = text.slice(start, text.len());
+    return switch rest.index_of(needle) {
+        case Some(index) { start + index }
+        case None { 0 - 1 }
+    };
+}
+
+/// The last index of `needle` in `text`, or `-1`.
+fn last_index(string text, string needle) -> int {
+    let found = 0 - 1;
+    let start = 0;
+    while start < text.len() {
+        const at = find_from(text, needle, start);
+        if at < 0 {
+            break;
+        }
+        found = at;
+        start = at + needle.len();
+    }
+    return found;
+}
+
+/// Parse `scheme://[userinfo@]host[:port]/path[?query][#fragment]`.
+///
+/// A missing scheme separator or an empty scheme or host is `Err(Invalid)`.
+/// A port that is not a decimal integer in `0..=65535` is also refused. A
+/// bracketed host may contain colons (IPv6); the port must follow `]`.
+pub fn parse_url(string text) -> Result[Url, UrlError] {
+    const at = index_of_or(text, "://");
     if at < 0 {
         return Err(UrlError.Invalid);
     }
     const scheme = text.slice(0, at);
-    const after = text.slice(at + 3, text.len());
-    const slash = after.index_of("/");
-    const authority = switch slash {
-        case Some(index) { after.slice(0, index) }
-        case None { after }
-    };
-    const path = switch slash {
-        case Some(index) { after.slice(index, after.len()) }
-        case None { "" }
-    };
-    const colon = authority.index_of(":");
-    const host = switch colon {
-        case Some(index) { authority.slice(0, index) }
-        case None { authority }
-    };
-    const port = switch colon {
-        case Some(index) { port_of(authority, index)? }
-        case None { 0 }
-    };
+    let rest = text.slice(at + 3, text.len());
+
+    // A fragment runs to the end; a query runs up to the fragment.
+    let fragment = "";
+    const hash = index_of_or(rest, "#");
+    if hash >= 0 {
+        fragment = rest.slice(hash + 1, rest.len());
+        rest = rest.slice(0, hash);
+    }
+    let query = "";
+    const question = index_of_or(rest, "?");
+    if question >= 0 {
+        query = rest.slice(question + 1, rest.len());
+        rest = rest.slice(0, question);
+    }
+
+    // The authority ends at the first slash; the remainder is the path.
+    const slash = index_of_or(rest, "/");
+    let authority = rest;
+    let path = "";
+    if slash >= 0 {
+        authority = rest.slice(0, slash);
+        path = rest.slice(slash, rest.len());
+    }
+
+    // Userinfo precedes the last `@`; the host and port follow it.
+    let userinfo = "";
+    const last_at = last_index(authority, "@");
+    if last_at >= 0 {
+        userinfo = authority.slice(0, last_at);
+        authority = authority.slice(last_at + 1, authority.len());
+    }
+
+    // A bracketed host is IPv6: the port, if any, follows the closing bracket.
+    let host = "";
+    let port = 0;
+    if authority.len() > 0 && authority.byte_at(0) == '[' {
+        const close = index_of_or(authority, "]");
+        if close < 0 {
+            return Err(UrlError.Invalid);
+        }
+        host = authority.slice(0, close + 1);
+        const tail = authority.slice(close + 1, authority.len());
+        if tail.len() > 0 {
+            if tail.byte_at(0) != ':' {
+                return Err(UrlError.Invalid);
+            }
+            port = port_of(tail, 0)?;
+        }
+    } else {
+        const colon = index_of_or(authority, ":");
+        if colon >= 0 {
+            host = authority.slice(0, colon);
+            port = port_of(authority, colon)?;
+        } else {
+            host = authority;
+        }
+    }
     if scheme.len() == 0 || host.len() == 0 {
         return Err(UrlError.Invalid);
     }
-    return Ok(Url { scheme: scheme, host: host, port: port, path: path });
+    return Ok(Url {
+        scheme: scheme,
+        userinfo: userinfo,
+        host: host,
+        port: port,
+        path: path,
+        query: query,
+        fragment: fragment,
+    });
 }
 
 /// The port after a colon, parsed as a positive decimal integer.

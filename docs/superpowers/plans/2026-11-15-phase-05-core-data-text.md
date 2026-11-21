@@ -135,11 +135,13 @@ is a capability rather than an ambient read.
   `essence`, `is_text` and `is_json`; `uuid.ya` has `nil`, lowercase canonical
   `is_valid` and `from_bytes` over `text.hex_encode`; `url.ya` parses
   `scheme://host[:port]/path` with `origin`; `semver.ya` parses core versions
-  and compares them. The coverage program is `stdlib/internet.ya`, and the
-  generated `docs/stdlib.md` has all four modules. Percent-decoding, relative
-  URL references, userinfo/IPv6, pre-release and build metadata, UUID v4/v7
-  generation and base64url are still owed (base64 and hex live in `text.ya`),
-  so the step stays open.
+  and compares them, including pre-release precedence and build metadata;
+  `uuid.ya` has `v4`; `text.ya` has base64url/hex. The coverage programs are
+  `stdlib/{url,mime,uuid,semver}.ya`. `url.ya` now parses userinfo, bracketed
+  IPv6 hosts with an optional port, query and fragment, and rejects a malformed
+  bracket; the golden pins the parsed parts. `url.ya` also has percent-decoding.
+  Still owed: relative URL references and UUID v7 generation, so the step stays
+  open.
 - [ ] **Step 2: One parser per grammar.** No regex-based URL parsing; each format has a grammar, a table-driven test and a fuzz corpus. A malformed input returns `Result` with the byte offset.
 - [ ] **Step 3: Commit.**
 

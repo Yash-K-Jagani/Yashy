@@ -1493,10 +1493,11 @@ The `scheme://host` prefix, without port or path.
 fn parse_url(string text) -> Result[Url, UrlError]
 ```
 
-Parse `scheme://host[:port]/path`.
+Parse `scheme://[userinfo@]host[:port]/path[?query][#fragment]`.
 
 A missing scheme separator or an empty scheme or host is `Err(Invalid)`.
-A port that is not a decimal integer is also refused.
+A port that is not a decimal integer in `0..=65535` is also refused. A
+bracketed host may contain colons (IPv6); the port must follow `]`.
 
 ### `percent_decode`
 
@@ -1517,7 +1518,9 @@ does not parse.
 struct Url
 ```
 
-A parsed URL: scheme, host, port (0 when absent) and path.
+A parsed URL: its scheme, authority parts, path, query and fragment.
+`userinfo`, `query` and `fragment` are empty when absent; `port` is 0 when
+absent. Bracketed IPv6 hosts keep their brackets in `host`.
 
 ## `uuid`
 

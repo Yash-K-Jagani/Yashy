@@ -6,6 +6,15 @@ fn report(Url u) {
     print(u.path);
 }
 
+fn report_full(Url u) {
+    print(u.userinfo);
+    print(u.host);
+    print(u.port);
+    print(u.path);
+    print(u.query);
+    print(u.fragment);
+}
+
 fn main() {
     switch url.parse_url("https://example.org:8443/docs/index.md") {
         case Ok(u) { report(u); }
@@ -15,5 +24,23 @@ fn main() {
         case Ok(decoded) { print(decoded); }
         case Err(_) { print("bad escapes"); }
     };
-    print(url.percent_decode("%zz") matches Err(_));
+    switch url.percent_decode("%zz") {
+        case Ok(_) { print("unexpected ok"); }
+        case Err(_) { print("bad escapes detected"); }
+    };
+
+    // Userinfo, IPv6 bracketed host with a port, query and fragment.
+    switch url.parse_url("https://alice:pw@[::1]:8080/v1?q=a%20b#frag") {
+        case Ok(u) { report_full(u); }
+        case Err(_) { print("bad url"); }
+    };
+    // A bracketed host without a port, and a malformed bracket.
+    switch url.parse_url("http://[2001:db8::1]/x") {
+        case Ok(u) { print(u.host); }
+        case Err(_) { print("bad url"); }
+    };
+    switch url.parse_url("http://[::1/bad") {
+        case Ok(_) { print("unexpected ok"); }
+        case Err(_) { print("bad bracket detected"); }
+    };
 }
