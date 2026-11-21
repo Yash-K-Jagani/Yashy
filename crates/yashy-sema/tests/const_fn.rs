@@ -29,6 +29,60 @@ fn assert_error(src: &str, needle: &str) {
 }
 
 #[test]
+fn a_const_fn_can_switch_on_a_literal_or_a_range() {
+    let (result, _, _) = check_source(
+        "const fn classify(int n) -> int {\n\
+             return switch n {\n\
+                 case 0 { 10 }\n\
+                 case 1..=5 { 20 }\n\
+                 default { 30 }\n\
+             };\n\
+         }\n\
+         fn main() {\n\
+             const int a = classify(0);\n\
+             const int b = classify(3);\n\
+             const int c = classify(9);\n\
+         }",
+    );
+    let hir = result.expect("a switch is now a const-fn form");
+    let values = hir
+        .items
+        .iter()
+        .flat_map(|item| match item {
+            HirItem::Fn(f) => f.body.stmts.iter(),
+            _ => [].iter(),
+        })
+        .filter_map(|stmt| match stmt {
+            yashy_hir::hir::HirStmt::Const {
+                name,
+                init: yashy_hir::hir::HirExpr::Literal(yashy_hir::hir::Literal::I64(v), ..),
+                ..
+            } => Some((name.clone(), *v)),
+            _ => None,
+        })
+        .collect::<std::collections::HashMap<_, _>>();
+    assert_eq!((values["a"], values["b"], values["c"]), (10, 20, 30));
+}
+
+#[test]
+fn a_const_fn_switch_reports_unsupported_patterns() {
+    let (result, _, _) = check_source(
+        "struct Point { x: int }\n\
+         const fn pick(Point p) -> int {\n\
+             return switch p { case Point { x: v } { v } default { 0 } };\n\
+         }\n\
+         fn main() { const int n = pick(Point { x: 1 }); }",
+    );
+    let diagnostics = result.expect_err("a struct pattern has no compile-time value");
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.message.contains("const fn can match")),
+        "a diagnostic is expected: {diagnostics:?}"
+    );
+}
+
+#[test]
 fn a_const_fn_call_is_folded_into_the_value_it_computed() {
     let (result, _, _) = check_source(
         "const fn square(int n) -> int { return n * n; }\n\
@@ -76,14 +130,13 @@ fn a_const_fn_body_may_only_use_what_the_compiler_can_compute() {
          fn g() { const t = f(); }",
         "`read_line` is not allowed in a const fn",
     );
-    // An expression whose value only exists when the program runs is refused
-    // by name: a switch is parsed as a value here, not as a statement with
-    // `return` in its arms.
-    assert_error(
+    // A switch on a compile-time value is now part of the const language;
+    // the first assertion above still pins I/O as the thing that is refused.
+    let (result, _, _) = check_source(
         "const fn f(int n) -> int { return switch n { default { 0 } }; }\n\
          fn g() { const t = f(3); }",
-        "is not allowed in a const fn",
     );
+    result.expect("a switch folds when every arm has a compile-time value");
 }
 
 #[test]

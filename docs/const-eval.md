@@ -49,7 +49,8 @@ not anything calls the function:
 | `read_line()` and the other I/O builtins | the value exists only once the program runs |
 | an `extern` call or a qualified call `A::b()` | the caller is not a `const fn` |
 | method calls, lambdas | no compile-time value is built for them yet |
-| `switch`, `defer`, `arena`, `scope`, `unsafe { }`, `.await` | control flow the evaluator has no value for |
+| `defer`, `arena`, `scope`, `unsafe { }`, `.await` | control flow the evaluator has no value for |
+| a `switch` arm with a payload, tuple or or-pattern | only literal, range, binding and unit-variant patterns have compile-time values; guards are checked too |
 | a condition binding (`if d := f(); ..`) | the binding's value is a run-time one |
 | assigning a parameter | a parameter is immutable, as in every function |
 | a labelled `break`/`continue` | there is one loop level to leave |

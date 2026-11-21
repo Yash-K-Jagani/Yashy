@@ -43,7 +43,7 @@
 use std::collections::BTreeMap;
 
 use yashy_common::{codes, FileId, Span};
-use yashy_parser::ast::{BinOp, Block, Expr, Literal, Stmt, StringLit, UnOp};
+use yashy_parser::ast::{BinOp, Block, Expr, Literal, Pattern, Stmt, StringLit, UnOp};
 
 use crate::error::TypeError;
 use crate::hir::HirExpr;
@@ -691,6 +691,54 @@ fn written_kind(ty: &yashy_parser::ast::TypeExpr) -> String {
     }
 }
 
+/// The integer a literal denotes in a pattern test.
+fn pattern_integer(literal: &Literal) -> Option<i64> {
+    match literal {
+        Literal::I64(value) => Some(*value),
+        Literal::Char(value) => Some(i64::from(*value)),
+        _ => None,
+    }
+}
+
+/// Bind the names a pattern declares, all with the subject's type.
+///
+/// Only the forms that have a compile-time value are accepted; a farther
+/// pattern is reported instead of being half-matched.
+fn check_pattern_names(
+    pattern: &Pattern,
+    ty: &Type,
+    env: &mut Vec<(String, Type)>,
+) -> Result<(), TypeError> {
+    match pattern {
+        Pattern::Wildcard(_) => Ok(()),
+        Pattern::Binding { name, span } | Pattern::BindAt { name, span, .. } => {
+            if env.iter().any(|(bound, _)| bound == name) {
+                return Err(TypeError::new(*span, format!("`{name}` is already bound")));
+            }
+            env.push((name.clone(), ty.clone()));
+            if let Pattern::BindAt { pattern, .. } = pattern {
+                check_pattern_names(pattern, ty, env)?;
+            }
+            Ok(())
+        }
+        Pattern::Literal(_, _) | Pattern::Range { .. } | Pattern::UnitVariant { .. } => Ok(()),
+        other => Err(TypeError::new(
+            Span::SYNTHETIC,
+            format!(
+                "{} is not a pattern a const fn can match",
+                match other {
+                    Pattern::TupleVariant { .. } => "a variant with a payload",
+                    Pattern::StructVariant { .. } => "a struct variant",
+                    Pattern::Tuple { .. } => "a tuple pattern",
+                    Pattern::FixedArray { .. } => "an array pattern",
+                    Pattern::Or { .. } => "an or-pattern",
+                    _ => "this pattern",
+                }
+            ),
+        )),
+    }
+}
+
 /// Check one expression and report the type it has.
 ///
 /// The type is what the evaluator needs: it is the value's type, and for a
@@ -1019,6 +1067,45 @@ fn check_expr(
             };
             Ok(ty.clone())
         }
+        Expr::SwitchExpr {
+            subject,
+            arms,
+            span,
+            ..
+        } => {
+            let subject_ty = check_expr(subject, env, consts, context, work, structs)?;
+            let mut arm_ty: Option<Type> = None;
+            for arm in arms {
+                let before = env.len();
+                check_pattern_names(&arm.pattern, &subject_ty, env)?;
+                if let Some(guard) = &arm.guard {
+                    let guard_ty = check_expr(guard, env, consts, context, work, structs)?;
+                    env.truncate(before);
+                    if guard_ty.kind != TypeKind::Bool {
+                        return Err(TypeError::new(
+                            *span,
+                            format!("a switch guard must be `bool`, found `{guard_ty}`"),
+                        ));
+                    }
+                }
+                let body_ty = check_expr(&arm.body, env, consts, context, work, structs)?;
+                env.truncate(before);
+                match &arm_ty {
+                    Some(expected) if expected.kind != body_ty.kind => {
+                        return Err(TypeError::new(
+                            *span,
+                            format!(
+                                "a switch has arms of `{expected}` and `{body_ty}`; a const fn \
+                                 needs one result type"
+                            ),
+                        ));
+                    }
+                    None => arm_ty = Some(body_ty),
+                    _ => {}
+                }
+            }
+            arm_ty.ok_or_else(|| TypeError::new(*span, "a switch needs at least one arm"))
+        }
         other => Err(TypeError::new(
             expr_span(other),
             format!("{} is not allowed in {context}", expression_kind(other)),
@@ -1277,9 +1364,9 @@ pub fn mentions_const_fn(expr: &Expr, consts: &ConstFns) -> bool {
         Expr::Binary { lhs, rhs, .. } => {
             mentions_const_fn(lhs, consts) || mentions_const_fn(rhs, consts)
         }
-        Expr::CompareChain { operands, .. } => {
-            operands.iter().any(|operand| mentions_const_fn(operand, consts))
-        }
+        Expr::CompareChain { operands, .. } => operands
+            .iter()
+            .any(|operand| mentions_const_fn(operand, consts)),
         Expr::Is { lhs, .. } => mentions_const_fn(lhs, consts),
         Expr::Range { start, end, .. } => {
             mentions_const_fn(start, consts) || mentions_const_fn(end, consts)
@@ -1301,19 +1388,17 @@ pub fn mentions_const_fn(expr: &Expr, consts: &ConstFns) -> bool {
         Expr::FieldAccess { base, .. } => mentions_const_fn(base, consts),
         Expr::SliceLit { elements, .. } => elements.iter().any(|element| match element {
             yashy_parser::ast::SliceElement::Value(value) => mentions_const_fn(value, consts),
-            yashy_parser::ast::SliceElement::Spread(operand) => {
-                mentions_const_fn(operand, consts)
-            }
+            yashy_parser::ast::SliceElement::Spread(operand) => mentions_const_fn(operand, consts),
         }),
         Expr::Index { base, index, .. } => {
             mentions_const_fn(base, consts) || mentions_const_fn(index, consts)
         }
-        Expr::FixedArrayLit { elements, .. } => {
-            elements.iter().any(|element| mentions_const_fn(element, consts))
-        }
-        Expr::TupleLit { elements, .. } => {
-            elements.iter().any(|element| mentions_const_fn(element, consts))
-        }
+        Expr::FixedArrayLit { elements, .. } => elements
+            .iter()
+            .any(|element| mentions_const_fn(element, consts)),
+        Expr::TupleLit { elements, .. } => elements
+            .iter()
+            .any(|element| mentions_const_fn(element, consts)),
         Expr::IndexRange {
             base, start, end, ..
         } => {
@@ -1330,14 +1415,15 @@ pub fn mentions_const_fn(expr: &Expr, consts: &ConstFns) -> bool {
         Expr::Await { expr, .. } => mentions_const_fn(expr, consts),
         Expr::Spawn { callee, args, .. } => {
             mentions_const_fn(callee, consts)
-                || args
-                    .iter()
-                    .any(|arg| mentions_const_fn(&arg.value, consts))
+                || args.iter().any(|arg| mentions_const_fn(&arg.value, consts))
         }
         Expr::SwitchExpr { subject, arms, .. } => {
             mentions_const_fn(subject, consts)
                 || arms.iter().any(|arm| {
-                    matches!(&arm.body, Expr::Call { args, .. } if args.iter().any(|arg| mentions_const_fn(&arg.value, consts)))
+                    arm.guard
+                        .as_ref()
+                        .is_some_and(|guard| mentions_const_fn(guard, consts))
+                        || mentions_const_fn(&arm.body, consts)
                 })
         }
         Expr::Lambda { .. } => false,
@@ -1412,6 +1498,77 @@ fn tick_at(span: Span, work: &mut Work) -> Result<(), ConstError> {
         .with_code(codes::CONST_FUEL));
     }
     Ok(())
+}
+
+/// Try one pattern against one folded value, binding names on success.
+fn pattern_matches(
+    pattern: &Pattern,
+    value: &ConstValue,
+    env: &mut Vec<(String, ConstValue)>,
+) -> Result<bool, ConstError> {
+    match pattern {
+        Pattern::Wildcard(_) => Ok(true),
+        Pattern::Binding { name, .. } => {
+            env.push((name.clone(), value.clone()));
+            Ok(true)
+        }
+        Pattern::BindAt { name, pattern, .. } => {
+            if pattern_matches(pattern, value, env)? {
+                env.push((name.clone(), value.clone()));
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
+        Pattern::Literal(literal, _) => Ok(match (literal, value) {
+            (Literal::I64(expected), ConstValue::I64(found)) => expected == found,
+            (Literal::Bool(expected), ConstValue::Bool(found)) => expected == found,
+            (Literal::Char(expected), ConstValue::Char(found)) => {
+                i64::from(*expected) == i64::from(*found)
+            }
+            _ => false,
+        }),
+        Pattern::Range {
+            lo, hi, inclusive, ..
+        } => {
+            let number = match value {
+                ConstValue::I64(value) => Some(*value),
+                ConstValue::Char(value) => Some(i64::from(*value)),
+                _ => None,
+            };
+            let Some(number) = number else {
+                return Ok(false);
+            };
+            let (Some(lo), Some(hi)) = (pattern_integer(lo), pattern_integer(hi)) else {
+                return Ok(false);
+            };
+            Ok(number >= lo
+                && (if *inclusive {
+                    number <= hi
+                } else {
+                    number < hi
+                }))
+        }
+        Pattern::UnitVariant { path, .. } => Ok(matches!(
+            value,
+            ConstValue::Enum { variant, payload, .. }
+                if payload.is_empty() && path.last() == Some(variant)
+        )),
+        other => Err(ConstError::new(
+            Span::SYNTHETIC,
+            format!(
+                "this pattern cannot be matched at compile time: {}",
+                match other {
+                    Pattern::TupleVariant { .. } => "a variant with a payload",
+                    Pattern::StructVariant { .. } => "a struct variant",
+                    Pattern::Tuple { .. } => "a tuple pattern",
+                    Pattern::FixedArray { .. } => "an array pattern",
+                    Pattern::Or { .. } => "an or-pattern",
+                    _ => "this pattern",
+                }
+            ),
+        )),
+    }
 }
 
 /// Evaluate one expression against the bindings in scope.
@@ -1654,6 +1811,47 @@ fn eval(
                 ));
             };
             Ok(found)
+        }
+        Expr::SwitchExpr {
+            subject,
+            arms,
+            span,
+            ..
+        } => {
+            let value = eval(subject, env, consts, work, missing, structs)?;
+            for arm in arms {
+                let before = env.len();
+                let matched = if arm.is_default {
+                    true
+                } else {
+                    pattern_matches(&arm.pattern, &value, env)?
+                };
+                if !matched {
+                    env.truncate(before);
+                    continue;
+                }
+                if let Some(guard) = &arm.guard {
+                    let allowed = eval(guard, env, consts, work, missing, structs)?;
+                    let ConstValue::Bool(allowed) = allowed else {
+                        env.truncate(before);
+                        return Err(ConstError::new(
+                            *span,
+                            "a switch guard must be `bool`".to_string(),
+                        ));
+                    };
+                    if !allowed {
+                        env.truncate(before);
+                        continue;
+                    }
+                }
+                let result = eval(&arm.body, env, consts, work, missing, structs);
+                env.truncate(before);
+                return result;
+            }
+            Err(ConstError::new(
+                *span,
+                "no switch arm matched the value in this const fn".to_string(),
+            ))
         }
         other => Err(ConstError::new(
             expr_span(other),
