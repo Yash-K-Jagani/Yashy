@@ -155,6 +155,23 @@ fn a_const_fn_body_may_only_use_what_the_compiler_can_compute() {
 }
 
 #[test]
+fn a_const_fn_cannot_allocate_or_enter_unsafe() {
+    // A const fn may not allocate: there is no run-time heap at compile time.
+    assert_error(
+        "const fn f() -> *mut int { return alloc(4); }\n\
+         fn g() { const t = f(); }",
+        "not allowed",
+    );
+    // Nor may it carry an unsafe block: compile-time evaluation promises no
+    // trust assumption can hide inside a folded value.
+    assert_error(
+        "const fn f() -> int { unsafe { return 1; } }\n\
+         fn g() { const t = f(); }",
+        "not allowed",
+    );
+}
+
+#[test]
 fn a_const_fn_may_accumulate_in_a_loop() {
     let (result, _, _) = check_source(
         "const fn sum_to(int n) -> int {\n\

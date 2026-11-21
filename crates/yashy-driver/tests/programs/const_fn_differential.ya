@@ -67,6 +67,11 @@ fn quad_runtime(int n) -> int { return square_runtime(n) + square_runtime(n); }
 const fn code_const() -> int { return 'A'.to_int(); }
 fn code_runtime() -> int { return 'A'.to_int(); }
 
+// A folded lookup table against a hand-written one.
+const fn table_const(int n) -> [int; 4] {
+    return [n, n + 1, n + 2, n + 3];
+}
+
 fn main() {
     const s = sum_const(10);
     print(s);
@@ -87,4 +92,10 @@ fn main() {
     const code = code_const();
     print(code);
     print(code_runtime());
+
+    const table = table_const(10);
+    const first = switch table[0] { case Some(v) { v } default { -1 } };
+    const last = switch table[3] { case Some(v) { v } default { -1 } };
+    print(first == 10);
+    print(last == 13);
 }

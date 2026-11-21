@@ -484,8 +484,9 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   `crates/yashy-sema/tests/const_assert.rs` and
   `crates/yashy-driver/tests/const_assert.rs`. The table's IR literal assertion
   is pinned by `crates/yashy-driver/tests/const_fn_ir.rs`. The differential
-  comparison against a hand-written table and a fixed-buffer size computed from
-  a const fn are still owed, so the step stays open.
+  comparison against a hand-written table is now pinned by the expanded const_fn_differential.ya, so only the general "for every const fn" claim is still owed.
+  A fixed-buffer size computed from a const fn is already pinned by
+  `crates/yashy-sema/tests/const_generics.rs`.
 - [ ] **Step 2: Const evaluation is ordinary code, not a macro.** A `const fn`
   is parsed and checked like any function, then evaluated by the same typed
   interpreter that evaluates `size_of`, array lengths and const generic
