@@ -47,8 +47,8 @@ not anything calls the function:
 | Refused | Why |
 |---|---|
 | `read_line()` and the other I/O builtins | the value exists only once the program runs |
-| an `extern` call or a qualified call `A::b()` | the caller is not a `const fn` |
-| method calls, lambdas | no compile-time value is built for them yet |
+| `extern` call or a qualified call `A::b()` | the caller is not a `const fn` |
+| other methods | no other method has a compile-time value; `char.to_int()` and `int.to_char()` are the two conversions that fold |
 | `defer`, `arena`, `scope`, `unsafe { }`, `.await` | control flow the evaluator has no value for |
 | a `switch` arm with a payload, tuple or or-pattern | only literal, range, binding and unit-variant patterns have compile-time values; guards are checked too |
 | a condition binding (`if d := f(); ..`) | the binding's value is a run-time one |

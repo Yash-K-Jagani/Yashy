@@ -488,7 +488,7 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   stopped by the same step budget as a wide expression. Assigning a parameter is
   refused with `E0400`, exactly as in a run-time body. Still refused, and why
   the step stays open: a `switch` now folds with literal, range, binding and
-  unit-variant patterns and guards, but method calls still have no compile-time value.
+  unit-variant patterns and guards, and the scalar conversions `to_int`/`to_char`; other method calls still have no compile-time value.
   Struct and enum constructors, struct field reads and unit variants are now
   folded, with their types checked against the declarations through
   `ConstTypes`. The evaluator

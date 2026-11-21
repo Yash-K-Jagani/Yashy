@@ -915,6 +915,41 @@ fn check_expr(
         Expr::Call {
             callee, args, span, ..
         } => {
+            // A dotted call on a local binding is a scalar conversion; the
+            // main checker flattens it to `[binding, method]` just like the
+            // enum constructor spelling, so the head tells them apart.
+            if let [head, method] = callee.as_slice() {
+                if env.iter().any(|(name, _)| name == head) {
+                    let receiver_ty = check_expr(
+                        &Expr::Ident(vec![head.clone()], *span),
+                        env,
+                        consts,
+                        context,
+                        work,
+                        structs,
+                    )?;
+                    let known = match (&receiver_ty.kind, method.as_str()) {
+                        (TypeKind::Char, "to_int") => TypeKind::I64,
+                        (TypeKind::I64, "to_char") => TypeKind::Char,
+                        _ => {
+                            return Err(TypeError::new(
+                                *span,
+                                format!("`{method}` is not a method a const fn can call"),
+                            ));
+                        }
+                    };
+                    if !args.is_empty() {
+                        return Err(TypeError::new(
+                            *span,
+                            format!("`{method}` takes no arguments"),
+                        ));
+                    }
+                    return Ok(Type {
+                        kind: known,
+                        span: *span,
+                    });
+                }
+            }
             if let [enum_name, variant] = callee.as_slice() {
                 let Some(variants) = structs.enums.get(enum_name) else {
                     return Err(TypeError::new(
@@ -1066,6 +1101,37 @@ fn check_expr(
                 ));
             };
             Ok(ty.clone())
+        }
+        Expr::MethodCall {
+            receiver,
+            method,
+            args,
+            span,
+        } => {
+            // The only method calls with a compile-time value are the scalar
+            // conversions; every other method reaches storage the compiler
+            // cannot read while folding.
+            let receiver_ty = check_expr(receiver, env, consts, context, work, structs)?;
+            let known = match (&receiver_ty.kind, method.as_str()) {
+                (TypeKind::Char, "to_int") => TypeKind::I64,
+                (TypeKind::I64, "to_char") => TypeKind::Char,
+                _ => {
+                    return Err(TypeError::new(
+                        *span,
+                        format!("`{method}` is not a method a const fn can call"),
+                    ));
+                }
+            };
+            if !args.is_empty() {
+                return Err(TypeError::new(
+                    *span,
+                    format!("`{method}` takes no arguments"),
+                ));
+            }
+            Ok(Type {
+                kind: known,
+                span: *span,
+            })
         }
         Expr::SwitchExpr {
             subject,
@@ -1702,6 +1768,35 @@ fn eval(
         Expr::Call {
             callee, args, span, ..
         } => {
+            if let [head, method] = callee.as_slice() {
+                if env.iter().any(|(name, _)| name == head) {
+                    let value = env
+                        .iter()
+                        .rev()
+                        .find(|(name, _)| name == head)
+                        .map(|(_, value)| value.clone())
+                        .expect("the head was found above");
+                    return match (method.as_str(), value) {
+                        ("to_int", ConstValue::Char(byte)) => Ok(ConstValue::I64(i64::from(byte))),
+                        ("to_char", ConstValue::I64(number)) => {
+                            let byte = u8::try_from(number).map_err(|_| {
+                                ConstError::new(
+                                    *span,
+                                    format!("`{number}` is not a character code"),
+                                )
+                            })?;
+                            Ok(ConstValue::Char(byte))
+                        }
+                        (_, value) => Err(ConstError::new(
+                            *span,
+                            format!(
+                                "`{method}` has no compile-time value for `{}`",
+                                value.kind()
+                            ),
+                        )),
+                    };
+                }
+            }
             if let [enum_name, variant] = callee.as_slice() {
                 let mut payload = Vec::with_capacity(args.len());
                 for argument in args {
@@ -1811,6 +1906,30 @@ fn eval(
                 ));
             };
             Ok(found)
+        }
+        Expr::MethodCall {
+            receiver, method, ..
+        } => {
+            let value = eval(receiver, env, consts, work, missing, structs)?;
+            match (method.as_str(), value) {
+                ("to_int", ConstValue::Char(byte)) => Ok(ConstValue::I64(i64::from(byte))),
+                ("to_char", ConstValue::I64(number)) => {
+                    let byte = u8::try_from(number).map_err(|_| {
+                        ConstError::new(
+                            expr_span(expr),
+                            format!("`{number}` is not a character code"),
+                        )
+                    })?;
+                    Ok(ConstValue::Char(byte))
+                }
+                (_, value) => Err(ConstError::new(
+                    expr_span(expr),
+                    format!(
+                        "`{method}` has no compile-time value for `{}`",
+                        value.kind()
+                    ),
+                )),
+            }
         }
         Expr::SwitchExpr {
             subject,

@@ -65,6 +65,21 @@ fn a_const_fn_can_switch_on_a_literal_or_a_range() {
 }
 
 #[test]
+fn a_const_fn_can_convert_a_character() {
+    let (result, _, _) = check_source(
+        "const fn code() -> int { return 'A'.to_int(); }\n\
+         const fn letter(int n) -> int { return n.to_char().to_int(); }\n\
+         fn main() { const int a = code(); const int b = letter(66); }",
+    );
+    let hir = result.expect("scalar conversions have compile-time values");
+    let text = format!("{:?}", hir.items);
+    assert!(
+        text.contains("Literal(I64(65)") && text.contains("Literal(I64(66)"),
+        "{text}"
+    );
+}
+
+#[test]
 fn a_const_fn_switch_reports_unsupported_patterns() {
     let (result, _, _) = check_source(
         "struct Point { x: int }\n\
