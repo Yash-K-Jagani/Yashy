@@ -139,9 +139,13 @@ is a capability rather than an ambient read.
   `uuid.ya` has `v4`; `text.ya` has base64url/hex. The coverage programs are
   `stdlib/{url,mime,uuid,semver}.ya`. `url.ya` now parses userinfo, bracketed
   IPv6 hosts with an optional port, query and fragment, and rejects a malformed
-  bracket; the golden pins the parsed parts. `url.ya` also has percent-decoding.
-  Still owed: relative URL references and UUID v7 generation, so the step stays
-  open.
+  bracket; the golden pins the parsed parts. `url.ya` also has percent-decoding
+  and `resolve(base, ref)` for RFC 3986 §5.2 relative references (all five forms
+  plus dot-segment removal), pinned in the golden. `uuid.ya` now has `v7()`
+  (RFC 9562, 48-bit ms timestamp + version 7 + random), with the coverage
+  program checking its canonical form, version nibble and variant. The step
+  stays open for a fuzz corpus and byte-offset errors in Step 2 (none of the
+  five encodings carry one yet).
 - [ ] **Step 2: One parser per grammar.** No regex-based URL parsing; each format has a grammar, a table-driven test and a fuzz corpus. A malformed input returns `Result` with the byte offset.
 - [ ] **Step 3: Commit.**
 

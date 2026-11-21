@@ -6,6 +6,7 @@
 // returning `false`, never by a sentinel string.
 
 import rand;
+import time;
 
 /// The lowercase hexadecimal spelling of a byte.
 fn hex_digit(int value) -> char {
@@ -118,5 +119,41 @@ pub fn v4() -> Result[string, UuidError] {
     };
     const char ninth_byte = ((ninth & 63) | 128).to_char();
     bytes.set(8, ninth_byte);
+    return format_bytes(bytes);
+}
+
+/// Generate a version-7 UUID (RFC 9562) from the current wall clock.
+///
+/// The first 48 bits are the Unix timestamp in milliseconds, so v7 values sort
+/// by creation time. Byte 6 carries version `7`, byte 8 carries variant `10`,
+/// and the remaining 74 bits are OS-random. The clock is `time.now_unix_ns()`,
+/// which a deterministic build fixes at the process edge.
+pub fn v7() -> Result[string, UuidError] {
+    // Milliseconds since the epoch, truncated to the 48 bits the layout holds.
+    const int millis = time.now_unix_ns() / 1000000;
+    const int stamp = millis & 281474976710655;
+    let bytes = rand.fill(16);
+
+    // The six timestamp bytes, most significant first. Division and modulo by
+    // 256 extract each byte without a shift (Yashy's `>>` is arithmetic).
+    bytes.set(0, ((stamp / 1099511627776) % 256).to_char());
+    bytes.set(1, ((stamp / 4294967296) % 256).to_char());
+    bytes.set(2, ((stamp / 16777216) % 256).to_char());
+    bytes.set(3, ((stamp / 65536) % 256).to_char());
+    bytes.set(4, ((stamp / 256) % 256).to_char());
+    bytes.set(5, (stamp % 256).to_char());
+
+    // Version `7` in the high nibble of byte 6; variant `10` in the high two
+    // bits of byte 8. The other bits stay random from `rand.fill`.
+    const sixth = switch bytes[6] {
+        case Some(value) { value.to_int() }
+        case None { 0 }
+    };
+    bytes.set(6, ((sixth & 15) | 112).to_char());
+    const ninth = switch bytes[8] {
+        case Some(value) { value.to_int() }
+        case None { 0 }
+    };
+    bytes.set(8, ((ninth & 63) | 128).to_char());
     return format_bytes(bytes);
 }

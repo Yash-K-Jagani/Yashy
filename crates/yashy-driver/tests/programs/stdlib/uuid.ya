@@ -24,6 +24,14 @@ fn report_failure() {
     print(false);
 }
 
+/// v7 keeps the same canonical shape and variant, but byte 14 is `7`.
+fn report_v7(string generated) {
+    print(uuid.is_valid(generated));
+    print(generated.byte_at(14).to_int() == 55);
+    const variant = generated.byte_at(19).to_int();
+    print(variant == 56 || variant == 57 || variant == 97 || variant == 98);
+}
+
 fn main() {
     print(uuid.is_valid(uuid.nil()));
     print(uuid.is_valid("not-a-uuid"));
@@ -33,6 +41,10 @@ fn main() {
     };
     switch uuid.v4() {
         case Ok(generated) { report_generated(generated); }
+        case Err(_) { report_failure(); }
+    };
+    switch uuid.v7() {
+        case Ok(generated) { report_v7(generated); }
         case Err(_) { report_failure(); }
     };
 }

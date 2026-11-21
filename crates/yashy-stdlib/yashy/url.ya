@@ -161,6 +161,151 @@ pub fn origin(Url url) -> string {
     return url.scheme + "://" + url.host;
 }
 
+/// Resolve a URI reference against a base URL (RFC 3986 §5.2).
+///
+/// Handles all five reference forms: an absolute URI, a network-path
+/// reference (`//host/path`), an absolute-path reference (`/path`), a
+/// relative-path reference (`a/b`), and a query- or fragment-only reference.
+/// Dot segments (`.` and `..`) in the merged path are removed. The answer is a
+/// URL string, always absolute; a malformed base is `Err(Invalid)`.
+pub fn resolve(string base, string reference) -> Result[string, UrlError] {
+    const parsed_base = parse_url(base)?;
+
+    // An absolute reference has its own scheme: return it unchanged.
+    const scheme_end = index_of_or(reference, ":");
+    if scheme_end > 0 && is_scheme(reference.slice(0, scheme_end)) {
+        return Ok(reference);
+    }
+
+    // Strip a fragment from the reference; it is re-appended at the end.
+    let ref_frag = "";
+    let target = reference;
+    const hash = index_of_or(target, "#");
+    if hash >= 0 {
+        ref_frag = target.slice(hash, target.len());
+        target = target.slice(0, hash);
+    }
+
+    // A network-path reference borrows the base scheme.
+    if target.starts_with("//") {
+        return Ok(parsed_base.scheme + ":" + target + ref_frag);
+    }
+
+    // Split the reference's query from its path.
+    let ref_query = "";
+    let ref_path = target;
+    const question = index_of_or(target, "?");
+    if question >= 0 {
+        ref_query = target.slice(question, target.len());
+        ref_path = target.slice(0, question);
+    }
+
+    if ref_path.len() == 0 {
+        // Empty path: keep the base path and query, replace only the fragment.
+        const base_query = parsed_base.query;
+        const query_part = query_suffix(base_query);
+        return Ok(parsed_base.scheme + "://" + authority_of(parsed_base) + parsed_base.path + query_part + ref_frag);
+    }
+
+    let merged = "";
+    if ref_path.starts_with("/") {
+        merged = ref_path;
+    } else {
+        // Relative path: merge with the base's directory (up to the last `/`).
+        const bp = parsed_base.path;
+        const last_slash = last_index(bp, "/");
+        const dir = directory_of(bp, last_slash);
+        merged = dir + ref_path;
+    }
+    const clean = remove_dot_segments(merged);
+    return Ok(parsed_base.scheme + "://" + authority_of(parsed_base) + clean + ref_query + ref_frag);
+}
+
+/// The directory of a path (through its last slash), or `/` when none.
+fn directory_of(string path, int last_slash) -> string {
+    if last_slash >= 0 {
+        return path.slice(0, last_slash + 1);
+    }
+    return "/";
+}
+
+/// A query string prefixed with `?`, or empty when there is no query.
+fn query_suffix(string query) -> string {
+    if query.len() > 0 {
+        return "?" + query;
+    }
+    return "";
+}
+
+/// The authority of a parsed URL: userinfo@host[:port].
+fn authority_of(Url url) -> string {
+    const string info = url.userinfo;
+    const string host = url.host;
+    const int port = url.port;
+    let auth = host;
+    if info.len() > 0 {
+        auth = info + "@" + auth;
+    }
+    if port > 0 {
+        auth = auth + ":" + str_from_i64(port);
+    }
+    return auth;
+}
+
+/// Whether `text` is a URI scheme: a letter followed by letters, digits, `+`,
+/// `-` or `.`.
+fn is_scheme(string text) -> bool {
+    if text.len() == 0 {
+        return false;
+    }
+    const first = text.byte_at(0).to_int();
+    if !((first >= 65 && first <= 90) || (first >= 97 && first <= 122)) {
+        return false;
+    }
+    let i = 1;
+    while i < text.len() {
+        const b = text.byte_at(i).to_int();
+        const ok = (b >= 65 && b <= 90) || (b >= 97 && b <= 122)
+            || (b >= 48 && b <= 57) || b == 43 || b == 45 || b == 46;
+        if !ok {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+/// Remove `.` and `..` path segments from an absolute path (RFC 3986 §5.2.4).
+///
+/// The output is built as a string of `/segment` pieces. A `..` drops the last
+/// piece by truncating at its slash, so no array of owned strings is needed.
+fn remove_dot_segments(string path) -> string {
+    const segments = path.split("/");
+    let out = "";
+    for i in 0..segments.len() {
+        const part = switch segments[i] {
+            case Some(p) { p }
+            case None { "" }
+        };
+        if part == "." || part.len() == 0 {
+            continue;
+        }
+        if part == ".." {
+            const slash = last_index(out, "/");
+            if slash >= 0 {
+                out = out.slice(0, slash);
+            }
+            continue;
+        }
+        out = out + "/" + part;
+    }
+    segments.free();
+    if out.len() == 0 {
+        return "/";
+    }
+    return out;
+}
+
 /// Decode `%XX` escapes in a URL component.
 ///
 /// A `%` not followed by two hexadecimal digits is `Err(Invalid)`; a valid

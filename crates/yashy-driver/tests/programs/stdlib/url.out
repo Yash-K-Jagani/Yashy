@@ -11,3 +11,11 @@ q=a%20b
 frag
 [2001:db8::1]
 bad bracket detected
+http://a.example/b/c/g
+http://a.example/g
+http://g.example/h
+http://a.example/b/g
+http://a.example/g
+http://a.example/b/c/d;p?q
+http://a.example/b/c/d;p?q#s
+https://other.example/x

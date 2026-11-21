@@ -15,6 +15,13 @@ fn report_full(Url u) {
     print(u.fragment);
 }
 
+fn resolved(string base, string reference) -> string {
+    return switch url.resolve(base, reference) {
+        case Ok(text) { text }
+        case Err(_) { "ERR" }
+    };
+}
+
 fn main() {
     switch url.parse_url("https://example.org:8443/docs/index.md") {
         case Ok(u) { report(u); }
@@ -43,4 +50,15 @@ fn main() {
         case Ok(_) { print("unexpected ok"); }
         case Err(_) { print("bad bracket detected"); }
     };
+
+    // Relative reference resolution against a base (RFC 3986 §5.2).
+    const base = "http://a.example/b/c/d;p?q";
+    print(resolved(base, "g"));
+    print(resolved(base, "/g"));
+    print(resolved(base, "//g.example/h"));
+    print(resolved(base, "../g"));
+    print(resolved(base, "../../../g"));
+    print(resolved(base, "?y"));
+    print(resolved(base, "#s"));
+    print(resolved(base, "https://other.example/x"));
 }

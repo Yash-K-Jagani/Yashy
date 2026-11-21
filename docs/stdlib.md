@@ -1512,6 +1512,20 @@ escape produces exactly one byte. The `+` spelling is left alone: it is a
 literal plus in a path and a space only in form bodies, which this module
 does not parse.
 
+### `resolve`
+
+```yashy
+fn resolve(string base, string reference) -> Result[string, UrlError]
+```
+
+Resolve a URI reference against a base URL (RFC 3986 §5.2).
+
+Handles all five reference forms: an absolute URI, a network-path
+reference (`//host/path`), an absolute-path reference (`/path`), a
+relative-path reference (`a/b`), and a query- or fragment-only reference.
+Dot segments (`.` and `..`) in the merged path are removed. The answer is a
+URL string, always absolute; a malformed base is `Err(Invalid)`.
+
 ### `Url`
 
 ```yashy
@@ -1571,3 +1585,16 @@ The version nibble is set to `4` and the variant bits to `10`, so the text
 this produces is a valid RFC 4122 UUID. The entropy comes from `rand.fill`,
 which reads the OS source; a deterministic build fixes that source at the
 process edge.
+
+### `v7`
+
+```yashy
+fn v7() -> Result[string, UuidError]
+```
+
+Generate a version-7 UUID (RFC 9562) from the current wall clock.
+
+The first 48 bits are the Unix timestamp in milliseconds, so v7 values sort
+by creation time. Byte 6 carries version `7`, byte 8 carries variant `10`,
+and the remaining 74 bits are OS-random. The clock is `time.now_unix_ns()`,
+which a deterministic build fixes at the process edge.
