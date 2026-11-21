@@ -124,6 +124,37 @@ fn a_repr_c_const_buffer_keeps_its_abi_shape() {
 }
 
 #[test]
+fn a_const_binding_names_a_const_argument() {
+    let program = check(
+        "struct Buffer[const M: int] { data: [int; M] }\n\
+         fn main() {\n\
+             const int N = 16;\n\
+             const int size = size_of[Buffer[N]]();\n\
+             if size == 128 { }\n\
+         }",
+    )
+    .expect("a checked const int names the instantiation");
+    let text = format!("{:?}", program.items);
+    assert!(text.contains("Buffer_cint16"), "{text}");
+}
+
+#[test]
+fn a_const_fn_can_compute_a_const_argument() {
+    let program = check(
+        "struct Buffer[const M: int] { data: [int; M] }\n\
+         const fn width() -> int { return 8; }\n\
+         fn main() {\n\
+             const int N = width();\n\
+             const int size = sizeof(Buffer[N]);\n\
+             if size == 64 { }\n\
+         }",
+    )
+    .expect("the folded const fn value is the array length");
+    let text = format!("{:?}", program.items);
+    assert!(text.contains("Buffer_cint8"), "{text}");
+}
+
+#[test]
 fn const_arguments_count_toward_the_instantiation_budget() {
     let mut src =
         String::from("fn first[const N: int]([int; N] xs) -> int { return 0; }\nfn main() {\n");

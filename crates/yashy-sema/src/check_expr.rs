@@ -446,16 +446,6 @@ fn mangled_generic_name(name: &str, subst: &[Type]) -> String {
     mangled
 }
 
-/// The value of a const type argument, written as a decimal type argument such
-/// as `Buffer[16]`. A const parameter is checked for arity in the same pass as
-/// a type parameter, so the value is always a literal at the use site.
-fn const_arg_value(arg: &TypeExpr) -> Option<usize> {
-    match arg {
-        TypeExpr::Name(text, _) => text.parse::<usize>().ok(),
-        _ => None,
-    }
-}
-
 /// Read the bracketed part of `Buffer[16]` in an expression as a type argument.
 ///
 /// A non-literal argument becomes a symbolic `Name`; it is still the checker's
@@ -874,6 +864,8 @@ pub struct Checker<'src> {
     /// The integer values of `const N: int` parameters in force while a
     /// monomorph is being checked. Array lengths spelled with `N` resolve here.
     const_subst: HashMap<String, usize>,
+    /// Integer values of checked `const` bindings, for const generic arguments.
+    const_ints: HashMap<String, usize>,
     /// The parameter bindings whose type is a type parameter of the generic
     /// function being checked, with the bounds in force.
     ///
@@ -1090,6 +1082,18 @@ pub struct Checker<'src> {
 }
 
 impl<'src> Checker<'src> {
+    /// The value of a const type argument: a decimal literal such as
+    /// `Buffer[16]`, or a checked `const int` binding named at the use site.
+    fn const_arg_value(&self, arg: &TypeExpr) -> Option<usize> {
+        match arg {
+            TypeExpr::Name(text, _) => text
+                .parse::<usize>()
+                .ok()
+                .or_else(|| self.const_ints.get(text).copied()),
+            _ => None,
+        }
+    }
+
     pub fn new(sm: &'src SourceMap, file: FileId, options: CheckOptions) -> Self {
         let mut scope = Scope::new();
         // Builtins are predeclared in the root scope. They are functions, so a
@@ -1381,6 +1385,7 @@ impl<'src> Checker<'src> {
             generics: HashMap::new(),
             type_subst: HashMap::new(),
             const_subst: HashMap::new(),
+            const_ints: HashMap::new(),
             bound_context: Vec::new(),
             pending_generics: Vec::new(),
             instantiated: HashSet::new(),
@@ -2474,7 +2479,7 @@ impl<'src> Checker<'src> {
             // fields of this one resolve through them.
             self.intern_generics_in(arg);
             if param.is_const {
-                match const_arg_value(arg) {
+                match self.const_arg_value(arg) {
                     Some(value) => arg_tys.push(const_placeholder(value, span)),
                     None => return,
                 }
@@ -2542,15 +2547,13 @@ impl<'src> Checker<'src> {
                 .map(|(param, arg)| (param.name.clone(), arg.clone()))
                 .collect(),
         );
-        let outer_const = std::mem::replace(
-            &mut self.const_subst,
-            params
-                .iter()
-                .zip(args.iter())
-                .filter(|(param, _)| param.is_const)
-                .filter_map(|(param, arg)| const_arg_value(arg).map(|v| (param.name.clone(), v)))
-                .collect(),
-        );
+        let new_const: HashMap<String, usize> = params
+            .iter()
+            .zip(args.iter())
+            .filter(|(param, _)| param.is_const)
+            .filter_map(|(param, arg)| self.const_arg_value(arg).map(|v| (param.name.clone(), v)))
+            .collect();
+        let outer_const = std::mem::replace(&mut self.const_subst, new_const);
         if is_struct {
             let scheme = self.struct_schemes[name].clone();
             let allow_c = scheme.repr_c;
@@ -4169,7 +4172,7 @@ impl<'src> Checker<'src> {
         let mut arg_tys = Vec::with_capacity(args.len());
         for (param, arg) in params.iter().zip(args.iter()) {
             if param.is_const {
-                let value = const_arg_value(arg).ok_or_else(|| {
+                let value = self.const_arg_value(arg).ok_or_else(|| {
                     TypeError::new(
                         span,
                         format!("`{}` needs a constant integer, found `{arg:?}`", param.name),
@@ -4753,7 +4756,7 @@ impl<'src> Checker<'src> {
         let mut const_args: HashMap<String, usize> = HashMap::new();
         for (param, arg) in generic.type_params.iter().zip(explicit_type_args.iter()) {
             if param.is_const {
-                match const_arg_value(arg) {
+                match self.const_arg_value(arg) {
                     Some(value) => {
                         const_args.insert(param.name.clone(), value);
                     }
@@ -6162,6 +6165,14 @@ impl<'src> Checker<'src> {
                 if let Some(declared) = &declared {
                     if !declared.eq_ignoring_span(&expr_ty(&init_expr)) {
                         self.mismatch(expr_span(&init_expr), declared, &expr_ty(&init_expr));
+                    }
+                }
+                // A checked `const int` can name a const generic argument at a
+                // later use site; the value is already folded here, whether the
+                // initializer was a literal or a `const fn` call.
+                if let HirExpr::Literal(Literal::I64(value), _, _) = &init_expr {
+                    if let Ok(value) = usize::try_from(*value) {
+                        self.const_ints.insert(name.clone(), value);
                     }
                 }
                 // A linear value may leave its binding only through `move`.

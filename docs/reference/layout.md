@@ -39,8 +39,9 @@ argument at the call — `first[4]([1, 2, 3, 4])` — because a value that appea
 only in a result cannot be inferred.
 
 Both `sizeof(Buffer[16])` and `size_of[Buffer[16]]()` ask the same table. A
-const argument must be a literal or a name in scope at compile time; a run-time
-value is [E1524](../errors/E1524.md), not a silent zero. A declared `[T; 0]`
+const argument must be a decimal literal or a checked `const int` binding at
+compile time; a name folded from a `const fn` works too. A run-time value is
+[E1524](../errors/E1524.md), not a silent zero. A declared `[T; 0]`
 is legal and contributes zero bytes.
 
 ## Numeric spellings
