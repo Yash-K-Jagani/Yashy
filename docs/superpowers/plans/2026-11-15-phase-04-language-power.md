@@ -435,7 +435,7 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   lexer vocabulary. The formatter prints the keyword it read because it renders
   tokens; it does not rewrite one spelling to the other, and no 1.0 migration
   diagnostic is emitted yet. The BPE audit in Task 10 remains owed.
-- [x] **Step 6: Commit.**
+- [x] **Step 6: Commit.** Landed as `dda1946`.
   `git commit -m "feat(lang): ranges, membership, identity and word-form logic"`.
 
 ### Task 9: `const fn` and compile-time evaluation
