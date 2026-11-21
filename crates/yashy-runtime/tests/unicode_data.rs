@@ -7,10 +7,13 @@
 //!
 //! Run with: cargo test -p yashy-runtime --test unicode_data
 
-use std::ffi::c_uint;
+use std::ffi::{c_char, c_uint, CStr, CString};
 use std::path::Path;
 
-use yashy_runtime::{yashy_ucd_case_fold, yashy_ucd_width};
+use yashy_runtime::{
+    yashy_str_case_fold, yashy_str_display_width, yashy_str_nfc, yashy_str_nfd, yashy_str_nfkc,
+    yashy_str_nfkd, yashy_str_release, yashy_ucd_case_fold, yashy_ucd_width, YashyStr,
+};
 
 fn root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -171,4 +174,178 @@ fn width_lookups_match_the_source_data() {
         "a control has width zero"
     );
     assert_eq!(unsafe { yashy_ucd_width(0xFF21) }, 2, "fullwidth A is wide");
+}
+
+/// Holds the UTF-8 bytes a `YashyStr` points at.
+struct Static {
+    _bytes: CString,
+    value: YashyStr,
+}
+
+impl Static {
+    fn new(text: &str) -> Self {
+        let bytes = CString::new(text).expect("test strings contain no NUL");
+        let len = bytes.as_bytes().len() as i64;
+        let value = YashyStr {
+            refcount: -1,
+            len,
+            cap: len,
+            data: bytes.as_ptr() as *mut c_char,
+        };
+        Static {
+            _bytes: bytes,
+            value,
+        }
+    }
+
+    fn ptr(&self) -> *const YashyStr {
+        &self.value
+    }
+}
+
+fn run(form: unsafe extern "C" fn(*const YashyStr) -> *mut YashyStr, text: &str) -> String {
+    let input = Static::new(text);
+    let output = unsafe { form(input.ptr()) };
+    assert!(!output.is_null(), "normalization returned null");
+    let result = unsafe { CStr::from_ptr((*output).data) }
+        .to_str()
+        .expect("normalization returns valid UTF-8")
+        .to_string();
+    unsafe { yashy_str_release(output) };
+    result
+}
+
+fn nfc(text: &str) -> String {
+    run(yashy_str_nfc, text)
+}
+fn nfd(text: &str) -> String {
+    run(yashy_str_nfd, text)
+}
+fn nfkc(text: &str) -> String {
+    run(yashy_str_nfkc, text)
+}
+fn nfkd(text: &str) -> String {
+    run(yashy_str_nfkd, text)
+}
+fn fold(text: &str) -> String {
+    run(yashy_str_case_fold, text)
+}
+
+/// Parses one column of `NormalizationTest.txt` (`0044 0307`) as a string.
+fn column(text: &str) -> String {
+    let code_points: Vec<u32> = text
+        .split_whitespace()
+        .map(|piece| u32::from_str_radix(piece, 16).expect("a hex code point"))
+        .collect();
+    code_points
+        .into_iter()
+        .map(|cp| char::from_u32(cp).expect("a scalar value"))
+        .collect()
+}
+
+#[test]
+fn normalization_conforms_to_the_unicode_test_file() {
+    // UAX #15 conformance: for every row, each of the four forms applied to
+    // any column must equal the column the spec says it maps to.
+    let text = std::fs::read_to_string(root().join("data/unicode/NormalizationTest.txt"))
+        .expect("NormalizationTest.txt");
+    let mut rows = 0;
+    let mut failures = Vec::new();
+    for line in text.lines() {
+        let line = line.splitn(2, '#').next().unwrap_or("").trim();
+        if line.is_empty() || line.starts_with('@') {
+            continue;
+        }
+        let parts: Vec<&str> = line.split(';').map(str::trim).collect();
+        if parts.len() < 5 {
+            continue;
+        }
+        let c1 = column(parts[0]);
+        let c2 = column(parts[1]);
+        let c3 = column(parts[2]);
+        let c4 = column(parts[3]);
+        let c5 = column(parts[4]);
+        // NormalizationTest.txt columns: source; NFC; NFD; NFKC; NFKD. The
+        // conformance invariants are the ones the file's header states.
+        let checks = [
+            ("NFC", nfc(&c1), &c2),
+            ("NFC", nfc(&c2), &c2),
+            ("NFC", nfc(&c3), &c2),
+            ("NFC", nfc(&c4), &c4),
+            ("NFC", nfc(&c5), &c4),
+            ("NFD", nfd(&c1), &c3),
+            ("NFD", nfd(&c2), &c3),
+            ("NFD", nfd(&c3), &c3),
+            ("NFD", nfd(&c4), &c5),
+            ("NFD", nfd(&c5), &c5),
+            ("NFKC", nfkc(&c1), &c4),
+            ("NFKC", nfkc(&c2), &c4),
+            ("NFKC", nfkc(&c3), &c4),
+            ("NFKC", nfkc(&c4), &c4),
+            ("NFKC", nfkc(&c5), &c4),
+            ("NFKD", nfkd(&c1), &c5),
+            ("NFKD", nfkd(&c2), &c5),
+            ("NFKD", nfkd(&c3), &c5),
+            ("NFKD", nfkd(&c4), &c5),
+            ("NFKD", nfkd(&c5), &c5),
+        ];
+        for (form, got, want) in checks {
+            if got != *want {
+                failures.push(format!(
+                    "{form}({}) = {} but the file says {}",
+                    parts[0],
+                    escape(&got),
+                    escape(want)
+                ));
+            }
+        }
+        rows += 1;
+    }
+    assert!(rows > 1000, "the conformance file should hold many rows");
+    assert!(
+        failures.is_empty(),
+        "{} of {} checks differ:\n{}",
+        failures.len(),
+        rows * 20,
+        failures
+            .iter()
+            .take(12)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
+fn escape(text: &str) -> String {
+    text.chars()
+        .map(|ch| format!("U+{:04X}", ch as u32))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[test]
+fn canonical_forms_fold_the_named_cases() {
+    // é has one canonical decomposition and composes back.
+    assert_eq!(nfd("é"), "e\u{301}");
+    assert_eq!(nfc("e\u{301}"), "é");
+    // Full compatibility folds a ligature and a full-width letter.
+    assert_eq!(nfkd("\u{FB01}"), "fi");
+    assert_eq!(nfkc("\u{FF21}"), "A");
+    // Full case folding is multi-character and not Turkish-specific.
+    assert_eq!(fold("Straße"), "strasse");
+    assert_eq!(fold("\u{130}"), "i\u{307}");
+    // Turkish dotless i folds to itself.
+    assert_eq!(fold("\u{131}"), "\u{131}");
+}
+
+#[test]
+fn display_width_counts_wide_characters_as_two() {
+    let wide = Static::new("漢字");
+    assert_eq!(unsafe { yashy_str_display_width(wide.ptr()) }, 4);
+    let ascii = Static::new("abc");
+    assert_eq!(unsafe { yashy_str_display_width(ascii.ptr()) }, 3);
+    let mixed = Static::new("a漢");
+    assert_eq!(unsafe { yashy_str_display_width(mixed.ptr()) }, 3);
+    let combining = Static::new("e\u{301}");
+    assert_eq!(unsafe { yashy_str_display_width(combining.ptr()) }, 1);
 }

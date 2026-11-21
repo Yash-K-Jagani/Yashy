@@ -1,0 +1,28 @@
+import normalize;
+
+fn main() {
+    // Canonical forms compose and decompose back.
+    const decomposed = normalize.nfd("é");
+    const roundtrip = normalize.nfc(decomposed) == "é";
+    print("nfd roundtrip: ${decomposed.len()} -> ${roundtrip}");
+
+    // Compatibility forms fold a ligature and a full-width letter.
+    const ligature = normalize.nfkd("ﬁ") == "fi";
+    print("nfkd ligature: ${ligature}");
+    const fullwidth = normalize.nfkc("Ａ") == "A";
+    print("nfkc fullwidth: ${fullwidth}");
+
+    // Full case folding is multi-character and not Turkish-specific.
+    const sharp_s = normalize.fold("Straße") == "strasse";
+    print("fold sharp s: ${sharp_s}");
+    const dotted = normalize.fold("İ");
+    print("fold dotted i: ${dotted.len()}");
+    const dotless = normalize.fold("ı") == "ı";
+    print("fold dotless i: ${dotless}");
+
+    // Case-insensitive comparison goes through the fold.
+    const same = normalize.eq_ignore_case("Hello", "HELLO");
+    print("ignore case: ${same}");
+    const distinct = normalize.eq_ignore_case("abc", "abd");
+    print("distinct: ${distinct}");
+}

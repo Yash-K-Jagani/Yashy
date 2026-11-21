@@ -951,6 +951,56 @@ struct Mime
 
 A parsed media type, without parameters.
 
+## `normalize`
+
+### `eq_ignore_case`
+
+```yashy
+fn eq_ignore_case(string a, string b) -> bool
+```
+
+Whether two strings are equal after full case folding.
+
+### `fold`
+
+```yashy
+fn fold(string text) -> string
+```
+
+Full Unicode case folding, independent of locale.
+
+### `nfc`
+
+```yashy
+fn nfc(string text) -> string
+```
+
+NFC: canonical decomposition followed by canonical composition.
+
+### `nfd`
+
+```yashy
+fn nfd(string text) -> string
+```
+
+NFD: the full canonical decomposition.
+
+### `nfkc`
+
+```yashy
+fn nfkc(string text) -> string
+```
+
+NFKC: compatibility decomposition followed by canonical composition.
+
+### `nfkd`
+
+```yashy
+fn nfkd(string text) -> string
+```
+
+NFKD: the full compatibility decomposition.
+
 ## `observability`
 
 ### `Level`
@@ -1652,3 +1702,23 @@ The first 48 bits are the Unix timestamp in milliseconds, so v7 values sort
 by creation time. Byte 6 carries version `7`, byte 8 carries variant `10`,
 and the remaining 74 bits are OS-random. The clock is `time.now_unix_ns()`,
 which a deterministic build fixes at the process edge.
+
+## `width`
+
+### `is_narrow`
+
+```yashy
+fn is_narrow(string text) -> bool
+```
+
+Whether `text` occupies as many cells as it has grapheme clusters.
+
+A combining mark makes this false: it is a grapheme but no cell.
+
+### `width`
+
+```yashy
+fn width(string text) -> int
+```
+
+The width of `text` in terminal cells.

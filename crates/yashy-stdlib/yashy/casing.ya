@@ -5,11 +5,12 @@
 // behaviour and adds the predicates and equality a caller needs, without
 // pretending it is full Unicode case folding.
 //
-// Owed (Phase 5 Task 3 Step 2): vendored `CaseFolding.txt`, Turkish dotted and
-// dotless `i`, multi-character folds such as `ß` -> `ss`, and NFC/NFD/NFKC/NFKD
-// normalization, all from a pinned Unicode release with an offline generator.
-// Until that data ships, a non-ASCII byte passes through unchanged and
-// `eq_ignore_ascii_case` compares only the ASCII letters.
+// Owed (Phase 5 Task 3 Step 2): the Unicode-aware operations now live in
+// `normalize.ya` (`fold`, `nfc`/`nfd`/`nfkc`/`nfkd`, `eq_ignore_case`), backed
+// by the vendored Unicode 18.0.0 tables. This module deliberately keeps the
+// ASCII-only names so a caller can see which contract it is choosing: a
+// non-ASCII byte passes through unchanged and `eq_ignore_ascii_case` compares
+// only the ASCII letters.
 
 /// Map `a`..`z` to uppercase, leaving every other byte unchanged.
 pub fn to_ascii_upper(string text) -> string {

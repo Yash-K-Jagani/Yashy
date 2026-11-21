@@ -1,0 +1,6 @@
+ascii = 3
+cjk = 4
+mixed = 3
+combining = 1
+narrow ascii = true
+narrow cjk = false

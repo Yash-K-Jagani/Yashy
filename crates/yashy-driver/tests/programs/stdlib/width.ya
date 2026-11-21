@@ -1,0 +1,13 @@
+import width;
+
+fn main() {
+    print("ascii = ${width.width("abc")}");
+    print("cjk = ${width.width("漢字")}");
+    print("mixed = ${width.width("a漢")}");
+    print("combining = ${width.width("é")}");
+
+    const ascii_narrow = width.is_narrow("abc");
+    print("narrow ascii = ${ascii_narrow}");
+    const cjk_narrow = width.is_narrow("漢");
+    print("narrow cjk = ${cjk_narrow}");
+}

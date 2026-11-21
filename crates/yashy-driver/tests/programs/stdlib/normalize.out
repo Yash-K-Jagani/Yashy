@@ -1,0 +1,8 @@
+nfd roundtrip: 3 -> true
+nfkd ligature: true
+nfkc fullwidth: true
+fold sharp s: true
+fold dotted i: 3
+fold dotless i: true
+ignore case: true
+distinct: false

@@ -396,6 +396,21 @@ unsafe extern "C" {
 }
 
 unsafe extern "C" {
+    /// NFC normalization. The result is a fresh owned string.
+    pub fn yashy_str_nfc(s: *const YashyStr) -> *mut YashyStr;
+    /// NFD normalization. The result is a fresh owned string.
+    pub fn yashy_str_nfd(s: *const YashyStr) -> *mut YashyStr;
+    /// NFKC normalization. The result is a fresh owned string.
+    pub fn yashy_str_nfkc(s: *const YashyStr) -> *mut YashyStr;
+    /// NFKD normalization. The result is a fresh owned string.
+    pub fn yashy_str_nfkd(s: *const YashyStr) -> *mut YashyStr;
+    /// Full case folding of every code point. The result is owned.
+    pub fn yashy_str_case_fold(s: *const YashyStr) -> *mut YashyStr;
+    /// The display width of a string in terminal cells.
+    pub fn yashy_str_display_width(s: *const YashyStr) -> c_longlong;
+}
+
+unsafe extern "C" {
     /// The grapheme cluster count of `s` (UAX #29 extended segmentation).
     /// Null is zero.
     pub fn yashy_str_grapheme_count(s: *const YashyStr) -> c_longlong;

@@ -3242,6 +3242,10 @@ void yashy_chan_free(yashy_chan *chan) {
 
 #include "src/unicode_data.h"
 
+/* Defined with the normalization tables below; a combining mark occupies no
+ * cell, so the width lookup consults it here. */
+static int ucd_ccc(unsigned cp);
+
 /* Binary search the sorted full case-fold table. Returns the number of
  * code points written to `out` (0 when `cp` has no fold), at most 3. */
 int yashy_ucd_case_fold(unsigned cp, unsigned *out) {
@@ -3262,9 +3266,10 @@ int yashy_ucd_case_fold(unsigned cp, unsigned *out) {
 }
 
 /* The display width of a code point in cells: 2 for East Asian Wide/Full,
- * 1 otherwise. Control characters have width 0. */
+ * 0 for controls and combining marks, 1 otherwise. */
 int yashy_ucd_width(unsigned cp) {
     if (cp < 0x20 || (cp >= 0x7F && cp < 0xA0)) return 0;
+    if (ucd_ccc(cp) != 0) return 0;
     int lo = 0;
     int hi = UCD_EAW_WIDE_count - 1;
     while (lo <= hi) {
@@ -3371,6 +3376,322 @@ static int gcb_decode(const unsigned char *bytes, size_t len, size_t pos, unsign
     *cp = value;
     return width;
 }
+
+/* ---- Unicode normalization (UAX #15) ---------------------------------- */
+
+/* The canonical combining class of `cp`, or 0 when it is a starter. */
+static int ucd_ccc(unsigned cp) {
+    int lo = 0;
+    int hi = UCD_CCC_count - 1;
+    while (lo <= hi) {
+        int mid = lo + (hi - lo) / 2;
+        unsigned at = UCD_CCC[mid].cp;
+        if (at == cp) return UCD_CCC[mid].ccc;
+        if (at < cp) lo = mid + 1;
+        else hi = mid - 1;
+    }
+    return 0;
+}
+
+static const struct ucd_decomp *ucd_decomp_find(const struct ucd_decomp *table, int count,
+                                                unsigned cp) {
+    int lo = 0;
+    int hi = count - 1;
+    while (lo <= hi) {
+        int mid = lo + (hi - lo) / 2;
+        unsigned at = table[mid].cp;
+        if (at == cp) return &table[mid];
+        if (at < cp) lo = mid + 1;
+        else hi = mid - 1;
+    }
+    return NULL;
+}
+
+/* A growable array of code points. */
+struct ucd_buf {
+    unsigned *items;
+    size_t len;
+    size_t cap;
+};
+
+static int ucd_buf_push(struct ucd_buf *b, unsigned cp) {
+    if (b->len == b->cap) {
+        size_t cap = b->cap == 0 ? 16 : b->cap * 2;
+        unsigned *items = (unsigned *)realloc(b->items, cap * sizeof(unsigned));
+        if (items == NULL) return 0;
+        b->items = items;
+        b->cap = cap;
+    }
+    b->items[b->len++] = cp;
+    return 1;
+}
+
+/* Decodes one UTF-8 sequence. An invalid byte becomes U+DC00+b, which
+ * `ucd_encode` writes back as that byte, so invalid input round-trips
+ * unchanged instead of being dropped or re-encoded. */
+static int ucd_decode(const unsigned char *bytes, size_t len, size_t *pos, unsigned *cp) {
+    size_t p = *pos;
+    unsigned char b0 = bytes[p];
+    if (b0 < 0x80) {
+        *cp = b0;
+        *pos = p + 1;
+        return 1;
+    }
+    int width;
+    unsigned value;
+    if ((b0 & 0xE0u) == 0xC0u) {
+        width = 2;
+        value = b0 & 0x1Fu;
+    } else if ((b0 & 0xF0u) == 0xE0u) {
+        width = 3;
+        value = b0 & 0x0Fu;
+    } else if ((b0 & 0xF8u) == 0xF0u) {
+        width = 4;
+        value = b0 & 0x07u;
+    } else {
+        *cp = 0xDC00u + b0;
+        *pos = p + 1;
+        return 1;
+    }
+    if (p + (size_t)width > len) {
+        *cp = 0xDC00u + b0;
+        *pos = p + 1;
+        return 1;
+    }
+    for (int i = 1; i < width; i++) {
+        unsigned char b = bytes[p + (size_t)i];
+        if ((b & 0xC0u) != 0x80u) {
+            *cp = 0xDC00u + b0;
+            *pos = p + 1;
+            return 1;
+        }
+        value = (value << 6) | (b & 0x3Fu);
+    }
+    if ((width == 2 && value < 0x80u) || (width == 3 && value < 0x800u) ||
+        (width == 4 && (value < 0x10000u || value > 0x10FFFFu)) ||
+        (value >= 0xD800u && value <= 0xDFFFu)) {
+        *cp = 0xDC00u + b0;
+        *pos = p + 1;
+        return 1;
+    }
+    *cp = value;
+    *pos = p + (size_t)width;
+    return width;
+}
+
+static int ucd_encode(unsigned cp, char *out) {
+    if (cp <= 0x7Fu) {
+        out[0] = (char)cp;
+        return 1;
+    }
+    if (cp >= 0xDC00u && cp <= 0xDCFFu) {
+        out[0] = (char)(cp & 0xFFu);
+        return 1;
+    }
+    if (cp <= 0x7FFu) {
+        out[0] = (char)(0xC0u | (cp >> 6));
+        out[1] = (char)(0x80u | (cp & 0x3Fu));
+        return 2;
+    }
+    if (cp <= 0xFFFFu) {
+        out[0] = (char)(0xE0u | (cp >> 12));
+        out[1] = (char)(0x80u | ((cp >> 6) & 0x3Fu));
+        out[2] = (char)(0x80u | (cp & 0x3Fu));
+        return 3;
+    }
+    out[0] = (char)(0xF0u | (cp >> 18));
+    out[1] = (char)(0x80u | ((cp >> 12) & 0x3Fu));
+    out[2] = (char)(0x80u | ((cp >> 6) & 0x3Fu));
+    out[3] = (char)(0x80u | (cp & 0x3Fu));
+    return 4;
+}
+
+/* Appends the full decomposition of `cp` to `out`. Hangul syllables use the
+ * algorithmic decomposition; everything else reads the generated table. */
+static int ucd_decompose_into(struct ucd_buf *out, unsigned cp,
+                              const struct ucd_decomp *table, int count,
+                              const unsigned *pool) {
+    if (cp >= 0xAC00u && cp <= 0xD7A3u) {
+        unsigned s = cp - 0xAC00u;
+        if (!ucd_buf_push(out, 0x1100u + s / 588u)) return 0;
+        if (!ucd_buf_push(out, 0x1161u + (s % 588u) / 28u)) return 0;
+        if (s % 28u != 0 && !ucd_buf_push(out, 0x11A7u + s % 28u)) return 0;
+        return 1;
+    }
+    const struct ucd_decomp *entry = ucd_decomp_find(table, count, cp);
+    if (entry == NULL) return ucd_buf_push(out, cp);
+    for (int i = 0; i < entry->length; i++) {
+        if (!ucd_buf_push(out, pool[entry->offset + i])) return 0;
+    }
+    return 1;
+}
+
+/* Canonical ordering: a stable sort by combining class within each run of
+ * non-starters. A starter (class 0) is never moved. */
+static void ucd_reorder(unsigned *items, size_t len) {
+    for (size_t i = 1; i < len; i++) {
+        int cc = ucd_ccc(items[i]);
+        if (cc == 0) continue;
+        size_t j = i;
+        while (j > 0) {
+            int prev = ucd_ccc(items[j - 1]);
+            if (prev <= cc) break;
+            unsigned tmp = items[j - 1];
+            items[j - 1] = items[j];
+            items[j] = tmp;
+            j--;
+        }
+    }
+}
+
+static int ucd_compose_pair(unsigned starter, unsigned ch, unsigned *out) {
+    if (starter >= 0x1100u && starter <= 0x1112u && ch >= 0x1161u && ch <= 0x1175u) {
+        *out = 0xAC00u + ((starter - 0x1100u) * 21u + (ch - 0x1161u)) * 28u;
+        return 1;
+    }
+    if (starter >= 0xAC00u && starter <= 0xD7A3u && (starter - 0xAC00u) % 28u == 0 &&
+        ch >= 0x11A8u && ch <= 0x11C2u) {
+        *out = starter + (ch - 0x11A7u);
+        return 1;
+    }
+    int lo = 0;
+    int hi = UCD_COMPOSE_count - 1;
+    while (lo <= hi) {
+        int mid = lo + (hi - lo) / 2;
+        unsigned s = UCD_COMPOSE[mid].starter;
+        unsigned c = UCD_COMPOSE[mid].combining;
+        if (s == starter && c == ch) {
+            *out = UCD_COMPOSE[mid].composite;
+            return 1;
+        }
+        if (s < starter || (s == starter && c < ch)) lo = mid + 1;
+        else hi = mid - 1;
+    }
+    return 0;
+}
+
+/* UAX #15 canonical composition, in place. The buffer must already be in
+ * canonical order. */
+static void ucd_compose_buffer(struct ucd_buf *b) {
+    if (b->len == 0) return;
+    size_t starter_pos = 0;
+    unsigned starter = b->items[0];
+    size_t comp_pos = 1;
+    int last_class = ucd_ccc(starter);
+    if (last_class != 0) last_class = 256;
+    for (size_t i = 1; i < b->len; i++) {
+        unsigned ch = b->items[i];
+        int ch_class = ucd_ccc(ch);
+        unsigned composite;
+        if (ucd_compose_pair(starter, ch, &composite) &&
+            (last_class < ch_class || last_class == 0)) {
+            b->items[starter_pos] = composite;
+            starter = composite;
+        } else {
+            if (ch_class == 0) {
+                starter_pos = comp_pos;
+                starter = ch;
+            }
+            last_class = ch_class;
+            b->items[comp_pos] = ch;
+            comp_pos++;
+        }
+    }
+    b->len = comp_pos;
+}
+
+/* Builds an owned string from a code-point buffer, releasing the buffer. */
+static yashy_str *ucd_buf_to_string(struct ucd_buf *b) {
+    yashy_str *out = yashy_str_new(NULL, b->len * 4 + 1);
+    if (out == NULL) {
+        free(b->items);
+        return NULL;
+    }
+    size_t at = 0;
+    for (size_t i = 0; i < b->len; i++) at += (size_t)ucd_encode(b->items[i], out->data + at);
+    out->data[at] = '\0';
+    out->len = (long long)at;
+    free(b->items);
+    return out;
+}
+
+/* NFC/NFD/NFKC/NFKD. `compat` selects the compatibility decomposition,
+ * `compose` runs canonical composition afterwards. */
+static yashy_str *ucd_normalize(const yashy_str *s, int compat, int compose) {
+    if (s == NULL) return yashy_str_new("", 0);
+    const unsigned char *bytes = (const unsigned char *)s->data;
+    size_t len = (size_t)s->len;
+    struct ucd_buf buf = {0};
+    size_t pos = 0;
+    while (pos < len) {
+        unsigned cp;
+        (void)ucd_decode(bytes, len, &pos, &cp);
+        int ok = compat ? ucd_decompose_into(&buf, cp, UCD_COMPAT_DECOMP,
+                                             UCD_COMPAT_DECOMP_count, UCD_COMPAT_DECOMP_POOL)
+                        : ucd_decompose_into(&buf, cp, UCD_CANON_DECOMP,
+                                             UCD_CANON_DECOMP_count, UCD_CANON_DECOMP_POOL);
+        if (!ok) {
+            free(buf.items);
+            return NULL;
+        }
+    }
+    ucd_reorder(buf.items, buf.len);
+    if (compose) ucd_compose_buffer(&buf);
+    return ucd_buf_to_string(&buf);
+}
+
+yashy_str *yashy_str_nfc(const yashy_str *s) { return ucd_normalize(s, 0, 1); }
+yashy_str *yashy_str_nfd(const yashy_str *s) { return ucd_normalize(s, 0, 0); }
+yashy_str *yashy_str_nfkc(const yashy_str *s) { return ucd_normalize(s, 1, 1); }
+yashy_str *yashy_str_nfkd(const yashy_str *s) { return ucd_normalize(s, 1, 0); }
+
+/* Full case folding of every code point (so `ß` becomes `ss`). */
+yashy_str *yashy_str_case_fold(const yashy_str *s) {
+    if (s == NULL) return yashy_str_new("", 0);
+    const unsigned char *bytes = (const unsigned char *)s->data;
+    size_t len = (size_t)s->len;
+    struct ucd_buf buf = {0};
+    size_t pos = 0;
+    while (pos < len) {
+        unsigned cp;
+        (void)ucd_decode(bytes, len, &pos, &cp);
+        unsigned folded[3];
+        int count = yashy_ucd_case_fold(cp, folded);
+        if (count == 0) {
+            if (!ucd_buf_push(&buf, cp)) {
+                free(buf.items);
+                return NULL;
+            }
+        } else {
+            for (int i = 0; i < count; i++) {
+                if (!ucd_buf_push(&buf, folded[i])) {
+                    free(buf.items);
+                    return NULL;
+                }
+            }
+        }
+    }
+    return ucd_buf_to_string(&buf);
+}
+
+/* The display width of a string in terminal cells: the sum of every code
+ * point's width. Combining marks and controls contribute 0. */
+long long yashy_str_display_width(const yashy_str *s) {
+    if (s == NULL) return 0;
+    const unsigned char *bytes = (const unsigned char *)s->data;
+    size_t len = (size_t)s->len;
+    size_t pos = 0;
+    long long width = 0;
+    while (pos < len) {
+        unsigned cp;
+        (void)ucd_decode(bytes, len, &pos, &cp);
+        if (cp >= 0xDC00u && cp <= 0xDCFFu) continue;
+        width += yashy_ucd_width(cp);
+    }
+    return width;
+}
+
+/* Decodes `cp` as UTF-8. Exposed for a stdlib wrapper that walks a string. */
 
 struct gcb_segmenter {
     const unsigned char *bytes;

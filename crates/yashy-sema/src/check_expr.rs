@@ -1111,7 +1111,7 @@ impl<'src> Checker<'src> {
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ya`. Recorded as a divergence from the master plan's L3.
-        let builtins: [(&str, Vec<Type>, Type); 40] = [
+        let builtins: [(&str, Vec<Type>, Type); 46] = [
             ("alloc", vec![prim(TypeKind::I64)], ptr(prim(TypeKind::I64))),
             // The explicit unsafe spelling: same type as `alloc`, but the
             // runtime skips the zeroing. The checker refuses it outside an
@@ -1348,6 +1348,36 @@ impl<'src> Checker<'src> {
             // `int` rather than an `i32` is because `int` is the only integer
             // type there is; the runtime narrows it.
             ("exit", vec![prim(TypeKind::I64)], never(Span::new(0, 0))),
+            // Unicode normalization and folding (Phase 5 Task 3). Each returns
+            // a fresh owned string; `display_width` is the cell width a terminal
+            // needs. They are builtins because the tables live in the runtime,
+            // and the stdlib wrappers in `normalize.ya` / `width.ya` name them.
+            (
+                "normalize_nfc",
+                vec![prim(TypeKind::Str)],
+                prim(TypeKind::Str),
+            ),
+            (
+                "normalize_nfd",
+                vec![prim(TypeKind::Str)],
+                prim(TypeKind::Str),
+            ),
+            (
+                "normalize_nfkc",
+                vec![prim(TypeKind::Str)],
+                prim(TypeKind::Str),
+            ),
+            (
+                "normalize_nfkd",
+                vec![prim(TypeKind::Str)],
+                prim(TypeKind::Str),
+            ),
+            ("case_fold", vec![prim(TypeKind::Str)], prim(TypeKind::Str)),
+            (
+                "display_width",
+                vec![prim(TypeKind::Str)],
+                prim(TypeKind::I64),
+            ),
         ];
         for (name, params, ret) in builtins {
             let _ = scope.declare(

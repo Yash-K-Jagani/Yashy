@@ -1,0 +1,18 @@
+// Terminal display width (Phase 5 Task 3).
+//
+// The widths come from the vendored East Asian Width table (Unicode 18.0.0):
+// a Wide or Full code point occupies two cells, everything else one, and a
+// control or combining mark occupies none. This is the number a column
+// formatter or a table renderer needs, not the byte length.
+
+/// The width of `text` in terminal cells.
+pub fn width(string text) -> int {
+    return display_width(text);
+}
+
+/// Whether `text` occupies as many cells as it has grapheme clusters.
+///
+/// A combining mark makes this false: it is a grapheme but no cell.
+pub fn is_narrow(string text) -> bool {
+    return display_width(text) == text.graphemes();
+}

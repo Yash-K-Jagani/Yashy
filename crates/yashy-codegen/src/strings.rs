@@ -245,6 +245,45 @@ pub fn gen_str_grapheme_slice(ctx: &mut FnCtx<'_>, args: &[yashy_sema::HirExpr])
     }
 }
 
+/// Lower a normalization or case-folding builtin. `symbol` is the runtime
+/// entry point (`yashy_str_nfc`, `yashy_str_case_fold`, ...). Each returns a
+/// fresh owned string, so the input temporary is released after the call.
+pub fn gen_str_transform(ctx: &mut FnCtx<'_>, args: &[HirExpr], symbol: &str) -> GenValue {
+    let value = args
+        .first()
+        .map(|a| crate::expr_gen::gen_expr(ctx, a))
+        .filter(|v| !v.value.is_empty())
+        .map(|v| v.value)
+        .unwrap_or_else(|| "null".to_string());
+    let out = ctx.tmp();
+    ctx.push(format!("{out} = call i8* @{symbol}(i8* {value})"));
+    ctx.release_owned(&value);
+    ctx.mark_owned(&out, RefKind::Str);
+    GenValue {
+        value: out,
+        ty: TypeKind::Str,
+    }
+}
+
+/// Lower `display_width(s)`: the string's width in terminal cells.
+pub fn gen_str_display_width(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
+    let value = args
+        .first()
+        .map(|a| crate::expr_gen::gen_expr(ctx, a))
+        .filter(|v| !v.value.is_empty())
+        .map(|v| v.value)
+        .unwrap_or_else(|| "null".to_string());
+    let width = ctx.tmp();
+    ctx.push(format!(
+        "{width} = call i64 @yashy_str_display_width(i8* {value})"
+    ));
+    ctx.release_owned(&value);
+    GenValue {
+        value: width,
+        ty: TypeKind::I64,
+    }
+}
+
 /// Lower `str_get(s, i) -> Option[i64]`: the byte at `i`, or `None` out of
 /// range. The runtime writes the byte through an out slot because `Option`
 /// needs a payload even on the `None` path.

@@ -306,6 +306,17 @@ yashy_str *yashy_str_concat(const yashy_str *a, const yashy_str *b);
 int yashy_ucd_case_fold(unsigned cp, unsigned *out);
 int yashy_ucd_width(unsigned cp);
 
+/* Unicode normalization (UAX #15) and full case folding. Each returns a fresh
+ * owned string; release it with `yashy_str_release`. NFKC and NFKD use the
+ * compatibility decompositions, so they fold ligatures and full-width forms. */
+yashy_str *yashy_str_nfc(const yashy_str *s);
+yashy_str *yashy_str_nfd(const yashy_str *s);
+yashy_str *yashy_str_nfkc(const yashy_str *s);
+yashy_str *yashy_str_nfkd(const yashy_str *s);
+yashy_str *yashy_str_case_fold(const yashy_str *s);
+/* The display width of a string in terminal cells. */
+long long yashy_str_display_width(const yashy_str *s);
+
 /* Grapheme clusters (UAX #29 extended): `yashy_str_grapheme_count` counts
  * clusters; `yashy_str_grapheme_at` returns the cluster at an index or NULL
  * when out of range; `yashy_str_grapheme_slice` returns the clusters in a

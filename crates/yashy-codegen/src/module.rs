@@ -1015,6 +1015,12 @@ impl Module {
         out.push_str("declare i64 @yashy_str_grapheme_count(i8*)\n");
         out.push_str("declare i8* @yashy_str_grapheme_at(i8*, i64)\n");
         out.push_str("declare i8* @yashy_str_grapheme_slice(i8*, i64, i64)\n");
+        out.push_str("declare i8* @yashy_str_nfc(i8*)\n");
+        out.push_str("declare i8* @yashy_str_nfd(i8*)\n");
+        out.push_str("declare i8* @yashy_str_nfkc(i8*)\n");
+        out.push_str("declare i8* @yashy_str_nfkd(i8*)\n");
+        out.push_str("declare i8* @yashy_str_case_fold(i8*)\n");
+        out.push_str("declare i64 @yashy_str_display_width(i8*)\n");
         out.push_str("declare i64 @yashy_str_get(i8*, i64, ptr)\n");
         out.push_str("declare i64 @yashy_str_index_of(i8*, i8*)\n");
         out.push_str("declare i1 @yashy_str_contains(i8*, i8*)\n");

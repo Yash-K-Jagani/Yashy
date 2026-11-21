@@ -96,25 +96,32 @@ is a capability rather than an ambient read.
   `CompositionExclusions`, `EastAsianWidth`, `NormalizationTest`, `ReadMe`) are
   checked in under `crates/yashy-runtime/data/unicode/` with their SHA-256 pins
   in a README. `scripts/gen_unicode_data.py` is an offline generator that emits
-  `crates/yashy-runtime/src/unicode_data.h` (case-fold and East-Asian-width
-  tables, plus input hashes). The header is embedded, hashed into both runtime
-  cache keys and written beside the runtime sources by the driver. The SBOM
-  lists `unicode-character-database` 18.0.0 keyed by the header bytes, with a
-  `unicode_version` metadata field. `tests/unicode_data.rs` verifies the
-  recorded hashes match the files, validates all 1606 fold mappings and the
-  width lookups against the source, and pins CJK=2/ASCII=1/control=0. Full NFC/
-  NFD/NFKC/NFKD generation and the stdlib `text/{normalize,case,width}` wrappers
-  are still owed, so the step stays open.
+  `crates/yashy-runtime/src/unicode_data.h`: full case folding, East Asian
+  width, combining classes, fully recursive canonical and compatibility
+  decompositions, and the primary composition pairs, plus input hashes. The
+  header is embedded, hashed into both runtime cache keys and written beside
+  the runtime sources by the driver. The runtime implements NFC/NFD/NFKC/NFKD
+  (UAX #15), full case folding and string display width, and the checker
+  exposes `normalize_{nfc,nfd,nfkc,nfkd}`, `case_fold` and `display_width` as
+  builtins. The stdlib surfaces them as `normalize.ya` and `width.ya`, each with
+  a coverage program. The SBOM lists `unicode-character-database` 18.0.0 keyed
+  by the header bytes, with a `unicode_version` metadata field.
+  `tests/unicode_data.rs` verifies the recorded hashes, validates every fold and
+  width lookup against the source, and runs the full `NormalizationTest.txt`
+  conformance matrix (20 invariants per row).
 - [ ] **Step 3: Formatting is one engine.** `print`, `format`, `Debug` and the error renderer share width, precision, alignment and float rules. Float formatting is shortest-round-trip and locale-independent. A format string error is a compile-time diagnostic where the string is a literal, and a `Result` otherwise.
   *Current:* `crates/yashy-stdlib/yashy/casing.ya` provides ASCII case
-  operations with an explicit Unicode-debt contract: `to_ascii_upper` /
-  `to_ascii_lower` (delegating to the ASCII-only builtins), `is_ascii_upper` /
-  `is_ascii_lower` / `is_ascii_alpha`, and `eq_ignore_ascii_case`. Non-ASCII
-  bytes pass through unchanged; `stdlib/casing.ya` pins upper/lower, pass-through,
-  predicates and equality in its golden with zero leaks. NFC/NFD/NFKC/NFKD,
-  Turkish dotless `i`, multi-character folds, display width and the format
-  engine remain owed — they need vendored Unicode data, an offline generator,
-  and compiler support respectively, so the step stays open.
+  operations with an explicit contract: `to_ascii_upper` / `to_ascii_lower`
+  (delegating to the ASCII-only builtins), `is_ascii_upper` / `is_ascii_lower` /
+  `is_ascii_alpha`, and `eq_ignore_ascii_case`. Non-ASCII bytes pass through
+  unchanged; `stdlib/casing.ya` pins upper/lower, pass-through, predicates and
+  equality in its golden with zero leaks. `normalize.ya` now provides the
+  Unicode-aware operations (`nfc`/`nfd`/`nfkc`/`nfkd`, `fold`, `eq_ignore_case`)
+  and `width.ya` provides `width`/`is_narrow`, both backed by the vendored
+  18.0.0 tables and pinned by `stdlib/normalize.ya` and `stdlib/width.ya`. The
+  `format("{:>8.2}", ...)` engine — width, precision, alignment and a
+  compile-time diagnostic for a literal format string — is still owed, so the
+  step stays open.
 - [ ] **Step 4: Commit.**
 
 ### Task 4: Encodings — JSON, TOML, YAML, CSV, XML

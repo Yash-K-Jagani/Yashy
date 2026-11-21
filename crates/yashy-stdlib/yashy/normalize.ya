@@ -1,0 +1,40 @@
+// Unicode normalization and full case folding (Phase 5 Task 3).
+//
+// The tables are the vendored Unicode 18.0.0 data in
+// `crates/yashy-runtime/src/unicode_data.h`, generated offline by
+// `scripts/gen_unicode_data.py`; builds never read the network. The four
+// normal forms follow UAX #15. `fold` is full case folding, so `ß` becomes
+// `ss` and `İ` (U+0130) becomes `i` plus combining dot above.
+//
+// These are the Unicode-aware operations. `casing.ya` keeps the ASCII-only
+// names (`to_ascii_upper`) so a caller can see which contract it is choosing.
+
+/// NFC: canonical decomposition followed by canonical composition.
+pub fn nfc(string text) -> string {
+    return normalize_nfc(text);
+}
+
+/// NFD: the full canonical decomposition.
+pub fn nfd(string text) -> string {
+    return normalize_nfd(text);
+}
+
+/// NFKC: compatibility decomposition followed by canonical composition.
+pub fn nfkc(string text) -> string {
+    return normalize_nfkc(text);
+}
+
+/// NFKD: the full compatibility decomposition.
+pub fn nfkd(string text) -> string {
+    return normalize_nfkd(text);
+}
+
+/// Full Unicode case folding, independent of locale.
+pub fn fold(string text) -> string {
+    return case_fold(text);
+}
+
+/// Whether two strings are equal after full case folding.
+pub fn eq_ignore_case(string a, string b) -> bool {
+    return case_fold(a) == case_fold(b);
+}
