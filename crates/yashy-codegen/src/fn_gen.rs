@@ -19,7 +19,7 @@ use yashy_common::ParamAttrs;
 use yashy_sema::{HirExternDecl, HirFn, TypeKind};
 
 use crate::ir::repr_type;
-use crate::module::Module;
+use crate::module::{Module, OptKind};
 use crate::stmt_gen::{gen_block, run_defers, Flow};
 use crate::FnCtx;
 
@@ -117,6 +117,60 @@ fn parameters(module: &Module, f: &HirFn) -> Vec<String> {
             )
         })
         .collect()
+}
+
+/// Record the fact behind every parameter attribute in the opt report (ALIAS-5).
+///
+/// The IR is written by [`parameters`] from the same `param_attrs` table, so a
+/// reader can audit each promise the optimizer may rely on. A pointer whose
+/// provenance is unknown has no entry in that table and gets no note, exactly
+/// as it gets no attribute. An absent note is never taken as a promise.
+fn note_attributes(module: &mut Module, f: &HirFn) {
+    let Some(facts) = module
+        .param_attrs(f.file, &f.name, f.body.span.start)
+        .cloned()
+    else {
+        return;
+    };
+    for (index, param) in f.params.iter().enumerate() {
+        let Some(attrs) = facts.get(index) else {
+            continue;
+        };
+        if attrs.noalias {
+            module.note(
+                OptKind::Attribute,
+                param.span,
+                "noalias: ALIAS-1 — the parameter never escapes the body, so it is the unique live owner of its allocation",
+                None,
+            );
+        }
+        if attrs.nonnull {
+            module.note(
+                OptKind::Attribute,
+                param.span,
+                "nonnull: a *mut T has no null value in safe code",
+                None,
+            );
+        }
+        if attrs.readonly {
+            module.note(
+                OptKind::Attribute,
+                param.span,
+                "readonly: ALIAS-1 — the body never writes through the parameter and it does not escape",
+                None,
+            );
+        }
+        if let Some(align) = attrs.align {
+            module.note(
+                OptKind::Attribute,
+                param.span,
+                format!(
+                    "align {align}: DET-5 — the pointee's ABI alignment from the shared layout table"
+                ),
+                None,
+            );
+        }
+    }
 }
 
 /// Emit one C function declaration as an LLVM `declare`.
@@ -264,6 +318,10 @@ fn gen_body(module: &mut Module, f: &HirFn, entry_point: bool, env: Option<&str>
     // The report is grouped by function, so the group opens before the first
     // instruction and closes after the terminator. A lambda is its own group.
     module.begin_fn_report(&f.name, f.file, f.span);
+    // The `define` line's attributes were written by `parameters` just before
+    // this body opened. Record their facts under the same function group so the
+    // opt report explains every promise (ALIAS-5).
+    note_attributes(module, f);
     {
         let mut ctx = FnCtx::new(module, f.ret.kind.clone());
         ctx.file = f.file;

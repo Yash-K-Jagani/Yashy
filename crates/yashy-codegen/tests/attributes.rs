@@ -11,7 +11,7 @@ use yashy_lexer::Lexer;
 use yashy_parser::Parser;
 use yashy_sema::check_program;
 
-use yashy_codegen::{emit_program, CodegenOptions};
+use yashy_codegen::{emit_program, emit_program_with_notes, CodegenOptions, OptKind};
 use yashy_verify::{verify, VerifyOptions};
 
 /// Lex, parse, check and emit `src` as one module, then emit it again with the
@@ -191,4 +191,99 @@ fn without_facts_no_attribute_is_emitted() {
     let (_, bare) = lower(READ_ONLY);
     let line = signature(&bare, &yashy_codegen::ir::fn_symbol("read"));
     assert_eq!(line, "define i64 @yashy_fn_read(i8* %arg0, i64 %arg1) {");
+}
+
+/// Compile with notes enabled, returning the opt report's reasons.
+fn reasons(src: &str) -> Vec<String> {
+    let mut sources = SourceMap::new();
+    let file = sources.add_file("attributes.ya".to_string(), src.to_string());
+    let tokens = Lexer::new(src)
+        .tokenize()
+        .expect("the fixture's lexer must succeed");
+    let mut parser = Parser::new(tokens, &sources, file);
+    let ast = parser.parse_program().expect("the fixture must parse");
+    let hir = check_program(&ast, &sources, file).expect("the fixture must check");
+    let report = verify(&hir, &VerifyOptions::default());
+    assert_eq!(report.error_count(), 0, "the fixture must verify");
+    let (_, notes) = emit_program_with_notes(
+        &hir,
+        "attributes.ya",
+        CodegenOptions::default(),
+        &report.facts,
+    );
+    notes
+        .functions
+        .iter()
+        .flat_map(|f| f.items.iter())
+        .filter(|item| item.kind == OptKind::Attribute)
+        .map(|item| item.reason.clone())
+        .collect()
+}
+
+#[test]
+fn every_emitted_attribute_names_the_fact_that_licensed_it() {
+    let found = reasons(READ_ONLY);
+    assert!(
+        found
+            .iter()
+            .any(|reason| reason.starts_with("noalias:") && reason.contains("ALIAS-1")),
+        "noalias must name ALIAS-1: {found:?}"
+    );
+    assert!(
+        found.iter().any(|reason| reason.starts_with("nonnull:")),
+        "nonnull must be explained: {found:?}"
+    );
+    assert!(
+        found
+            .iter()
+            .any(|reason| reason.starts_with("readonly:") && reason.contains("ALIAS-1")),
+        "readonly must name ALIAS-1: {found:?}"
+    );
+    assert!(
+        found
+            .iter()
+            .any(|reason| reason.starts_with("align 8:") && reason.contains("DET-5")),
+        "align must name DET-5: {found:?}"
+    );
+}
+
+#[test]
+fn an_escaping_pointer_gets_no_noalias_note() {
+    let found = reasons(RETURNS);
+    assert!(
+        !found.iter().any(|reason| reason.starts_with("noalias:")),
+        "an escaping pointer has no noalias promise to explain: {found:?}"
+    );
+    assert!(
+        found.iter().any(|reason| reason.starts_with("nonnull:")),
+        "the pointer is still nonnull: {found:?}"
+    );
+}
+
+#[test]
+fn without_facts_no_attribute_note_is_emitted() {
+    let mut sources = SourceMap::new();
+    let file = sources.add_file("attributes.ya".to_string(), READ_ONLY.to_string());
+    let tokens = Lexer::new(READ_ONLY)
+        .tokenize()
+        .expect("the fixture's lexer must succeed");
+    let mut parser = Parser::new(tokens, &sources, file);
+    let ast = parser.parse_program().expect("the fixture must parse");
+    let hir = check_program(&ast, &sources, file).expect("the fixture must check");
+    let (_, notes) = emit_program_with_notes(
+        &hir,
+        "attributes.ya",
+        CodegenOptions::default(),
+        &ProofFacts::empty(),
+    );
+    let found: Vec<_> = notes
+        .functions
+        .iter()
+        .flat_map(|f| f.items.iter())
+        .filter(|item| item.kind == OptKind::Attribute)
+        .collect();
+    assert!(
+        found.is_empty(),
+        "no facts means no attribute notes: {found:?}"
+    );
 }

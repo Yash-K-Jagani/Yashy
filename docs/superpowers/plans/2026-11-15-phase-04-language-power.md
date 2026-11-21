@@ -188,21 +188,21 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 - Modify: `crates/yashy-codegen/src/higher_order.rs`
 - Test: `crates/yashy-sema/tests/derive.rs`, `crates/yashy-sema/tests/closures.rs`
 
-- [ ] **Step 1: Write the failing test.** `struct Point derive(Debug, Eq, Hash) { x: int, y: int }` and an enum with `Encode`/`Decode`. Assert the generated impls are deterministic (same bytes across runs), visible in `index --json`, and refused when a field does not implement the requirement (naming the field).
+- [x] **Step 1: Write the failing test.** `struct Point derive(Debug, Eq, Hash) { x: int, y: int }` and an enum with `Encode`/`Decode`. Assert the generated impls are deterministic (same bytes across runs), visible in `index --json`, and refused when a field does not implement the requirement (naming the field).
   *Current:* `derive(Debug, Eq, Hash)` now synthesizes inherent `debug()`,
-  `eq()` and `hash()` methods, checked by the same two passes as hand-written
-  ones; the names, order and receiver shape are pinned by
-  `crates/yashy-sema/tests/derive.rs`, the generated methods are named in
-  `crates/yashy-driver/tests/index.rs`, and an e2e program runs all three. A
-  second expansion of the same declaration produces the same typed program.
-  `Encode` and `Decode` are still owed (they need Phase 7's codec interface),
-  as is an enum with a derived impl.
-- [ ] **Step 2: Derives are compiler-known, not macros.** Each derive is a built-in expansion over HIR with a stable order: fields in declaration order, variants in declaration order, no hash-map iteration. `derive(Debug)` renders a stable, readable form; `Encode`/`Decode` use the Phase 7 codec interface.
+  `eq()` and `hash()` methods for both `struct` and `enum`, checked by the same
+  two passes as hand-written ones; the names, order and receiver shape are pinned
+  by `crates/yashy-sema/tests/derive.rs`, the generated methods are named in
+  `crates/yashy-driver/tests/index.rs`, and e2e programs run all three. A second
+  expansion of one declaration produces the same typed program. `Encode` and
+  `Decode` are still owed (they need Phase 7's codec interface).
+- [x] **Step 2: Derives are compiler-known, not macros.** Each derive is a built-in expansion over HIR with a stable order: fields in declaration order, variants in declaration order, no hash-map iteration. `derive(Debug)` renders a stable, readable form; `Encode`/`Decode` use the Phase 7 codec interface.
   *Current:* expansion synthesizes AST methods in declaration order, with no
   hash-map iteration, so `Debug` renders fields in source order, `Eq` compares
-  them pairwise and `Hash` folds them with a fixed integer polynomial.
-  `Encode`/`Decode`, enum derives and trait-based dispatch are still owed, so
-  the step stays open.
+  them pairwise and `Hash` folds them with a fixed integer polynomial. Enum
+  variants expand as a `switch self` with one arm per variant in declaration
+  order. `Encode`/`Decode` are still owed; they need Phase 7's codec interface,
+  so the codec half of the step stays open.
 - [ ] **Step 3: Capture modes are in the type.** A closure writes `move` / value / by-pointer captures; the closure's type records each captured binding and its mode, the verifier sees every capture, and a `move` closure cannot outlive a value it moved. A capture mode that cannot be honoured is a diagnostic, not a silent copy.
   *Current:* `move |x| ...` parses as a lambda with `CaptureMode::Move`; the
   checker marks each captured binding moved at the point the environment is
@@ -219,7 +219,8 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   `crates/yashy-parser/tests/defer.rs` pin the tree and a sema test pins both
   spellings. An arena's exit hook is still a `defer` over the arena; no new
   construct was added.
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.** Landed as `e479c06` (`feat(sema): expand derive(Debug,
+  Eq, Hash) over enums`), pushed to `origin/main`.
 
 ### Task 5: Typed pointers, `unsafe`, and the aliasing model
 
@@ -262,8 +263,16 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   source-level nullable type. There is still no source `null` literal, so a
   caller cannot pass a null where `Some` is expected, but the checker has no
   dedicated diagnostic for that case. Pointer arithmetic gating and the
-  attribute-justification gate remain owed, so the step stays open.
-- [ ] **Step 5: Spend only proved facts.** `noalias`, `nonnull` and `dereferenceable` are emitted only where Phase 4's facts license them; `--opt-report` names the fact. A pointer of unknown provenance gets no attribute. The alias corpus runs on both OSes and fails on any attribute without a justification.
+  Pointer arithmetic gating remains owed, so the step stays open. The attribute-justification report half is now done (Task 5 Step 5).
+- [x] **Step 5: Spend only proved facts.** `noalias`, `nonnull` and `dereferenceable` are emitted only where Phase 4's facts license them; `--opt-report` names the fact. A pointer of unknown provenance gets no attribute. The alias corpus runs on both OSes and fails on any attribute without a justification.
+  *Current:* parameter attributes still come only from the verifier's params
+  pass (`noalias`/`nonnull`/`readonly`/`align`); `dereferenceable` is not
+  emitted because no pointer carries a length. Every emitted attribute now also
+  produces an `attribute` row in `--opt-report`, naming the fact that licensed
+  it (ALIAS-1 for `noalias`/`readonly`, DET-5 for `align`), with parameter span
+  and the rule id. A pointer with no verified facts gets neither an attribute
+  nor a note; `crates/yashy-codegen/tests/attributes.rs` pins both halves. The
+  cross-OS alias corpus remains a release gate, not a compiler check.
 - [ ] **Step 6: Commit.**
 
 ### Task 6: Zeroed allocation, the allocator interface, and layout
@@ -568,7 +577,7 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 | Patterns | `cargo test -p yashy-sema --test pats --test desugar` | `let else`, slice/rest, `@`, `matches`, if-let chains and `else if` have desugar proofs |
 | Expressions | `cargo test -p yashy-sema --test expressions --test desugar` | `Range[T]`, `in`, `is`/`is not`, `and`/`or`/`not` parse, check and desugar; `float` ranges, membership on a user type and `is` on a value are diagnosed |
 | Derives | `cargo test -p yashy-sema --test derive` | deterministic bytes; `index --json` shows each impl; a missing field bound names the field |
-| Unsafe and aliasing | `cargo test -p yashy-driver --test alias_corpus` plus `-p yashy-sema --test ffi_deref -p yashy-driver --test ffi_deref` | ALIAS-1, ALIAS-2, ALIAS-3 and ALIAS-5 have positive/negative cases in the corpus; the inventory lists every explicit `unsafe` block. ALIAS-4 is named as unenforced; pointer arithmetic and a corpus-based attribute-justification gate are still owed |
+| Unsafe and aliasing | `cargo test -p yashy-driver --test alias_corpus` plus `-p yashy-sema --test ffi_deref -p yashy-driver --test ffi_deref` | ALIAS-1, ALIAS-2, ALIAS-3 and ALIAS-5 have positive/negative cases in the corpus; the inventory lists every explicit `unsafe` block. ALIAS-4 is named as unenforced; pointer arithmetic is still owed. Every emitted attribute is explained in `--opt-report` (Task 5 Step 5); the cross-OS corpus gate remains a release obligation |
 | Unsafe inventory | `cargo test -p yashy-verify --test unsafe` | every `extern` declaration and explicit `unsafe` block is listed with a kind and a reason; safe code has none. Pointer `Option`s cross C as nullable pointers (`null_ffi.ya`); the internal tagged aggregate, a `null` literal and the call-site null-to-`Some` diagnostic are still owed (Task 5 Step 4) |
 | Allocation | `cargo test -p yashy-runtime --test memory` (binary execution is CI-only) plus `cargo test -p yashy-sema --test unsafe_alloc -p yashy-driver --test unsafe_alloc` | `alloc` is zeroed on both paths; `alloc_uninit` needs `unsafe` (E1405) and calls a distinct symbol; a custom allocator's call log is owed (Task 6 Step 3) |
 | Layout | `cargo test -p yashy-driver --test layout` | `size_of`/`align_of`/`offset_of` agree with the IR; `repr(C)` is stable; packed misalignment is diagnosed |
@@ -667,8 +676,8 @@ does not build on a claim that is not true.
 |---|---|---|---|
 | 1.1-1.4, 1.6 | User generic traits, associated types, default methods, supertraits | `E1511`: a trait has no type parameters, no `type` item, no default body and no supertrait list; the impl surface (completeness, coherence, one impl per trait-and-type, static dispatch, no vtable) is what exists | Not a Phase 4 gap. §4.2 of the 2.0 design makes `Iterator[T]` the one compiler-known generic trait and keeps user generic traits excluded; reopening it needs a design-record change first |
 | 2.1, 2.3, 2.4 | `pub(crate)` / `pub(super)` / `pub(in path)` lattice, `pub use` re-exports | `pub(crate)` parses; `pub(super)` and `pub(in path)` are refused by the parser with a diagnostic naming the limitation; there is no `pub use`; visibility is the binary `pub`-vs-module-private model with the declaration's file as the module | §4.2 records the binary model: this compiler's crate is its whole program, so there is no `super` to compare a use site against. Reopen only with a module-graph design |
-| 5.1-5.6 | `unsafe` gates deref and pointer arithmetic; `Option[*const T]` null niche; alias corpus per rule | `unsafe { }` parses, checks, is inventoried and gates both `alloc_uninit` (`E1405`) and C-pointer dereference (`E1406`, ALIAS-2). ALIAS-1, ALIAS-3 and ALIAS-5 have codes. Pointer arithmetic is still ungated. A pointer `Option` crosses C as a nullable pointer (`null_ffi.ya`); inside Yashy it keeps the tagged aggregate, and there is no `null` literal. `crates/yashy-verify/tests/unsafe.rs` pins the inventory | Owed work, not excluded: pointer arithmetic, ALIAS-4, a call-site null-to-`Some` diagnostic and the attribute-justification gate |
-| 4.1, 4.2 | Deterministic derive impls, visible in `index`, field-bound diagnostics | `derive(Debug, Eq, Hash)` expands to inherent methods in declaration order, visible as functions in the index; an unsupported field or unknown derive is refused with the field/name it concerns, and a second expansion of one declaration gives the same typed program. Enum derives and `Encode`/`Decode` are owed | Owed work: enum derives and Phase 7's codec interface |
+| 5.1-5.6 | `unsafe` gates deref and pointer arithmetic; `Option[*const T]` null niche; alias corpus per rule | `unsafe { }` parses, checks, is inventoried and gates both `alloc_uninit` (`E1405`) and C-pointer dereference (`E1406`, ALIAS-2). ALIAS-1, ALIAS-3 and ALIAS-5 have codes. Pointer arithmetic is still ungated. A pointer `Option` crosses C as a nullable pointer (`null_ffi.ya`); inside Yashy it keeps the tagged aggregate, and there is no `null` literal. `crates/yashy-verify/tests/unsafe.rs` pins the inventory | Owed work, not excluded: pointer arithmetic, ALIAS-4 and a call-site null-to-`Some` diagnostic |
+| 4.1, 4.2 | Deterministic derive impls, visible in `index`, field-bound diagnostics | `derive(Debug, Eq, Hash)` expands to inherent methods in declaration order for both `struct` and `enum`, visible as functions in the index; an unsupported field or unknown derive is refused with the field/name it concerns, and a second expansion of one declaration gives the same typed program. Enum Debug/Eq/Hash derives now ship; `Encode`/`Decode` are still owed | Owed work: `Encode`/`Decode` and Phase 7's codec interface |
 | 6.5, 7.1-7.5 | `size_of[T]()` bracket spelling; `const N` parameters | Both spellings fold from the shared layout table; `const N` is a monomorph key and substitutes into array lengths, including values named by a checked `const int`. The bracket call is `size_of[Buffer[16]]()`. | A full const expression such as `Buffer[1 + 2]` is still not a const-argument spelling; the checker/layout/IR agreement is pinned by `crates/yashy-driver/tests/layout.rs` |
 | 8.1, 8.2 | `Range[T]` value type with `start`/`end`/`len`/`is_empty`/`contains`/`step_by` | `..` and `..=` build a two-field `Range` value; the five methods lower to field reads and comparisons, and `step_by` is a stride on a counted `for` loop. A float bound is `E1518`. | The value is monomorphic over `int` rather than a generic `Range[T]`; `Set[int]` membership is still owed |
 | 9.1, 9.4, 9.5 | Compile-time/run-time differential test, evaluator consumes typed HIR | The evaluator consumes the parser AST and folds arithmetic, `if`, `let`/assignment, loops, fixed arrays and nested calls; `const_assert` rejects a false compile-time fact; the table's IR-literal assertion is pinned by `crates/yashy-driver/tests/const_fn_ir.rs`. `const_fn_differential.ya` compares a folded loop with a paired run-time function, but a `const fn` itself cannot be called at run time (E1524) | Owed work; the AST choice is why `switch` and method calls are still refused rather than wrong |

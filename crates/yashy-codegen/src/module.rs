@@ -88,6 +88,8 @@ pub enum OptKind {
     Promoted,
     /// Escape analysis ran and could not prove the allocation stays put.
     NotPromoted,
+    /// A parameter attribute emitted from a verifier-proved fact (ALIAS-1/2/5).
+    Attribute,
 }
 
 impl OptKind {
@@ -100,6 +102,7 @@ impl OptKind {
             OptKind::NotInlined => "not-inlined",
             OptKind::Promoted => "promoted",
             OptKind::NotPromoted => "not-promoted",
+            OptKind::Attribute => "attribute",
         }
     }
 }
