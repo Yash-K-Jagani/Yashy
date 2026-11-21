@@ -281,6 +281,37 @@ fn malformed_inputs() -> Vec<(&'static str, String)> {
         ("non-ascii identifier outside latin-1", "fn main() { const \u{65e5}\u{672c}\u{8a9e} = 1; }".to_string()),
         ("emoji in a string", "fn main() { print(\"\u{1f600}\"); }".to_string()),
         ("replacement character", "\u{fffd}".to_string()),
+        // The const evaluator is the one front-end stage that executes code.
+        // A malformed constant must end as a diagnostic, never a Rust panic.
+        ("const division by zero", "fn main() { const x = 1 / 0; }".to_string()),
+        (
+            "const overflow",
+            "fn main() { const x = 9223372036854775807 + 1; }".to_string(),
+        ),
+        (
+            "const recursion without a bound",
+            "const fn f(int n) -> int { return f(n); } fn main() { const x = f(1); }".to_string(),
+        ),
+        (
+            "const call with the wrong arity",
+            "const fn f(int n) -> int { return n; } fn main() { const x = f(); }".to_string(),
+        ),
+        (
+            "const index out of range",
+            "fn main() { const xs = [1, 2]; const x = xs[99]; }".to_string(),
+        ),
+        (
+            "const index with a negative literal",
+            "fn main() { const xs = [1, 2]; const x = xs[-1]; }".to_string(),
+        ),
+        (
+            "const fn with I/O",
+            "const fn f() -> int { return read_line(); } fn main() { const x = f(); }".to_string(),
+        ),
+        (
+            "const assertion of a false fact",
+            "fn main() { const_assert(1 == 2); }".to_string(),
+        ),
         ("very long identifier", long_ident),
         ("very long string", long_string),
         ("many interleaved delimiters", many_delimiters),

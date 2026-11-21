@@ -539,6 +539,12 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   the layout table, reports through the same diagnostics, and is covered by the
   `never_panics` suite. `--emit-ir` shows the folded constant and the source
   span that produced it.
+  *Current:* the evaluator still consumes the parser AST, so the HIR half is
+  owed. Hostile constant inputs (divide by zero, overflow, unbounded recursion,
+  wrong arity, out-of-range and negative fixed-array index, I/O in a `const fn`,
+  a false `const_assert`) are now part of `crates/yashy-driver/tests/never_panics.rs`
+  and end as diagnostics, not panics. `--emit-ir` shows the folded literal but
+  not yet its source span.
 - [ ] **Step 6: Commit.**
 
 ### Task 10: BPE audit, rule ids, and the architecture update
