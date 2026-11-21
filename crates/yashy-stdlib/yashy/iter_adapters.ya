@@ -1,0 +1,147 @@
+// Iteration adapters as plain generic functions (Phase 5 Task 8).
+//
+// Each adapter walks a sequence and calls a visitor in a defined order. The
+// sequence is taken and returned, matching `collections.ya`: a slice is linear,
+// so the caller rebinds the answer and stays the sole owner that frees it. An
+// adapter is a cursor over the original slice, never a new array of pairs: the
+// language cannot pack a tuple into a slice, and a cursor allocates nothing.
+// Everything is static dispatch through `fn` parameters, so there is no new
+// HIR, no trait object and no hidden allocation on the per-item path.
+
+/// Call `visit(index, value)` for every element of `items`, starting at 0.
+/// The index is never negative. Returns `items` so the caller keeps ownership.
+pub fn enumerate[T]([]T items, fn(int, T) -> void visit) -> []T {
+    let i = 0;
+    while i < items.len() {
+        const o = items[i];
+        const v = switch o { case Some(x) { x } case None { panic("enumerate: index in range") } };
+        visit(i, v);
+        i = i + 1;
+    }
+    return items;
+}
+
+/// The two sequences a two-input adapter was given, so the caller keeps
+/// ownership of both. A struct is used rather than a tuple because a tuple is
+/// copied by bytes and cannot own a reference such as a slice.
+pub struct PairSeq[A, B] {
+    pub left: []A,
+    pub right: []B,
+}
+
+/// Call `visit(left, right)` for the paired elements of `left` and `right`,
+/// stopping at the shorter input and never reading past either. Returns both.
+pub fn zip[A, B]([]A left, []B right, fn(A, B) -> void visit) -> PairSeq[A, B] {
+    const n = left.len();
+    const m = right.len();
+    let count = n;
+    if m < count { count = m; }
+    let i = 0;
+    while i < count {
+        const oa = left[i];
+        const ob = right[i];
+        const a = switch oa { case Some(x) { x } case None { panic("zip: index in range") } };
+        const b = switch ob { case Some(x) { x } case None { panic("zip: index in range") } };
+        visit(a, b);
+        i = i + 1;
+    }
+    return PairSeq { left: left, right: right };
+}
+
+/// Call `visit(start, end)` for each non-overlapping window of `size`
+/// consecutive elements. `start` is included and `end` excluded; a trailing
+/// partial window is still visited, so every element is covered exactly once.
+/// A non-positive `size` is an assertion failure rather than an infinite loop.
+pub fn chunks[T]([]T items, int size, fn(int, int) -> void visit) -> []T {
+    assert(size > 0);
+    const n = items.len();
+    let start = 0;
+    while start < n {
+        let end = start + size;
+        if end > n { end = n; }
+        visit(start, end);
+        start = end;
+    }
+    return items;
+}
+
+/// Call `visit(start, end)` for each sliding window of `size` consecutive
+/// elements, left to right. `start` is included and `end` excluded. A `size`
+/// larger than the sequence visits nothing; a non-positive `size` is an
+/// assertion failure.
+pub fn windows[T]([]T items, int size, fn(int, int) -> void visit) -> []T {
+    assert(size > 0);
+    const n = items.len();
+    if size > n { return items; }
+    let start = 0;
+    while start + size <= n {
+        visit(start, start + size);
+        start = start + 1;
+    }
+    return items;
+}
+
+/// Call `visit(value)` for the first `count` elements, or all of them when
+/// `count` is larger. A non-positive `count` visits nothing.
+pub fn take[T]([]T items, int count, fn(T) -> void visit) -> []T {
+    const n = items.len();
+    let limit = count;
+    if limit > n { limit = n; }
+    if limit < 0 { limit = 0; }
+    let i = 0;
+    while i < limit {
+        const o = items[i];
+        const v = switch o { case Some(x) { x } case None { panic("take: index in range") } };
+        visit(v);
+        i = i + 1;
+    }
+    return items;
+}
+
+/// Call `visit(value)` for every element after the first `count`. A non-positive
+/// `count` visits all elements; a `count` past the end visits nothing.
+pub fn skip[T]([]T items, int count, fn(T) -> void visit) -> []T {
+    const n = items.len();
+    let start = count;
+    if start < 0 { start = 0; }
+    let i = start;
+    while i < n {
+        const o = items[i];
+        const v = switch o { case Some(x) { x } case None { panic("skip: index in range") } };
+        visit(v);
+        i = i + 1;
+    }
+    return items;
+}
+
+/// Call `visit(value)` for every element from last to first.
+pub fn rev[T]([]T items, fn(T) -> void visit) -> []T {
+    let i = items.len();
+    while i > 0 {
+        i = i - 1;
+        const o = items[i];
+        const v = switch o { case Some(x) { x } case None { panic("rev: index in range") } };
+        visit(v);
+    }
+    return items;
+}
+
+/// Call `visit(value)` for every element of `left` then every element of
+/// `right`, preserving each sequence's order. Returns both slices.
+pub fn chain[A]([]A left, []A right, fn(A) -> void visit) -> PairSeq[A, A] {
+    let i = 0;
+    while i < left.len() {
+        const o = left[i];
+        const v = switch o { case Some(x) { x } case None { panic("chain: index in range") } };
+        visit(v);
+        i = i + 1;
+    }
+    i = 0;
+    while i < right.len() {
+        const o = right[i];
+        const v = switch o { case Some(x) { x } case None { panic("chain: index in range") } };
+        visit(v);
+        i = i + 1;
+    }
+    return PairSeq { left: left, right: right };
+}

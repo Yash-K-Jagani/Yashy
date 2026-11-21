@@ -584,6 +584,83 @@ Whether `next`'s answer is the end of the sequence. An implementation reads
 the protocol as "yield until `is_done`", so the test lives here rather than
 being spelled out in every implementor.
 
+## `iter_adapters`
+
+### `chain`
+
+```yashy
+fn chain[A]([]A left, []A right, fn(A) -> void visit) -> PairSeq[A, A]
+```
+
+Call `visit(value)` for every element of `left` then every element of
+`right`, preserving each sequence's order. Returns both slices.
+
+### `chunks`
+
+```yashy
+fn chunks[T]([]T items, int size, fn(int, int) -> void visit) -> []T
+```
+
+Call `visit(start, end)` for each non-overlapping window of `size`
+consecutive elements. `start` is included and `end` excluded; a trailing
+partial window is still visited, so every element is covered exactly once.
+A non-positive `size` is an assertion failure rather than an infinite loop.
+
+### `enumerate`
+
+```yashy
+fn enumerate[T]([]T items, fn(int, T) -> void visit) -> []T
+```
+
+Call `visit(index, value)` for every element of `items`, starting at 0.
+The index is never negative. Returns `items` so the caller keeps ownership.
+
+### `rev`
+
+```yashy
+fn rev[T]([]T items, fn(T) -> void visit) -> []T
+```
+
+Call `visit(value)` for every element from last to first.
+
+### `skip`
+
+```yashy
+fn skip[T]([]T items, int count, fn(T) -> void visit) -> []T
+```
+
+Call `visit(value)` for every element after the first `count`. A non-positive
+`count` visits all elements; a `count` past the end visits nothing.
+
+### `take`
+
+```yashy
+fn take[T]([]T items, int count, fn(T) -> void visit) -> []T
+```
+
+Call `visit(value)` for the first `count` elements, or all of them when
+`count` is larger. A non-positive `count` visits nothing.
+
+### `windows`
+
+```yashy
+fn windows[T]([]T items, int size, fn(int, int) -> void visit) -> []T
+```
+
+Call `visit(start, end)` for each sliding window of `size` consecutive
+elements, left to right. `start` is included and `end` excluded. A `size`
+larger than the sequence visits nothing; a non-positive `size` is an
+assertion failure.
+
+### `zip`
+
+```yashy
+fn zip[A, B]([]A left, []B right, fn(A, B) -> void visit) -> PairSeq[A, B]
+```
+
+Call `visit(left, right)` for the paired elements of `left` and `right`,
+stopping at the shorter input and never reading past either. Returns both.
+
 ## `json_scan`
 
 ### `JsonError`

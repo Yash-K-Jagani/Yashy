@@ -1,0 +1,34 @@
+import iter_adapters;
+
+// Each adapter walks a slice and calls a visitor in a defined order. Printing
+// a line per adapter makes the golden a behavioural proof: a wrong order, a
+// missed element or an out-of-range read fails the pinned bytes. The round-trip
+// `rev` twice shows the adapter does not consume or corrupt the sequence.
+fn main() {
+    let xs = []int { 10, 20, 30, 40 };
+
+    xs = iter_adapters.enumerate(xs, |int i, int v| { print("e${i}:${v}"); });
+    xs = take(xs, 2, |int v| { print("t${v}"); });
+    xs = skip(xs, 2, |int v| { print("s${v}"); });
+    xs = rev(xs, |int v| { print("r${v}"); });
+    xs = rev(xs, |int v| { print("rr${v}"); });
+    xs = chunks(xs, 3, |int a, int b| { print("c${a}-${b}"); });
+    xs = windows(xs, 2, |int a, int b| { print("w${a}-${b}"); });
+    xs.free();
+
+    let ys = []int { 1, 2, 3 };
+    let zs = []int { 7, 8 };
+    const pair = zip(ys, zs, |int a, int b| { print("z${a}:${b}"); });
+    let zys = pair.left;
+    let zzs = pair.right;
+    zys.free();
+    zzs.free();
+
+    let cs = []int { 1, 2 };
+    let ds = []int { 3, 4 };
+    const pair2 = chain(cs, ds, |int v| { print("h${v}"); });
+    let hcs = pair2.left;
+    let hds = pair2.right;
+    hcs.free();
+    hds.free();
+}

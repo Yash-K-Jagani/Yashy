@@ -218,6 +218,17 @@ is a capability rather than an ambient read.
   `map.entries` and `for k, v in map` agree; `parse_bool("true")` is
   `Some(true)`, `parse_bool("TRUE")` is `None`, and `parse_int("ff", 16)` is
   `Some(255)`.
+  *Current:* `crates/yashy-stdlib/yashy/iter_adapters.ya` implements the
+  adapter behaviours as generic free functions with callbacks:
+  `enumerate`, `zip`, `chunks`, `windows`, `take`, `skip`, `rev` and `chain`.
+  `stdlib/iter_adapters.ya` prints a deterministic line per adapter, including
+  a `rev`-twice round-trip, and pins the exact bytes in its golden; the e2e
+  harness confirms two-run byte equality and zero leaks. `zip` and `chain`
+  return a `PairSeq[A,B]` struct (a tuple cannot own a slice). The method
+  spellings (`xs.enumerate()`) and `for i, x` over an adapter are still owed:
+  `for i, x` is slice-only, a generic struct cannot implement `Iterator[T]`,
+  and a slice cannot hold a tuple — all compiler changes. Those halves of
+  Step 1 and Steps 2–3 stay open.
 - [ ] **Step 2: An adapter adds no HIR.** `enumerate`, `zip`, `chunks`,
   `windows`, `take`, `skip`, `rev` and `chain` are ordinary generic structs
   implementing the compiler-known `Iterator[T]` protocol; `for` over one lowers
