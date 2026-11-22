@@ -150,7 +150,7 @@ is a capability rather than an ambient read.
 - `emit(value: Json, opts: EmitOptions) -> string`
 
 - [ ] **Step 1: Write the failing test.** Parse a document with nested objects, escapes, surrogate pairs, big integers and duplicate keys; emit it and parse it again; assert byte-stable output with a documented key order (insertion order) and no trailing whitespace. Repeat the round-trip for TOML, YAML, CSV (quoted fields, embedded newlines) and XML (entities, namespaces).
-- [ ] **Step 2: No sentinel, ever.** `parse` returns `Result`; a missing key is `Option`; a type mismatch is an error with a byte offset and a line/column. `""` and `0` are values, never failures.
+- [x] **Step 2: No sentinel, ever.** `parse` returns `Result`; a missing key is `Option`; a type mismatch is an error with a byte offset and a line/column. `""` and `0` are values, never failures.
   *Current:* `json_scan.ya` provides `minify` and `validate`, both returning
   `Result`/`Option` with a byte offset on failure and no sentinel answer. The
   coverage program pins whitespace inside strings and bracket balance.
