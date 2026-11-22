@@ -5,6 +5,31 @@
 // type mismatch is a compile-time diagnostic. These functions are the runtime
 // primitives the lowering calls, exposed with readable names for programs that
 // need one of them alone.
+//
+// `format_dynamic` is the runtime counterpart for a specifier the program does
+// not know until it runs (read from a file, built from user input). It parses
+// the same grammar and answers `Result`, never a sentinel. Values are already
+// text when it sees them, so a field's type letter is checked for spelling but
+// a precision truncates the text to that many characters.
+
+/// Why a dynamic format specifier could not be rendered.
+pub enum FormatError {
+    /// The byte offset of the first problem in the specifier.
+    Invalid(int),
+    /// The specifier needs more arguments than the program supplied.
+    MissingArg,
+    /// The specifier was given more arguments than it consumes.
+    ExtraArg,
+}
+
+/// A human-readable rendering of a format error.
+pub fn describe_format(FormatError error) -> string {
+    return switch error {
+        case Invalid(at) { "invalid format specifier at byte ${at}" }
+        case MissingArg { "format specifier needs more arguments" }
+        case ExtraArg { "format specifier was given extra arguments" }
+    };
+}
 
 /// Render `value` with exactly `precision` digits after the decimal point.
 pub fn fixed(float value, int precision) -> string {
@@ -24,4 +49,222 @@ pub fn pad_left(string text, int width, string fill) -> string {
 /// Centre `text` in `width` display cells with `fill`.
 pub fn pad_center(string text, int width, string fill) -> string {
     return str_pad(text, width, 2, fill);
+}
+
+/// Whether `b` is one of the alignment characters `<`, `>` or `^`.
+fn is_align(int b) -> bool {
+    return b == 60 || b == 62 || b == 94;
+}
+
+/// The alignment code for `b`: 0 left, 1 right, 2 centre.
+fn align_code(int b) -> int {
+    if b == 60 {
+        return 0;
+    }
+    if b == 62 {
+        return 1;
+    }
+    return 2;
+}
+
+/// Validate a dynamic spec, returning its field count or `-1` (bad grammar),
+/// `-2` (a field needs more arguments than supplied), `-3` (extra arguments).
+/// The grammar is `[[fill]align][0][width][.precision][type]` per field.
+fn validate_format(string spec, int arg_count) -> int {
+    let int i = 0;
+    let int fields = 0;
+    while i < spec.len() {
+        const int b = spec.byte_at(i).to_int();
+        if b == 123 {
+            if i + 1 < spec.len() && spec.byte_at(i + 1).to_int() == 123 {
+                i = i + 2;
+                continue;
+            }
+            i = i + 1;
+            if i < spec.len() && spec.byte_at(i).to_int() == 58 {
+                i = i + 1;
+            }
+            if i < spec.len() && is_align(spec.byte_at(i).to_int()) {
+                i = i + 1;
+            } else if i + 1 < spec.len() && is_align(spec.byte_at(i + 1).to_int()) {
+                i = i + 2;
+            }
+            if i < spec.len() && spec.byte_at(i).to_int() == 48 {
+                i = i + 1;
+            }
+            while i < spec.len() && spec.byte_at(i).to_int() >= 48 && spec.byte_at(i).to_int() <= 57 {
+                i = i + 1;
+            }
+            if i < spec.len() && spec.byte_at(i).to_int() == 46 {
+                i = i + 1;
+                let int ps = i;
+                while i < spec.len() && spec.byte_at(i).to_int() >= 48 && spec.byte_at(i).to_int() <= 57 {
+                    i = i + 1;
+                }
+                if i == ps {
+                    return 0 - 1;
+                }
+            }
+            if i < spec.len() {
+                const int t = spec.byte_at(i).to_int();
+                if t == 100 || t == 102 || t == 115 || t == 63 {
+                    i = i + 1;
+                } else if t != 125 {
+                    return 0 - 1;
+                }
+            }
+            if i >= spec.len() || spec.byte_at(i).to_int() != 125 {
+                return 0 - 1;
+            }
+            i = i + 1;
+            fields = fields + 1;
+            continue;
+        }
+        if b == 125 {
+            if i + 1 < spec.len() && spec.byte_at(i + 1).to_int() == 125 {
+                i = i + 2;
+                continue;
+            }
+            return 0 - 1;
+        }
+        i = i + 1;
+    }
+    if fields > arg_count {
+        return 0 - 2;
+    }
+    if fields < arg_count {
+        return 0 - 3;
+    }
+    return fields;
+}
+
+/// Render a dynamic specifier against already-stringified `args`.
+///
+/// A malformed spec answers `Err(FormatError.Invalid(offset))`; a wrong
+/// argument count answers `Err(MissingArg)`/`Err(ExtraArg)`. Otherwise the
+/// fields are substituted with alignment, width and precision, `{{`/`}}`
+/// become literal braces, and the pieces are joined.
+pub fn format_dynamic(string spec, []string args) -> Result[string, FormatError] {
+    const int check = validate_format(spec, args.len());
+    let FormatError problem = FormatError.Invalid(0);
+    if check == 0 - 2 {
+        problem = FormatError.MissingArg;
+    } else if check == 0 - 3 {
+        problem = FormatError.ExtraArg;
+    } else if check < 0 {
+        problem = FormatError.Invalid(0);
+    }
+
+    let string out = "";
+    let int i = 0;
+    let int arg = 0;
+    while check >= 0 && i < spec.len() {
+        const int b = spec.byte_at(i).to_int();
+        if b == 123 && i + 1 < spec.len() && spec.byte_at(i + 1).to_int() == 123 {
+            out = out + "{";
+            i = i + 2;
+            continue;
+        }
+        if b == 125 && i + 1 < spec.len() && spec.byte_at(i + 1).to_int() == 125 {
+            out = out + "}";
+            i = i + 2;
+            continue;
+        }
+        if b == 123 {
+            i = i + 1;
+            let string fill = " ";
+            let int align = 0;
+            let int width = 0;
+            let int precision = 0 - 1;
+            if i < spec.len() && spec.byte_at(i).to_int() == 58 {
+                i = i + 1;
+            }
+            if i < spec.len() && is_align(spec.byte_at(i).to_int()) {
+                align = align_code(spec.byte_at(i).to_int());
+                i = i + 1;
+            } else if i + 1 < spec.len() && is_align(spec.byte_at(i + 1).to_int()) {
+                const char fill_char = spec.byte_at(i);
+                fill = fill_char.to_string();
+                align = align_code(spec.byte_at(i + 1).to_int());
+                i = i + 2;
+            }
+            if i < spec.len() && spec.byte_at(i).to_int() == 48 {
+                fill = "0";
+                align = 1;
+                i = i + 1;
+            }
+            while i < spec.len() && spec.byte_at(i).to_int() >= 48 && spec.byte_at(i).to_int() <= 57 {
+                const int digit = spec.byte_at(i).to_int() - 48;
+                width = width * 10 + digit;
+                i = i + 1;
+            }
+            if i < spec.len() && spec.byte_at(i).to_int() == 46 {
+                i = i + 1;
+                precision = 0;
+                while i < spec.len() && spec.byte_at(i).to_int() >= 48 && spec.byte_at(i).to_int() <= 57 {
+                    const int digit = spec.byte_at(i).to_int() - 48;
+                    precision = precision * 10 + digit;
+                    i = i + 1;
+                }
+            }
+            if i < spec.len() {
+                const int t = spec.byte_at(i).to_int();
+                if t == 100 || t == 102 || t == 115 || t == 63 {
+                    i = i + 1;
+                }
+            }
+            i = i + 1; // the closing '}'
+
+            const Option[string] supplied = args[arg];
+            let string value = switch supplied {
+                case Some(text) { text }
+                case None { "" }
+            };
+            arg = arg + 1;
+            if precision >= 0 && value.len() > precision {
+                value = value.slice(0, precision);
+            }
+            if width > value.len() {
+                const int pad = width - value.len();
+                if align == 0 {
+                    let int p = 0;
+                    while p < pad {
+                        out = out + fill;
+                        p = p + 1;
+                    }
+                    out = out + value;
+                } else if align == 1 {
+                    out = out + value;
+                    let int p = 0;
+                    while p < pad {
+                        out = out + fill;
+                        p = p + 1;
+                    }
+                } else {
+                    const int left = pad / 2;
+                    let int p = 0;
+                    while p < left {
+                        out = out + fill;
+                        p = p + 1;
+                    }
+                    out = out + value;
+                    while p < pad {
+                        out = out + fill;
+                        p = p + 1;
+                    }
+                }
+            } else {
+                out = out + value;
+            }
+            continue;
+        }
+        const char text_char = b.to_char();
+        out = out + text_char.to_string();
+        i = i + 1;
+    }
+    args.free();
+    if check < 0 {
+        return Err(problem);
+    }
+    return Ok(out);
 }

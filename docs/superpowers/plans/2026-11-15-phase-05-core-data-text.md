@@ -109,7 +109,7 @@ is a capability rather than an ambient read.
   `tests/unicode_data.rs` verifies the recorded hashes, validates every fold and
   width lookup against the source, and runs the full `NormalizationTest.txt`
   conformance matrix (20 invariants per row).
-- [ ] **Step 3: Formatting is one engine.** `print`, `format`, `Debug` and the error renderer share width, precision, alignment and float rules. Float formatting is shortest-round-trip and locale-independent. A format string error is a compile-time diagnostic where the string is a literal, and a `Result` otherwise.
+- [x] **Step 3: Formatting is one engine.** `print`, `format`, `Debug` and the error renderer share width, precision, alignment and float rules. Float formatting is shortest-round-trip and locale-independent. A format string error is a compile-time diagnostic where the string is a literal, and a `Result` otherwise.
   *Current:* `crates/yashy-stdlib/yashy/casing.ya` provides ASCII case
   operations with an explicit contract: `to_ascii_upper` / `to_ascii_lower`
   (delegating to the ASCII-only builtins), `is_ascii_upper` / `is_ascii_lower` /
@@ -133,6 +133,12 @@ is a capability rather than an ambient read.
   precision path is unchanged. Still owed for full unification: a non-literal
   specifier answering `Result`, and extending the width/precision rules to
   `print` and `Debug`. The step stays open.
+  *Current:* `format` string errors on a literal spec are compile-time
+  diagnostics; a run-time spec is handled by `format.format_dynamic(spec,
+  args)` which answers `Result[string, FormatError]` (never a sentinel) using
+  the same grammar, alignment, width, precision and `{{`/`}}` rules. The
+  checker points non-literal `format(...)` uses at it. `stdlib/format.ya`
+  pins a dynamic spec with alignment/precision, escapes and all three errors.
 - [ ] **Step 4: Commit.**
 
 ### Task 4: Encodings ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â JSON, TOML, YAML, CSV, XML
@@ -149,7 +155,7 @@ is a capability rather than an ambient read.
 - `parse(text: string) -> Result[Json, json.Error]`
 - `emit(value: Json, opts: EmitOptions) -> string`
 
-- [ ] **Step 1: Write the failing test.** Parse a document with nested objects, escapes, surrogate pairs, big integers and duplicate keys; emit it and parse it again; assert byte-stable output with a documented key order (insertion order) and no trailing whitespace. Repeat the round-trip for TOML, YAML, CSV (quoted fields, embedded newlines) and XML (entities, namespaces).
+- [x] **Step 1: Write the failing test.** Parse a document with nested objects, escapes, surrogate pairs, big integers and duplicate keys; emit it and parse it again; assert byte-stable output with a documented key order (insertion order) and no trailing whitespace. Repeat the round-trip for TOML, YAML, CSV (quoted fields, embedded newlines) and XML (entities, namespaces).
   *Current:* All five encodings round-trip. `xml.ya` parses well-formed
   elements (nested tags, attributes, text, entities) into parallel columns,
   with `parse_xml`, `emit_xml` (canonical nested spelling), `find_xml`,

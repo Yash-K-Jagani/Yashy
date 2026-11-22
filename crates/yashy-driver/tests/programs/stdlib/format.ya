@@ -1,5 +1,12 @@
 import format;
 
+fn show_result(Result[string, FormatError] result) {
+    switch result {
+        case Ok(text) { print("ok=[${text}]") }
+        case Err(error) { print(format.describe_format(error)) }
+    };
+}
+
 fn main() {
     const pi = format("{:>8.2}", 3.14159);
     print("pi = [${pi}]");
@@ -18,4 +25,26 @@ fn main() {
 
     print(format.fixed(1.5, 2));
     print(format.pad_right("x", 3, "-"));
+
+    // A spec known only at run time answers Result instead of a compile error.
+    let []string args = []string {};
+    args.push("ab");
+    args.push("abcdef");
+    show_result(format.format_dynamic("{:>6}|{:.2}", args));
+
+    // Missing argument.
+    let []string none1 = []string {};
+    show_result(format.format_dynamic("{}", none1));
+    // Extra argument.
+    let []string two = []string {};
+    two.push("x");
+    two.push("y");
+    show_result(format.format_dynamic("{}", two));
+    // Malformed spec.
+    let []string bad = []string {};
+    bad.push("x");
+    show_result(format.format_dynamic("{:z}", bad));
+    // Literal braces with no fields.
+    let []string none2 = []string {};
+    show_result(format.format_dynamic("{{}} literal", none2));
 }

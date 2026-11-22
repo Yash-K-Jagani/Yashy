@@ -12376,7 +12376,7 @@ impl<'src> Checker<'src> {
                                 _ => {
                                     self.error(
                                         *span,
-                                        "a format string must be a string literal".to_string(),
+                                        "a format string must be a string literal; use `format.format_dynamic(spec, args)` for a run-time spec (it answers Result)".to_string(),
                                     );
                                     return None;
                                 }

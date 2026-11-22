@@ -496,6 +496,22 @@ fn vars() -> []string
 
 ## `format`
 
+### `FormatError`
+
+```yashy
+enum FormatError
+```
+
+Why a dynamic format specifier could not be rendered.
+
+### `describe_format`
+
+```yashy
+fn describe_format(FormatError error) -> string
+```
+
+A human-readable rendering of a format error.
+
 ### `fixed`
 
 ```yashy
@@ -503,6 +519,19 @@ fn fixed(float value, int precision) -> string
 ```
 
 Render `value` with exactly `precision` digits after the decimal point.
+
+### `format_dynamic`
+
+```yashy
+fn format_dynamic(string spec, []string args) -> Result[string, FormatError]
+```
+
+Render a dynamic specifier against already-stringified `args`.
+
+A malformed spec answers `Err(FormatError.Invalid(offset))`; a wrong
+argument count answers `Err(MissingArg)`/`Err(ExtraArg)`. Otherwise the
+fields are substituted with alignment, width and precision, `{{`/`}}`
+become literal braces, and the pieces are joined.
 
 ### `pad_center`
 
