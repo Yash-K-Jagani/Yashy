@@ -14,6 +14,12 @@ fast
 line
 next
 [1,-2,3.5,-4]
+third=Some(3.5)
+n=Some(42) ok=Some(true) nil=None name_as_int=None
+{"bmp":"é","emoji":"😀"}
+bmp=é emoji=😀
+true
+true
 true
 true
 true

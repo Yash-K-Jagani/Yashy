@@ -65,6 +65,57 @@ fn report_plain(JsonDoc doc) {
     json_value.free_doc(doc);
 }
 
+fn report_array(JsonDoc doc) {
+    print(json_value.emit_doc(doc));
+    const int third = json_value.first_child(doc, 0);
+    const int second = json_value.next_child(doc, 0, third);
+    const int float_index = json_value.next_child(doc, 0, second);
+    const Option[float] f = json_value.float_value(doc, float_index);
+    print("third=${f}");
+    json_value.free_doc(doc);
+}
+
+fn report_unicode(JsonDoc doc) {
+    print(json_value.emit_doc(doc));
+    const Option[int] bmp = json_value.get_doc(doc, 0, "bmp");
+    const Option[int] emoji = json_value.get_doc(doc, 0, "emoji");
+    const string bmp_text = switch bmp {
+        case Some(index) { scalar_text(doc, index) }
+        case None { "none" }
+    };
+    const string emoji_text = switch emoji {
+        case Some(index) { scalar_text(doc, index) }
+        case None { "none" }
+    };
+    print("bmp=${bmp_text} emoji=${emoji_text}");
+    json_value.free_doc(doc);
+}
+
+fn scalar_text(JsonDoc doc, int index) -> string {
+    const Option[string] found = json_value.value(doc, index);
+    return switch found {
+        case Some(text) { text }
+        case None { "" }
+    };
+}
+
+fn report_typed(JsonDoc doc) {
+    const Option[int] n = json_value.get_doc(doc, 0, "n");
+    const Option[int] ok = json_value.get_doc(doc, 0, "ok");
+    const Option[int] nil = json_value.get_doc(doc, 0, "nil");
+    const Option[int] name = json_value.get_doc(doc, 0, "name");
+    const int n_index = switch n { case Some(i) { i } case None { 0 - 1 } };
+    const int ok_index = switch ok { case Some(i) { i } case None { 0 - 1 } };
+    const int nil_index = switch nil { case Some(i) { i } case None { 0 - 1 } };
+    const int name_index = switch name { case Some(i) { i } case None { 0 - 1 } };
+    const Option[int] n_value = json_value.int_value(doc, n_index);
+    const Option[bool] ok_value = json_value.bool_value(doc, ok_index);
+    const Option[bool] nil_value = json_value.bool_value(doc, nil_index);
+    const Option[int] name_as_int = json_value.int_value(doc, name_index);
+    print("n=${n_value} ok=${ok_value} nil=${nil_value} name_as_int=${name_as_int}");
+    json_value.free_doc(doc);
+}
+
 fn main() {
     const string text = "{\"name\":\"yashy\",\"tags\":[\"fast\",\"safe\"],\"n\":42,\"ok\":true,\"nil\":null}";
     switch json_value.parse_doc(text) {
@@ -81,9 +132,24 @@ fn main() {
 
     // A scalar root and a float number.
     switch json_value.parse_doc("[1,-2,3.5,-4]") {
-        case Ok(doc) { report_plain(doc) }
+        case Ok(doc) { report_array(doc) }
         case Err(_) { print("bad array") }
     };
+
+    // Typed accessors: each returns None for a value of the wrong kind.
+    switch json_value.parse_doc(text) {
+        case Ok(doc) { report_typed(doc) }
+        case Err(_) { print("bad typed") }
+    };
+
+    // Escapes: BMP code point, surrogate pair (emoji), and a malformed escape.
+    const string unicode = "{\"bmp\":\"\\u00e9\",\"emoji\":\"\\ud83d\\ude00\"}";
+    switch json_value.parse_doc(unicode) {
+        case Ok(doc) { report_unicode(doc) }
+        case Err(_) { print("bad unicode") }
+    };
+    print(json_value.parse_doc("{\"bad\":\"\\uZZZZ\"}") matches Err(_));
+    print(json_value.parse_doc("{\"bad\":\"\\ud83d\"}") matches Err(_));
 
     // Malformed input and explicit limits.
     print(json_value.parse_doc("{} trailing") matches Err(_));

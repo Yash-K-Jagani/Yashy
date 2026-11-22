@@ -123,6 +123,54 @@ pub fn is_scalar(JsonDoc doc, int node) -> bool {
     return code >= 0 && code <= 4;
 }
 
+/// The int at `node`, or `None` when the node is not an int.
+pub fn int_value(JsonDoc doc, int node) -> Option[int] {
+    if kind(doc, node) != 2 {
+        return None;
+    }
+    const Option[string] found = value(doc, node);
+    if found matches None {
+        return None;
+    }
+    const string text = switch found {
+        case Some(raw) { raw }
+        case None { "" }
+    };
+    return text.parse_i64();
+}
+
+/// The float at `node`, or `None` when the node is not a float.
+pub fn float_value(JsonDoc doc, int node) -> Option[float] {
+    if kind(doc, node) != 3 {
+        return None;
+    }
+    const Option[string] found = value(doc, node);
+    if found matches None {
+        return None;
+    }
+    const string text = switch found {
+        case Some(raw) { raw }
+        case None { "" }
+    };
+    return text.parse_f64();
+}
+
+/// The bool at `node`, or `None` when the node is not a bool.
+pub fn bool_value(JsonDoc doc, int node) -> Option[bool] {
+    if kind(doc, node) != 1 {
+        return None;
+    }
+    const Option[string] found = value(doc, node);
+    if found matches None {
+        return None;
+    }
+    const string text = switch found {
+        case Some(raw) { raw }
+        case None { "" }
+    };
+    return Some(text == "true");
+}
+
 /// Release every column. The caller must not use the document afterwards.
 pub fn free_doc(JsonDoc doc) {
     const []int kinds = doc.kinds;
@@ -232,36 +280,154 @@ fn at_word(string text, int start, string word) -> bool {
     return text.slice(start, start + word.len()) == word;
 }
 
-/// Decode the escapes a JSON string uses into its Yashy bytes.
+/// The value of one hex digit, or `-1` when the byte is not hex.
+fn hex_value(int byte) -> int {
+    if byte >= 48 && byte <= 57 {
+        return byte - 48;
+    }
+    if byte >= 65 && byte <= 70 {
+        return byte - 65 + 10;
+    }
+    if byte >= 97 && byte <= 102 {
+        return byte - 97 + 10;
+    }
+    return 0 - 1;
+}
+
+/// The four hex digits at `start`, or `-1` when any is not hex.
+fn hex4(string text, int start) -> int {
+    let int value = 0;
+    let int i = start;
+    while i < start + 4 {
+        const int digit = hex_value(text.byte_at(i).to_int());
+        if digit < 0 {
+            return 0 - 1;
+        }
+        value = value * 16 + digit;
+        i = i + 1;
+    }
+    return value;
+}
+
+/// Append the UTF-8 bytes for a Unicode code point. The caller has already
+/// rejected lone surrogates, so `cp` is in `0..=0x10FFFF` and not in the
+/// surrogate range.
+fn append_codepoint(string out, int cp) -> string {
+    if cp < 128 {
+        return out + cp.to_char().to_string();
+    }
+    if cp < 2048 {
+        return out + (192 + (cp >> 6)).to_char().to_string()
+            + (128 + (cp & 63)).to_char().to_string();
+    }
+    if cp < 65536 {
+        return out + (224 + (cp >> 12)).to_char().to_string()
+            + (128 + ((cp >> 6) & 63)).to_char().to_string()
+            + (128 + (cp & 63)).to_char().to_string();
+    }
+    return out + (240 + (cp >> 18)).to_char().to_string()
+        + (128 + ((cp >> 12) & 63)).to_char().to_string()
+        + (128 + ((cp >> 6) & 63)).to_char().to_string()
+        + (128 + (cp & 63)).to_char().to_string();
+}
+
+/// Whether the escapes in the quoted string `text[start..end]` are valid.
+/// `validate` calls this before any column is allocated; a false answer means
+/// a bad escape, an incomplete unicode escape or a lone surrogate.
+fn valid_escapes(string text, int start, int end) -> bool {
+    let i = start + 1;
+    while i < end - 1 {
+        if text.byte_at(i).to_int() != 92 {
+            i = i + 1;
+            continue;
+        }
+        if i + 1 >= end - 1 {
+            return false;
+        }
+        const int code = text.byte_at(i + 1).to_int();
+        if code == 117 {
+            if i + 6 > end - 1 {
+                return false;
+            }
+            const int cp = hex4(text, i + 2);
+            if cp < 0 {
+                return false;
+            }
+            if cp >= 55296 && cp <= 56319 {
+                if i + 12 > end - 1 {
+                    return false;
+                }
+                if text.byte_at(i + 6).to_int() != 92 || text.byte_at(i + 7).to_int() != 117 {
+                    return false;
+                }
+                const int low = hex4(text, i + 8);
+                if low < 56320 || low > 57343 {
+                    return false;
+                }
+                i = i + 12;
+            } else if cp >= 56320 && cp <= 57343 {
+                return false;
+            } else {
+                i = i + 6;
+            }
+        } else if code == 34 || code == 92 || code == 47 || code == 98 || code == 102
+            || code == 110 || code == 114 || code == 116
+        {
+            i = i + 2;
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// Decode the escapes a JSON string uses into its Yashy bytes. Validation has
+/// already proved every escape well-formed, so this needs no error path.
 fn decode_string(string text, int start, int end) -> string {
     let out = "";
     let i = start + 1;
     while i < end - 1 {
         const int byte = text.byte_at(i).to_int();
-        if byte == 92 && i + 1 < end - 1 {
+        if byte == 92 {
             const int escaped = text.byte_at(i + 1).to_int();
-            if escaped == 34 {
+            if escaped == 117 {
+                const int cp = hex4(text, i + 2);
+                if cp >= 55296 && cp <= 56319 {
+                    const int low = hex4(text, i + 8);
+                    const int full = 65536 + (cp - 55296) * 1024 + (low - 56320);
+                    out = append_codepoint(out, full);
+                    i = i + 12;
+                } else {
+                    out = append_codepoint(out, cp);
+                    i = i + 6;
+                }
+            } else if escaped == 34 {
                 out = out + "\"";
+                i = i + 2;
             } else if escaped == 92 {
                 out = out + "\\";
+                i = i + 2;
             } else if escaped == 47 {
                 out = out + "/";
+                i = i + 2;
             } else if escaped == 98 {
                 out = out + (8).to_char().to_string();
+                i = i + 2;
             } else if escaped == 102 {
                 out = out + (12).to_char().to_string();
+                i = i + 2;
             } else if escaped == 110 {
                 out = out + "\n";
+                i = i + 2;
             } else if escaped == 114 {
                 out = out + "\r";
-            } else if escaped == 116 {
-                out = out + "\t";
+                i = i + 2;
             } else {
-                out = out + (escaped).to_char().to_string();
+                out = out + "\t";
+                i = i + 2;
             }
-            i = i + 2;
         } else {
-            out = out + (byte).to_char().to_string();
+            out = out + byte.to_char().to_string();
             i = i + 1;
         }
     }
@@ -336,6 +502,11 @@ fn validate(string text, DocLimits limits) -> Option[DocError] {
                     problem = DocError.Invalid(index);
                     break;
                 }
+                if !valid_escapes(text, index, end) {
+                    failed = true;
+                    problem = DocError.Invalid(index);
+                    break;
+                }
                 index = end;
                 if depth == 0 {
                     done = true;
@@ -387,6 +558,11 @@ fn validate(string text, DocLimits limits) -> Option[DocError] {
             } else if byte == 34 {
                 const int end = scan_string(text, index);
                 if end < 0 {
+                    failed = true;
+                    problem = DocError.Invalid(index);
+                    break;
+                }
+                if !valid_escapes(text, index, end) {
                     failed = true;
                     problem = DocError.Invalid(index);
                     break;

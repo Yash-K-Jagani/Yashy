@@ -855,6 +855,14 @@ enum DocError
 
 Why a document could not be parsed.
 
+### `bool_value`
+
+```yashy
+fn bool_value(JsonDoc doc, int node) -> Option[bool]
+```
+
+The bool at `node`, or `None` when the node is not a bool.
+
 ### `count`
 
 ```yashy
@@ -879,6 +887,14 @@ fn first_child(JsonDoc doc, int node) -> int
 
 The index of the first child of `node`, or `-1` when it has none.
 
+### `float_value`
+
+```yashy
+fn float_value(JsonDoc doc, int node) -> Option[float]
+```
+
+The float at `node`, or `None` when the node is not a float.
+
 ### `free_doc`
 
 ```yashy
@@ -896,6 +912,14 @@ fn get_doc(JsonDoc doc, int node, string wanted) -> Option[int]
 Find `wanted` in the object `node`, returning the child's index. The first
 match wins when a document repeats a key; both rows stay in the tree and
 both are emitted, in source order.
+
+### `int_value`
+
+```yashy
+fn int_value(JsonDoc doc, int node) -> Option[int]
+```
+
+The int at `node`, or `None` when the node is not an int.
 
 ### `is_scalar`
 
