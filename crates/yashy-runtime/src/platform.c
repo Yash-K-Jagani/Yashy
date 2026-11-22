@@ -598,9 +598,39 @@ int yashy_entropy(uint8_t *bytes, long long len) {
 static YASHY_THREAD_LOCAL uint64_t yashy_random_pool[YASHY_RANDOM_POOL_SIZE];
 static YASHY_THREAD_LOCAL size_t yashy_random_pool_used = YASHY_RANDOM_POOL_SIZE;
 
-/** One 64-bit draw. OS entropy is the source; a degraded fallback keeps the
- * call total (the API has no failure value) if the OS refuses. */
+/* `--deterministic` replaces the OS source with a seeded SplitMix64 stream, so
+ * two runs of the same program draw the same numbers. The mode is decided once
+ * per thread; a program that never asks for randomness never reads the
+ * environment. SplitMix64 is the mixing function the language's fixed seed
+ * needs -- reproducible, not a cryptographic generator. */
+static YASHY_THREAD_LOCAL int yashy_random_seeded = 0;
+static YASHY_THREAD_LOCAL int yashy_random_decided = 0;
+static YASHY_THREAD_LOCAL uint64_t yashy_random_state = 0;
+
+static uint64_t yashy_splitmix64(void) {
+    uint64_t z = (yashy_random_state += 0x9E3779B97F4A7C15ULL);
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+    return z ^ (z >> 31);
+}
+
+/** One 64-bit draw. OS entropy is the source; under `--deterministic` a fixed
+ * seed replaces it. A degraded fallback keeps the call total (the API has no
+ * failure value) if the OS refuses. */
 long long yashy_random_i64(void) {
+    if (!yashy_random_decided) {
+        const char *flag = getenv("YASHY_DETERMINISTIC");
+        yashy_random_decided = 1;
+        if (flag != NULL && flag[0] == '1') {
+            const char *seed = getenv("YASHY_DETERMINISTIC_SEED");
+            yashy_random_state =
+                seed != NULL ? (uint64_t)strtoull(seed, NULL, 10) : 0x9E3779B97F4A7C15ULL;
+            yashy_random_seeded = 1;
+        }
+    }
+    if (yashy_random_seeded) {
+        return (long long)yashy_splitmix64();
+    }
     if (yashy_random_pool_used >= YASHY_RANDOM_POOL_SIZE) {
         if (yashy_entropy((uint8_t *)yashy_random_pool,
                           (long long)sizeof yashy_random_pool) != 0) {

@@ -2302,7 +2302,8 @@ fn gen_call(
                 "parse_i64" => crate::file::gen_parse_i64(ctx, args, ty),
                 "parse_f64" => crate::file::gen_parse_f64(ctx, args, ty),
                 "str_from_i64" | "str_from_f64" | "str_from_char" | "char_from_int"
-                | "str_debug_char" | "str_slice" | "str_debug" => {
+                | "str_debug_char" | "str_slice" | "str_debug" | "str_from_f64_prec"
+                | "str_pad" | "f64_round_to" => {
                     gen_borrowed_call(ctx, &format!("yashy_{name}"), args, ty)
                 }
                 _ => {

@@ -1328,13 +1328,37 @@ yashy_str *yashy_str_from_i64(long long value) {
     return yashy_str_new(buffer, (size_t)written);
 }
 
+/* Defined with the format-engine primitives below; the default float spelling
+ * rewrites the locale's decimal separator through it. */
+static yashy_str *yashy_number_text(const char *text, size_t len);
+
 yashy_str *yashy_str_from_f64(double value) {
-    char buffer[40];
-    int written = snprintf(buffer, sizeof(buffer), "%.17g", value);
-    if (written < 0 || (size_t)written >= sizeof(buffer)) {
-        return NULL;
+    /* The shortest `%g` precision that reads back as the same double. 17 is
+     * the most significant digits a double can need, and 512 bytes holds the
+     * widest fixed-form candidate the exponent rule below can choose. */
+    char buffer[512];
+    int precision = 1;
+    for (; precision < 17; precision++) {
+        int written = snprintf(buffer, sizeof(buffer), "%.*g", precision, value);
+        if (written < 0 || (size_t)written >= sizeof(buffer)) return NULL;
+        if (strtod(buffer, NULL) == value) break;
     }
-    return yashy_str_new(buffer, (size_t)written);
+    int written = snprintf(buffer, sizeof(buffer), "%.*g", precision, value);
+    if (written < 0 || (size_t)written >= sizeof(buffer)) return NULL;
+    /* `%g` switches to exponent form once the exponent leaves its window.
+     * Keep a plain decimal for ordinary magnitudes, as a reader expects, and
+     * leave exponent form for very large or very small values. */
+    const char *exponent = strchr(buffer, 'e');
+    if (exponent != NULL) {
+        int exp10 = (int)strtol(exponent + 1, NULL, 10);
+        if (exp10 >= -5 && exp10 <= 15) {
+            int decimals = precision - 1 - exp10;
+            if (decimals < 0) decimals = 0;
+            written = snprintf(buffer, sizeof(buffer), "%.*f", decimals, value);
+            if (written < 0 || (size_t)written >= sizeof(buffer)) return NULL;
+        }
+    }
+    return yashy_number_text(buffer, (size_t)written);
 }
 
 yashy_str *yashy_str_from_bool(long long value) {
@@ -3689,6 +3713,105 @@ long long yashy_str_display_width(const yashy_str *s) {
         width += yashy_ucd_width(cp);
     }
     return width;
+}
+
+/* ---- Format engine primitives ------------------------------------------ */
+
+/* `snprintf` writes the locale's decimal separator. Formatting 1.5 once gives
+ * it back without changing the process locale, so a number can always be
+ * rewritten with the '.' the language promises. */
+static char yashy_decimal_separator(void) {
+    char probe[16];
+    int written = snprintf(probe, sizeof(probe), "%g", 1.5);
+    if (written < 2 || (size_t)written >= sizeof(probe)) return '.';
+    return probe[1];
+}
+
+static yashy_str *yashy_number_text(const char *text, size_t len) {
+    char sep = yashy_decimal_separator();
+    if (sep == '.') return yashy_str_new(text, len);
+    yashy_str *out = yashy_str_new(NULL, len + 1);
+    if (out == NULL) return NULL;
+    for (size_t i = 0; i < len; i++) out->data[i] = text[i] == sep ? '.' : text[i];
+    out->data[len] = '\0';
+    out->len = (long long)len;
+    return out;
+}
+
+/* A float rounded to an integer under the named mode: 0 truncate toward zero,
+ * 1 floor, 2 ceil, 3 round with halves away from zero. The value must be in
+ * range for `int`, exactly the contract `as int` has. */
+long long yashy_f64_round_to(double value, long long mode) {
+    double whole = (double)(long long)value;
+    if (mode == 1 && value < whole) {
+        whole -= 1.0;
+    } else if (mode == 2 && value > whole) {
+        whole += 1.0;
+    } else if (mode == 3) {
+        return (long long)(value >= 0.0 ? value + 0.5 : value - 0.5);
+    }
+    return (long long)whole;
+}
+
+/* Fixed precision, with the decimal point pinned to '.'. The checker caps
+ * precision at 17, the number of significant digits a double round-trips. */
+yashy_str *yashy_str_from_f64_prec(double value, long long precision) {
+    if (precision < 0) precision = 0;
+    if (precision > 17) precision = 17;
+    size_t cap = (size_t)precision + 64;
+    char *buffer = (char *)malloc(cap);
+    if (buffer == NULL) return NULL;
+    char pattern[16];
+    snprintf(pattern, sizeof(pattern), "%%.%lldf", precision);
+    int written = snprintf(buffer, cap, pattern, value);
+    yashy_str *out = NULL;
+    if (written > 0 && (size_t)written < cap) out = yashy_number_text(buffer, (size_t)written);
+    free(buffer);
+    return out;
+}
+
+/* Pad `text` to `width` display cells. `align` is 0 (left), 1 (right) or 2
+ * (centre); `fill` is a single code point. A right-aligned numeric fill of '0'
+ * keeps the leading sign ahead of the zeroes. */
+yashy_str *yashy_str_pad(const yashy_str *text, long long width, long long align,
+                         const yashy_str *fill) {
+    if (text == NULL) return yashy_str_new("", 0);
+    long long have = yashy_str_display_width(text);
+    if (width <= have) return yashy_str_new(text->data, (size_t)text->len);
+
+    unsigned fill_cp = 0x20u;
+    char fill_bytes[4] = {' ', 0, 0, 0};
+    int fill_len = 1;
+    if (fill != NULL && fill->len > 0) {
+        size_t at = 0;
+        (void)ucd_decode((const unsigned char *)fill->data, (size_t)fill->len, &at, &fill_cp);
+        fill_len = ucd_encode(fill_cp, fill_bytes);
+    }
+    long long missing = width - have;
+    long long left = align == 0 ? 0 : (align == 2 ? missing / 2 : missing);
+    long long right = missing - left;
+    int sign = fill_cp == '0' && align == 1 && text->len > 0 &&
+               (text->data[0] == '-' || text->data[0] == '+' || text->data[0] == ' ');
+
+    size_t cap = (size_t)text->len + (size_t)(left + right) * (size_t)fill_len + 2;
+    yashy_str *out = yashy_str_new(NULL, cap);
+    if (out == NULL) return NULL;
+    size_t at = 0;
+    if (sign) out->data[at++] = text->data[0];
+    for (long long i = 0; i < left; i++) {
+        memcpy(out->data + at, fill_bytes, (size_t)fill_len);
+        at += (size_t)fill_len;
+    }
+    size_t body = (size_t)text->len - (sign ? 1u : 0u);
+    memcpy(out->data + at, text->data + (sign ? 1 : 0), body);
+    at += body;
+    for (long long i = 0; i < right; i++) {
+        memcpy(out->data + at, fill_bytes, (size_t)fill_len);
+        at += (size_t)fill_len;
+    }
+    out->data[at] = '\0';
+    out->len = (long long)at;
+    return out;
 }
 
 /* Decodes `cp` as UTF-8. Exposed for a stdlib wrapper that walks a string. */

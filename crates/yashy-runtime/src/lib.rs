@@ -408,6 +408,17 @@ unsafe extern "C" {
     pub fn yashy_str_case_fold(s: *const YashyStr) -> *mut YashyStr;
     /// The display width of a string in terminal cells.
     pub fn yashy_str_display_width(s: *const YashyStr) -> c_longlong;
+    /// Fixed-precision float text, with a '.' decimal separator in every locale.
+    pub fn yashy_str_from_f64_prec(value: f64, precision: c_longlong) -> *mut YashyStr;
+    /// Pad to a width in display cells. Align: 0 left, 1 right, 2 centre.
+    pub fn yashy_str_pad(
+        text: *const YashyStr,
+        width: c_longlong,
+        align: c_longlong,
+        fill: *const YashyStr,
+    ) -> *mut YashyStr;
+    /// Round a float to an `int`: 0 truncate, 1 floor, 2 ceil, 3 round.
+    pub fn yashy_f64_round_to(value: f64, mode: c_longlong) -> c_longlong;
 }
 
 unsafe extern "C" {

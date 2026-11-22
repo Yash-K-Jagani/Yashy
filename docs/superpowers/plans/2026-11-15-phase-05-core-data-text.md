@@ -90,8 +90,8 @@ is a capability rather than an ambient read.
 - Modify: `crates/yashy-stdlib/yashy/string.ya`
 - Test: `crates/yashy-driver/tests/programs/stdlib/text/`, `crates/yashy-driver/tests/programs/stdlib/format/`
 
-- [ ] **Step 1: Write the failing test.** NFC/NFD/NFKC/NFKD round-trips for the Unicode test file, Turkish dotless `i` case folding, a family emoji counted as one grapheme, a CJK string's display width, and `format("{:>8.2}", 3.14159)`.
-- [ ] **Step 2: Unicode data is vendored and versioned.** The tables are generated from a pinned Unicode release, recorded in the SBOM, and updated by a script with a diff. No network at build time.
+- [x] **Step 1: Write the failing test.** NFC/NFD/NFKC/NFKD round-trips for the Unicode test file, Turkish dotless `i` case folding, a family emoji counted as one grapheme, a CJK string's display width, and `format("{:>8.2}", 3.14159)`.
+- [x] **Step 2: Unicode data is vendored and versioned.** The tables are generated from a pinned Unicode release, recorded in the SBOM, and updated by a script with a diff. No network at build time.
   *Current:* Unicode 18.0.0 UCD files (`UnicodeData`, `CaseFolding`,
   `CompositionExclusions`, `EastAsianWidth`, `NormalizationTest`, `ReadMe`) are
   checked in under `crates/yashy-runtime/data/unicode/` with their SHA-256 pins
@@ -119,9 +119,20 @@ is a capability rather than an ambient read.
   Unicode-aware operations (`nfc`/`nfd`/`nfkc`/`nfkd`, `fold`, `eq_ignore_case`)
   and `width.ya` provides `width`/`is_narrow`, both backed by the vendored
   18.0.0 tables and pinned by `stdlib/normalize.ya` and `stdlib/width.ya`. The
-  `format("{:>8.2}", ...)` engine — width, precision, alignment and a
-  compile-time diagnostic for a literal format string — is still owed, so the
-  step stays open.
+  `format("{:>8.2}", ...)` is now one engine: the checker parses a literal
+  specifier (`[[fill]align][0][width][.precision][type]`, with `{{`/`}}`
+  escapes) at the call site and reports a malformed field, an argument-count
+  mismatch (`E0700`) or a type mismatch (`E0100`) before the program runs. The
+  lowering shares `as_string` with interpolation and `print`, and uses the
+  runtime's `yashy_str_from_f64_prec` (locale-independent '.') and
+  `yashy_str_pad` (display-cell width, sign-aware zero padding). `format.ya`
+  exposes those primitives as `fixed` and `pad_left`/`pad_right`/`pad_center`,
+  with a coverage program and a tutorial example. The default float spelling is
+  now the shortest decimal that reads back as the same double (and is
+  locale-independent for `float` interpolation and `print`), while the fixed
+  precision path is unchanged. Still owed for full unification: a non-literal
+  specifier answering `Result`, and extending the width/precision rules to
+  `print` and `Debug`. The step stays open.
 - [ ] **Step 4: Commit.**
 
 ### Task 4: Encodings — JSON, TOML, YAML, CSV, XML
@@ -208,6 +219,15 @@ is a capability rather than an ambient read.
 - [ ] **Step 4: Entropy is a capability.** `csprng_bytes` is the only source of
   randomness; under `--deterministic` it reads a fixed seed and reports that it
   did. A library that calls `rand()` behind the language's back is a defect.
+  *Current:* `rand.u64`, `range`, `fill` and `shuffle` draw from the OS entropy
+  pool through one runtime entry point, `yashy_random_i64`. Under
+  `--deterministic` that entry point replaces the pool with a seeded SplitMix64
+  stream (`YASHY_DETERMINISTIC_SEED`, which the driver fixes at
+  `1700000000000`), and `rand.deterministic()` reports which source is in use.
+  The e2e test `deterministic_mode_seeds_the_random_source` pins two
+  byte-identical runs and the `true` report; the ordinary golden pins `false`.
+  The `csprng_bytes` spelling and the crypto-backed primitives remain owed on
+  Steps 1–2.
 - [ ] **Step 5: Commit.**
 
 ### Task 7: Time, zones and observability
@@ -286,9 +306,12 @@ is a capability rather than an ambient read.
   `bool_to_string`, and explicit `trunc`/`floor`/`ceil`/`round`/`try_from_float`.
   Radix parsing bounds the magnitude at 2147483647 so it never panics, and
   reports `Overflow` instead. `stdlib/convert.ya` is the coverage program. The
-  scalar method spellings (`to_float`, `floor` as methods) and the generated
-  `docs/stdlib.md` row still need the compiler-side method work and a
-  toolchain run, so the step stays open.
+  scalar method spellings now exist in the checker: `int.to_float`,
+  `float.to_int`, `float.trunc`/`floor`/`ceil`/`round` (all answering `int`,
+  lowering to `yashy_f64_round_to`) and `to_string` on every scalar. The
+  coverage program pins their bytes, and `docs/stdlib.md` lists the free
+  functions they mirror. `try_from` still has only the float form, so the step
+  stays open.
 - [ ] **Step 5: Formatting consumes the same conversions.** The `format`
   engine in Task 3 formats each scalar through this matrix, so a value printed
   by `print`, `format` and `Debug` has one spelling. A `format` specifier on a

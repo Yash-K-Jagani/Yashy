@@ -149,6 +149,20 @@ fn chars_compare_with_each_other_only() {
 fn scalar_conversions_have_one_spelling() {
     let (ok, _, _) = check_source("fn f(char c, int n) { const a = c.to_int(); const b = n.to_char(); const s = c.to_string(); }");
     assert!(ok.is_ok(), "conversions: {ok:?}");
+    let (ok, _, _) = check_source(
+        "fn f(int n, float x, bool b) {\n\
+           const a = n.to_float();\n\
+           const c = x.to_int();\n\
+           const d = x.floor();\n\
+           const e = x.ceil();\n\
+           const r = x.round();\n\
+           const t = x.trunc();\n\
+           const ns = n.to_string();\n\
+           const fs = x.to_string();\n\
+           const bs = b.to_string();\n\
+         }",
+    );
+    assert!(ok.is_ok(), "scalar methods: {ok:?}");
     assert_error("fn f(char c) { const n = c as int; }", "use `to_int()`");
     assert_error("fn f(int n) { const c = n as char; }", "use `to_char()`");
     assert_error(

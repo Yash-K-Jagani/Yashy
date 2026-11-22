@@ -2,8 +2,10 @@
 //
 // The source is the operating system's entropy pool (`BCryptGenRandom` on
 // Windows, `getrandom`/`urandom` elsewhere), so the values are unpredictable.
-// None of this is a password hash or a cryptographic construction: use the
-// platform's crypto library for secrets.
+// Under `--deterministic` the runtime replaces that source with a seeded
+// SplitMix64 stream: `deterministic()` answers `true`, and two runs draw the
+// same numbers. None of this is a password hash or a cryptographic
+// construction: use the platform's crypto library for secrets.
 //
 // The runtime draws from the OS in blocks, so a program that asks for a
 // million numbers makes a few thousand system calls rather than a million.
@@ -28,6 +30,16 @@ extern "C" {
 /// One 64-bit draw from the OS entropy source.
 pub fn u64() -> int {
     return yashy_random_i64();
+}
+
+/// Whether the program runs under `--deterministic`, so its draws come from a
+/// fixed seed instead of the OS entropy source.
+pub fn deterministic() -> bool {
+    const Option[string] flag = getenv("YASHY_DETERMINISTIC");
+    return switch flag {
+        case Some(value) { value == "1" }
+        case None { false }
+    };
 }
 
 /// A uniform value in `lo..hi` (lower bound included, upper excluded).

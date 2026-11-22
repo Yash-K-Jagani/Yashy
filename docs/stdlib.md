@@ -494,6 +494,40 @@ fn unset(string name) -> Result[int, io.Error]
 fn vars() -> []string
 ```
 
+## `format`
+
+### `fixed`
+
+```yashy
+fn fixed(float value, int precision) -> string
+```
+
+Render `value` with exactly `precision` digits after the decimal point.
+
+### `pad_center`
+
+```yashy
+fn pad_center(string text, int width, string fill) -> string
+```
+
+Centre `text` in `width` display cells with `fill`.
+
+### `pad_left`
+
+```yashy
+fn pad_left(string text, int width, string fill) -> string
+```
+
+Pad `text` on the left to `width` display cells with `fill`.
+
+### `pad_right`
+
+```yashy
+fn pad_right(string text, int width, string fill) -> string
+```
+
+Pad `text` on the right to `width` display cells with `fill`.
+
 ## `fs`
 
 ### `copy`
@@ -1258,6 +1292,15 @@ struct Child
 A child that has already exited.
 
 ## `rand`
+
+### `deterministic`
+
+```yashy
+fn deterministic() -> bool
+```
+
+Whether the program runs under `--deterministic`, so its draws come from a
+fixed seed instead of the OS entropy source.
 
 ### `fill`
 

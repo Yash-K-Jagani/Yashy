@@ -1,0 +1,21 @@
+import format;
+
+fn main() {
+    const pi = format("{:>8.2}", 3.14159);
+    print("pi = [${pi}]");
+
+    const left = format("|{:<5}|", "hi");
+    print(left);
+    const centre = format("|{:^6}|", 7);
+    print(centre);
+    const zeros = format("{:08d}", -42);
+    print(zeros);
+
+    const escaped = format("{{}} {} - {}", 1, true);
+    print(escaped);
+    const rounded = format("{:.3}", 2.5);
+    print(rounded);
+
+    print(format.fixed(1.5, 2));
+    print(format.pad_right("x", 3, "-"));
+}

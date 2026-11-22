@@ -1,3 +1,4 @@
+deterministic: false
 bytes 8
 range in 0..3: true
 uniform: true

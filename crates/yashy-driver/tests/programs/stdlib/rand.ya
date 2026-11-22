@@ -1,6 +1,9 @@
 import rand;
 
 fn main() {
+    // The report the deterministic contract promises: `true` under
+    // `--deterministic`, `false` for the OS entropy source.
+    print("deterministic: ${rand.deterministic()}");
     const bytes = rand.fill(8);
     print("bytes ${bytes.len()}");
     bytes.free();

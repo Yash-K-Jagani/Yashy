@@ -51,8 +51,10 @@ Two things to notice:
   and `${xs.len()}` are allowed.
 - Arithmetic between `int` and `float` needs an explicit cast, `as`. The language
   will not silently pick one for you. The result is cast back to `int` before
-  printing: `print`'s float formatting is the C library's, and the tutorial only
-  claims output that does not depend on it.
+  printing, which keeps the output a whole number. A `float` printed directly
+  takes the shortest decimal that reads back as the same value: `print(0.1)` is
+  `0.1`, and `print(0.1 + 0.2)` is `0.30000000000000004`. The spelling never
+  depends on the machine's locale.
 
 There are no implicit truthiness rules: a condition is a `bool`, not an
 integer. A language that accepted `if n` would have to decide whether `0` means
@@ -150,6 +152,41 @@ fn main() {
     // => a
 }
 ```
+
+### Converting between the numeric types
+
+An `int` widens with `n.to_float()`. A `float` becomes an `int` under a named
+mode: `x.trunc()` drops the fraction toward zero, `x.floor()` and `x.ceil()`
+move to the nearest integer in that direction, and `x.round()` picks the
+nearest one, sending halves away from zero. `to_string()` turns any scalar into
+its text, using the same spelling `print` uses.
+
+```yashy
+fn main() {
+    const ratio = 2.9;
+    print(ratio.trunc());
+    // => 2
+    print(ratio.floor());
+    // => 2
+    print(ratio.ceil());
+    // => 3
+    print(ratio.round());
+    // => 3
+
+    const negative = 0.0 - 2.5;
+    print(negative.round());
+    // => -3
+
+    const whole = 7;
+    print(whole.to_string() + "!");
+    // => 7!
+    print(ratio.to_string());
+    // => 2.9
+}
+```
+
+`floor`, `ceil`, `round` and `trunc` answer an `int`, so a value outside the
+`int` range must be checked before it is rounded, exactly as with `as int`.
 
 ### `void`
 

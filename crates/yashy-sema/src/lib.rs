@@ -9,6 +9,8 @@ pub mod check_pat;
 pub mod const_eval;
 pub mod derive;
 pub mod error;
+
+pub mod format;
 pub mod scope;
 
 pub use yashy_hir::{exhaustive, hir, ty};

@@ -384,6 +384,39 @@ error: cannot format a `*mut int` with `:?`: only numbers, `bool`, `string`,
 structs, enums, tuples and arrays have a debug form
 ```
 
+## Formatting with a literal specifier
+
+`format(spec, ...)` builds one string from a *literal* specifier and any number
+of values. Each `{}` consumes the next value. A field may carry alignment (`<`,
+`>` or `^`), a width in display cells, a precision after `.`, and an optional
+type letter (`d`, `f`, `s` or `?` for the debug form). `{{` and `}}` are literal
+braces. The specifier is checked when the program is checked: a bad field, a
+wrong number of values or a mismatched type is a compile-time error, so a
+literal format string never fails at run time.
+
+```yashy
+fn main() {
+    let pi = format("{:>8.2}", 3.14159);
+    print("[${pi}]");
+
+    let row = format("|{:<5}|{:^5}|", "hi", 7);
+    print(row);
+
+    let braces = format("{{}} {} - {}", 1, true);
+    print(braces);
+    // => [    3.14]
+    // => |hi   |  7  |
+    // => {} 1 - true
+}
+```
+
+Width counts display cells, not bytes: a CJK letter takes two. A `0` before the
+width zero-pads a number with the sign kept first, as in `format("{:08d}",
+-42)`. Precision belongs to a float field, and a field with an explicit type
+(`{:d}`, `{:f}`, `{:s}`) checks the argument's type. `format.ya` exposes the
+two primitives the lowering uses (`fixed` and the `pad_*` family) for programs
+that need one of them alone.
+
 ## Common mistakes
 
 - **Indexing a string.** `s[0]` reports ``error: cannot index `string` ``.

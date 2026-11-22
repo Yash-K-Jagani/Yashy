@@ -4431,6 +4431,59 @@ fn observability_is_byte_identical_under_deterministic_mode() {
     );
 }
 
+#[test]
+fn deterministic_mode_seeds_the_random_source() {
+    // `rand.ya` prints whether the run is deterministic and draws from the
+    // seeded stream. Two deterministic runs must draw the same numbers, and
+    // the run reports that it took the fixed seed.
+    let stdlib = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("yashy-stdlib")
+        .join("yashy");
+    let source = programs_dir().join("stdlib").join("rand.ya");
+    let dir = work_dir("deterministic-rand");
+    let exe = dir.join(format!("rand{}", std::env::consts::EXE_SUFFIX));
+    let compile = Command::new(yashyc())
+        .arg("build")
+        .arg(&source)
+        .arg("-o")
+        .arg(&exe)
+        .env("YASHY_PATH", &stdlib)
+        .env("YASHY_CACHE_DIR", dir.join("cache"))
+        .output()
+        .expect("the yashyc CLI must be runnable");
+    assert!(
+        compile.status.success(),
+        "compiling rand.ya failed:\n{}",
+        stderr_of(&compile)
+    );
+    let run = |exe: &Path| -> Output {
+        launch_retrying(exe, |path| {
+            Command::new(path)
+                .env("YASHY_DETERMINISTIC", "1")
+                .env("YASHY_DETERMINISTIC_SEED", "1700000000000")
+                .output()
+        })
+        .expect("the compiled program must be runnable")
+    };
+    let first = run(&exe);
+    assert!(
+        first.status.success(),
+        "rand exited with {:?}",
+        first.status.code()
+    );
+    let first_stdout = String::from_utf8_lossy(&first.stdout).into_owned();
+    assert!(
+        first_stdout.contains("deterministic: true"),
+        "the run reports the fixed seed:\n{first_stdout}"
+    );
+    let second = run(&exe);
+    assert_eq!(
+        second.stdout, first.stdout,
+        "deterministic draws are byte-identical across runs"
+    );
+}
+
 /// The stdlib programs: each builds once, runs twice, prints the same bytes both
 /// times, matches its pinned `.out` file, and releases everything it allocated.
 ///

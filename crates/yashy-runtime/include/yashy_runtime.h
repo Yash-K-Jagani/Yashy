@@ -317,6 +317,16 @@ yashy_str *yashy_str_case_fold(const yashy_str *s);
 /* The display width of a string in terminal cells. */
 long long yashy_str_display_width(const yashy_str *s);
 
+/* The format engine's two primitives: fixed-precision float text with a '.'
+ * decimal separator, and padding to a width in display cells. `align` is 0
+ * (left), 1 (right) or 2 (centre); `fill` is one code point. */
+yashy_str *yashy_str_from_f64_prec(double value, long long precision);
+yashy_str *yashy_str_pad(const yashy_str *text, long long width, long long align,
+                         const yashy_str *fill);
+/* Round a float to an `int`: 0 truncate, 1 floor, 2 ceil, 3 round halves away
+ * from zero. */
+long long yashy_f64_round_to(double value, long long mode);
+
 /* Grapheme clusters (UAX #29 extended): `yashy_str_grapheme_count` counts
  * clusters; `yashy_str_grapheme_at` returns the cluster at an index or NULL
  * when out of range; `yashy_str_grapheme_slice` returns the clusters in a

@@ -1,0 +1,27 @@
+// Helpers behind the `format(...)` language form.
+//
+// `format("{:>8.2}", value)` is checked by the compiler: a literal specifier is
+// parsed before the program runs, so a bad field, a wrong argument count or a
+// type mismatch is a compile-time diagnostic. These functions are the runtime
+// primitives the lowering calls, exposed with readable names for programs that
+// need one of them alone.
+
+/// Render `value` with exactly `precision` digits after the decimal point.
+pub fn fixed(float value, int precision) -> string {
+    return str_from_f64_prec(value, precision);
+}
+
+/// Pad `text` on the right to `width` display cells with `fill`.
+pub fn pad_right(string text, int width, string fill) -> string {
+    return str_pad(text, width, 0, fill);
+}
+
+/// Pad `text` on the left to `width` display cells with `fill`.
+pub fn pad_left(string text, int width, string fill) -> string {
+    return str_pad(text, width, 1, fill);
+}
+
+/// Centre `text` in `width` display cells with `fill`.
+pub fn pad_center(string text, int width, string fill) -> string {
+    return str_pad(text, width, 2, fill);
+}

@@ -1111,7 +1111,7 @@ impl<'src> Checker<'src> {
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ya`. Recorded as a divergence from the master plan's L3.
-        let builtins: [(&str, Vec<Type>, Type); 46] = [
+        let builtins: [(&str, Vec<Type>, Type); 49] = [
             ("alloc", vec![prim(TypeKind::I64)], ptr(prim(TypeKind::I64))),
             // The explicit unsafe spelling: same type as `alloc`, but the
             // runtime skips the zeroing. The checker refuses it outside an
@@ -1376,6 +1376,30 @@ impl<'src> Checker<'src> {
             (
                 "display_width",
                 vec![prim(TypeKind::Str)],
+                prim(TypeKind::I64),
+            ),
+            // Format-engine primitives, also used by the checker's lowering of
+            // a literal `format` specifier; `format.ya` names them directly.
+            (
+                "str_from_f64_prec",
+                vec![prim(TypeKind::F64), prim(TypeKind::I64)],
+                prim(TypeKind::Str),
+            ),
+            (
+                "str_pad",
+                vec![
+                    prim(TypeKind::Str),
+                    prim(TypeKind::I64),
+                    prim(TypeKind::I64),
+                    prim(TypeKind::Str),
+                ],
+                prim(TypeKind::Str),
+            ),
+            // Rounding modes behind `float.floor()` and friends: 0 truncate,
+            // 1 floor, 2 ceil, 3 round halves away from zero.
+            (
+                "f64_round_to",
+                vec![prim(TypeKind::F64), prim(TypeKind::I64)],
                 prim(TypeKind::I64),
             ),
         ];
@@ -8434,9 +8458,13 @@ impl<'src> Checker<'src> {
         // The scalar conversions are methods on a value, so they are resolved
         // before a user method of the same name could be: `to_int` on a `char`
         // is not something a program declares.
-        if matches!(method.as_str(), "to_int" | "to_char" | "to_string")
-            && matches!(receiver_ty.kind, TypeKind::Char | TypeKind::I64)
-        {
+        if matches!(
+            method.as_str(),
+            "to_int" | "to_char" | "to_string" | "to_float" | "round" | "floor" | "ceil" | "trunc"
+        ) && matches!(
+            receiver_ty.kind,
+            TypeKind::Char | TypeKind::I64 | TypeKind::F64 | TypeKind::Bool
+        ) {
             if let Some(receiver_checked) =
                 self.check_expr(&Expr::Ident(vec![receiver.clone()], span))
             {
@@ -9214,15 +9242,17 @@ impl<'src> Checker<'src> {
     ///
     /// The outer `Option` says "this was a string method"; the inner one is the
     /// checked expression, `None` after a reported error.
-    /// The conversions between `char` and the types around it.
+    /// The conversions between the scalar types.
     ///
     /// Each has exactly one spelling, and none of them is `as`: a cast says
-    /// "the same value at a different width", while these three say what
-    /// actually changes. `to_int` is a zero-extension and needs no call;
-    /// `to_char` checks the range at run time, because 300 is not a character;
-    /// `to_string` produces the one-byte string the byte spells.
+    /// "the same value at a different width", while these say what actually
+    /// changes. `to_int` is a zero-extension or a truncating cast and needs no
+    /// call; `to_char` checks the range at run time, because 300 is not a
+    /// character; `to_string` produces the one-byte string or the number's
+    /// canonical text; `to_float` widens; and `floor`/`ceil`/`round`/`trunc`
+    /// name the rounding mode instead of leaving it to a bare cast.
     ///
-    /// Returns `None` when this is not one of the three, so the ordinary method
+    /// Returns `None` when this is not one of them, so the ordinary method
     /// paths keep their own error for a method that does not exist.
     fn check_scalar_method(
         &mut self,
@@ -9231,8 +9261,14 @@ impl<'src> Checker<'src> {
         args: &[Expr],
         span: Span,
     ) -> Option<HirExpr> {
-        let known = match (expr_ty(&receiver).kind, method) {
-            (TypeKind::Char, "to_int" | "to_string") | (TypeKind::I64, "to_char") => true,
+        let kind = expr_ty(&receiver).kind.clone();
+        let known = match (kind.clone(), method) {
+            (TypeKind::Char, "to_int" | "to_string")
+            | (TypeKind::I64, "to_char" | "to_string" | "to_float")
+            | (TypeKind::Bool, "to_string")
+            | (TypeKind::F64, "to_int" | "to_string" | "round" | "floor" | "ceil" | "trunc") => {
+                true
+            }
             _ => false,
         };
         if !known {
@@ -9248,6 +9284,11 @@ impl<'src> Checker<'src> {
                 ty: prim(TypeKind::I64),
                 span,
             },
+            "to_float" => HirExpr::Cast {
+                expr: Box::new(receiver),
+                ty: prim(TypeKind::F64),
+                span,
+            },
             "to_char" => HirExpr::Call {
                 callee: vec!["char_from_int".to_string()],
                 args: vec![receiver],
@@ -9255,8 +9296,31 @@ impl<'src> Checker<'src> {
                 span,
                 ty: prim(TypeKind::Char),
             },
+            "round" | "floor" | "ceil" | "trunc" => {
+                let mode = match method {
+                    "floor" => 1,
+                    "ceil" => 2,
+                    "round" => 3,
+                    _ => 0,
+                };
+                HirExpr::Call {
+                    callee: vec!["f64_round_to".to_string()],
+                    args: vec![
+                        receiver,
+                        HirExpr::Literal(Literal::I64(mode), span, prim(TypeKind::I64)),
+                    ],
+                    unsafe_call: false,
+                    span,
+                    ty: prim(TypeKind::I64),
+                }
+            }
             _ => HirExpr::Call {
-                callee: vec!["str_from_char".to_string()],
+                callee: vec![match kind {
+                    TypeKind::Char => "str_from_char".to_string(),
+                    TypeKind::I64 => "str_from_i64".to_string(),
+                    TypeKind::F64 => "str_from_f64".to_string(),
+                    _ => "str_from_bool".to_string(),
+                }],
                 args: vec![receiver],
                 unsafe_call: false,
                 span,
@@ -12200,14 +12264,20 @@ impl<'src> Checker<'src> {
                         if self.errors.iter().any(|(_, e)| e.span == *span) {
                             return None;
                         }
-                        let single = Expr::Call {
-                            callee: vec![name],
-                            type_args: Vec::new(),
-                            args: args.clone(),
-                            unsafe_call: *unsafe_call,
-                            span: *span,
-                        };
-                        return self.check_expr(&single);
+                        // A qualified `datetime.format(...)` must stay a call
+                        // to the module's function: the literal-spec form owns
+                        // only the bare name. Rewriting it to one segment would
+                        // send it through that form instead.
+                        if name != "format" {
+                            let single = Expr::Call {
+                                callee: vec![name],
+                                type_args: Vec::new(),
+                                args: args.clone(),
+                                unsafe_call: *unsafe_call,
+                                span: *span,
+                            };
+                            return self.check_expr(&single);
+                        }
                     }
                 }
                 // A method receiver has to be a local binding. The parser keeps
@@ -12293,6 +12363,170 @@ impl<'src> Checker<'src> {
                                 span: *span,
                                 ty: prim(TypeKind::Unit),
                             });
+                        }
+                        "format" => {
+                            // The specifier is a literal, so the grammar and the
+                            // argument contract are checked here, at the call.
+                            let Some(spec_expr) = arg_vals.first() else {
+                                self.error(*span, "`format` needs a format string".to_string());
+                                return None;
+                            };
+                            let spec = match spec_expr {
+                                Expr::Literal(Literal::Str(text), _) => text.value.clone(),
+                                _ => {
+                                    self.error(
+                                        *span,
+                                        "a format string must be a string literal".to_string(),
+                                    );
+                                    return None;
+                                }
+                            };
+                            let pieces = match crate::format::parse(&spec) {
+                                Ok(pieces) => pieces,
+                                Err(message) => {
+                                    self.error(*span, message);
+                                    return None;
+                                }
+                            };
+                            let fields = crate::format::field_count(&pieces);
+                            let supplied = arg_vals.len().saturating_sub(1);
+                            if fields != supplied {
+                                self.error_code(
+                                    *span,
+                                    codes::WRONG_ARGUMENT_COUNT,
+                                    format!(
+                                        "format string expects {fields} argument{} but {supplied} {} given",
+                                        if fields == 1 { "" } else { "s" },
+                                        if supplied == 1 { "was" } else { "were" }
+                                    ),
+                                );
+                                return None;
+                            }
+                            let mut values = Vec::with_capacity(supplied);
+                            for arg in &arg_vals[1..] {
+                                match self.check_expr(arg) {
+                                    Some(value) => values.push(value),
+                                    None => return None,
+                                }
+                            }
+                            use crate::format::Wanted;
+                            let mut at = 0;
+                            let mut parts: Vec<HirExpr> = Vec::new();
+                            for piece in pieces {
+                                match piece {
+                                    crate::format::Piece::Text(text) => {
+                                        parts.push(HirExpr::Literal(
+                                            Literal::Str(str_lit(text)),
+                                            *span,
+                                            prim(TypeKind::Str),
+                                        ))
+                                    }
+                                    crate::format::Piece::Field(field) => {
+                                        let value = values[at].clone();
+                                        at += 1;
+                                        let ty = expr_ty(&value).clone();
+                                        let numeric =
+                                            matches!(ty.kind, TypeKind::I64 | TypeKind::F64);
+                                        let fits = match field.wanted {
+                                            Wanted::Auto => true,
+                                            Wanted::Int => matches!(ty.kind, TypeKind::I64),
+                                            Wanted::Float => matches!(ty.kind, TypeKind::F64),
+                                            Wanted::Str => matches!(ty.kind, TypeKind::Str),
+                                            Wanted::Debug => self.has_debug_form(&ty.kind),
+                                        };
+                                        if !fits {
+                                            let need = match field.wanted {
+                                                Wanted::Int => "an int",
+                                                Wanted::Float => "a float",
+                                                Wanted::Str => "a string",
+                                                Wanted::Debug => "a debug form",
+                                                Wanted::Auto => "a printable value",
+                                            };
+                                            self.error_code(
+                                                expr_span(&value),
+                                                codes::TYPE_MISMATCH,
+                                                format!("this field needs {need}, got `{ty}`"),
+                                            );
+                                            return None;
+                                        }
+                                        if field.zero && !numeric {
+                                            self.error(
+                                                expr_span(&value),
+                                                "zero padding needs a numeric field".to_string(),
+                                            );
+                                            return None;
+                                        }
+                                        if field.precision.is_some()
+                                            && !matches!(ty.kind, TypeKind::F64)
+                                        {
+                                            self.error(
+                                                expr_span(&value),
+                                                "precision needs a float field".to_string(),
+                                            );
+                                            return None;
+                                        }
+                                        let text = if matches!(ty.kind, TypeKind::F64)
+                                            && field.precision.is_some()
+                                        {
+                                            let precision = field.precision.unwrap_or(0);
+                                            HirExpr::Call {
+                                                callee: vec!["str_from_f64_prec".to_string()],
+                                                args: vec![
+                                                    value,
+                                                    HirExpr::Literal(
+                                                        Literal::I64(precision),
+                                                        *span,
+                                                        prim(TypeKind::I64),
+                                                    ),
+                                                ],
+                                                unsafe_call: false,
+                                                span: *span,
+                                                ty: prim(TypeKind::Str),
+                                            }
+                                        } else if field.wanted == Wanted::Debug {
+                                            match self.debug_string(value, *span) {
+                                                Some(text) => text,
+                                                None => return None,
+                                            }
+                                        } else {
+                                            match self.as_string(value, *span) {
+                                                Some(text) => text,
+                                                None => return None,
+                                            }
+                                        };
+                                        let padded = if field.width > 0 {
+                                            HirExpr::Call {
+                                                callee: vec!["str_pad".to_string()],
+                                                args: vec![
+                                                    text,
+                                                    HirExpr::Literal(
+                                                        Literal::I64(field.width),
+                                                        *span,
+                                                        prim(TypeKind::I64),
+                                                    ),
+                                                    HirExpr::Literal(
+                                                        Literal::I64(field.align.code()),
+                                                        *span,
+                                                        prim(TypeKind::I64),
+                                                    ),
+                                                    HirExpr::Literal(
+                                                        Literal::Str(str_lit(field.fill)),
+                                                        *span,
+                                                        prim(TypeKind::Str),
+                                                    ),
+                                                ],
+                                                unsafe_call: false,
+                                                span: *span,
+                                                ty: prim(TypeKind::Str),
+                                            }
+                                        } else {
+                                            text
+                                        };
+                                        parts.push(padded);
+                                    }
+                                }
+                            }
+                            return Some(join_strings(parts, *span));
                         }
                         "println" => {
                             self.error(
@@ -15168,6 +15402,32 @@ fn const_int(expr: &HirExpr) -> Option<i64> {
 fn str_lit(value: String) -> StringLit {
     let bytes = value.as_bytes().to_vec();
     StringLit { value, bytes }
+}
+
+/// Join checked format pieces into one string expression. Both halves of each
+/// `+` are freshly built strings, so the backend consumes their temporaries.
+fn join_strings(parts: Vec<HirExpr>, span: Span) -> HirExpr {
+    let mut joined: Option<HirExpr> = None;
+    for part in parts {
+        joined = Some(match joined {
+            None => part,
+            Some(previous) => HirExpr::Binary {
+                op: BinOp::Add,
+                lhs: Box::new(previous),
+                rhs: Box::new(part),
+                span,
+                ty: prim(TypeKind::Str),
+                fault: None,
+            },
+        });
+    }
+    joined.unwrap_or_else(|| {
+        HirExpr::Literal(
+            Literal::Str(str_lit(String::new())),
+            span,
+            prim(TypeKind::Str),
+        )
+    })
 }
 
 /// The empty string literal, for a piece that must be a string and is not there.

@@ -22,7 +22,7 @@ use yashy_runtime::{
     EXECUTOR_C_SOURCE, EXECUTOR_SOURCE_NAME, GRAPHEME_DATA_HEADER, GRAPHEME_DATA_HEADER_PATH,
     HASHMAP_C_SOURCE, HASHMAP_SOURCE_NAME, NET_C_SOURCE, NET_SOURCE_NAME, PLATFORM_C_SOURCE,
     PLATFORM_SOURCE_NAME, RUNTIME_C_SOURCE, RUNTIME_HEADER, RUNTIME_HEADER_NAME,
-    RUNTIME_SOURCE_NAME,
+    RUNTIME_SOURCE_NAME, UNICODE_DATA_HEADER, UNICODE_DATA_HEADER_PATH,
 };
 
 /// Markers the harness prints around each test invocation.
@@ -1064,6 +1064,10 @@ fn write_runtime_sources(dir: &Path) -> std::io::Result<PathBuf> {
     fs::write(
         dir.join(GRAPHEME_DATA_HEADER_PATH),
         GRAPHEME_DATA_HEADER.as_bytes(),
+    )?;
+    fs::write(
+        dir.join(UNICODE_DATA_HEADER_PATH),
+        UNICODE_DATA_HEADER.as_bytes(),
     )?;
     Ok(dir.to_path_buf())
 }

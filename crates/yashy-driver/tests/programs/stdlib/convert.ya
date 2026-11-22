@@ -17,6 +17,20 @@ fn main() {
     print(convert.ceil(1.1));
     print(convert.round(2.5));
     print(convert.try_from_float(3.0) matches Ok(3));
+    // The scalar methods are the same conversions with one spelling.
+    const float ratio = 2.9;
+    const int two = 2;
+    print(ratio.to_int());
+    print(two.to_float());
+    print(ratio.trunc());
+    print(ratio.floor());
+    print(ratio.ceil());
+    print(ratio.round());
+    const float negative = 0.0 - 2.5;
+    print(negative.round());
+    print(two.to_string());
+    print(ratio.to_string());
+    print(true.to_string());
     // The plain spelling is a call whose result the caller owns; exercise it
     // without pinning the platform's float spelling in this golden.
     const spelled = convert.float_to_string(1.5);
