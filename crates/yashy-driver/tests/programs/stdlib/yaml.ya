@@ -1,0 +1,46 @@
+import yaml;
+
+fn show_value(Option[string] value) {
+    switch value {
+        case Some(text) { print(text); }
+        case None { print("none"); }
+    };
+}
+
+fn show_key(YamlDoc doc, int index) {
+    show_value(yaml.value_of_yaml(doc, index));
+}
+
+fn report(YamlDoc doc) {
+    print(yaml.emit_yaml(doc));
+    print(yaml.count_yaml(doc));
+    const Option[int] name = yaml.get_yaml(doc, "name");
+    switch name {
+        case Some(index) { show_key(doc, index) }
+        case None { print("missing") }
+    };
+    yaml.free_yaml(doc);
+}
+
+fn error_of(string text) -> string {
+    const string answer = switch yaml.parse_yaml(text) {
+        case Ok(doc) { free_and_empty(doc) }
+        case Err(error) { yaml.describe_yaml(error) }
+    };
+    return answer;
+}
+
+fn free_and_empty(YamlDoc doc) -> string {
+    yaml.free_yaml(doc);
+    return "ok";
+}
+
+fn main() {
+    const string text = "# a comment\nname: Yashy\ncount: 42\non: true\nitems:\n  - alpha\n  - beta\n";
+    switch yaml.parse_yaml(text) {
+        case Ok(doc) { report(doc) }
+        case Err(_) { print("bad yaml") }
+    };
+    print(error_of("no colon here"));
+    print(error_of(": value"));
+}

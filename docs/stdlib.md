@@ -2085,3 +2085,104 @@ fn width(string text) -> int
 ```
 
 The width of `text` in terminal cells.
+
+## `yaml`
+
+### `YamlError`
+
+```yashy
+enum YamlError
+```
+
+Why a document is not valid YAML. The `int` is the byte offset of the
+first problem.
+
+### `count_yaml`
+
+```yashy
+fn count_yaml(YamlDoc doc) -> int
+```
+
+The number of rows in the document.
+
+### `describe_yaml`
+
+```yashy
+fn describe_yaml(YamlError error) -> string
+```
+
+A human-readable rendering of a YAML error with its byte offset.
+
+### `emit_yaml`
+
+```yashy
+fn emit_yaml(YamlDoc doc) -> string
+```
+
+Emit a canonical document: two spaces per indent level, one row per line.
+
+### `free_yaml`
+
+```yashy
+fn free_yaml(YamlDoc doc) -> void
+```
+
+Release every column. The document must not be used afterwards.
+
+### `get_yaml`
+
+```yashy
+fn get_yaml(YamlDoc doc, string wanted) -> Option[int]
+```
+
+Look up a top-level key, returning the row index of its value.
+
+### `indent_of_yaml`
+
+```yashy
+fn indent_of_yaml(YamlDoc doc, int index) -> int
+```
+
+The indentation level of a row.
+
+### `key_of_yaml`
+
+```yashy
+fn key_of_yaml(YamlDoc doc, int index) -> string
+```
+
+The key of a row (empty for a sequence item).
+
+### `kind_of_yaml`
+
+```yashy
+fn kind_of_yaml(YamlDoc doc, int index) -> int
+```
+
+A node kind: 1 mapping key with a value, 2 mapping key opening a block,
+3 sequence item. `-1` is past the end.
+
+### `parse_yaml`
+
+```yashy
+fn parse_yaml(string text) -> Result[YamlDoc, YamlError]
+```
+
+Parse a YAML document. A malformed input answers `Err` with a byte offset.
+Validation runs first so the build pass below has no failure paths.
+
+### `value_of_yaml`
+
+```yashy
+fn value_of_yaml(YamlDoc doc, int index) -> Option[string]
+```
+
+The value text of a row, or `None` past the end.
+
+### `YamlDoc`
+
+```yashy
+struct YamlDoc
+```
+
+A parsed document: one row per line across four owned columns.

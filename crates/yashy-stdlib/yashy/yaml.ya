@@ -1,0 +1,320 @@
+// YAML, the useful indentation-based core over strings.
+//
+// A document is a sequence of lines. A line is either `key: value`, `key:`
+// (opening a nested block) or `- value` (a sequence item). Indentation is in
+// spaces, two per level. Yashy slices hold only scalars, so the tree is stored
+// as parallel columns: each line is one row with its indent level, node kind,
+// key and value text. Emit reconstructs a canonical, byte-stable spelling.
+//
+// Every answer that can fail is a `Result`/`Option`; no sentinel. Names carry
+// a `yaml_` prefix because the stdlib modules share one root scope.
+
+/// Why a document is not valid YAML. The `int` is the byte offset of the
+/// first problem.
+pub enum YamlError {
+    Invalid(int),
+}
+
+/// A human-readable rendering of a YAML error with its byte offset.
+pub fn describe_yaml(YamlError error) -> string {
+    return switch error {
+        case Invalid(at) { "invalid YAML at byte ${at}" }
+    };
+}
+
+/// A parsed document: one row per line across four owned columns.
+pub struct YamlDoc {
+    indents: []int,
+    kinds: []int,
+    keys: []string,
+    values: []string,
+}
+
+/// A node kind: 1 mapping key with a value, 2 mapping key opening a block,
+/// 3 sequence item. `-1` is past the end.
+pub fn kind_of_yaml(YamlDoc doc, int index) -> int {
+    const Option[int] found = doc.kinds[index];
+    return switch found {
+        case Some(code) { code }
+        case None { 0 - 1 }
+    };
+}
+
+/// The indentation level of a row.
+pub fn indent_of_yaml(YamlDoc doc, int index) -> int {
+    const Option[int] found = doc.indents[index];
+    return switch found {
+        case Some(level) { level }
+        case None { 0 - 1 }
+    };
+}
+
+/// The key of a row (empty for a sequence item).
+pub fn key_of_yaml(YamlDoc doc, int index) -> string {
+    const Option[string] found = doc.keys[index];
+    return switch found {
+        case Some(text) { text }
+        case None { "" }
+    };
+}
+
+/// The value text of a row, or `None` past the end.
+pub fn value_of_yaml(YamlDoc doc, int index) -> Option[string] {
+    return doc.values[index];
+}
+
+/// The number of rows in the document.
+pub fn count_yaml(YamlDoc doc) -> int {
+    const []int kinds = doc.kinds;
+    return kinds.len();
+}
+
+/// Look up a top-level key, returning the row index of its value.
+pub fn get_yaml(YamlDoc doc, string wanted) -> Option[int] {
+    const int total = count_yaml(doc);
+    let i = 0;
+    while i < total {
+        if indent_of_yaml(doc, i) == 0 && key_of_yaml(doc, i) == wanted {
+            return Some(i);
+        }
+        i = i + 1;
+    }
+    return None;
+}
+
+/// Release every column. The document must not be used afterwards.
+pub fn free_yaml(YamlDoc doc) {
+    const []int indents = doc.indents;
+    const []int kinds = doc.kinds;
+    const []string keys = doc.keys;
+    const []string values = doc.values;
+    indents.free();
+    kinds.free();
+    keys.free();
+    values.free();
+}
+
+/// Emit a canonical document: two spaces per indent level, one row per line.
+pub fn emit_yaml(YamlDoc doc) -> string {
+    const int total = count_yaml(doc);
+    let out = "";
+    let i = 0;
+    while i < total {
+        const int level = indent_of_yaml(doc, i);
+        let spaces = "";
+        let n = 0;
+        while n < level * 2 {
+            spaces = spaces + " ";
+            n = n + 1;
+        }
+        const int code = kind_of_yaml(doc, i);
+        const string value = switch value_of_yaml(doc, i) {
+            case Some(text) { text }
+            case None { "" }
+        };
+        if code == 3 {
+            out = out + spaces + "- " + value + "\n";
+        } else {
+            out = out + spaces + key_of_yaml(doc, i) + ":";
+            if value.len() > 0 {
+                out = out + " " + value;
+            }
+            out = out + "\n";
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+/// The number of leading spaces and the index just after them.
+fn leading_spaces(string text) -> int {
+    let i = 0;
+    while i < text.len() && text.byte_at(i).to_int() == 32 {
+        i = i + 1;
+    }
+    return i;
+}
+
+/// Trim ASCII whitespace from both ends of `text`.
+fn trim_yaml(string text) -> string {
+    let start = 0;
+    let end = text.len();
+    while start < end {
+        const int b = text.byte_at(start).to_int();
+        if b != 32 && b != 9 && b != 10 && b != 13 {
+            break;
+        }
+        start = start + 1;
+    }
+    while end > start {
+        const int b = text.byte_at(end - 1).to_int();
+        if b != 32 && b != 9 && b != 10 && b != 13 {
+            break;
+        }
+        end = end - 1;
+    }
+    return text.slice(start, end);
+}
+
+/// The value kind of a scalar: 1 string, 2 int, 3 float, 4 bool; `-1` bad.
+/// An empty value is valid (kind 0) for a key that opens a block.
+fn scalar_kind(string text) -> int {
+    if text.len() == 0 {
+        return 0;
+    }
+    if text.byte_at(0).to_int() == 34 {
+        if text.len() < 2 || text.byte_at(text.len() - 1).to_int() != 34 {
+            return 0 - 1;
+        }
+        return 1;
+    }
+    if text == "true" || text == "false" {
+        return 4;
+    }
+    if text.parse_i64() matches Some(_) {
+        return 2;
+    }
+    if text.parse_f64() matches Some(_) {
+        return 3;
+    }
+    return 1;
+}
+
+/// Classify a content line: 1 mapping-with-value, 2 mapping-open, 3 sequence,
+/// or `-1` when malformed. Writes the key and value through the out columns is
+/// left to the caller; this only checks the shape.
+fn line_kind(string content) -> int {
+    if content.len() == 0 {
+        return 0;
+    }
+    const int head = content.byte_at(0).to_int();
+    if head == 45 {
+        if content.len() == 1 || content.byte_at(1).to_int() != 32 {
+            return 0 - 1;
+        }
+        return 3;
+    }
+    const Option[int] colon = content.index_of(":");
+    if !(colon matches Some(_)) {
+        return 0 - 1;
+    }
+    return 1;
+}
+
+/// Validate the document, returning the byte offset of the first problem or
+/// `-1`. Holds no allocation that outlives the call.
+fn validate_yaml(string text) -> int {
+    let int line_start = 0;
+    let int bad = 0 - 1;
+    while bad < 0 && line_start < text.len() {
+        let int line_end = line_start;
+        while line_end < text.len() && text.byte_at(line_end).to_int() != 10 {
+            line_end = line_end + 1;
+        }
+        const string line = text.slice(line_start, line_end);
+        const int spaces = leading_spaces(line);
+        if spaces % 2 != 0 {
+            bad = line_start;
+            break;
+        }
+        const string body = line.slice(spaces, line.len());
+        const int hash = switch body.index_of("#") {
+            case Some(at) { at }
+            case None { body.len() }
+        };
+        const string content = trim_yaml(body.slice(0, hash));
+        const int code = line_kind(content);
+        if code < 0 {
+            bad = line_start;
+            break;
+        }
+        if code == 1 {
+            const int colon = switch content.index_of(":") {
+                case Some(at) { at }
+                case None { 0 }
+            };
+            const string key = trim_yaml(content.slice(0, colon));
+            const string value = trim_yaml(content.slice(colon + 1, content.len()));
+            if key.len() == 0 || scalar_kind(value) < 0 {
+                bad = line_start;
+                break;
+            }
+        } else if code == 3 {
+            const string value = trim_yaml(content.slice(1, content.len()));
+            if value.len() == 0 || scalar_kind(value) < 0 {
+                bad = line_start;
+                break;
+            }
+        }
+        if line_end >= text.len() {
+            break;
+        }
+        line_start = line_end + 1;
+    }
+    return bad;
+}
+
+/// Parse a YAML document. A malformed input answers `Err` with a byte offset.
+/// Validation runs first so the build pass below has no failure paths.
+pub fn parse_yaml(string text) -> Result[YamlDoc, YamlError] {
+    const int bad = validate_yaml(text);
+    if bad >= 0 {
+        return Err(YamlError.Invalid(bad));
+    }
+
+    let []int indents = []int {};
+    let []int kinds = []int {};
+    let []string keys = []string {};
+    let []string values = []string {};
+    let int line_start = 0;
+
+    while line_start < text.len() {
+        let int line_end = line_start;
+        while line_end < text.len() && text.byte_at(line_end).to_int() != 10 {
+            line_end = line_end + 1;
+        }
+        const string line = text.slice(line_start, line_end);
+        const int spaces = leading_spaces(line);
+        const string body = line.slice(spaces, line.len());
+        const int hash = switch body.index_of("#") {
+            case Some(at) { at }
+            case None { body.len() }
+        };
+        const string content = trim_yaml(body.slice(0, hash));
+        const int code = line_kind(content);
+        const int level = spaces / 2;
+
+        if code == 3 {
+            indents.push(level);
+            kinds.push(3);
+            keys.push("");
+            values.push(trim_yaml(content.slice(1, content.len())));
+        } else if code == 1 {
+            const int colon = switch content.index_of(":") {
+                case Some(at) { at }
+                case None { 0 }
+            };
+            const string key = trim_yaml(content.slice(0, colon));
+            const string value = trim_yaml(content.slice(colon + 1, content.len()));
+            indents.push(level);
+            if value.len() == 0 {
+                kinds.push(2);
+            } else {
+                kinds.push(1);
+            }
+            keys.push(key);
+            values.push(value);
+        }
+        if line_end >= text.len() {
+            break;
+        }
+        line_start = line_end + 1;
+    }
+
+    return Ok(YamlDoc {
+        indents: indents,
+        kinds: kinds,
+        keys: keys,
+        values: values,
+    });
+}

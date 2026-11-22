@@ -1,0 +1,11 @@
+name: Yashy
+count: 42
+on: true
+items:
+  - alpha
+  - beta
+
+6
+Yashy
+invalid YAML at byte 0
+invalid YAML at byte 0
