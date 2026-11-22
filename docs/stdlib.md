@@ -1365,6 +1365,97 @@ A trace span as a stable JSON line. `parent_id` is empty for a root span.
 The duration is microseconds; the shape is fixed so a sink does not have to
 guess which field is which.
 
+## `ordered_map`
+
+### `ordered_free`
+
+```yashy
+fn ordered_free(OMap map) -> void
+```
+
+Release every column. The map must not be used afterwards.
+
+### `ordered_get`
+
+```yashy
+fn ordered_get(OMap map, string key) -> OLookup
+```
+
+Look up `key`. The map is returned in `entries` so the caller keeps it.
+
+### `ordered_key`
+
+```yashy
+fn ordered_key(OMap map, int index) -> Option[string]
+```
+
+The live key at row `index` (skipping removed rows), or `None` past the end.
+
+### `ordered_len`
+
+```yashy
+fn ordered_len(OMap map) -> int
+```
+
+The number of live entries.
+
+### `ordered_new`
+
+```yashy
+fn ordered_new() -> OMap
+```
+
+A fresh, empty map.
+
+### `ordered_remove`
+
+```yashy
+fn ordered_remove(OMap map, string key) -> OMap
+```
+
+Remove `key`, returning the map. Removal keeps the order of the rest.
+
+### `ordered_set`
+
+```yashy
+fn ordered_set(OMap map, string key, string new_value) -> OMap
+```
+
+Insert `key` with `value`, or overwrite an existing key in place (keeping
+its position). A new key is appended at the end.
+
+### `ordered_touch`
+
+```yashy
+fn ordered_touch(OMap map, string key, string value) -> OMap
+```
+
+Remove `key` then re-insert it, moving it to the end.
+
+### `ordered_value`
+
+```yashy
+fn ordered_value(OMap map, int index) -> Option[string]
+```
+
+The live value at row `index`, or `None` past the end.
+
+### `OLookup`
+
+```yashy
+struct OLookup
+```
+
+A lookup answer: the map plus the value found, if any.
+
+### `OMap`
+
+```yashy
+struct OMap
+```
+
+An insertion-ordered map: append-only columns and a live flag per key row.
+
 ## `os`
 
 ### `Arch`

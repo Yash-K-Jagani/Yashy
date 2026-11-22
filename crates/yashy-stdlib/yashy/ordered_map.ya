@@ -1,0 +1,202 @@
+// An insertion-ordered map over string keys.
+//
+// Yashy's built-in `map[K]V` hashes by content but does not promise iteration
+// order. This module gives the other half: keys are returned in the order they
+// were first inserted, and removing then re-inserting a key moves it to the
+// end. Values are `string` (a caller needing an int parses it with
+// `parse_i64`).
+//
+// Slices of `string` cannot be set or removed in place (the removed handle
+// would need a matching release), so columns are append-only: each `set`
+// appends a value and rewrites an `int` slot to point at it; removal marks a
+// `bool` live flag false. Both int set and bool set are plain word writes.
+//
+// The map is linear: operations take it and answer it back, so the caller
+// binds the answer (`m = ordered_set(m, "a", "1");`). A read carries the map
+// with it in `OLookup` so asking a question does not consume it.
+//
+// Names carry an `ordered_` prefix because the stdlib modules share one root
+// scope.
+
+/// An insertion-ordered map: append-only columns and a live flag per key row.
+pub struct OMap {
+    keys: []string,
+    values: []string,
+    slots: []int,
+    live: []int,
+}
+
+/// A lookup answer: the map plus the value found, if any.
+pub struct OLookup {
+    pub entries: OMap,
+    pub value: Option[string],
+}
+
+/// A fresh, empty map.
+pub fn ordered_new() -> OMap {
+    return OMap {
+        keys: []string {},
+        values: []string {},
+        slots: []int {},
+        live: []int {},
+    };
+}
+
+/// The number of live entries.
+pub fn ordered_len(OMap map) -> int {
+    const []int live = map.live;
+    let count = 0;
+    let i = 0;
+    while i < live.len() {
+        const int flag = switch live[i] { case Some(value) { value } case None { 0 } };
+        if flag == 1 {
+            count = count + 1;
+        }
+        i = i + 1;
+    }
+    return count;
+}
+
+/// The live key at row `index` (skipping removed rows), or `None` past the end.
+pub fn ordered_key(OMap map, int index) -> Option[string] {
+    const []int live = map.live;
+    let seen = 0;
+    let i = 0;
+    while i < live.len() {
+        const int flag = switch live[i] { case Some(value) { value } case None { 0 } };
+        if flag == 1 {
+            if seen == index {
+                return map.keys[i];
+            }
+            seen = seen + 1;
+        }
+        i = i + 1;
+    }
+    const Option[string] missing = None;
+    return missing;
+}
+
+/// The live value at row `index`, or `None` past the end.
+pub fn ordered_value(OMap map, int index) -> Option[string] {
+    const []int live = map.live;
+    let seen = 0;
+    let i = 0;
+    while i < live.len() {
+        const int flag = switch live[i] { case Some(value) { value } case None { 0 } };
+        if flag == 1 {
+            if seen == index {
+                const Option[int] slot = map.slots[i];
+                const int at = switch slot {
+                    case Some(value) { value }
+                    case None { 0 }
+                };
+                return map.values[at];
+            }
+            seen = seen + 1;
+        }
+        i = i + 1;
+    }
+    const Option[string] missing = None;
+    return missing;
+}
+
+/// Insert `key` with `value`, or overwrite an existing key in place (keeping
+/// its position). A new key is appended at the end.
+pub fn ordered_set(OMap map, string key, string new_value) -> OMap {
+    const []int live = map.live;
+    const []string keys = map.keys;
+    const []int slots = map.slots;
+    let int found_at = 0 - 1;
+    let int i = 0;
+    while i < live.len() {
+        const int flag = switch live[i] { case Some(value) { value } case None { 0 } };
+        const string existing = switch keys[i] {
+            case Some(text) { text }
+            case None { "" }
+        };
+        if flag == 1 && existing == key {
+            found_at = i;
+            break;
+        }
+        i = i + 1;
+    }
+
+    let []string values = map.values;
+    values.push(new_value);
+    const int at = values.len() - 1;
+    if found_at >= 0 {
+        slots.set(found_at, at);
+        return OMap { keys: keys, values: values, slots: slots, live: live };
+    }
+    let []string new_keys = move keys;
+    new_keys.push(key);
+    let []int new_slots = move slots;
+    new_slots.push(at);
+    let []int new_live = move live;
+    new_live.push(1);
+    return OMap {
+        keys: new_keys, values: values, slots: new_slots, live: new_live
+    };
+}
+
+/// Look up `key`. The map is returned in `entries` so the caller keeps it.
+pub fn ordered_get(OMap map, string key) -> OLookup {
+    const []int live = map.live;
+    let int i = 0;
+    while i < live.len() {
+        const int flag = switch live[i] { case Some(value) { value } case None { 0 } };
+        const string existing = switch map.keys[i] {
+            case Some(text) { text }
+            case None { "" }
+        };
+        if flag == 1 && existing == key {
+            const Option[int] slot = map.slots[i];
+            const int at = switch slot {
+                case Some(value) { value }
+                case None { 0 }
+            };
+            const Option[string] value = map.values[at];
+            return OLookup { entries: map, value: value };
+        }
+        i = i + 1;
+    }
+    const Option[string] missing = None;
+    return OLookup { entries: map, value: missing };
+}
+
+/// Remove `key`, returning the map. Removal keeps the order of the rest.
+pub fn ordered_remove(OMap map, string key) -> OMap {
+    const []int live = map.live;
+    let int i = 0;
+    while i < live.len() {
+        const int flag = switch live[i] { case Some(value) { value } case None { 0 } };
+        const string existing = switch map.keys[i] {
+            case Some(text) { text }
+            case None { "" }
+        };
+        if flag == 1 && existing == key {
+            live.set(i, 0);
+            break;
+        }
+        i = i + 1;
+    }
+    return map;
+}
+
+/// Remove `key` then re-insert it, moving it to the end.
+pub fn ordered_touch(OMap map, string key, string value) -> OMap {
+    const OMap without = ordered_remove(map, key);
+    return ordered_set(without, key, value);
+}
+
+/// Release every column. The map must not be used afterwards.
+pub fn ordered_free(OMap map) {
+    const []string keys = map.keys;
+    const []string values = map.values;
+    const []int slots = map.slots;
+    const []int live = map.live;
+    keys.free();
+    values.free();
+    slots.free();
+    live.free();
+}

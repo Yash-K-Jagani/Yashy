@@ -180,6 +180,7 @@ pub fn gen_block(ctx: &mut FnCtx<'_>, block: &HirBlock) -> Flow {
     ctx.defers.push(Vec::new());
     ctx.open_ref_scope();
     ctx.arena_scopes.push(Vec::new());
+    ctx.local_scopes.push(Vec::new());
     if block.arena {
         // An explicit `arena { }` block owns its arena even when an allocation
         // written in a nested block uses it: the inner block exit must not free
@@ -200,6 +201,7 @@ pub fn gen_block(ctx: &mut FnCtx<'_>, block: &HirBlock) -> Flow {
             ctx.arena_scopes.pop();
             ctx.defers.pop();
             ctx.close_ref_scope();
+            close_local_scope(ctx);
             return flow;
         }
     }
@@ -215,7 +217,31 @@ pub fn gen_block(ctx: &mut FnCtx<'_>, block: &HirBlock) -> Flow {
     ctx.arena_scopes.pop();
     ctx.defers.pop();
     ctx.close_ref_scope_released();
+    close_local_scope(ctx);
     Flow::Fallthrough
+}
+
+/// Restore the bindings the block that is closing shadowed.
+///
+/// [`FnCtx::locals`] is keyed by name and has no scope of its own, so a `let` or
+/// a pattern binding inside a nested block would otherwise remain the meaning of
+/// that name after the block ends. Replaying the frame makes the enclosing
+/// binding visible again; a name the block introduced is dropped, because it is
+/// not in scope outside the block.
+fn close_local_scope(ctx: &mut FnCtx<'_>) {
+    let Some(frame) = ctx.local_scopes.pop() else {
+        return;
+    };
+    for (name, previous) in frame.into_iter().rev() {
+        match previous {
+            Some(entry) => {
+                ctx.locals.insert(name, entry);
+            }
+            None => {
+                ctx.locals.remove(&name);
+            }
+        }
+    }
 }
 
 /// Replace the field named by `steps` inside the aggregate `base` of type

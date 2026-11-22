@@ -542,6 +542,20 @@ pub fn gen_match(
     // released after the merge point and the result may point into it.
     let owns_result = owns_string_refs(ctx, result_ty);
     for (index, arm) in arms.iter().enumerate() {
+        // The pattern's names are scoped to the arm: the checker popped them
+        // before the next statement, so whatever they shadowed is the binding a
+        // later use in the enclosing block means. Without the restore, a
+        // `case Some(value)` whose body never runs would still leave the arm's
+        // payload slot as the meaning of `value` for the rest of the function.
+        let mut names = Vec::new();
+        pattern_names(&arm.pattern, &mut names);
+        let shadowed: Vec<(String, Option<(String, TypeKind)>)> = names
+            .into_iter()
+            .map(|name| {
+                let previous = ctx.locals.get(&name).cloned();
+                (name, previous)
+            })
+            .collect();
         ctx.push(format!("{}:", arm_labels[index]));
         bind_pattern(ctx, subject, &arm.pattern);
         if let Some(guard) = &arm.guard {
@@ -573,6 +587,16 @@ pub fn gen_match(
             ctx.push(format!("store {result_repr} {stored}, ptr {result_slot}"));
         }
         ctx.push(format!("br label %{result_done}"));
+        for (name, previous) in shadowed {
+            match previous {
+                Some(binding) => {
+                    ctx.locals.insert(name, binding);
+                }
+                None => {
+                    ctx.locals.remove(&name);
+                }
+            }
+        }
     }
 
     ctx.push(format!("{result_done}:"));

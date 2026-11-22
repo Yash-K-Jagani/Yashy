@@ -1,0 +1,67 @@
+// A nested binding must not outlive its block.
+//
+// `locals` in the backend is a flat name map, so a `let` or a `case Some(x)`
+// binding declared inside a nested block used to stay the meaning of that name
+// after the block ended. When the shadowed name was a parameter of a different
+// type, the later use read the wrong slot: `values.push(value)` pushed an `i64`
+// where a `string` was expected.
+//
+// Both cases below fail to compile, or print the wrong text, if the enclosing
+// binding is not restored.
+
+struct Bag {
+    keys: []string,
+    values: []string,
+    live: []int,
+}
+
+fn insert(Bag bag, string key, string value) -> Bag {
+    const []int live = bag.live;
+    const []string keys = bag.keys;
+    let int i = 0;
+    while i < live.len() {
+        const int flag = switch live[i] { case Some(value) { value } case None { 0 } };
+        const string existing = switch keys[i] {
+            case Some(text) { text }
+            case None { "" }
+        };
+        if flag == 1 && existing == key {
+            break;
+        }
+        i = i + 1;
+    }
+    let []string values = bag.values;
+    values.push(value);
+    return Bag { keys: keys, values: values, live: live };
+}
+
+fn shadowing_let() -> string {
+    const string name = "outer";
+    if name.len() > 0 {
+        const int name = 7;
+        assert(name == 7);
+    }
+    return name;
+}
+
+fn main() {
+    let bag = Bag { keys: []string {}, values: []string {}, live: []int {} };
+    bag = insert(bag, "a", "one");
+    bag = insert(bag, "b", "two");
+    const []string values = bag.values;
+    const Option[string] second = values[1];
+    const string text = switch second {
+        case Some(found) { found }
+        case None { "missing" }
+    };
+    assert(text == "two");
+    print(text);
+    assert(shadowing_let() == "outer");
+    print(shadowing_let());
+
+    values.free();
+    const []string keys = bag.keys;
+    keys.free();
+    const []int live = bag.live;
+    live.free();
+}

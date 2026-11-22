@@ -231,6 +231,15 @@ pub struct FnCtx<'a> {
     /// One entry per `ArenaId` that a promoted site actually used, so a block
     /// with no arena allocations creates no arena.
     pub(crate) arena_handles: HashMap<ArenaId, String>,
+    /// The bindings each open lexical block shadowed, innermost last.
+    ///
+    /// [`FnCtx::locals`] is a flat map keyed by name, so without this a binding
+    /// declared in a nested block (`let`, or a `case Some(value)` pattern
+    /// binding) would stay visible after the block ends and capture a later use
+    /// of the same name in the enclosing scope. Each entry remembers what the
+    /// name meant before the block displaced it (`None` when the name was new),
+    /// and [`crate::stmt_gen::gen_block`] replays the entries on the way out.
+    pub(crate) local_scopes: Vec<Vec<(String, Option<(String, TypeKind)>)>>,
     /// Arena ids created in each currently open lexical block, innermost last.
     ///
     /// Pushed and popped by [`crate::stmt_gen::gen_block`], exactly like the
@@ -277,6 +286,7 @@ impl<'a> FnCtx<'a> {
             arena_handles: HashMap::new(),
             arena_scopes: Vec::new(),
             arena_owners: HashMap::new(),
+            local_scopes: Vec::new(),
             async_poll: None,
             atomic_strings,
         }
@@ -667,6 +677,14 @@ impl<'a> FnCtx<'a> {
     /// would describe a slot the body cannot read. A parameter passes its
     /// 1-based position so a debugger shows it in the argument list.
     pub fn declare_local(&mut self, name: &str, ty: &TypeKind, slot: &str, arg: Option<usize>) {
+        // Remember what the enclosing scope called this name, so the binding
+        // does not outlive the block that declared it. Parameters are declared
+        // before the body's block opens, so they are never shadowed here by
+        // their own function.
+        let previous = self.locals.get(name).cloned();
+        if let Some(frame) = self.local_scopes.last_mut() {
+            frame.push((name.to_string(), previous));
+        }
         self.locals
             .insert(name.to_string(), (slot.to_string(), ty.clone()));
         if let Some(tag) = crate::module::debug_tag(ty) {

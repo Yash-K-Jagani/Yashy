@@ -1,0 +1,46 @@
+import ordered_map;
+
+fn unwrap(Option[string] value) -> string {
+    return switch value {
+        case Some(text) { text }
+        case None { "none" }
+    };
+}
+
+fn keys_of(OMap map) -> string {
+    let out = "";
+    let i = 0;
+    while i < ordered_map.ordered_len(map) {
+        out = out + unwrap(ordered_map.ordered_key(map, i)) + "=";
+        out = out + unwrap(ordered_map.ordered_value(map, i)) + " ";
+        i = i + 1;
+    }
+    return out;
+}
+
+fn main() {
+    let map = ordered_map.ordered_new();
+    map = ordered_map.ordered_set(map, "alpha", "1");
+    map = ordered_map.ordered_set(map, "beta", "2");
+    map = ordered_map.ordered_set(map, "gamma", "3");
+    print(keys_of(map));
+
+    // Overwrite keeps position; removing and re-adding moves to the end.
+    map = ordered_map.ordered_set(map, "beta", "20");
+    print(keys_of(map));
+    map = ordered_map.ordered_touch(map, "alpha", "10");
+    print(keys_of(map));
+
+    const found = ordered_map.ordered_get(map, "beta");
+    print(unwrap(found.value));
+    map = found.entries;
+
+    map = ordered_map.ordered_remove(map, "gamma");
+    print(keys_of(map));
+
+    const missing = ordered_map.ordered_get(map, "gamma");
+    print(unwrap(missing.value));
+    map = missing.entries;
+
+    ordered_map.ordered_free(map);
+}
