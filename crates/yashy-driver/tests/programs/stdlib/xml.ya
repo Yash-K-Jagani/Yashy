@@ -1,0 +1,43 @@
+import xml;
+
+fn show(XmlDoc doc) {
+    print(xml.emit_xml(doc));
+    print(xml.count_xml(doc));
+    const Option[int] found = xml.find_xml(doc, "second");
+    switch found {
+        case Some(index) { show_text(doc, index) }
+        case None { print("missing") }
+    };
+    xml.free_xml(doc);
+}
+
+fn show_text(XmlDoc doc, int index) {
+    const Option[string] text = xml.text_of_xml(doc, index);
+    switch text {
+        case Some(value) { print(value); }
+        case None { print("none"); }
+    };
+}
+
+fn error_of(string text) -> string {
+    const string answer = switch xml.parse_xml(text) {
+        case Ok(doc) { free_and_empty(doc) }
+        case Err(error) { xml.describe_xml(error) }
+    };
+    return answer;
+}
+
+fn free_and_empty(XmlDoc doc) -> string {
+    xml.free_xml(doc);
+    return "ok";
+}
+
+fn main() {
+    const string text = "<root><first>one</first><second>two &amp; three</second><empty/></root>";
+    switch xml.parse_xml(text) {
+        case Ok(doc) { show(doc) }
+        case Err(_) { print("bad xml") }
+    };
+    print(xml.decode_entities("a &lt; b &gt; c"));
+    print(error_of("<root><a></b></root>"));
+}

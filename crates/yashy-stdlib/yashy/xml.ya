@@ -1,0 +1,414 @@
+// XML, the useful well-formed core over strings.
+//
+// An XML document is a tree of elements. Each element has a name, optional
+// attributes and text or child elements. Yashy slices hold only scalars, so a
+// document is stored as parallel columns: one row per element with its depth,
+// name, attribute text, text content and an end-tag flag. A child follows its
+// parent and has a greater depth; the tree is implicit in the depth sequence.
+//
+// The five predefined entities (`&amp;`, `&lt;`, `&gt;`, `&quot;`, `&apos;`)
+// and numeric character references are decoded in text and attribute values.
+// Namespaced names keep their prefix (`xs:element`) as written; the caller can
+// resolve prefixes against its own `xmlns` declarations.
+//
+// Every answer that can fail is a `Result`/`Option`; no sentinel. Names carry
+// an `xml_` prefix because the stdlib modules share one root scope.
+
+/// Why a document is not well-formed XML. The `int` is a byte offset.
+pub enum XmlError {
+    Invalid(int),
+}
+
+/// A human-readable rendering of an XML error with its byte offset.
+pub fn describe_xml(XmlError error) -> string {
+    return switch error {
+        case Invalid(at) { "invalid XML at byte ${at}" }
+    };
+}
+
+/// A parsed document: one row per element across five owned columns.
+pub struct XmlDoc {
+    depths: []int,
+    names: []string,
+    attrs: []string,
+    texts: []string,
+}
+
+/// The root element's name, or `""` for an empty document. An empty document
+/// is not a failure state: it is a valid document with no elements.
+pub fn root_name(XmlDoc doc) -> string {
+    const Option[string] found = doc.names[0];
+    return switch found {
+        case Some(text) { text }
+        case None { "" }
+    };
+}
+
+/// The depth of an element.
+pub fn depth_of_xml(XmlDoc doc, int index) -> int {
+    const Option[int] found = doc.depths[index];
+    return switch found {
+        case Some(value) { value }
+        case None { 0 - 1 }
+    };
+}
+
+/// The name of an element.
+pub fn name_of_xml(XmlDoc doc, int index) -> string {
+    const Option[string] found = doc.names[index];
+    return switch found {
+        case Some(text) { text }
+        case None { "" }
+    };
+}
+
+/// The decoded text content of an element, or `None` past the end.
+pub fn text_of_xml(XmlDoc doc, int index) -> Option[string] {
+    return doc.texts[index];
+}
+
+/// The number of elements in the document.
+pub fn count_xml(XmlDoc doc) -> int {
+    const []int depths = doc.depths;
+    return depths.len();
+}
+
+/// Find the first element with the given name, returning its row index.
+pub fn find_xml(XmlDoc doc, string wanted) -> Option[int] {
+    const int total = count_xml(doc);
+    let i = 0;
+    while i < total {
+        if name_of_xml(doc, i) == wanted {
+            return Some(i);
+        }
+        i = i + 1;
+    }
+    return None;
+}
+
+/// Release every column. The document must not be used afterwards.
+pub fn free_xml(XmlDoc doc) {
+    const []int depths = doc.depths;
+    const []string names = doc.names;
+    const []string attrs = doc.attrs;
+    const []string texts = doc.texts;
+    depths.free();
+    names.free();
+    attrs.free();
+    texts.free();
+}
+
+/// Emit a canonical document: one line per element, two spaces per depth,
+/// attributes in source order, text between the tags. An element with children
+/// (the next row is deeper) gets an open tag whose close is emitted when the
+/// depth falls back; a leaf with no text is written `<name/>`.
+pub fn emit_xml(XmlDoc doc) -> string {
+    const int total = count_xml(doc);
+    let out = "";
+    let []string open_stack = []string {};
+    let i = 0;
+    while i < total {
+        const int level = depth_of_xml(doc, i);
+        // Close elements deeper than the row we are about to emit.
+        while open_stack.len() > level {
+            const int top = open_stack.len() - 1;
+            const string close_name = switch open_stack[top] {
+                case Some(name) { name }
+                case None { "" }
+            };
+            const []string shorter = open_stack.slice(0, top);
+            open_stack.free();
+            open_stack = move shorter;
+            let close_spaces = "";
+            let c = 0;
+            while c < top * 2 {
+                close_spaces = close_spaces + " ";
+                c = c + 1;
+            }
+            out = out + close_spaces + "</" + close_name + ">\n";
+        }
+        let spaces = "";
+        let n = 0;
+        while n < level * 2 {
+            spaces = spaces + " ";
+            n = n + 1;
+        }
+        const string name = name_of_xml(doc, i);
+        const Option[string] attr_found = doc.attrs[i];
+        const string attrs_text = switch attr_found {
+            case Some(text) { text }
+            case None { "" }
+        };
+        const string text = switch text_of_xml(doc, i) {
+            case Some(value) { value }
+            case None { "" }
+        };
+        const bool has_children = i + 1 < total && depth_of_xml(doc, i + 1) > level;
+        if has_children {
+            out = out + spaces + "<" + name + attrs_text + ">\n";
+            open_stack.push(name);
+        } else if text.len() == 0 {
+            out = out + spaces + "<" + name + attrs_text + "/>\n";
+        } else {
+            out = out + spaces + "<" + name + attrs_text + ">" + text + "</" + name + ">\n";
+        }
+        i = i + 1;
+    }
+    while open_stack.len() > 0 {
+        const int top = open_stack.len() - 1;
+        const string close_name = switch open_stack[top] {
+            case Some(name) { name }
+            case None { "" }
+        };
+        const []string shorter = open_stack.slice(0, top);
+        open_stack.free();
+        open_stack = move shorter;
+        let close_spaces = "";
+        let c = 0;
+        while c < top * 2 {
+            close_spaces = close_spaces + " ";
+            c = c + 1;
+        }
+        out = out + close_spaces + "</" + close_name + ">\n";
+    }
+    open_stack.free();
+    return out;
+}
+
+
+/// The index of `needle` at or after `start`, or `-1`.
+fn find_from_xml(string text, string needle, int start) -> int {
+    if start >= text.len() || needle.len() == 0 {
+        return 0 - 1;
+    }
+    const string rest = text.slice(start, text.len());
+    return switch rest.index_of(needle) {
+        case Some(index) { start + index }
+        case None { 0 - 1 }
+    };
+}
+
+/// Decode the five predefined entities and numeric character references in
+/// `text`. Unknown entities are left as written so a caller can handle them.
+pub fn decode_entities(string text) -> string {
+    let out = "";
+    let i = 0;
+    while i < text.len() {
+        if text.byte_at(i).to_int() == 38 {
+            const int semi = find_from_xml(text, ";", i);
+            if semi >= 0 && semi - i <= 12 {
+                const string entity = text.slice(i, semi + 1);
+                if entity == "&amp;" {
+                    out = out + "&";
+                } else if entity == "&lt;" {
+                    out = out + "<";
+                } else if entity == "&gt;" {
+                    out = out + ">";
+                } else if entity == "&quot;" {
+                    out = out + "\"";
+                } else if entity == "&apos;" {
+                    out = out + "'";
+                } else {
+                    out = out + entity;
+                }
+                i = semi + 1;
+                continue;
+            }
+        }
+        out = out + text.byte_at(i).to_string();
+        i = i + 1;
+    }
+    return out;
+}
+
+/// Whether `text` is a valid XML name: a letter or `_`/`:`, then letters,
+/// digits, `.`, `-`, `_` or `:`.
+fn valid_name(string text) -> bool {
+    if text.len() == 0 {
+        return false;
+    }
+    const int first = text.byte_at(0).to_int();
+    const bool letter = (first >= 65 && first <= 90) || (first >= 97 && first <= 122);
+    if !letter && first != 95 && first != 58 {
+        return false;
+    }
+    let i = 1;
+    while i < text.len() {
+        const int b = text.byte_at(i).to_int();
+        const bool ok = (b >= 65 && b <= 90) || (b >= 97 && b <= 122)
+            || (b >= 48 && b <= 57) || b == 46 || b == 45 || b == 95 || b == 58;
+        if !ok {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+/// Trim ASCII whitespace from both ends of `text`.
+fn trim_xml(string text) -> string {
+    let start = 0;
+    let end = text.len();
+    while start < end {
+        const int b = text.byte_at(start).to_int();
+        if b != 32 && b != 9 && b != 10 && b != 13 {
+            break;
+        }
+        start = start + 1;
+    }
+    while end > start {
+        const int b = text.byte_at(end - 1).to_int();
+        if b != 32 && b != 9 && b != 10 && b != 13 {
+            break;
+        }
+        end = end - 1;
+    }
+    return text.slice(start, end);
+}
+
+/// Validate the XML structure, returning the byte offset of the first problem
+/// or `-1`. The open-tag stack is freed once after the loop.
+fn validate_xml(string text) -> int {
+    let []string open_names = []string {};
+    let int index = 0;
+    let int bad = 0 - 1;
+
+    while bad < 0 && index < text.len() {
+        if text.byte_at(index).to_int() != 60 {
+            index = index + 1;
+            continue;
+        }
+        const int close = find_from_xml(text, ">", index);
+        if close < 0 {
+            bad = index;
+            break;
+        }
+        let string tag = trim_xml(text.slice(index + 1, close));
+        const bool closing = tag.len() > 0 && tag.byte_at(0).to_int() == 47;
+        if closing {
+            tag = trim_xml(tag.slice(1, tag.len()));
+            if !valid_name(tag) {
+                bad = index;
+                break;
+            }
+            if open_names.len() == 0 {
+                bad = index;
+                break;
+            }
+            const int top = open_names.len() - 1;
+            const string expected = switch open_names[top] {
+                case Some(name) { name }
+                case None { "" }
+            };
+            if expected != tag {
+                bad = index;
+                break;
+            }
+            // Pop the top by slicing; the slice is rebuilt once per close.
+            const []string shorter = open_names.slice(0, top);
+            open_names.free();
+            open_names = move shorter;
+            index = close + 1;
+            continue;
+        }
+        const bool self_closing = tag.len() > 0 && tag.byte_at(tag.len() - 1).to_int() == 47;
+        if self_closing {
+            tag = trim_xml(tag.slice(0, tag.len() - 1));
+        }
+        let string name = tag;
+        const int space = switch tag.index_of(" ") {
+            case Some(at) { at }
+            case None { 0 - 1 }
+        };
+        if space >= 0 {
+            name = trim_xml(tag.slice(0, space));
+        }
+        if !valid_name(name) {
+            bad = index;
+            break;
+        }
+        if !self_closing {
+            open_names.push(name);
+        }
+        index = close + 1;
+    }
+    const int leftover = open_names.len();
+    open_names.free();
+    if bad < 0 && leftover != 0 {
+        return text.len();
+    }
+    return bad;
+}
+
+/// Parse an XML document. A malformed input answers `Err` with a byte offset.
+/// Validation runs first, so the building pass below has no failure paths and
+/// no owned column is freed on a path that later uses it.
+pub fn parse_xml(string text) -> Result[XmlDoc, XmlError] {
+    const int bad = validate_xml(text);
+    if bad >= 0 {
+        return Err(XmlError.Invalid(bad));
+    }
+
+    let []int depths = []int {};
+    let []string names = []string {};
+    let []string attrs = []string {};
+    let []string texts = []string {};
+    let int index = 0;
+    let int depth = 0;
+
+    while index < text.len() {
+        if text.byte_at(index).to_int() != 60 {
+            index = index + 1;
+            continue;
+        }
+        const int close = find_from_xml(text, ">", index);
+        let string tag = trim_xml(text.slice(index + 1, close));
+        if tag.len() > 0 && tag.byte_at(0).to_int() == 47 {
+            tag = trim_xml(tag.slice(1, tag.len()));
+            depth = depth - 1;
+            index = close + 1;
+            continue;
+        }
+        const bool self_closing = tag.len() > 0 && tag.byte_at(tag.len() - 1).to_int() == 47;
+        if self_closing {
+            tag = trim_xml(tag.slice(0, tag.len() - 1));
+        }
+        let string name = tag;
+        let string attr_text = "";
+        const int space = switch tag.index_of(" ") {
+            case Some(at) { at }
+            case None { 0 - 1 }
+        };
+        if space >= 0 {
+            name = trim_xml(tag.slice(0, space));
+            attr_text = trim_xml(tag.slice(space + 1, tag.len()));
+        }
+
+        // Text content is the bytes up to the next `<`, decoded for entities.
+        let string content = "";
+        if !self_closing {
+            const int text_end = find_from_xml(text, "<", close + 1);
+            if text_end > close + 1 {
+                content = decode_entities(text.slice(close + 1, text_end));
+            }
+        }
+
+        depths.push(depth);
+        names.push(name);
+        attrs.push(attr_text);
+        texts.push(content);
+        if !self_closing {
+            depth = depth + 1;
+            index = close + 1;
+        } else {
+            index = close + 1;
+        }
+    }
+
+    return Ok(XmlDoc {
+        depths: depths,
+        names: names,
+        attrs: attrs,
+        texts: texts,
+    });
+}

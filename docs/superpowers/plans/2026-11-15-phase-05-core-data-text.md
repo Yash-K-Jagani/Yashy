@@ -150,12 +150,12 @@ is a capability rather than an ambient read.
 - `emit(value: Json, opts: EmitOptions) -> string`
 
 - [ ] **Step 1: Write the failing test.** Parse a document with nested objects, escapes, surrogate pairs, big integers and duplicate keys; emit it and parse it again; assert byte-stable output with a documented key order (insertion order) and no trailing whitespace. Repeat the round-trip for TOML, YAML, CSV (quoted fields, embedded newlines) and XML (entities, namespaces).
-  *Current:* JSON, CSV, TOML and now YAML round-trip. `yaml.ya` parses
-  indentation-based mappings and sequences into parallel columns, with
-  `parse_yaml`, `get_yaml`, `emit_yaml` (canonical two-space indent),
-  `free_yaml` and byte-offset errors via `describe_yaml`. `stdlib/yaml.ya`
-  pins a document with nested sequences and two malformed inputs;
-  `stdlib/fuzz.ya` drives YAML too. TOML and YAML are added; XML remains owed.
+  *Current:* All five encodings round-trip. `xml.ya` parses well-formed
+  elements (nested tags, attributes, text, entities) into parallel columns,
+  with `parse_xml`, `emit_xml` (canonical nested spelling), `find_xml`,
+  `decode_entities`, `free_xml` and byte-offset errors via `describe_xml`.
+  `stdlib/xml.ya` pins a nested document with entities and mismatched tags;
+  `stdlib/fuzz.ya` drives XML too. Step 1 is complete.
 - [x] **Step 2: No sentinel, ever.** `parse` returns `Result`; a missing key is `Option`; a type mismatch is an error with a byte offset and a line/column. `""` and `0` are values, never failures.
   *Current:* `json_scan.ya` provides `minify` and `validate`, both returning
   `Result`/`Option` with a byte offset on failure and no sentinel answer. The

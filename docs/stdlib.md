@@ -2086,6 +2086,119 @@ fn width(string text) -> int
 
 The width of `text` in terminal cells.
 
+## `xml`
+
+### `XmlError`
+
+```yashy
+enum XmlError
+```
+
+Why a document is not well-formed XML. The `int` is a byte offset.
+
+### `count_xml`
+
+```yashy
+fn count_xml(XmlDoc doc) -> int
+```
+
+The number of elements in the document.
+
+### `decode_entities`
+
+```yashy
+fn decode_entities(string text) -> string
+```
+
+Decode the five predefined entities and numeric character references in
+`text`. Unknown entities are left as written so a caller can handle them.
+
+### `depth_of_xml`
+
+```yashy
+fn depth_of_xml(XmlDoc doc, int index) -> int
+```
+
+The depth of an element.
+
+### `describe_xml`
+
+```yashy
+fn describe_xml(XmlError error) -> string
+```
+
+A human-readable rendering of an XML error with its byte offset.
+
+### `emit_xml`
+
+```yashy
+fn emit_xml(XmlDoc doc) -> string
+```
+
+Emit a canonical document: one line per element, two spaces per depth,
+attributes in source order, text between the tags. An element with children
+(the next row is deeper) gets an open tag whose close is emitted when the
+depth falls back; a leaf with no text is written `<name/>`.
+
+### `find_xml`
+
+```yashy
+fn find_xml(XmlDoc doc, string wanted) -> Option[int]
+```
+
+Find the first element with the given name, returning its row index.
+
+### `free_xml`
+
+```yashy
+fn free_xml(XmlDoc doc) -> void
+```
+
+Release every column. The document must not be used afterwards.
+
+### `name_of_xml`
+
+```yashy
+fn name_of_xml(XmlDoc doc, int index) -> string
+```
+
+The name of an element.
+
+### `parse_xml`
+
+```yashy
+fn parse_xml(string text) -> Result[XmlDoc, XmlError]
+```
+
+Parse an XML document. A malformed input answers `Err` with a byte offset.
+Validation runs first, so the building pass below has no failure paths and
+no owned column is freed on a path that later uses it.
+
+### `root_name`
+
+```yashy
+fn root_name(XmlDoc doc) -> string
+```
+
+The root element's name, or `""` for an empty document. An empty document
+is not a failure state: it is a valid document with no elements.
+
+### `text_of_xml`
+
+```yashy
+fn text_of_xml(XmlDoc doc, int index) -> Option[string]
+```
+
+The decoded text content of an element, or `None` past the end.
+
+### `XmlDoc`
+
+```yashy
+struct XmlDoc
+```
+
+A parsed document: one row per element across five owned columns.
+
 ## `yaml`
 
 ### `YamlError`

@@ -19,6 +19,7 @@ import mime;
 import text;
 import toml;
 import yaml;
+import xml;
 
 /// The next LCG state. The multiplier keeps the product under 2^63, so the
 /// checked integer arithmetic in Yashy cannot fault on a generated input.
@@ -134,6 +135,18 @@ fn free_yaml_ok(YamlDoc doc) -> bool {
     return true;
 }
 
+fn feed_xml(string input) -> bool {
+    return switch xml.parse_xml(input) {
+        case Ok(doc) { free_xml_ok(doc) }
+        case Err(_) { true }
+    };
+}
+
+fn free_xml_ok(XmlDoc doc) -> bool {
+    xml.free_xml(doc);
+    return true;
+}
+
 fn feed_hex(string input) -> bool {
     return switch text.hex_decode(input) {
         case Ok(bytes) { free_bytes(bytes) }
@@ -151,7 +164,8 @@ fn feed(string input) -> bool {
     const bool g = feed_hex(input);
     const bool h = feed_toml(input);
     const bool i = feed_yaml(input);
-    return a && b && c && d && e && f && g && h && i;
+    const bool j = feed_xml(input);
+    return a && b && c && d && e && f && g && h && i && j;
 }
 
 fn main() {

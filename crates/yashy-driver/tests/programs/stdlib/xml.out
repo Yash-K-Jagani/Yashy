@@ -1,0 +1,10 @@
+<root>
+  <first>one</first>
+  <second>two & three</second>
+  <empty/>
+</root>
+
+4
+two & three
+a < b > c
+invalid XML at byte 9
