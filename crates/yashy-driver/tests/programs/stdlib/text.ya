@@ -69,6 +69,27 @@ fn round_trips(Result[[]char, TextError] decoded, []char expected) -> bool {
     };
 }
 
+fn error_of_base64(string value) -> string {
+    const string answer = switch text.base64_decode(value) {
+        case Ok(bytes) { accept_ok_then_empty(bytes) }
+        case Err(error) { text.describe_text(error) }
+    };
+    return answer;
+}
+
+fn accept_ok_then_empty([]char bytes) -> string {
+    bytes.free();
+    return "ok";
+}
+
+fn error_of_hex(string value) -> string {
+    const string answer = switch text.hex_decode(value) {
+        case Ok(bytes) { accept_ok_then_empty(bytes) }
+        case Err(error) { text.describe_text(error) }
+    };
+    return answer;
+}
+
 fn main() {
     const hello = string.to_bytes("hello");
     print(text.base64_encode(hello));
@@ -97,4 +118,10 @@ fn main() {
         case Ok(decoded) { print(same_bytes(decoded, url_bytes())); }
         case Err(_) { print(false); }
     };
+
+    // Byte offsets in codec errors.
+    print(error_of_base64("!!!"));
+    print(error_of_base64("abcde"));
+    print(error_of_hex("xyz"));
+    print(error_of_hex("abzz"));
 }

@@ -2,3 +2,7 @@ application/json
 true
 true
 rejected
+invalid media type at byte 0
+invalid media type at byte 0
+invalid media type at byte 5
+invalid media type at byte 3

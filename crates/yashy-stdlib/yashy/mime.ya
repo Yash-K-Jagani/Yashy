@@ -5,9 +5,17 @@
 // original text itself. Nothing here answers with a sentinel: a malformed
 // spelling is `Err(Invalid)`.
 
-/// Why a text is not a media type.
+/// Why a text is not a media type. The `int` is the byte offset of the first
+/// problem in the input.
 pub enum MimeError {
-    Invalid,
+    Invalid(int),
+}
+
+/// A human-readable rendering of a media-type error with its byte offset.
+pub fn describe_mime(MimeError error) -> string {
+    return switch error {
+        case Invalid(at) { "invalid media type at byte ${at}" }
+    };
 }
 
 /// A parsed media type, without parameters.
@@ -28,7 +36,7 @@ pub fn parse_media_type(string text) -> Result[Mime, MimeError] {
         case None { 0 - 1 }
     };
     if at < 0 {
-        return Err(MimeError.Invalid);
+        return Err(MimeError.Invalid(0));
     }
     const after = text.slice(at + 1, text.len());
     const semi = after.index_of(";");
@@ -37,8 +45,19 @@ pub fn parse_media_type(string text) -> Result[Mime, MimeError] {
         case None { after }
     };
     const kind = text.slice(0, at);
-    if kind.len() == 0 || subtype.len() == 0 || subtype.index_of("/") matches Some(_) {
-        return Err(MimeError.Invalid);
+    if kind.len() == 0 {
+        return Err(MimeError.Invalid(0));
+    }
+    if subtype.len() == 0 {
+        return Err(MimeError.Invalid(at + 1));
+    }
+    const extra = subtype.index_of("/");
+    if extra matches Some(_) {
+        const int at_extra = switch extra {
+            case Some(index) { index }
+            case None { 0 }
+        };
+        return Err(MimeError.Invalid(at + 1 + at_extra));
     }
     return Ok(Mime { kind: kind, subtype: subtype });
 }

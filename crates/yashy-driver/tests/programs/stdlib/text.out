@@ -5,3 +5,7 @@ bad base64 rejected: true
 bad hex rejected: true
 -_8
 true
+invalid text at byte 3
+invalid text at byte 5
+invalid text at byte 3
+invalid text at byte 2

@@ -4,9 +4,17 @@
 // metadata is stored and rendered but ignored for precedence, as SemVer 2.0
 // requires. A malformed version answers `Err(Invalid)`, never a sentinel zero.
 
-/// Why a text is not a version.
+/// Why a text is not a version. The `int` is the byte offset of the first
+/// problem in the input.
 pub enum SemverError {
-    Invalid,
+    Invalid(int),
+}
+
+/// A human-readable rendering of a version error with its byte offset.
+pub fn describe_semver(SemverError error) -> string {
+    return switch error {
+        case Invalid(at) { "invalid version at byte ${at}" }
+    };
 }
 
 /// A parsed version. `pre` and `build` are empty when absent.
@@ -26,7 +34,7 @@ pub fn parse_version(string text) -> Result[Semver, SemverError] {
     let build = "";
     if plus >= 0 { build = text.slice(plus + 1, text.len()); }
     if plus >= 0 && !valid_identifiers(build, false) {
-        return Err(SemverError.Invalid);
+        return Err(SemverError.Invalid(plus + 1));
     }
 
     const dash = find_from(with_build, "-", 0);
@@ -35,23 +43,23 @@ pub fn parse_version(string text) -> Result[Semver, SemverError] {
     let pre = "";
     if dash >= 0 { pre = with_build.slice(dash + 1, with_build.len()); }
     if dash >= 0 && !valid_identifiers(pre, true) {
-        return Err(SemverError.Invalid);
+        return Err(SemverError.Invalid(dash + 1));
     }
 
     // Locate the two dots rather than calling `split`: that builtin returns an
     // owned array which this total parser would have to release on every exit,
-    // including the three error paths below. Slices are views, so the three
+    // including the error paths below. Slices are views, so the three
     // components borrow `core` and own nothing.
     const first_dot = find_from(core, ".", 0);
     if first_dot < 0 {
-        return Err(SemverError.Invalid);
+        return Err(SemverError.Invalid(core.len()));
     }
     const second_dot = find_from(core, ".", first_dot + 1);
     if second_dot < 0 {
-        return Err(SemverError.Invalid);
+        return Err(SemverError.Invalid(first_dot + 1));
     }
     if find_from(core, ".", second_dot + 1) >= 0 {
-        return Err(SemverError.Invalid);
+        return Err(SemverError.Invalid(second_dot + 1));
     }
     const string sa = core.slice(0, first_dot);
     const string sb = core.slice(first_dot + 1, second_dot);
@@ -60,13 +68,25 @@ pub fn parse_version(string text) -> Result[Semver, SemverError] {
     const Option[int] nb = sb.parse_i64();
     const Option[int] nc = sc.parse_i64();
     if na is None || nb is None || nc is None {
-        return Err(SemverError.Invalid);
+        if na is None {
+            return Err(SemverError.Invalid(0));
+        }
+        if nb is None {
+            return Err(SemverError.Invalid(first_dot + 1));
+        }
+        return Err(SemverError.Invalid(second_dot + 1));
     }
     const int major = switch na { case Some(value) { value } case None { 0 } };
     const int minor = switch nb { case Some(value) { value } case None { 0 } };
     const int patch = switch nc { case Some(value) { value } case None { 0 } };
     if major < 0 || minor < 0 || patch < 0 {
-        return Err(SemverError.Invalid);
+        if major < 0 {
+            return Err(SemverError.Invalid(0));
+        }
+        if minor < 0 {
+            return Err(SemverError.Invalid(first_dot + 1));
+        }
+        return Err(SemverError.Invalid(second_dot + 1));
     }
     return Ok(Semver {
         major: major,
@@ -84,14 +104,14 @@ fn component([]string parts, int index) -> Result[int, SemverError] {
         case None { "" }
     };
     if text.len() == 0 {
-        return Err(SemverError.Invalid);
+        return Err(SemverError.Invalid(0));
     }
     const parsed = switch text.parse_i64() {
         case Some(value) { value }
         case None { 0 - 1 }
     };
     if parsed < 0 {
-        return Err(SemverError.Invalid);
+        return Err(SemverError.Invalid(0));
     }
     return Ok(parsed);
 }

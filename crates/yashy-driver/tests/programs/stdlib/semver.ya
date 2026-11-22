@@ -19,6 +19,14 @@ fn report(Semver v) {
     print(semver.compare(v, v));
 }
 
+fn error_of(string text) -> string {
+    const string answer = switch semver.parse_version(text) {
+        case Ok(_) { "ok" }
+        case Err(error) { semver.describe_semver(error) }
+    };
+    return answer;
+}
+
 fn main() {
     switch semver.parse_version("1.2.3") {
         case Ok(v) { report(v); }
@@ -34,4 +42,7 @@ fn main() {
     print(compare_versions("1.0.0+build", "1.0.0"));
     print(compare_versions("1.0.0-alpha.2", "1.0.0-alpha.10"));
     print(semver.parse_version("1.0.0-01") matches Err(_));
+    print(error_of("1.x.3"));
+    print(error_of("1.0"));
+    print(error_of("1.2.3.4"));
 }

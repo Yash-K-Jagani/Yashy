@@ -1110,7 +1110,16 @@ Set the gauge named `name` to `value`.
 enum MimeError
 ```
 
-Why a text is not a media type.
+Why a text is not a media type. The `int` is the byte offset of the first
+problem in the input.
+
+### `describe_mime`
+
+```yashy
+fn describe_mime(MimeError error) -> string
+```
+
+A human-readable rendering of a media-type error with its byte offset.
 
 ### `essence`
 
@@ -1563,7 +1572,8 @@ struct Regex
 enum SemverError
 ```
 
-Why a text is not a version.
+Why a text is not a version. The `int` is the byte offset of the first
+problem in the input.
 
 ### `compare`
 
@@ -1572,6 +1582,14 @@ fn compare(Semver a, Semver b) -> int
 ```
 
 Compare two versions: negative when `a` is older, positive when newer.
+
+### `describe_semver`
+
+```yashy
+fn describe_semver(SemverError error) -> string
+```
+
+A human-readable rendering of a version error with its byte offset.
 
 ### `parse_version`
 
@@ -1751,6 +1769,14 @@ fn base64url_encode([]char data) -> string
 ```
 
 Bytes to unpadded base64url text (RFC 4648 section 5).
+
+### `describe_text`
+
+```yashy
+fn describe_text(TextError error) -> string
+```
+
+A human-readable rendering of a codec error with its byte offset.
 
 ### `hex_decode`
 

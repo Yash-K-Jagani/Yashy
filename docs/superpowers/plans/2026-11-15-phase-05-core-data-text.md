@@ -189,14 +189,13 @@ is a capability rather than an ambient read.
   `stdlib/{url,mime,uuid,semver}.ya`. `url.ya` now parses userinfo, bracketed
   IPv6 hosts with an optional port, query and fragment, and rejects a malformed
   bracket; the golden pins the parsed parts. `url.ya` also has percent-decoding
-  and `resolve(base, ref)` for RFC 3986 ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§5.2 relative references (all five forms
+  and `resolve(base, ref)` for RFC 3986 §5.2 relative references (all five forms
   plus dot-segment removal), pinned in the golden. `uuid.ya` now has `v7()`
   (RFC 9562, 48-bit ms timestamp + version 7 + random), with the coverage
-  program checking its canonical form, version nibble and variant. The step
-  stays open for a fuzz corpus and byte-offset errors in Step 2.
-  `url.ya` now carries byte offsets in `UrlError.Invalid(byte)` and
-  a bad IPv6 bracket, a bad port and a bad percent escape.
-   a bad IPv6 bracket, a bad port and a bad percent escape.
+  program checking its canonical form, version nibble and variant. `url.ya`,
+  `mime.ya`, `semver.ya` and `text.ya` now carry byte offsets in their error
+  variants, with describe helpers pinned in the coverage programs. The step
+  stays open only for a fuzz corpus in Step 2.
 - [ ] **Step 2: One parser per grammar.** No regex-based URL parsing; each format has a grammar, a table-driven test and a fuzz corpus. A malformed input returns `Result` with the byte offset.
 - [ ] **Step 3: Commit.**
 

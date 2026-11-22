@@ -6,6 +6,14 @@ fn report(Mime m) {
     print(mime.is_text(m));
 }
 
+fn error_of(string text) -> string {
+    const string answer = switch mime.parse_media_type(text) {
+        case Ok(_) { "ok" }
+        case Err(error) { mime.describe_mime(error) }
+    };
+    return answer;
+}
+
 fn main() {
     switch mime.parse_media_type("application/json; charset=utf-8") {
         case Ok(m) { report(m); }
@@ -15,4 +23,8 @@ fn main() {
         case Ok(_) { print("accepted"); }
         case Err(_) { print("rejected"); }
     };
+    print(error_of("noslash"));
+    print(error_of("/json"));
+    print(error_of("text/"));
+    print(error_of("a/b/c"));
 }

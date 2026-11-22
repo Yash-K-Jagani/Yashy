@@ -11,7 +11,14 @@ import string;
  * Named `TextError` because every module's items share one root scope: a
  * plain `Error` would collide with `CsvError`'s neighbours. */
 pub enum TextError {
-    Invalid,
+    Invalid(int),
+}
+
+/// A human-readable rendering of a codec error with its byte offset.
+pub fn describe_text(TextError error) -> string {
+    return switch error {
+        case Invalid(at) { "invalid text at byte ${at}" }
+    };
 }
 
 fn base64_digit(int value) -> char {
@@ -120,40 +127,46 @@ fn base64_value(char next) -> int {
 /// Validation is a pass of its own so that decoding has no early exit: a slice
 /// freed inside a conditional is a move the checker sees on every later path,
 /// and `data` is read by the loop after the check.
-fn base64_valid(string text) -> bool {
+/// The offset of the first bad byte in a base64 text, or `-1` when it is valid.
+fn base64_bad_at(string text) -> int {
     const data = string.to_bytes(text);
     const length = data.len();
-    let ok = length % 4 == 0;
-    let index = 0;
-    while ok && index < length {
-        const byte = switch data[index] {
-            case Some(c) {
-                c.to_int()
+    let bad = 0 - 1;
+    if length % 4 != 0 {
+        bad = length;
+    } else {
+        let index = 0;
+        while bad < 0 && index < length {
+            const byte = switch data[index] {
+                case Some(c) {
+                    c.to_int()
+                }
+                case None {
+                    0
+                }
+            };
+            if byte == 61 {
+                // Padding is only legal at the end, in the last two positions.
+                if index < length - 2 {
+                    bad = index;
+                }
+            } else {
+                if base64_value(byte.to_char()) < 0 {
+                    bad = index;
+                }
             }
-            case None {
-                0
-            }
-        };
-        if byte == 61 {
-            // Padding is only legal at the end, in the last two positions.
-            if index < length - 2 {
-                ok = false;
-            }
-        } else {
-            if base64_value(byte.to_char()) < 0 {
-                ok = false;
-            }
+            index = index + 1;
         }
-        index = index + 1;
     }
     data.free();
-    return ok;
+    return bad;
 }
 
 /// Base64 text to bytes; a bad symbol is `Err(Invalid)`, not a dropped byte.
 pub fn base64_decode(string text) -> Result[[]char, TextError] {
-    if !base64_valid(text) {
-        return Err(TextError.Invalid);
+    const int bad = base64_bad_at(text);
+    if bad >= 0 {
+        return Err(TextError.Invalid(bad));
     }
     const data = string.to_bytes(text);
     const length = data.len();
@@ -238,32 +251,39 @@ fn hex_value(char next) -> int {
 }
 
 /// Whether `text` is hex: an even length and every symbol a hex digit.
-fn hex_valid(string text) -> bool {
+/// The offset of the first bad byte in a hex text, or `-1` when it is valid.
+fn hex_bad_at(string text) -> int {
     const data = string.to_bytes(text);
-    let ok = data.len() % 2 == 0;
-    let index = 0;
-    while ok && index < data.len() {
-        const byte = switch data[index] {
-            case Some(c) {
-                c
+    const length = data.len();
+    let bad = 0 - 1;
+    if length % 2 != 0 {
+        bad = length;
+    } else {
+        let index = 0;
+        while bad < 0 && index < length {
+            const byte = switch data[index] {
+                case Some(c) {
+                    c
+                }
+                case None {
+                    '0'
+                }
+            };
+            if hex_value(byte) < 0 {
+                bad = index;
             }
-            case None {
-                '0'
-            }
-        };
-        if hex_value(byte) < 0 {
-            ok = false;
+            index = index + 1;
         }
-        index = index + 1;
     }
     data.free();
-    return ok;
+    return bad;
 }
 
 /// Hex text to bytes; an odd length or a bad digit is `Err(Invalid)`.
 pub fn hex_decode(string text) -> Result[[]char, TextError] {
-    if !hex_valid(text) {
-        return Err(TextError.Invalid);
+    const int bad = hex_bad_at(text);
+    if bad >= 0 {
+        return Err(TextError.Invalid(bad));
     }
     const data = string.to_bytes(text);
     const out = []char {};
