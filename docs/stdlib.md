@@ -1187,6 +1187,26 @@ fn is_text(Mime mime) -> bool
 
 Whether the type is textual: `text/*`, or one of the text-like applications.
 
+### `matches_media`
+
+```yashy
+fn matches_media(Mime mime, string text, string pattern) -> bool
+```
+
+Whether a parsed media type matches `pattern`. The pattern is
+`type/subtype` and either half may be `*`. A parameter `key=value` in the
+pattern must be present with that exact value in `text`; a bare `key` in
+the pattern requires the parameter to be present.
+
+### `param`
+
+```yashy
+fn param(string text, string key) -> Option[string]
+```
+
+The value of parameter `key` in a media type text, or `None` when absent.
+Parameter values are trimmed; quotes around a value are kept as written.
+
 ### `parse_media_type`
 
 ```yashy

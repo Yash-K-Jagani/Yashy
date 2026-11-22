@@ -1,6 +1,12 @@
 application/json
 true
 true
+charset=utf-8
+no charset
+true
+false
+true
+false
 rejected
 invalid media type at byte 0
 invalid media type at byte 0

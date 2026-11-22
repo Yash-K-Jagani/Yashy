@@ -218,6 +218,9 @@ is a capability rather than an ambient read.
   program checking its canonical form, version nibble and variant. `url.ya`,
   `mime.ya`, `semver.ya` and `text.ya` now carry byte offsets in their error
   variants, with describe helpers pinned in the coverage programs. The step
+  `mime.ya` now also matches media types against `type/subtype` patterns with
+  `*` wildcards and parameter presence/value checks (`matches_media`, `param`),
+  pinned in the stdlib coverage program.
   stays open only for a fuzz corpus in Step 2.
 - [ ] **Step 2: One parser per grammar.** No regex-based URL parsing; each format has a grammar, a table-driven test and a fuzz corpus. A malformed input returns `Result` with the byte offset.
 - [ ] **Step 3: Commit.**

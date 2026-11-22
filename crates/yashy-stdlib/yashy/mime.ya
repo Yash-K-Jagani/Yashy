@@ -62,9 +62,141 @@ pub fn parse_media_type(string text) -> Result[Mime, MimeError] {
     return Ok(Mime { kind: kind, subtype: subtype });
 }
 
+/// The index of `needle` at or after `start`, or `-1`.
+fn find_from(string text, string needle, int start) -> int {
+    if start >= text.len() || needle.len() == 0 {
+        return 0 - 1;
+    }
+    const string rest = text.slice(start, text.len());
+    return switch rest.index_of(needle) {
+        case Some(index) { start + index }
+        case None { 0 - 1 }
+    };
+}
+
+/// Trim ASCII whitespace from both ends of `text`.
+fn trim_mime(string text) -> string {
+    let start = 0;
+    let end = text.len();
+    while start < end {
+        const int b = text.byte_at(start).to_int();
+        if b != 32 && b != 9 && b != 10 && b != 13 {
+            break;
+        }
+        start = start + 1;
+    }
+    while end > start {
+        const int b = text.byte_at(end - 1).to_int();
+        if b != 32 && b != 9 && b != 10 && b != 13 {
+            break;
+        }
+        end = end - 1;
+    }
+    return text.slice(start, end);
+}
+
 /// The `type/subtype` spelling, without parameters.
 pub fn essence(Mime mime) -> string {
     return mime.kind + "/" + mime.subtype;
+}
+
+/// The value of parameter `key` in a media type text, or `None` when absent.
+/// Parameter values are trimmed; quotes around a value are kept as written.
+pub fn param(string text, string key) -> Option[string] {
+    const Option[int] found_semi = text.index_of(";");
+    if !(found_semi matches Some(_)) {
+        return None;
+    }
+    const int semi = switch found_semi {
+        case Some(at) { at }
+        case None { 0 }
+    };
+    let int i = semi + 1;
+    while i < text.len() {
+        const int found = find_from(text, ";", i);
+        let int end = text.len();
+        if found >= 0 {
+            end = found;
+        }
+        const string part = trim_mime(text.slice(i, end));
+        const Option[int] found_eq = part.index_of("=");
+        if !(found_eq matches Some(_)) {
+            i = end + 1;
+            continue;
+        }
+        const int eq = switch found_eq {
+            case Some(at) { at }
+            case None { 0 }
+        };
+        const string name = trim_mime(part.slice(0, eq));
+        if name == key {
+            return Some(trim_mime(part.slice(eq + 1, part.len())));
+        }
+        i = end + 1;
+    }
+    return None;
+}
+
+/// Whether a parsed media type matches `pattern`. The pattern is
+/// `type/subtype` and either half may be `*`. A parameter `key=value` in the
+/// pattern must be present with that exact value in `text`; a bare `key` in
+/// the pattern requires the parameter to be present.
+pub fn matches_media(Mime mime, string text, string pattern) -> bool {
+    const Option[int] found_slash = pattern.index_of("/");
+    if !(found_slash matches Some(_)) {
+        return false;
+    }
+    const int slash = switch found_slash {
+        case Some(at) { at }
+        case None { 0 }
+    };
+    const string want_kind = trim_mime(pattern.slice(0, slash));
+    const string rest = pattern.slice(slash + 1, pattern.len());
+    const int semi = switch rest.index_of(";") {
+        case Some(at) { at }
+        case None { rest.len() }
+    };
+    const string want_sub = trim_mime(rest.slice(0, semi));
+    if want_kind != "*" && want_kind != mime.kind {
+        return false;
+    }
+    if want_sub != "*" && want_sub != mime.subtype {
+        return false;
+    }
+    // Parameters: walk each `key[=value]` after the pattern's first `;`.
+    if semi >= rest.len() {
+        return true;
+    }
+    let int i = semi + 1;
+    while i < rest.len() {
+        let int end = rest.len();
+        const int found = find_from(rest, ";", i);
+        if found >= 0 {
+            end = found;
+        }
+        const string part = trim_mime(rest.slice(i, end));
+        const int eq = switch part.index_of("=") {
+            case Some(at) { at }
+            case None { part.len() }
+        };
+        const string key = trim_mime(part.slice(0, eq));
+        const Option[string] actual = param(text, key);
+        if !(actual matches Some(_)) {
+            return false;
+        }
+        if eq < part.len() {
+            const string want_value = trim_mime(part.slice(eq + 1, part.len()));
+            const string got = switch actual {
+                case Some(value) { value }
+                case None { "" }
+            };
+            if got != want_value {
+                return false;
+            }
+        }
+        i = end + 1;
+    }
+    return true;
 }
 
 /// Whether the type is textual: `text/*`, or one of the text-like applications.

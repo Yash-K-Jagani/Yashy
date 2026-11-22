@@ -14,11 +14,32 @@ fn error_of(string text) -> string {
     return answer;
 }
 
+fn show_param(string text) {
+    const Option[string] charset = mime.param(text, "charset");
+    switch charset {
+        case Some(value) { print("charset=${value}") }
+        case None { print("no charset") }
+    };
+}
+
+fn show_match(string text, string pattern) {
+    switch mime.parse_media_type(text) {
+        case Ok(m) { print(mime.matches_media(m, text, pattern)) }
+        case Err(_) { print("bad") }
+    };
+}
+
 fn main() {
     switch mime.parse_media_type("application/json; charset=utf-8") {
         case Ok(m) { report(m); }
         case Err(_) { print("bad media type"); }
     };
+    show_param("application/json; charset=utf-8");
+    show_param("text/plain");
+    show_match("application/json; charset=utf-8", "application/*; charset=utf-8");
+    show_match("application/json; charset=utf-8", "application/*; charset=ascii");
+    show_match("text/plain; charset=utf-8", "text/plain");
+    show_match("text/plain", "text/*; charset=utf-8");
     switch mime.parse_media_type("noslash") {
         case Ok(_) { print("accepted"); }
         case Err(_) { print("rejected"); }
