@@ -845,6 +845,144 @@ struct TokenList
 
 A flat token list: one row per token, in source order.
 
+## `json_value`
+
+### `DocError`
+
+```yashy
+enum DocError
+```
+
+Why a document could not be parsed.
+
+### `count`
+
+```yashy
+fn count(JsonDoc doc) -> int
+```
+
+The number of nodes in the document.
+
+### `emit_doc`
+
+```yashy
+fn emit_doc(JsonDoc doc) -> string
+```
+
+Emit a compact JSON document: insertion-ordered keys, no trailing space.
+
+### `first_child`
+
+```yashy
+fn first_child(JsonDoc doc, int node) -> int
+```
+
+The index of the first child of `node`, or `-1` when it has none.
+
+### `free_doc`
+
+```yashy
+fn free_doc(JsonDoc doc) -> void
+```
+
+Release every column. The caller must not use the document afterwards.
+
+### `get_doc`
+
+```yashy
+fn get_doc(JsonDoc doc, int node, string wanted) -> Option[int]
+```
+
+Find `wanted` in the object `node`, returning the child's index. The first
+match wins when a document repeats a key; both rows stay in the tree and
+both are emitted, in source order.
+
+### `is_scalar`
+
+```yashy
+fn is_scalar(JsonDoc doc, int node) -> bool
+```
+
+Whether `node` has a value a caller can read directly (not a container).
+
+### `key`
+
+```yashy
+fn key(JsonDoc doc, int index) -> string
+```
+
+The key a node carries in its parent object, or `""` for an array element
+or the root.
+
+### `kind`
+
+```yashy
+fn kind(JsonDoc doc, int index) -> int
+```
+
+The kind code of a node: 0 null, 1 bool, 2 int, 3 float, 4 string,
+5 array, 6 object. `-1` is past the end.
+
+### `next_child`
+
+```yashy
+fn next_child(JsonDoc doc, int node, int after) -> int
+```
+
+The index of the next child of `node` after `after`, or `-1` at the end.
+Children are rows in document order, so walking with this function yields
+insertion order. Pass `-1` for `after` to start.
+
+### `parent_doc`
+
+```yashy
+fn parent_doc(JsonDoc doc, int index) -> int
+```
+
+The parent index of a node, or `-1` for the root or a past-end index.
+
+### `parse_doc`
+
+```yashy
+fn parse_doc(string text) -> Result[JsonDoc, DocError]
+```
+
+Parse a document. A malformed input answers `Err` with a byte offset.
+
+### `parse_with_doc`
+
+```yashy
+fn parse_with_doc(string text, DocLimits limits) -> Result[JsonDoc, DocError]
+```
+
+Parse with explicit depth and byte caps. Validation runs first, so the
+building pass below has no failure paths and no linear value is ever freed
+conditionally.
+
+### `value`
+
+```yashy
+fn value(JsonDoc doc, int index) -> Option[string]
+```
+
+The scalar text of a node, or `None` for a container or a past-end index.
+
+### `DocLimits`
+
+```yashy
+struct DocLimits
+```
+
+Explicit caps for a parse. A non-positive value is unbounded.
+
+### `JsonDoc`
+
+```yashy
+struct JsonDoc
+```
+
+A parsed document: one row per node across four columns.
+
 ## `log`
 
 ### `error`

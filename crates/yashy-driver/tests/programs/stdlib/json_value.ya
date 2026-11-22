@@ -1,0 +1,96 @@
+import json_value;
+
+fn show(JsonDoc doc, int node, string indent) {
+    const int code = json_value.kind(doc, node);
+    const string label = json_value.key(doc, node);
+    if json_value.is_scalar(doc, node) {
+        const Option[string] text = json_value.value(doc, node);
+        const string shown = switch text {
+            case Some(value) { value }
+            case None { "" }
+        };
+        print("${indent}${label}: ${code} = ${shown}");
+    } else {
+        print("${indent}${label}: container ${code}");
+        let child = json_value.first_child(doc, node);
+        while child >= 0 {
+            show(doc, child, indent + "  ");
+            child = json_value.next_child(doc, node, child);
+        }
+    }
+}
+
+fn report(JsonDoc doc) {
+    print(json_value.emit_doc(doc));
+    print(json_value.count(doc));
+    const Option[int] tags = json_value.get_doc(doc, 0, "tags");
+    switch tags {
+        case Some(index) { report_tags(doc, index) }
+        case None { print("no tags") }
+    };
+    show(doc, 0, "");
+    json_value.free_doc(doc);
+}
+
+fn report_tags(JsonDoc doc, int index) {
+    print(json_value.kind(doc, index));
+    const int first = json_value.first_child(doc, index);
+    const Option[string] value = json_value.value(doc, first);
+    switch value {
+        case Some(fast) { print(fast) }
+        case None { print("none") }
+    };
+}
+
+fn report_escaped(JsonDoc doc) {
+    print(json_value.emit_doc(doc));
+    const Option[int] got = json_value.get_doc(doc, 0, "a");
+    switch got {
+        case Some(index) { print_first(doc, index) }
+        case None { print("missing") }
+    };
+    json_value.free_doc(doc);
+}
+
+fn print_first(JsonDoc doc, int index) {
+    const Option[string] value = json_value.value(doc, index);
+    switch value {
+        case Some(v) { print(v) }
+        case None { print("none") }
+    };
+}
+
+fn report_plain(JsonDoc doc) {
+    print(json_value.emit_doc(doc));
+    json_value.free_doc(doc);
+}
+
+fn main() {
+    const string text = "{\"name\":\"yashy\",\"tags\":[\"fast\",\"safe\"],\"n\":42,\"ok\":true,\"nil\":null}";
+    switch json_value.parse_doc(text) {
+        case Ok(doc) { report(doc) }
+        case Err(_) { print("bad json") }
+    };
+
+    // Escapes and duplicate keys: the first key wins on lookup, both are emitted.
+    const string escaped = "{\"a\":\"line\\nnext\",\"a\":2}";
+    switch json_value.parse_doc(escaped) {
+        case Ok(doc) { report_escaped(doc) }
+        case Err(_) { print("bad escaped") }
+    };
+
+    // A scalar root and a float number.
+    switch json_value.parse_doc("[1,-2,3.5,-4]") {
+        case Ok(doc) { report_plain(doc) }
+        case Err(_) { print("bad array") }
+    };
+
+    // Malformed input and explicit limits.
+    print(json_value.parse_doc("{} trailing") matches Err(_));
+    print(json_value.parse_doc("{\"a\":}") matches Err(_));
+    print(json_value.parse_doc("[1,]") matches Err(_));
+    const limits = json_value.DocLimits { max_depth: 1, max_bytes: 1000 };
+    print(json_value.parse_with_doc("[[1]]", limits) matches Err(_));
+    const small = json_value.DocLimits { max_depth: 8, max_bytes: 1 };
+    print(json_value.parse_with_doc("{}", small) matches Err(_));
+}

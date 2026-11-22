@@ -1,0 +1,21 @@
+{"name":"yashy","tags":["fast","safe"],"n":42,"ok":true,"nil":null}
+8
+5
+fast
+: container 6
+  name: 4 = yashy
+  tags: container 5
+    : 4 = fast
+    : 4 = safe
+  n: 2 = 42
+  ok: 1 = true
+  nil: 0 = 
+{"a":"line\nnext","a":2}
+line
+next
+[1,-2,3.5,-4]
+true
+true
+true
+true
+true

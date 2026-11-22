@@ -1,0 +1,623 @@
+// A JSON value tree built as parallel arrays.
+//
+// Yashy slices hold only numbers, `bool`, `char` and `string`, and a recursive
+// enum would need a pointer. A `Json = Array([]Json) | Object(map[string,Json])`
+// value type therefore cannot be written today. This module keeps the same
+// information in four parallel columns: each node has a kind, a scalar text, a
+// parent index and the key it carries in its parent object. A child is a node
+// whose `parent_doc` is the container's index, so insertion order is the row order.
+// The result is a real DOM -- callers look up keys, walk children and emit_doc the
+// tree back to JSON -- without needing a generic `Map` or a recursive type.
+//
+// Ownership: `parse_doc` returns a document the caller owns and releases with
+// `free_doc`. Every string in `values`/`keys` is owned by its column; `free_doc`
+// releases each column once.
+
+import JSON;
+
+/// Why a document could not be parsed.
+pub enum DocError {
+    /// The byte offset of the first problem.
+    Invalid(int),
+    /// The configured depth cap and the depth that breached it.
+    TooDeep(int, int),
+    /// The configured byte cap and the size that breached it.
+    TooLarge(int, int),
+}
+
+/// Explicit caps for a parse. A non-positive value is unbounded.
+pub struct DocLimits {
+    pub max_depth: int,
+    pub max_bytes: int,
+}
+
+/// A parsed document: one row per node across four columns.
+pub struct JsonDoc {
+    kinds: []int,
+    values: []string,
+    parents: []int,
+    keys: []string,
+}
+
+/// The kind code of a node: 0 null, 1 bool, 2 int, 3 float, 4 string,
+/// 5 array, 6 object. `-1` is past the end.
+pub fn kind(JsonDoc doc, int index) -> int {
+    const Option[int] found = doc.kinds[index];
+    return switch found {
+        case Some(code) { code }
+        case None { 0 - 1 }
+    };
+}
+
+/// The scalar text of a node, or `None` for a container or a past-end index.
+pub fn value(JsonDoc doc, int index) -> Option[string] {
+    return doc.values[index];
+}
+
+/// The key a node carries in its parent object, or `""` for an array element
+/// or the root.
+pub fn key(JsonDoc doc, int index) -> string {
+    const Option[string] found = doc.keys[index];
+    return switch found {
+        case Some(text) { text }
+        case None { "" }
+    };
+}
+
+/// The parent index of a node, or `-1` for the root or a past-end index.
+pub fn parent_doc(JsonDoc doc, int index) -> int {
+    const Option[int] found = doc.parents[index];
+    return switch found {
+        case Some(value) { value }
+        case None { 0 - 1 }
+    };
+}
+
+/// The number of nodes in the document.
+pub fn count(JsonDoc doc) -> int {
+    const []int kinds = doc.kinds;
+    return kinds.len();
+}
+
+/// The index of the next child of `node` after `after`, or `-1` at the end.
+/// Children are rows in document order, so walking with this function yields
+/// insertion order. Pass `-1` for `after` to start.
+pub fn next_child(JsonDoc doc, int node, int after) -> int {
+    let i = after + 1;
+    const int total = count(doc);
+    while i < total {
+        if parent_doc(doc, i) == node {
+            return i;
+        }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+/// The index of the first child of `node`, or `-1` when it has none.
+pub fn first_child(JsonDoc doc, int node) -> int {
+    return next_child(doc, node, 0 - 1);
+}
+
+/// Find `wanted` in the object `node`, returning the child's index. The first
+/// match wins when a document repeats a key; both rows stay in the tree and
+/// both are emitted, in source order.
+pub fn get_doc(JsonDoc doc, int node, string wanted) -> Option[int] {
+    if kind(doc, node) != 6 {
+        return None;
+    }
+    const int total = count(doc);
+    let i = 0;
+    while i < total {
+        if parent_doc(doc, i) == node && key(doc, i) == wanted {
+            return Some(i);
+        }
+        i = i + 1;
+    }
+    return None;
+}
+
+/// Whether `node` has a value a caller can read directly (not a container).
+pub fn is_scalar(JsonDoc doc, int node) -> bool {
+    const int code = kind(doc, node);
+    return code >= 0 && code <= 4;
+}
+
+/// Release every column. The caller must not use the document afterwards.
+pub fn free_doc(JsonDoc doc) {
+    const []int kinds = doc.kinds;
+    const []string values = doc.values;
+    const []int parents = doc.parents;
+    const []string keys = doc.keys;
+    kinds.free();
+    values.free();
+    parents.free();
+    keys.free();
+}
+
+/// Emit a compact JSON document: insertion-ordered keys, no trailing space.
+pub fn emit_doc(JsonDoc doc) -> string {
+    if count(doc) == 0 {
+        return "null";
+    }
+    return emit_node(doc, 0);
+}
+
+fn emit_node(JsonDoc doc, int index) -> string {
+    const int code = kind(doc, index);
+    if code == 0 {
+        return "null";
+    }
+    if code == 1 || code == 2 || code == 3 {
+        const Option[string] found = value(doc, index);
+        return switch found {
+            case Some(text) { text }
+            case None { "null" }
+        };
+    }
+    if code == 4 {
+        const Option[string] found = value(doc, index);
+        const string text = switch found {
+            case Some(raw) { raw }
+            case None { "" }
+        };
+        return JSON.quote(text);
+    }
+    let out = "";
+    if code == 5 {
+        out = "[";
+    } else {
+        out = "{";
+    }
+    let first = true;
+    let child = first_child(doc, index);
+    while child >= 0 {
+        if !first {
+            out = out + ",";
+        }
+        if code == 6 {
+            out = out + JSON.quote(key(doc, child)) + ":";
+        }
+        out = out + emit_node(doc, child);
+        first = false;
+        child = next_child(doc, index, child);
+    }
+    if code == 5 {
+        return out + "]";
+    }
+    return out + "}";
+}
+
+/// The end of the JSON string starting at `start`, or `-1` when it never
+/// closes. An escape consumes the byte after the backslash.
+fn scan_string(string text, int start) -> int {
+    let i = start + 1;
+    let escaped = false;
+    while i < text.len() {
+        const int byte = text.byte_at(i).to_int();
+        if escaped {
+            escaped = false;
+        } else if byte == 92 {
+            escaped = true;
+        } else if byte == 34 {
+            return i + 1;
+        }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+/// The end of a JSON number starting at `start`.
+fn scan_number(string text, int start) -> int {
+    let i = start;
+    if i < text.len() && text.byte_at(i).to_int() == 45 {
+        i = i + 1;
+    }
+    while i < text.len() {
+        const int byte = text.byte_at(i).to_int();
+        const bool digit = byte >= 48 && byte <= 57;
+        if !digit && byte != 46 && byte != 101 && byte != 69 && byte != 43 && byte != 45 {
+            break;
+        }
+        i = i + 1;
+    }
+    return i;
+}
+
+/// Whether `word` occurs at `start` without running past the end.
+fn at_word(string text, int start, string word) -> bool {
+    if start + word.len() > text.len() {
+        return false;
+    }
+    return text.slice(start, start + word.len()) == word;
+}
+
+/// Decode the escapes a JSON string uses into its Yashy bytes.
+fn decode_string(string text, int start, int end) -> string {
+    let out = "";
+    let i = start + 1;
+    while i < end - 1 {
+        const int byte = text.byte_at(i).to_int();
+        if byte == 92 && i + 1 < end - 1 {
+            const int escaped = text.byte_at(i + 1).to_int();
+            if escaped == 34 {
+                out = out + "\"";
+            } else if escaped == 92 {
+                out = out + "\\";
+            } else if escaped == 47 {
+                out = out + "/";
+            } else if escaped == 98 {
+                out = out + (8).to_char().to_string();
+            } else if escaped == 102 {
+                out = out + (12).to_char().to_string();
+            } else if escaped == 110 {
+                out = out + "\n";
+            } else if escaped == 114 {
+                out = out + "\r";
+            } else if escaped == 116 {
+                out = out + "\t";
+            } else {
+                out = out + (escaped).to_char().to_string();
+            }
+            i = i + 2;
+        } else {
+            out = out + (byte).to_char().to_string();
+            i = i + 1;
+        }
+    }
+    return out;
+}
+
+/// Parse a document. A malformed input answers `Err` with a byte offset.
+pub fn parse_doc(string text) -> Result[JsonDoc, DocError] {
+    return parse_with_doc(text, DocLimits { max_depth: 0, max_bytes: 0 });
+}
+
+/// Validate the structure and limits of a document without returning any
+/// allocation. The container stack is freed once, after the loop, so no linear
+/// value is ever freed on a path that later uses it.
+fn validate(string text, DocLimits limits) -> Option[DocError] {
+    if limits.max_bytes > 0 && text.len() > limits.max_bytes {
+        return Some(DocError.TooLarge(limits.max_bytes, text.len()));
+    }
+    // 0 object, 1 array, one per open container
+    let []int containers = []int {};
+    let int depth = 0;
+    let int index = 0;
+    // 0 value, 1 key-or-close, 2 colon, 3 comma-or-close
+    let int state = 0;
+    let bool failed = false;
+    let bool done = false;
+    let DocError problem = DocError.Invalid(0);
+
+    while !failed && !done {
+        while index < text.len() {
+            const int b = text.byte_at(index).to_int();
+            if b != 32 && b != 9 && b != 10 && b != 13 {
+                break;
+            }
+            index = index + 1;
+        }
+        if index >= text.len() {
+            if state == 3 && depth == 0 {
+                done = true;
+            } else {
+                failed = true;
+                problem = DocError.Invalid(index);
+            }
+            break;
+        }
+        const int byte = text.byte_at(index).to_int();
+
+        if state == 0 {
+            if byte == 123 {
+                if limits.max_depth > 0 && depth + 1 > limits.max_depth {
+                    failed = true;
+                    problem = DocError.TooDeep(limits.max_depth, depth + 1);
+                    break;
+                }
+                containers.push(0);
+                depth = depth + 1;
+                index = index + 1;
+                state = 1;
+            } else if byte == 91 {
+                if limits.max_depth > 0 && depth + 1 > limits.max_depth {
+                    failed = true;
+                    problem = DocError.TooDeep(limits.max_depth, depth + 1);
+                    break;
+                }
+                containers.push(1);
+                depth = depth + 1;
+                index = index + 1;
+            } else if byte == 34 {
+                const int end = scan_string(text, index);
+                if end < 0 {
+                    failed = true;
+                    problem = DocError.Invalid(index);
+                    break;
+                }
+                index = end;
+                if depth == 0 {
+                    done = true;
+                } else {
+                    state = 3;
+                }
+            } else if byte == 45 || (byte >= 48 && byte <= 57) {
+                index = scan_number(text, index);
+                if depth == 0 {
+                    done = true;
+                } else {
+                    state = 3;
+                }
+            } else if byte == 116 && at_word(text, index, "true") {
+                index = index + 4;
+                if depth == 0 {
+                    done = true;
+                } else {
+                    state = 3;
+                }
+            } else if byte == 102 && at_word(text, index, "false") {
+                index = index + 5;
+                if depth == 0 {
+                    done = true;
+                } else {
+                    state = 3;
+                }
+            } else if byte == 110 && at_word(text, index, "null") {
+                index = index + 4;
+                if depth == 0 {
+                    done = true;
+                } else {
+                    state = 3;
+                }
+            } else {
+                failed = true;
+                problem = DocError.Invalid(index);
+                break;
+            }
+        } else if state == 1 {
+            if byte == 125 {
+                depth = depth - 1;
+                index = index + 1;
+                if depth == 0 {
+                    done = true;
+                } else {
+                    state = 3;
+                }
+            } else if byte == 34 {
+                const int end = scan_string(text, index);
+                if end < 0 {
+                    failed = true;
+                    problem = DocError.Invalid(index);
+                    break;
+                }
+                index = end;
+                state = 2;
+            } else {
+                failed = true;
+                problem = DocError.Invalid(index);
+                break;
+            }
+        } else if state == 2 {
+            if byte == 58 {
+                index = index + 1;
+                state = 0;
+            } else {
+                failed = true;
+                problem = DocError.Invalid(index);
+                break;
+            }
+        } else if state == 3 {
+            if byte == 44 {
+                index = index + 1;
+                const Option[int] stored = containers[depth - 1];
+                const int enclosing = switch stored {
+                    case Some(code) { code }
+                    case None { 1 }
+                };
+                if enclosing == 0 {
+                    state = 1;
+                } else {
+                    state = 0;
+                }
+            } else if byte == 93 || byte == 125 {
+                depth = depth - 1;
+                index = index + 1;
+                if depth == 0 {
+                    done = true;
+                } else {
+                    state = 3;
+                }
+            } else {
+                failed = true;
+                problem = DocError.Invalid(index);
+                break;
+            }
+        }
+    }
+
+    // A complete root must be the whole document: trailing bytes are an error.
+    if !failed {
+        while index < text.len() {
+            const int b = text.byte_at(index).to_int();
+            if b != 32 && b != 9 && b != 10 && b != 13 {
+                break;
+            }
+            index = index + 1;
+        }
+        if index < text.len() {
+            failed = true;
+            problem = DocError.Invalid(index);
+        }
+    }
+
+    containers.free();
+    if failed {
+        return Some(problem);
+    }
+    return None;
+}
+
+
+/// Parse with explicit depth and byte caps. Validation runs first, so the
+/// building pass below has no failure paths and no linear value is ever freed
+/// conditionally.
+pub fn parse_with_doc(string text, DocLimits limits) -> Result[JsonDoc, DocError] {
+    const Option[DocError] problem = validate(text, limits);
+    if problem matches Some(_) {
+        const DocError error = switch problem {
+            case Some(found) { found }
+            case None { DocError.Invalid(0) }
+        };
+        return Err(error);
+    }
+
+    let []int kinds = []int {};
+    let []string values = []string {};
+    let []int parents = []int {};
+    let []string keys = []string {};
+    let []int stack = []int {};
+    let int depth = 0;
+    let int index = 0;
+    let string pending = "";
+    // 0 value, 1 key-or-close, 2 colon, 3 comma-or-close, 4 done
+    let int state = 0;
+
+    while state != 4 {
+        while index < text.len() {
+            const int b = text.byte_at(index).to_int();
+            if b != 32 && b != 9 && b != 10 && b != 13 {
+                break;
+            }
+            index = index + 1;
+        }
+        const int byte = text.byte_at(index).to_int();
+
+        // The parent index is read as an Option because a slice lookup is total.
+        let int host = 0 - 1;
+        if depth > 0 {
+            const Option[int] top = stack[depth - 1];
+            host = switch top {
+                case Some(value) { value }
+                case None { 0 - 1 }
+            };
+        }
+
+        if state == 0 {
+            let int code = 0;
+            let string scalar = "";
+            let int advance = 0;
+            let bool container = false;
+            if byte == 123 {
+                code = 6;
+                container = true;
+                advance = 1;
+            } else if byte == 91 {
+                code = 5;
+                container = true;
+                advance = 1;
+            } else if byte == 34 {
+                const int end = scan_string(text, index);
+                code = 4;
+                scalar = decode_string(text, index, end);
+                advance = end - index;
+            } else if byte == 45 || (byte >= 48 && byte <= 57) {
+                const int end = scan_number(text, index);
+                const string raw = text.slice(index, end);
+                scalar = raw;
+                if raw.contains(".") || raw.contains("e") || raw.contains("E") {
+                    code = 3;
+                } else {
+                    code = 2;
+                }
+                advance = end - index;
+            } else if byte == 116 && at_word(text, index, "true") {
+                code = 1;
+                scalar = "true";
+                advance = 4;
+            } else if byte == 102 && at_word(text, index, "false") {
+                code = 1;
+                scalar = "false";
+                advance = 5;
+            } else {
+                code = 0;
+                scalar = "";
+                advance = 4;
+            }
+
+            kinds.push(code);
+            values.push(scalar);
+            parents.push(host);
+            keys.push(pending);
+            pending = "";
+            const int node = kinds.len() - 1;
+            index = index + advance;
+            if container {
+                stack.push(node);
+                depth = depth + 1;
+                if code == 6 {
+                    state = 1;
+                } else {
+                    state = 0;
+                }
+            } else {
+                if depth == 0 {
+                    state = 4;
+                } else {
+                    state = 3;
+                }
+            }
+        } else if state == 1 {
+            if byte == 125 {
+                index = index + 1;
+                depth = depth - 1;
+                if depth == 0 {
+                    state = 4;
+                } else {
+                    state = 3;
+                }
+            } else {
+                const int end = scan_string(text, index);
+                pending = decode_string(text, index, end);
+                index = end;
+                state = 2;
+            }
+        } else if state == 2 {
+            index = index + 1;
+            state = 0;
+        } else if state == 3 {
+            if byte == 44 {
+                index = index + 1;
+                let int host_id = 0 - 1;
+                if depth > 0 {
+                    const Option[int] enclosing = stack[depth - 1];
+                    host_id = switch enclosing {
+                        case Some(value) { value }
+                        case None { 0 - 1 }
+                    };
+                }
+                const Option[int] stored_kind = kinds[host_id];
+                const int host_kind = switch stored_kind {
+                    case Some(code) { code }
+                    case None { 6 }
+                };
+                if host_kind == 6 {
+                    state = 1;
+                } else {
+                    state = 0;
+                }
+            } else if byte == 93 || byte == 125 {
+                index = index + 1;
+                depth = depth - 1;
+                if depth == 0 {
+                    state = 4;
+                } else {
+                    state = 3;
+                }
+            }
+        }
+    }
+
+    stack.free();
+    return Ok(JsonDoc { kinds: kinds, values: values, parents: parents, keys: keys });
+}
