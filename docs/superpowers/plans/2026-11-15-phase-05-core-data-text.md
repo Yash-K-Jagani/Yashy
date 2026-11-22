@@ -150,6 +150,12 @@ is a capability rather than an ambient read.
 - `emit(value: Json, opts: EmitOptions) -> string`
 
 - [ ] **Step 1: Write the failing test.** Parse a document with nested objects, escapes, surrogate pairs, big integers and duplicate keys; emit it and parse it again; assert byte-stable output with a documented key order (insertion order) and no trailing whitespace. Repeat the round-trip for TOML, YAML, CSV (quoted fields, embedded newlines) and XML (entities, namespaces).
+  *Current:* JSON, CSV and now TOML round-trip. `toml.ya` parses sections,
+  bare keys, comments and string/int/float/bool/array values into parallel
+  columns, with `get_toml`, `emit_toml` (canonical, insertion-ordered) and
+  byte-offset errors via `describe_toml`. `stdlib/toml.ya` pins a document
+  with all five value kinds and two malformed inputs; `stdlib/fuzz.ya` drives
+  the TOML parser too. YAML and XML round-trips remain owed.
 - [x] **Step 2: No sentinel, ever.** `parse` returns `Result`; a missing key is `Option`; a type mismatch is an error with a byte offset and a line/column. `""` and `0` are values, never failures.
   *Current:* `json_scan.ya` provides `minify` and `validate`, both returning
   `Result`/`Option` with a byte offset on failure and no sentinel answer. The

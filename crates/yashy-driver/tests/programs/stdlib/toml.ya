@@ -1,0 +1,46 @@
+import toml;
+
+fn show_value(Option[string] value) {
+    switch value {
+        case Some(text) { print(text); }
+        case None { print("none"); }
+    };
+}
+
+fn show_name(TomlDoc doc, int index) {
+    show_value(toml.value_of_toml(doc, index));
+}
+
+fn report(TomlDoc doc) {
+    print(toml.emit_toml(doc));
+    print(toml.count_toml(doc));
+    const Option[int] name = toml.get_toml(doc, "owner", "name");
+    switch name {
+        case Some(index) { show_name(doc, index) }
+        case None { print("missing") }
+    };
+    toml.free_toml(doc);
+}
+
+fn error_of(string text) -> string {
+    const string answer = switch toml.parse_toml(text) {
+        case Ok(doc) { free_and_empty(doc) }
+        case Err(error) { toml.describe_toml(error) }
+    };
+    return answer;
+}
+
+fn free_and_empty(TomlDoc doc) -> string {
+    toml.free_toml(doc);
+    return "ok";
+}
+
+fn main() {
+    const string text = "# a comment\ntitle = \"Yashy\"\ncount = 42\nratio = 2.5\non = true\n\n[owner]\nname = \"Ada\"\ntags = [\"a\", \"b\"]\n";
+    switch toml.parse_toml(text) {
+        case Ok(doc) { report(doc) }
+        case Err(_) { print("bad toml") }
+    };
+    print(error_of("[bad section"));
+    print(error_of("no equals sign"));
+}

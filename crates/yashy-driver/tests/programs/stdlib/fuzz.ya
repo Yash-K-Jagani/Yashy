@@ -17,6 +17,7 @@ import url;
 import semver;
 import mime;
 import text;
+import toml;
 
 /// The next LCG state. The multiplier keeps the product under 2^63, so the
 /// checked integer arithmetic in Yashy cannot fault on a generated input.
@@ -108,6 +109,18 @@ fn feed_base64(string input) -> bool {
     };
 }
 
+fn feed_toml(string input) -> bool {
+    return switch toml.parse_toml(input) {
+        case Ok(doc) { free_toml_ok(doc) }
+        case Err(_) { true }
+    };
+}
+
+fn free_toml_ok(TomlDoc doc) -> bool {
+    toml.free_toml(doc);
+    return true;
+}
+
 fn feed_hex(string input) -> bool {
     return switch text.hex_decode(input) {
         case Ok(bytes) { free_bytes(bytes) }
@@ -123,7 +136,8 @@ fn feed(string input) -> bool {
     const bool e = feed_mime(input);
     const bool f = feed_base64(input);
     const bool g = feed_hex(input);
-    return a && b && c && d && e && f && g;
+    const bool h = feed_toml(input);
+    return a && b && c && d && e && f && g && h;
 }
 
 fn main() {

@@ -1,0 +1,317 @@
+// TOML 1.0, the useful core over strings.
+//
+// TOML is line-oriented: sections `[name]`, `key = value` pairs and `#`
+// comments. Values are strings, integers, floats, booleans or arrays of those
+// scalars. Yashy slices hold only scalars, so a document is stored as parallel
+// columns -- one row per key -- with its section, key, kind and value text. A
+// caller reads a value back by section and key, and emits the document to a
+// canonical, byte-stable spelling.
+//
+// Every answer that can fail is a `Result`/`Option`; there is no sentinel.
+// Names carry a `toml_` prefix because the stdlib modules share one root
+// scope.
+
+/// Why a document is not valid TOML. The `int` is the byte offset of the
+/// first problem.
+pub enum TomlError {
+    Invalid(int),
+}
+
+/// A human-readable rendering of a TOML error with its byte offset.
+pub fn describe_toml(TomlError error) -> string {
+    return switch error {
+        case Invalid(at) { "invalid TOML at byte ${at}" }
+    };
+}
+
+/// A parsed document: one row per key across four owned columns.
+pub struct TomlDoc {
+    sections: []string,
+    keys: []string,
+    kinds: []int,
+    values: []string,
+}
+
+/// A value kind: 1 string, 2 int, 3 float, 4 bool, 5 array.
+pub fn kind_of_toml(TomlDoc doc, int index) -> int {
+    const Option[int] found = doc.kinds[index];
+    return switch found {
+        case Some(code) { code }
+        case None { 0 - 1 }
+    };
+}
+
+/// The number of keys in the document.
+pub fn count_toml(TomlDoc doc) -> int {
+    const []int kinds = doc.kinds;
+    return kinds.len();
+}
+
+/// The section a key belongs to (empty for the root section).
+pub fn section_of_toml(TomlDoc doc, int index) -> string {
+    const Option[string] found = doc.sections[index];
+    return switch found {
+        case Some(text) { text }
+        case None { "" }
+    };
+}
+
+/// The name of a key.
+pub fn key_of_toml(TomlDoc doc, int index) -> string {
+    const Option[string] found = doc.keys[index];
+    return switch found {
+        case Some(text) { text }
+        case None { "" }
+    };
+}
+
+/// The value text of a key, or `None` past the end.
+pub fn value_of_toml(TomlDoc doc, int index) -> Option[string] {
+    return doc.values[index];
+}
+
+/// Look up `key` in `section`, returning the row index. The first match wins.
+pub fn get_toml(TomlDoc doc, string section, string key) -> Option[int] {
+    const int total = count_toml(doc);
+    let i = 0;
+    while i < total {
+        if section_of_toml(doc, i) == section && key_of_toml(doc, i) == key {
+            return Some(i);
+        }
+        i = i + 1;
+    }
+    return None;
+}
+
+/// Release every column. The document must not be used afterwards.
+pub fn free_toml(TomlDoc doc) {
+    const []string sections = doc.sections;
+    const []string keys = doc.keys;
+    const []int kinds = doc.kinds;
+    const []string values = doc.values;
+    sections.free();
+    keys.free();
+    kinds.free();
+    values.free();
+}
+
+/// Emit a canonical document: sections in first-seen order, keys in insertion
+/// order, one `key = value` per line, no trailing space.
+pub fn emit_toml(TomlDoc doc) -> string {
+    const int total = count_toml(doc);
+    if total == 0 {
+        return "";
+    }
+    let out = "";
+    let section = "";
+    let wrote_section = false;
+    let i = 0;
+    while i < total {
+        const string row_section = section_of_toml(doc, i);
+        if row_section != section || !wrote_section {
+            if row_section.len() > 0 {
+                out = out + "[" + row_section + "]\n";
+            }
+            section = row_section;
+            wrote_section = true;
+        }
+        const Option[string] value = value_of_toml(doc, i);
+        const string text = switch value {
+            case Some(raw) { raw }
+            case None { "" }
+        };
+        out = out + key_of_toml(doc, i) + " = " + text + "\n";
+        i = i + 1;
+    }
+    return out;
+}
+
+/// Trim ASCII whitespace from both ends of `text`.
+fn trim_toml(string text) -> string {
+    let start = 0;
+    let end = text.len();
+    while start < end {
+        const int b = text.byte_at(start).to_int();
+        if b != 32 && b != 9 && b != 10 && b != 13 {
+            break;
+        }
+        start = start + 1;
+    }
+    while end > start {
+        const int b = text.byte_at(end - 1).to_int();
+        if b != 32 && b != 9 && b != 10 && b != 13 {
+            break;
+        }
+        end = end - 1;
+    }
+    return text.slice(start, end);
+}
+
+/// Whether `text` is a bare TOML key: letters, digits, `_` and `-`.
+fn bare_key(string text) -> bool {
+    if text.len() == 0 {
+        return false;
+    }
+    let i = 0;
+    while i < text.len() {
+        const int b = text.byte_at(i).to_int();
+        const bool letter = (b >= 65 && b <= 90) || (b >= 97 && b <= 122);
+        const bool digit = b >= 48 && b <= 57;
+        if !letter && !digit && b != 95 && b != 45 {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+/// Validate a value's spelling and return its kind code, or `-1` when malformed.
+/// Leading and trailing whitespace is already removed by the caller.
+fn value_kind(string text) -> int {
+    if text.len() == 0 {
+        return 0 - 1;
+    }
+    const int first = text.byte_at(0).to_int();
+    if first == 34 {
+        if text.len() < 2 || text.byte_at(text.len() - 1).to_int() != 34 {
+            return 0 - 1;
+        }
+        return 1;
+    }
+    if text == "true" || text == "false" {
+        return 4;
+    }
+    if first == 91 {
+        if text.byte_at(text.len() - 1).to_int() != 93 {
+            return 0 - 1;
+        }
+        return 5;
+    }
+    const Option[int] parsed_int = text.parse_i64();
+    if parsed_int matches Some(_) {
+        return 2;
+    }
+    const Option[float] parsed_float = text.parse_f64();
+    if parsed_float matches Some(_) {
+        return 3;
+    }
+    return 0 - 1;
+}
+
+/// Validate the structure of a document without keeping any allocation. The
+/// return is the byte offset of the first problem, or `-1` when it is valid.
+fn validate_toml(string text) -> int {
+    let string section = "";
+    let int line_start = 0;
+    let int bad = 0 - 1;
+
+    while bad < 0 && line_start <= text.len() {
+        let int line_end = line_start;
+        while line_end < text.len() && text.byte_at(line_end).to_int() != 10 {
+            line_end = line_end + 1;
+        }
+        const string line = text.slice(line_start, line_end);
+        const Option[int] hash = line.index_of("#");
+        const int cut = switch hash {
+            case Some(at) { at }
+            case None { line.len() }
+        };
+        const string trimmed = trim_toml(line.slice(0, cut));
+        if trimmed.len() > 0 {
+            const int head = trimmed.byte_at(0).to_int();
+            if head == 91 {
+                if trimmed.byte_at(trimmed.len() - 1).to_int() != 93 {
+                    bad = line_start;
+                    break;
+                }
+                section = trim_toml(trimmed.slice(1, trimmed.len() - 1));
+                if !bare_key(section) {
+                    bad = line_start;
+                    break;
+                }
+            } else {
+                const Option[int] eq = trimmed.index_of("=");
+                if !(eq matches Some(_)) {
+                    bad = line_start;
+                    break;
+                }
+                const int at = switch eq {
+                    case Some(value) { value }
+                    case None { 0 }
+                };
+                const string name = trim_toml(trimmed.slice(0, at));
+                const string raw = trim_toml(trimmed.slice(at + 1, trimmed.len()));
+                if !bare_key(name) || value_kind(raw) < 0 {
+                    bad = line_start;
+                    break;
+                }
+            }
+        }
+        if line_end >= text.len() {
+            break;
+        }
+        line_start = line_end + 1;
+    }
+    return bad;
+}
+
+/// Parse a TOML document. A malformed input answers `Err` with a byte offset.
+/// Validation runs first, so the building pass below has no failure paths and
+/// no owned column is freed on a path that later uses it.
+pub fn parse_toml(string text) -> Result[TomlDoc, TomlError] {
+    const int bad = validate_toml(text);
+    if bad >= 0 {
+        return Err(TomlError.Invalid(bad));
+    }
+
+    let []string sections = []string {};
+    let []string keys = []string {};
+    let []int kinds = []int {};
+    let []string values = []string {};
+    let string section = "";
+    let int line_start = 0;
+
+    while line_start <= text.len() {
+        let int line_end = line_start;
+        while line_end < text.len() && text.byte_at(line_end).to_int() != 10 {
+            line_end = line_end + 1;
+        }
+        const string line = text.slice(line_start, line_end);
+        const Option[int] hash = line.index_of("#");
+        const int cut = switch hash {
+            case Some(at) { at }
+            case None { line.len() }
+        };
+        const string trimmed = trim_toml(line.slice(0, cut));
+        if trimmed.len() > 0 {
+            const int head = trimmed.byte_at(0).to_int();
+            if head == 91 {
+                section = trim_toml(trimmed.slice(1, trimmed.len() - 1));
+            } else {
+                const Option[int] eq = trimmed.index_of("=");
+                const int at = switch eq {
+                    case Some(value) { value }
+                    case None { 0 }
+                };
+                const string name = trim_toml(trimmed.slice(0, at));
+                const string raw = trim_toml(trimmed.slice(at + 1, trimmed.len()));
+                const int code = value_kind(raw);
+                sections.push(section);
+                keys.push(name);
+                kinds.push(code);
+                values.push(raw);
+            }
+        }
+        if line_end >= text.len() {
+            break;
+        }
+        line_start = line_end + 1;
+    }
+
+    return Ok(TomlDoc {
+        sections: sections,
+        keys: keys,
+        kinds: kinds,
+        values: values,
+    });
+}

@@ -1825,6 +1825,108 @@ fn now_unix_ns() -> int
 
 Nanoseconds since the Unix epoch, from the wall clock.
 
+## `toml`
+
+### `TomlError`
+
+```yashy
+enum TomlError
+```
+
+Why a document is not valid TOML. The `int` is the byte offset of the
+first problem.
+
+### `count_toml`
+
+```yashy
+fn count_toml(TomlDoc doc) -> int
+```
+
+The number of keys in the document.
+
+### `describe_toml`
+
+```yashy
+fn describe_toml(TomlError error) -> string
+```
+
+A human-readable rendering of a TOML error with its byte offset.
+
+### `emit_toml`
+
+```yashy
+fn emit_toml(TomlDoc doc) -> string
+```
+
+Emit a canonical document: sections in first-seen order, keys in insertion
+order, one `key = value` per line, no trailing space.
+
+### `free_toml`
+
+```yashy
+fn free_toml(TomlDoc doc) -> void
+```
+
+Release every column. The document must not be used afterwards.
+
+### `get_toml`
+
+```yashy
+fn get_toml(TomlDoc doc, string section, string key) -> Option[int]
+```
+
+Look up `key` in `section`, returning the row index. The first match wins.
+
+### `key_of_toml`
+
+```yashy
+fn key_of_toml(TomlDoc doc, int index) -> string
+```
+
+The name of a key.
+
+### `kind_of_toml`
+
+```yashy
+fn kind_of_toml(TomlDoc doc, int index) -> int
+```
+
+A value kind: 1 string, 2 int, 3 float, 4 bool, 5 array.
+
+### `parse_toml`
+
+```yashy
+fn parse_toml(string text) -> Result[TomlDoc, TomlError]
+```
+
+Parse a TOML document. A malformed input answers `Err` with a byte offset.
+Validation runs first, so the building pass below has no failure paths and
+no owned column is freed on a path that later uses it.
+
+### `section_of_toml`
+
+```yashy
+fn section_of_toml(TomlDoc doc, int index) -> string
+```
+
+The section a key belongs to (empty for the root section).
+
+### `value_of_toml`
+
+```yashy
+fn value_of_toml(TomlDoc doc, int index) -> Option[string]
+```
+
+The value text of a key, or `None` past the end.
+
+### `TomlDoc`
+
+```yashy
+struct TomlDoc
+```
+
+A parsed document: one row per key across four owned columns.
+
 ## `url`
 
 ### `UrlError`

@@ -1,0 +1,12 @@
+title = "Yashy"
+count = 42
+ratio = 2.5
+on = true
+[owner]
+name = "Ada"
+tags = ["a", "b"]
+
+6
+"Ada"
+invalid TOML at byte 0
+invalid TOML at byte 0
