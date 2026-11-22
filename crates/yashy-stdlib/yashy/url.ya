@@ -6,9 +6,17 @@
 // grammar. A malformed spelling is `Err(Invalid)`, never a half-filled value
 // with a sentinel host.
 
-/// Why a text is not an absolute hierarchical URL.
+/// Why a text is not a well-formed URL. The `int` is the byte offset in the
+/// input where the problem begins.
 pub enum UrlError {
-    Invalid,
+    Invalid(int),
+}
+
+/// A human-readable rendering of a URL error with its byte offset.
+pub fn describe_url(UrlError error) -> string {
+    return switch error {
+        case Invalid(at) { "invalid URL at byte ${at}" }
+    };
 }
 
 /// A parsed URL: its scheme, authority parts, path, query and fragment.
@@ -68,10 +76,11 @@ fn last_index(string text, string needle) -> int {
 pub fn parse_url(string text) -> Result[Url, UrlError] {
     const at = index_of_or(text, "://");
     if at < 0 {
-        return Err(UrlError.Invalid);
+        return Err(UrlError.Invalid(0));
     }
     const scheme = text.slice(0, at);
-    let rest = text.slice(at + 3, text.len());
+    const rest_start = at + 3;
+    let rest = text.slice(rest_start, text.len());
 
     // A fragment runs to the end; a query runs up to the fragment.
     let fragment = "";
@@ -98,10 +107,12 @@ pub fn parse_url(string text) -> Result[Url, UrlError] {
 
     // Userinfo precedes the last `@`; the host and port follow it.
     let userinfo = "";
+    let authority_start = rest_start;
     const last_at = last_index(authority, "@");
     if last_at >= 0 {
         userinfo = authority.slice(0, last_at);
         authority = authority.slice(last_at + 1, authority.len());
+        authority_start = authority_start + last_at + 1;
     }
 
     // A bracketed host is IPv6: the port, if any, follows the closing bracket.
@@ -110,27 +121,36 @@ pub fn parse_url(string text) -> Result[Url, UrlError] {
     if authority.len() > 0 && authority.byte_at(0) == '[' {
         const close = index_of_or(authority, "]");
         if close < 0 {
-            return Err(UrlError.Invalid);
+            return Err(UrlError.Invalid(authority_start));
         }
         host = authority.slice(0, close + 1);
         const tail = authority.slice(close + 1, authority.len());
         if tail.len() > 0 {
             if tail.byte_at(0) != ':' {
-                return Err(UrlError.Invalid);
+                return Err(UrlError.Invalid(authority_start + close + 1));
             }
-            port = port_of(tail, 0)?;
+            port = port_of(tail, 0);
+            if port < 0 {
+                return Err(UrlError.Invalid(authority_start + close + 2));
+            }
         }
     } else {
         const colon = index_of_or(authority, ":");
         if colon >= 0 {
             host = authority.slice(0, colon);
-            port = port_of(authority, colon)?;
+            port = port_of(authority, colon);
+            if port < 0 {
+                return Err(UrlError.Invalid(authority_start + colon + 1));
+            }
         } else {
             host = authority;
         }
     }
-    if scheme.len() == 0 || host.len() == 0 {
-        return Err(UrlError.Invalid);
+    if scheme.len() == 0 {
+        return Err(UrlError.Invalid(0));
+    }
+    if host.len() == 0 {
+        return Err(UrlError.Invalid(authority_start));
     }
     return Ok(Url {
         scheme: scheme,
@@ -143,17 +163,18 @@ pub fn parse_url(string text) -> Result[Url, UrlError] {
     });
 }
 
-/// The port after a colon, parsed as a positive decimal integer.
-fn port_of(string authority, int colon) -> Result[int, UrlError] {
+/// The port after a colon, parsed as a decimal integer, or `-1` when it is
+/// not a port in `0..=65535`. The caller builds the byte-offset error.
+fn port_of(string authority, int colon) -> int {
     const text = authority.slice(colon + 1, authority.len());
     const parsed = switch text.parse_i64() {
         case Some(value) { value }
         case None { 0 - 1 }
     };
     if parsed < 0 || parsed > 65535 {
-        return Err(UrlError.Invalid);
+        return 0 - 1;
     }
-    return Ok(parsed);
+    return parsed;
 }
 
 /// The `scheme://host` prefix, without port or path.
@@ -318,12 +339,12 @@ pub fn percent_decode(string text) -> Result[string, UrlError] {
     while index < text.len() {
         if text.byte_at(index).to_int() == 37 {
             if index + 2 >= text.len() {
-                return Err(UrlError.Invalid);
+                return Err(UrlError.Invalid(index));
             }
             const hi = hex_value(text.byte_at(index + 1));
             const lo = hex_value(text.byte_at(index + 2));
             if hi < 0 || lo < 0 {
-                return Err(UrlError.Invalid);
+                return Err(UrlError.Invalid(index));
             }
             const char decoded = (hi * 16 + lo).to_char();
             out = out + decoded.to_string();

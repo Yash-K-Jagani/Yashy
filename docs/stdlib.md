@@ -1794,7 +1794,16 @@ Nanoseconds since the Unix epoch, from the wall clock.
 enum UrlError
 ```
 
-Why a text is not an absolute hierarchical URL.
+Why a text is not a well-formed URL. The `int` is the byte offset in the
+input where the problem begins.
+
+### `describe_url`
+
+```yashy
+fn describe_url(UrlError error) -> string
+```
+
+A human-readable rendering of a URL error with its byte offset.
 
 ### `origin`
 

@@ -22,6 +22,22 @@ fn resolved(string base, string reference) -> string {
     };
 }
 
+fn parse_error(string text) -> string {
+    const string answer = switch url.parse_url(text) {
+        case Ok(_) { "ok" }
+        case Err(error) { url.describe_url(error) }
+    };
+    return answer;
+}
+
+fn decode_error(string text) -> string {
+    const string answer = switch url.percent_decode(text) {
+        case Ok(_) { "ok" }
+        case Err(error) { url.describe_url(error) }
+    };
+    return answer;
+}
+
 fn main() {
     switch url.parse_url("https://example.org:8443/docs/index.md") {
         case Ok(u) { report(u); }
@@ -61,4 +77,11 @@ fn main() {
     print(resolved(base, "?y"));
     print(resolved(base, "#s"));
     print(resolved(base, "https://other.example/x"));
+
+    // Byte-offset errors: missing scheme separator, bad IPv6 bracket, bad
+    // port and a bad percent escape each point at their first bad byte.
+    print(parse_error("not a url"));
+    print(parse_error("http://[::1/bad"));
+    print(parse_error("http://a.example:xyz/"));
+    print(decode_error("ab%zz"));
 }

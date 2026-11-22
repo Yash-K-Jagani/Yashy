@@ -19,3 +19,7 @@ http://a.example/g
 http://a.example/b/c/d;p?q
 http://a.example/b/c/d;p?q#s
 https://other.example/x
+invalid URL at byte 0
+invalid URL at byte 7
+invalid URL at byte 17
+invalid URL at byte 2
