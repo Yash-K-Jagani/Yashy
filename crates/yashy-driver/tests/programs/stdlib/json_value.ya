@@ -112,6 +112,18 @@ fn scalar_text(JsonDoc doc, int index) -> string {
     };
 }
 
+fn show_piece(string piece) {
+    print("piece=${piece}");
+}
+
+fn report_stream(JsonDoc doc) {
+    // Concatenating the pieces must give exactly emit_doc's answer; print each
+    // with a marker so the golden proves the order and the split points.
+    print("stream of ${json_value.emit_doc(doc)}");
+    json_value.write_stream(doc, show_piece);
+    json_value.free_doc(doc);
+}
+
 fn report_typed(JsonDoc doc) {
     const Option[int] n = json_value.get_doc(doc, 0, "n");
     const Option[int] ok = json_value.get_doc(doc, 0, "ok");
@@ -158,7 +170,7 @@ fn main() {
     // Escapes: BMP code point, surrogate pair (emoji), and a malformed escape.
     const string unicode = "{\"bmp\":\"\\u00e9\",\"emoji\":\"\\ud83d\\ude00\"}";
     switch json_value.parse_doc(unicode) {
-        case Ok(doc) { report_unicode(doc) }
+        case Ok(doc) { report_stream(doc) }
         case Err(_) { print("bad unicode") }
     };
     print(json_value.parse_doc("{\"bad\":\"\\uZZZZ\"}") matches Err(_));

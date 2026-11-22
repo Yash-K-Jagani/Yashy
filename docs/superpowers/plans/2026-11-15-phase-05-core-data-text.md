@@ -169,7 +169,13 @@ is a capability rather than an ambient read.
   emoji needs, and a malformed escape or lone surrogate is a `DocError`. The
   names carry a `doc` prefix because the stdlib modules share one root scope.
   `DocError.Invalid` now carries byte, line and column, and `describe` renders it. The `Json` enum spelling remains owed.
-- [ ] **Step 3: Streaming where it matters.** A JSON reader can emit tokens without building a DOM, and a writer can stream; the DOM is a convenience over the same parser. A depth limit and a size limit are explicit options, not constants hidden in the parser.
+- [x] **Step 3: Streaming where it matters.** A JSON reader can emit tokens without building a DOM, and a writer can stream; the DOM is a convenience over the same parser. A depth limit and a size limit are explicit options, not constants hidden in the parser.
+  *Current:* `json_scan.tokens(text, Limits)` streams the grammar into flat
+  token columns without a DOM, with explicit depth/byte caps.
+  `json_value.write_stream(doc, sink)` is the writer counterpart: it walks
+  the DOM and hands structural characters, keys and scalar text to a
+  callback one piece at a time, so a caller need not hold the whole output.
+  The coverage program pins the piece order for an escaped document.
 - [x] **Step 4: Fuzz the parsers.** Seed the corpus with the conformance files; a crash, a hang or a non-terminating parse is a P0. The fuzzer runs in CI for a bounded time and nightly for longer.
   *Current:* `stdlib/fuzz.ya` drives a seeded LCG over 200
   shared-alphabet inputs through the JSON, CSV, URL, semver, MIME

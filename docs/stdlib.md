@@ -999,6 +999,19 @@ fn value(JsonDoc doc, int index) -> Option[string]
 
 The scalar text of a node, or `None` for a container or a past-end index.
 
+### `write_stream`
+
+```yashy
+fn write_stream(JsonDoc doc, fn(string) -> void sink) -> void
+```
+
+Write a document to `sink` one piece at a time, without building the whole
+text first. The callback receives structural characters, keys and scalar
+text in document order; concatenating the pieces gives exactly `emit_doc`'s
+answer. This is the streaming counterpart to the token reader in
+`json_scan`: a caller that cannot hold the whole output can consume it as
+it is produced.
+
 ### `DocLimits`
 
 ```yashy

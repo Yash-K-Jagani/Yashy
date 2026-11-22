@@ -191,6 +191,70 @@ pub fn emit_doc(JsonDoc doc) -> string {
     return emit_node(doc, 0);
 }
 
+/// Write a document to `sink` one piece at a time, without building the whole
+/// text first. The callback receives structural characters, keys and scalar
+/// text in document order; concatenating the pieces gives exactly `emit_doc`'s
+/// answer. This is the streaming counterpart to the token reader in
+/// `json_scan`: a caller that cannot hold the whole output can consume it as
+/// it is produced.
+pub fn write_stream(JsonDoc doc, fn(string) -> void sink) {
+    if count(doc) == 0 {
+        sink("null");
+        return;
+    }
+    emit_stream_node(doc, 0, sink);
+}
+
+fn emit_stream_node(JsonDoc doc, int index, fn(string) -> void sink) {
+    const int code = kind(doc, index);
+    if code == 0 {
+        sink("null");
+        return;
+    }
+    if code == 1 || code == 2 || code == 3 {
+        const Option[string] found = value(doc, index);
+        const string text = switch found {
+            case Some(raw) { raw }
+            case None { "null" }
+        };
+        sink(text);
+        return;
+    }
+    if code == 4 {
+        const Option[string] found = value(doc, index);
+        const string text = switch found {
+            case Some(raw) { raw }
+            case None { "" }
+        };
+        sink(JSON.quote(text));
+        return;
+    }
+    if code == 5 {
+        sink("[");
+    } else {
+        sink("{");
+    }
+    let first = true;
+    let child = first_child(doc, index);
+    while child >= 0 {
+        if !first {
+            sink(",");
+        }
+        if code == 6 {
+            sink(JSON.quote(key(doc, child)));
+            sink(":");
+        }
+        emit_stream_node(doc, child, sink);
+        first = false;
+        child = next_child(doc, index, child);
+    }
+    if code == 5 {
+        sink("]");
+    } else {
+        sink("}");
+    }
+}
+
 fn emit_node(JsonDoc doc, int index) -> string {
     const int code = kind(doc, index);
     if code == 0 {
