@@ -293,7 +293,7 @@ is a capability rather than an ambient read.
   eager only when the caller asks for an array, and never allocates on the
   per-item path. `enumerate` starts at 0 and never yields a negative index; a
   reversed range yields nothing rather than counting down.
-- [ ] **Step 4: One conversion matrix, no sentinels.** Every fallible
+- [x] **Step 4: One conversion matrix, no sentinels.** Every fallible
   conversion returns `Option` or `Result`; every lossy numeric conversion is
   spelled with `round`, `floor`, `ceil` or `trunc`, and `as` stays the
   truncating cast the tutorial documents. A conversion that cannot fail
