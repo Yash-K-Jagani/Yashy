@@ -65,6 +65,19 @@ fn report_plain(JsonDoc doc) {
     json_value.free_doc(doc);
 }
 
+fn free_and_say(JsonDoc doc) -> string {
+    json_value.free_doc(doc);
+    return "unexpected ok";
+}
+
+fn report_error(string text) {
+    const string message = switch json_value.parse_doc(text) {
+        case Ok(doc) { free_and_say(doc) }
+        case Err(error) { json_value.describe(error) }
+    };
+    print(message);
+}
+
 fn report_array(JsonDoc doc) {
     print(json_value.emit_doc(doc));
     const int third = json_value.first_child(doc, 0);
@@ -152,6 +165,7 @@ fn main() {
     print(json_value.parse_doc("{\"bad\":\"\\ud83d\"}") matches Err(_));
 
     // Malformed input and explicit limits.
+    report_error("{\n  \"a\": }");
     print(json_value.parse_doc("{} trailing") matches Err(_));
     print(json_value.parse_doc("{\"a\":}") matches Err(_));
     print(json_value.parse_doc("[1,]") matches Err(_));

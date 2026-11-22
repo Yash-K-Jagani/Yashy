@@ -20,6 +20,7 @@ n=Some(42) ok=Some(true) nil=None name_as_int=None
 bmp=é emoji=😀
 true
 true
+byte 9 line 2 column 8
 true
 true
 true

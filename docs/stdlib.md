@@ -871,6 +871,14 @@ fn count(JsonDoc doc) -> int
 
 The number of nodes in the document.
 
+### `describe`
+
+```yashy
+fn describe(DocError error) -> string
+```
+
+A human-readable rendering of a parse error with its position.
+
 ### `emit_doc`
 
 ```yashy

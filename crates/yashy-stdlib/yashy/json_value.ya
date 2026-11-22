@@ -17,8 +17,8 @@ import JSON;
 
 /// Why a document could not be parsed.
 pub enum DocError {
-    /// The byte offset of the first problem.
-    Invalid(int),
+    /// The byte offset, 1-based line and 1-based column of the first problem.
+    Invalid(int, int, int),
     /// The configured depth cap and the depth that breached it.
     TooDeep(int, int),
     /// The configured byte cap and the size that breached it.
@@ -439,6 +439,54 @@ pub fn parse_doc(string text) -> Result[JsonDoc, DocError] {
     return parse_with_doc(text, DocLimits { max_depth: 0, max_bytes: 0 });
 }
 
+/// The 1-based line containing `byte`: one more than the newlines before it.
+fn line_at(string text, int byte) -> int {
+    let int line = 1;
+    let int i = 0;
+    while i < byte && i < text.len() {
+        if text.byte_at(i).to_int() == 10 {
+            line = line + 1;
+        }
+        i = i + 1;
+    }
+    return line;
+}
+
+/// The 1-based column of `byte`: bytes since the last newline, plus one.
+fn column_at(string text, int byte) -> int {
+    let int column = 1;
+    let int i = 0;
+    while i < byte && i < text.len() {
+        if text.byte_at(i).to_int() == 10 {
+            column = 1;
+        } else {
+            column = column + 1;
+        }
+        i = i + 1;
+    }
+    return column;
+}
+
+/// Build an `Invalid` error carrying the byte offset and its line/column.
+fn invalid_at(string text, int byte) -> DocError {
+    return DocError.Invalid(byte, line_at(text, byte), column_at(text, byte));
+}
+
+/// A human-readable rendering of a parse error with its position.
+pub fn describe(DocError error) -> string {
+    return switch error {
+        case Invalid(byte, line, column) {
+            "byte ${byte} line ${line} column ${column}"
+        }
+        case TooDeep(cap, actual) {
+            "depth ${actual} exceeds cap ${cap}"
+        }
+        case TooLarge(cap, actual) {
+            "size ${actual} exceeds cap ${cap}"
+        }
+    };
+}
+
 /// Validate the structure and limits of a document without returning any
 /// allocation. The container stack is freed once, after the loop, so no linear
 /// value is ever freed on a path that later uses it.
@@ -454,7 +502,7 @@ fn validate(string text, DocLimits limits) -> Option[DocError] {
     let int state = 0;
     let bool failed = false;
     let bool done = false;
-    let DocError problem = DocError.Invalid(0);
+    let DocError problem = invalid_at(text, 0);
 
     while !failed && !done {
         while index < text.len() {
@@ -469,7 +517,7 @@ fn validate(string text, DocLimits limits) -> Option[DocError] {
                 done = true;
             } else {
                 failed = true;
-                problem = DocError.Invalid(index);
+                problem = invalid_at(text, index);
             }
             break;
         }
@@ -499,12 +547,12 @@ fn validate(string text, DocLimits limits) -> Option[DocError] {
                 const int end = scan_string(text, index);
                 if end < 0 {
                     failed = true;
-                    problem = DocError.Invalid(index);
+                    problem = invalid_at(text, index);
                     break;
                 }
                 if !valid_escapes(text, index, end) {
                     failed = true;
-                    problem = DocError.Invalid(index);
+                    problem = invalid_at(text, index);
                     break;
                 }
                 index = end;
@@ -543,7 +591,7 @@ fn validate(string text, DocLimits limits) -> Option[DocError] {
                 }
             } else {
                 failed = true;
-                problem = DocError.Invalid(index);
+                problem = invalid_at(text, index);
                 break;
             }
         } else if state == 1 {
@@ -559,19 +607,19 @@ fn validate(string text, DocLimits limits) -> Option[DocError] {
                 const int end = scan_string(text, index);
                 if end < 0 {
                     failed = true;
-                    problem = DocError.Invalid(index);
+                    problem = invalid_at(text, index);
                     break;
                 }
                 if !valid_escapes(text, index, end) {
                     failed = true;
-                    problem = DocError.Invalid(index);
+                    problem = invalid_at(text, index);
                     break;
                 }
                 index = end;
                 state = 2;
             } else {
                 failed = true;
-                problem = DocError.Invalid(index);
+                problem = invalid_at(text, index);
                 break;
             }
         } else if state == 2 {
@@ -580,7 +628,7 @@ fn validate(string text, DocLimits limits) -> Option[DocError] {
                 state = 0;
             } else {
                 failed = true;
-                problem = DocError.Invalid(index);
+                problem = invalid_at(text, index);
                 break;
             }
         } else if state == 3 {
@@ -606,7 +654,7 @@ fn validate(string text, DocLimits limits) -> Option[DocError] {
                 }
             } else {
                 failed = true;
-                problem = DocError.Invalid(index);
+                problem = invalid_at(text, index);
                 break;
             }
         }
@@ -623,7 +671,7 @@ fn validate(string text, DocLimits limits) -> Option[DocError] {
         }
         if index < text.len() {
             failed = true;
-            problem = DocError.Invalid(index);
+            problem = invalid_at(text, index);
         }
     }
 
@@ -643,7 +691,7 @@ pub fn parse_with_doc(string text, DocLimits limits) -> Result[JsonDoc, DocError
     if problem matches Some(_) {
         const DocError error = switch problem {
             case Some(found) { found }
-            case None { DocError.Invalid(0) }
+            case None { invalid_at(text, 0) }
         };
         return Err(error);
     }
