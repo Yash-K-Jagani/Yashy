@@ -28,7 +28,7 @@ pub struct Semver {
 
 /// Parse `major.minor.patch[-pre][+build]`.
 pub fn parse_version(string text) -> Result[Semver, SemverError] {
-    const plus = find_from(text, "+", 0);
+    const plus = semver_find_from(text, "+", 0);
     let with_build = text;
     if plus >= 0 { with_build = text.slice(0, plus); }
     let build = "";
@@ -37,7 +37,7 @@ pub fn parse_version(string text) -> Result[Semver, SemverError] {
         return Err(SemverError.Invalid(plus + 1));
     }
 
-    const dash = find_from(with_build, "-", 0);
+    const dash = semver_find_from(with_build, "-", 0);
     let core = with_build;
     if dash >= 0 { core = with_build.slice(0, dash); }
     let pre = "";
@@ -50,15 +50,15 @@ pub fn parse_version(string text) -> Result[Semver, SemverError] {
     // owned array which this total parser would have to release on every exit,
     // including the error paths below. Slices are views, so the three
     // components borrow `core` and own nothing.
-    const first_dot = find_from(core, ".", 0);
+    const first_dot = semver_find_from(core, ".", 0);
     if first_dot < 0 {
         return Err(SemverError.Invalid(core.len()));
     }
-    const second_dot = find_from(core, ".", first_dot + 1);
+    const second_dot = semver_find_from(core, ".", first_dot + 1);
     if second_dot < 0 {
         return Err(SemverError.Invalid(first_dot + 1));
     }
-    if find_from(core, ".", second_dot + 1) >= 0 {
+    if semver_find_from(core, ".", second_dot + 1) >= 0 {
         return Err(SemverError.Invalid(second_dot + 1));
     }
     const string sa = core.slice(0, first_dot);
@@ -117,7 +117,7 @@ fn component([]string parts, int index) -> Result[int, SemverError] {
 }
 
 /// The index of `needle` at or after `start`, or `-1`.
-fn find_from(string text, string needle, int start) -> int {
+fn semver_find_from(string text, string needle, int start) -> int {
     if start >= text.len() || needle.len() == 0 {
         return 0 - 1;
     }
@@ -138,7 +138,7 @@ fn valid_identifiers(string text, bool no_leading_zero) -> bool {
     }
     let start = 0;
     while start < text.len() {
-        const dot = find_from(text, ".", start);
+        const dot = semver_find_from(text, ".", start);
         let end = text.len();
     if dot >= 0 { end = dot; }
         const part = text.slice(start, end);
@@ -239,8 +239,8 @@ pub fn compare(Semver a, Semver b) -> int {
     let a_start = 0;
     let b_start = 0;
     while true {
-        const a_dot = find_from(a_pre, ".", a_start);
-        const b_dot = find_from(b_pre, ".", b_start);
+        const a_dot = semver_find_from(a_pre, ".", a_start);
+        const b_dot = semver_find_from(b_pre, ".", b_start);
         let a_end = a_pre.len();
         if a_dot >= 0 { a_end = a_dot; }
         let b_end = b_pre.len();

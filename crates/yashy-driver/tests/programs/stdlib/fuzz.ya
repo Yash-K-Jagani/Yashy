@@ -1,0 +1,140 @@
+// A deterministic fuzz corpus for the text parsers.
+//
+// A malformed byte string must produce a `Result`/`Option`/empty answer, never
+// a panic, a hang or an unbounded allocation. The generator is a seeded LCG:
+// the same seed always yields the same corpus, so a failure is reproducible
+// from the one number printed below and the offline suite stays deterministic.
+//
+// The parsers are fed a shared alphabet of the bytes their grammars are made
+// from -- braces, quotes, commas, colons, digits, escapes and the letters that
+// spell `true`/`null`/`+json`. Mutations therefore land inside a grammar often
+// enough to exercise the interesting paths, not just the reject-at-byte-zero
+// path.
+
+import json_value;
+import csv;
+import url;
+import semver;
+import mime;
+import text;
+
+/// The next LCG state. The multiplier keeps the product under 2^63, so the
+/// checked integer arithmetic in Yashy cannot fault on a generated input.
+fn next_state(int state) -> int {
+    return (state * 48271) % 2147483647;
+}
+
+/// `length` characters drawn from the alphabet, advancing the state each time.
+fn random_text(int state, int length) -> string {
+    const string alphabet = "{}[],:\"0123456789truefalsenull\\-+.eE/;#?@ \n\tabc";
+    let out = "";
+    let s = state;
+    let i = 0;
+    while i < length {
+        const int index = s % alphabet.len();
+        const char c = alphabet.byte_at(index);
+        out = out + c.to_string();
+        s = next_state(s);
+        i = i + 1;
+    }
+    return out;
+}
+
+fn free_json(JsonDoc doc) -> bool {
+    json_value.free_doc(doc);
+    return true;
+}
+
+fn feed_json(string input) -> bool {
+    return switch json_value.parse_doc(input) {
+        case Ok(doc) { free_json(doc) }
+        case Err(_) { true }
+    };
+}
+
+fn free_strings([]string rows) -> bool {
+    rows.free();
+    return true;
+}
+
+fn feed_csv(string input) -> bool {
+    return free_strings(csv.parse_rows(input));
+}
+
+fn free_url(Url value) -> bool {
+    // `Url` holds string fields but has no standalone `free`: it is a value
+    // returned by the parser and released by the scope, so nothing to do here.
+    return true;
+}
+
+fn feed_url(string input) -> bool {
+    return switch url.parse_url(input) {
+        case Ok(u) { free_url(u) }
+        case Err(_) { true }
+    };
+}
+
+fn free_semver(Semver value) -> bool {
+    return true;
+}
+
+fn feed_semver(string input) -> bool {
+    return switch semver.parse_version(input) {
+        case Ok(v) { free_semver(v) }
+        case Err(_) { true }
+    };
+}
+
+fn free_mime(Mime value) -> bool {
+    return true;
+}
+
+fn feed_mime(string input) -> bool {
+    return switch mime.parse_media_type(input) {
+        case Ok(m) { free_mime(m) }
+        case Err(_) { true }
+    };
+}
+
+fn free_bytes([]char bytes) -> bool {
+    bytes.free();
+    return true;
+}
+
+fn feed_base64(string input) -> bool {
+    return switch text.base64_decode(input) {
+        case Ok(bytes) { free_bytes(bytes) }
+        case Err(_) { true }
+    };
+}
+
+fn feed_hex(string input) -> bool {
+    return switch text.hex_decode(input) {
+        case Ok(bytes) { free_bytes(bytes) }
+        case Err(_) { true }
+    };
+}
+
+fn feed(string input) -> bool {
+    const bool a = feed_json(input);
+    const bool b = feed_csv(input);
+    const bool c = feed_url(input);
+    const bool d = feed_semver(input);
+    const bool e = feed_mime(input);
+    const bool f = feed_base64(input);
+    const bool g = feed_hex(input);
+    return a && b && c && d && e && f && g;
+}
+
+fn main() {
+    const int seed = 20261122;
+    let state = seed;
+    let i = 0;
+    while i < 200 {
+        const string input = random_text(state, 24);
+        feed(input);
+        state = next_state(state);
+        i = i + 1;
+    }
+    print("fuzz ok seed=${seed} cases=200");
+}

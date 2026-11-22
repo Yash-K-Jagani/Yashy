@@ -236,7 +236,7 @@ pub fn hex_encode([]char data) -> string {
     return text;
 }
 
-fn hex_value(char next) -> int {
+fn text_hex_value(char next) -> int {
     const byte = next.to_int();
     if byte >= 48 && byte <= 57 {
         return byte - 48;
@@ -269,7 +269,7 @@ fn hex_bad_at(string text) -> int {
                     '0'
                 }
             };
-            if hex_value(byte) < 0 {
+            if text_hex_value(byte) < 0 {
                 bad = index;
             }
             index = index + 1;
@@ -291,7 +291,7 @@ pub fn hex_decode(string text) -> Result[[]char, TextError] {
     while index < data.len() {
         const hi = switch data[index] {
             case Some(c) {
-                hex_value(c)
+                text_hex_value(c)
             }
             case None {
                 -1
@@ -299,7 +299,7 @@ pub fn hex_decode(string text) -> Result[[]char, TextError] {
         };
         const lo = switch data[index + 1] {
             case Some(c) {
-                hex_value(c)
+                text_hex_value(c)
             }
             case None {
                 -1

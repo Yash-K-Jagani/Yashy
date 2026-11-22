@@ -42,7 +42,7 @@ fn index_of_or(string text, string needle) -> int {
 }
 
 /// The index of `needle` at or after `start`, or `-1`.
-fn find_from(string text, string needle, int start) -> int {
+fn url_find_from(string text, string needle, int start) -> int {
     if start >= text.len() || needle.len() == 0 {
         return 0 - 1;
     }
@@ -58,7 +58,7 @@ fn last_index(string text, string needle) -> int {
     let found = 0 - 1;
     let start = 0;
     while start < text.len() {
-        const at = find_from(text, needle, start);
+        const at = url_find_from(text, needle, start);
         if at < 0 {
             break;
         }
@@ -341,8 +341,8 @@ pub fn percent_decode(string text) -> Result[string, UrlError] {
             if index + 2 >= text.len() {
                 return Err(UrlError.Invalid(index));
             }
-            const hi = hex_value(text.byte_at(index + 1));
-            const lo = hex_value(text.byte_at(index + 2));
+            const hi = url_hex_value(text.byte_at(index + 1));
+            const lo = url_hex_value(text.byte_at(index + 2));
             if hi < 0 || lo < 0 {
                 return Err(UrlError.Invalid(index));
             }
@@ -359,7 +359,7 @@ pub fn percent_decode(string text) -> Result[string, UrlError] {
 }
 
 /// The value of one hexadecimal digit, or `-1`.
-fn hex_value(char digit) -> int {
+fn url_hex_value(char digit) -> int {
     const value = digit.to_int();
     if value >= 48 && value <= 57 {
         return value - 48;

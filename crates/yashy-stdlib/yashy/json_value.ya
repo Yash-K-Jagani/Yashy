@@ -281,7 +281,7 @@ fn at_word(string text, int start, string word) -> bool {
 }
 
 /// The value of one hex digit, or `-1` when the byte is not hex.
-fn hex_value(int byte) -> int {
+fn json_hex_value(int byte) -> int {
     if byte >= 48 && byte <= 57 {
         return byte - 48;
     }
@@ -299,7 +299,7 @@ fn hex4(string text, int start) -> int {
     let int value = 0;
     let int i = start;
     while i < start + 4 {
-        const int digit = hex_value(text.byte_at(i).to_int());
+        const int digit = json_hex_value(text.byte_at(i).to_int());
         if digit < 0 {
             return 0 - 1;
         }
