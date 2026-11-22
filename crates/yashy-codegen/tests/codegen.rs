@@ -656,3 +656,41 @@ fn llvm_type_mapping_matches_the_spec() {
     assert_eq!(llvm_type_string(&TypeKind::Str), "{ i32, i32, i8* }");
     assert_eq!(llvm_type_string(&TypeKind::Unit), "void");
 }
+
+#[test]
+fn none_zeroes_an_absent_struct_payload() {
+    // `None` carries no payload, but an `Option[Box]` still owns a struct with
+    // a string field in its absent slot. Leaving it `undef` makes the caller
+    // release a garbage pointer. `Ok`/`Err` already zero that slot.
+    let ir_text = ir_of(
+        "struct Box { text: string }\n\
+         fn f() -> Option[Box] { return None; }\n\
+         fn main() { print(\"done\"); }",
+    );
+    assert!(
+        ir_text.contains("store %struct.Box zeroinitializer"),
+        "a `None` must write a zero struct into the absent Some slot:\n{ir_text}"
+    );
+}
+
+#[test]
+fn propagating_an_error_zeroes_an_absent_struct_ok_payload() {
+    // `?` rebuilds the propagated Err in the caller's `Result` type. When the
+    // `Ok` payload is a struct with a string field, leaving it `undef` makes
+    // the caller release a garbage pointer on the error path. The Err
+    // constructor already zeroes that field; `?` must do the same.
+    let ir_text = ir_of(
+        "struct Box { text: string }\n\
+         fn inner() -> Result[int, string] { return Err(\"bad\"); }\n\
+         fn outer() -> Result[Box, string] {\n\
+           const int v = inner()?;\n\
+           return Ok(Box { text: \"ok\" });\n\
+         }\n\
+         fn main() { print(\"done\"); }",
+    );
+    assert!(
+        ir_text.contains("store %struct.Box zeroinitializer"),
+        "a propagated Err must write a zero struct into the absent Ok slot; \
+         otherwise a field holding a string is released as garbage:\n{ir_text}"
+    );
+}

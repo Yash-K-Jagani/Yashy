@@ -2137,6 +2137,19 @@ fn gen_call(
                 ));
                 acc = next;
             }
+            // A struct (or other aggregate) payload owning strings needs the
+            // whole slot zeroed, not just the direct-string fields above.
+            if let TypeKind::Option(inner) = ty {
+                if owns_string_refs(ctx, &inner.kind) {
+                    let zero = zero_refs(ctx, &inner.kind);
+                    let next = ctx.tmp();
+                    ctx.push(format!(
+                        "{next} = insertvalue {repr} {acc}, {} {zero}, 1",
+                        repr_type(&inner.kind)
+                    ));
+                    acc = next;
+                }
+            }
             GenValue {
                 value: acc,
                 ty: ty.clone(),
@@ -2802,6 +2815,26 @@ fn gen_try(ctx: &mut FnCtx<'_>, expr: &HirExpr, result_ty: &TypeKind) -> GenValu
             ));
             built = next;
         }
+        // `string_payload_fields` only covers a direct `string`. An `Ok` that
+        // is a struct (or another aggregate) owning strings needs the whole
+        // slot zeroed too, or the caller releases garbage out of `undef`. The
+        // `Err(..)` constructor already does this; propagation must as well.
+        let ok_ty = if let TypeKind::Result(ret_ok, _) = &ctx.ret_type {
+            Some(ret_ok.kind.clone())
+        } else {
+            None
+        };
+        if let Some(ok_ty) = ok_ty {
+            if owns_string_refs(ctx, &ok_ty) {
+                let zero = zero_refs(ctx, &ok_ty);
+                let next = ctx.tmp();
+                ctx.push(format!(
+                    "{next} = insertvalue {ret_repr} {built}, {} {zero}, 1",
+                    repr_type(&ok_ty)
+                ));
+                built = next;
+            }
+        }
         ctx.push(format!("ret {ret_repr} {built}"));
     } else if matches!(value.ty, TypeKind::Option(_)) {
         // `None` carries no payload, so its tag is the whole value: the
@@ -2816,6 +2849,24 @@ fn gen_try(ctx: &mut FnCtx<'_>, expr: &HirExpr, result_ty: &TypeKind) -> GenValu
                 "{next} = insertvalue {ret_repr} {built}, i8* null, {field}"
             ));
             built = next;
+        }
+        // The same aggregate case as the `Result` arm above: a `Some` that
+        // owns strings through a struct must be zeroed, not left `undef`.
+        let inner_ty = if let TypeKind::Option(inner) = &ctx.ret_type {
+            Some(inner.kind.clone())
+        } else {
+            None
+        };
+        if let Some(inner_ty) = inner_ty {
+            if owns_string_refs(ctx, &inner_ty) {
+                let zero = zero_refs(ctx, &inner_ty);
+                let next = ctx.tmp();
+                ctx.push(format!(
+                    "{next} = insertvalue {ret_repr} {built}, {} {zero}, 1",
+                    repr_type(&inner_ty)
+                ));
+                built = next;
+            }
         }
         ctx.push(format!("ret {ret_repr} {built}"));
     } else {
