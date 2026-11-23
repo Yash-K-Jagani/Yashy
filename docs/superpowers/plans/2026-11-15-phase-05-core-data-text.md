@@ -110,7 +110,9 @@ is a capability rather than an ambient read.
   an `impl` is namespaced by its type. The single-module facade is a recorded
   deviation from the file list; the generated doc surface and the coverage gate
   are the substance of the step.
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.** Task 1's typed collections landed across the
+  `a7ca38d`–`7e42aee` series; this slice's verification and bookkeeping closed
+  its remaining steps in `87c0a73`.
 
 ### Task 2: Reference counting and shared values
 
@@ -346,7 +348,8 @@ is a capability rather than an ambient read.
   sink. There is no global logger and no buffering, and
   `stdlib/observability.ya` captures the structured lines in a test function.
   CI must confirm the golden output.
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.** RFC 3339 landed in `a910274`; the zone table, fixed
+  clock and trace naming landed in `87c0a73`.
 
 ### Task 8: Iteration adapters and the conversion matrix
 
