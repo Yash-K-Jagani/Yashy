@@ -241,6 +241,12 @@ follow-up, not claimed as complete.
 | Sockets and deadlines | `cargo test -p yashy-driver --test net_package` and `-p yashy-runtime --test net` | loopback TCP/UDP/Unix echo, typed causes, expired deadline and cancellation, zero leaks |
 | No regression | `cargo test --workspace --no-fail-fast` | all targets green |
 
+**Dated exception (2026-11-23): HTTP client.** The loopback GET/POST and
+chunked framing test passes, but the client retains three string headers over
+two requests, and the redirect-loop/gzip/body-limit/deadline/pool rows are not
+yet fixtures. Owner: HTTP package maintainer. Closes when the client leak is
+zero and every named row has a pinned program.
+
 **Dated exception (2026-11-23): TLS.** The TLS-negative fixture and the
 vetted-library wrapper cannot be built with the current `link`-input
 convention: mbedTLS needs a C build system and include paths, and the host

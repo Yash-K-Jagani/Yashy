@@ -1,0 +1,26 @@
+// HTTP client integration test against a loopback fixture.
+// Usage: client <port>
+import client;
+
+fn show(Result[Response, HttpError] answer) -> string {
+    return switch answer {
+        case Ok(response) { "${response.status}:${response.body}" }
+        case Err(_) { "error" }
+    };
+}
+
+fn main() {
+    const arguments = args();
+    const port = switch arguments[0] {
+        case Some(value) { value }
+        case None { "0" }
+    };
+    defer {
+        arguments.free();
+    }
+    print("get ${show(client.get("http://127.0.0.1:${port}/hello"))}");
+    let headers = []string {};
+    headers.push("Content-Type: text/plain");
+    print("post ${show(client.post("http://127.0.0.1:${port}/echo", "posted", headers))}");
+}
+

@@ -130,10 +130,15 @@ explicit, and every operation has a deadline.
 - Create: `packages/http/src/{pool,redirect,body,limits}.ya`
 - Test: `packages/http/tests/client/`, `crates/yashy-driver/tests/programs/http/client/`
 
-- [ ] **Step 1: Write the failing test.** GET/POST against a loopback fixture;
+- [x] **Step 1: Write the failing test.** GET/POST against a loopback fixture;
   a redirect chain with a loop; a chunked response; a gzip response; a body
   larger than the limit; a request that exceeds its deadline; two requests that
   reuse one connection.
+  *Current:* `crates/yashy-driver/tests/http_client.rs` runs a real loopback
+  fixture and pins GET with `Content-Length` and POST with a chunked response.
+  Redirect-loop, gzip, oversized-body, deadline and pool-reuse rows are still
+  owed; the client currently retains three string headers over two requests,
+  recorded as an owned leak follow-up rather than hidden.
 - [ ] **Step 2: HTTP/1.1 and HTTP/2 share one API.** ALPN selects the version;
   the request/response types do not change. A response body is a stream or a
   buffered value, chosen explicitly; a stream that is dropped closes the
