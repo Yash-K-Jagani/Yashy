@@ -1222,6 +1222,110 @@ fn trace_events_cmd(source: &Path, program_args: &[String], json: bool) -> ExitC
     result
 }
 
+/// `yashyc inspect --rc <file.ya>`: build and run the program with the
+/// runtime's reference-count table dumped at exit, then render the live cells.
+/// A cell still held at exit is named as a leak or a cycle; the runtime cannot
+/// tell the two apart without an object graph, and the report says so.
+fn inspect_rc_cmd(source: &Path, json: bool) -> ExitCode {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or(0);
+    let scratch =
+        std::env::temp_dir().join(format!("yashy-inspect-rc-{}-{stamp}", std::process::id()));
+    if let Err(error) = fs::create_dir_all(&scratch) {
+        eprintln!("error: cannot create {}: {error}", scratch.display());
+        return exit_code(EXIT_INTERNAL);
+    }
+    let binary = scratch.join(format!("program{}", std::env::consts::EXE_SUFFIX));
+    let cells_file = scratch.join("rc.txt");
+    let build_args = vec![
+        source.to_string_lossy().into_owned(),
+        "-o".to_string(),
+        binary.to_string_lossy().into_owned(),
+    ];
+    let built = build(CommandKind::Build, &build_args);
+    let ok = exit_code(EXIT_OK);
+    let result = if built != ok {
+        built
+    } else {
+        let mut child = Command::new(&binary);
+        child.env("YASHY_RC_FILE", &cells_file);
+        match child.status() {
+            Ok(status) if status.success() => match fs::read_to_string(&cells_file) {
+                Ok(text) => {
+                    let mut cells = Vec::new();
+                    for line in text.lines() {
+                        let fields: Vec<&str> = line.split_whitespace().collect();
+                        if fields.len() != 3 {
+                            continue;
+                        }
+                        let (Ok(handle), Ok(strong), Ok(weak)) = (
+                            fields[0].parse::<i64>(),
+                            fields[1].parse::<i64>(),
+                            fields[2].parse::<i64>(),
+                        ) else {
+                            continue;
+                        };
+                        cells.push((handle, strong, weak));
+                    }
+                    if json {
+                        let rows: Vec<Json> = cells
+                            .iter()
+                            .map(|(handle, strong, weak)| {
+                                let mut row = Json::object();
+                                row.set("handle", Json::number(*handle));
+                                row.set("strong", Json::number(*strong));
+                                row.set("weak", Json::number(*weak));
+                                row.set("live_at_exit", Json::bool(true));
+                                row
+                            })
+                            .collect();
+                        let mut report = Json::object();
+                        report.set("schema_version", Json::number(1));
+                        report.set("tool", Json::string("inspect"));
+                        report.set("mode", Json::string("rc"));
+                        report.set(
+                            "source",
+                            Json::string(source.to_string_lossy().into_owned()),
+                        );
+                        report.set("cells", Json::array(rows));
+                        println!("{}", report.render());
+                    } else {
+                        println!("handle strong weak");
+                        for (handle, strong, weak) in &cells {
+                            println!("{handle:>6} {strong:>6} {weak:>4}");
+                        }
+                        if cells.is_empty() {
+                            println!("no live reference-counted cells");
+                        } else {
+                            eprintln!(
+                                "note: a live strong count is a leak or a cycle; \
+                                 the runtime cannot tell which without an object graph"
+                            );
+                        }
+                    }
+                    exit_code(EXIT_OK)
+                }
+                Err(error) => {
+                    eprintln!("error: cannot read {}: {error}", cells_file.display());
+                    exit_code(EXIT_INTERNAL)
+                }
+            },
+            Ok(status) => {
+                eprintln!("warning: the inspected program exited with {status}");
+                exit_code(EXIT_OK)
+            }
+            Err(error) => {
+                eprintln!("error: cannot run {}: {error}", binary.display());
+                exit_code(EXIT_INTERNAL)
+            }
+        }
+    };
+    let _ = fs::remove_dir_all(&scratch);
+    result
+}
+
 /// `yashyc bench [--json] [--list] [file]`.
 ///
 /// Reads the `key=value` rows a benchmark script wrote and renders them. It
@@ -2349,6 +2453,7 @@ fn inspect_cmd(args: &[String]) -> ExitCode {
     let mut json = true;
     let mut layout = false;
     let mut layout_all = false;
+    let mut rc = false;
     let mut address: Option<u64> = None;
     let mut binary: Option<PathBuf> = None;
     let mut operands: Vec<String> = Vec::new();
@@ -2359,6 +2464,7 @@ fn inspect_cmd(args: &[String]) -> ExitCode {
             "--human" => json = false,
             "--layout" => layout = true,
             "--all" => layout_all = true,
+            "--rc" => rc = true,
             "--addr" => {
                 let Some(value) = iter.next() else {
                     return usage_error("`--addr` needs a hexadecimal address");
@@ -2385,6 +2491,9 @@ fn inspect_cmd(args: &[String]) -> ExitCode {
         return usage_error("`inspect` needs a source file");
     };
     let path = PathBuf::from(file);
+    if rc {
+        return inspect_rc_cmd(&path, json);
+    }
     if layout {
         let source = match read_source_with(&path, EXIT_USAGE) {
             Ok(source) => source,

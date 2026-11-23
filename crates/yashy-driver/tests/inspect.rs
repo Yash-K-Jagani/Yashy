@@ -55,6 +55,63 @@ fn inspect_lists_symbols_when_no_name_is_given() {
 }
 
 #[test]
+fn inspect_rc_names_live_cells_at_exit() {
+    let dir = work_dir("inspect-rc-live");
+    write(
+        &dir,
+        "main.ya",
+        "import rc;\nfn main() { let a = rc.make_rc(9); let b = rc.clone_rc(a); rc.release_rc(a); }\n",
+    );
+    let stdlib = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("yashy-stdlib")
+        .join("yashy");
+    let output = Command::new(yashyc())
+        .args(["inspect", "--rc", "--json", "main.ya"])
+        .current_dir(&dir)
+        .env("YASHY_PATH", stdlib)
+        .output()
+        .expect("the CLI must run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "{}\n{stdout}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("\"mode\": \"rc\""), "{stdout}");
+    assert!(stdout.contains("\"strong\": 1"), "{stdout}");
+    assert!(stdout.contains("\"weak\": 0"), "{stdout}");
+    assert!(stdout.contains("\"live_at_exit\""), "{stdout}");
+}
+
+#[test]
+fn inspect_rc_is_empty_when_every_owner_releases() {
+    let dir = work_dir("inspect-rc-empty");
+    write(
+        &dir,
+        "main.ya",
+        "import rc;\nfn main() { let a = rc.make_rc(9); rc.release_rc(a); }\n",
+    );
+    let stdlib = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("yashy-stdlib")
+        .join("yashy");
+    let output = Command::new(yashyc())
+        .args(["inspect", "--rc", "--json", "main.ya"])
+        .current_dir(&dir)
+        .env("YASHY_PATH", stdlib)
+        .output()
+        .expect("the CLI must run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "{}\n{stdout}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("\"cells\": []"), "{stdout}");
+}
+
+#[test]
 fn an_unknown_symbol_is_a_diagnostic() {
     let dir = work_dir("inspect-missing");
     project(&dir);

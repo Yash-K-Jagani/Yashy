@@ -43,6 +43,7 @@ extern char *realpath(const char *path, char *resolved_path);
  * because the printing and diagnostic functions come before it. */
 static const char *yashy_str_data(const yashy_str *s);
 long long yashy_now_ms(void);
+static void yashy_rc_flush(void);
 
 /* ---- Runtime event trace -------------------------------------------------
  *
@@ -191,6 +192,9 @@ static void yashy_stdout_binary(void) {
 void yashy_runtime_init(void) {
     yashy_stdout_binary();
     yashy_sample_configure();
+    if (getenv("YASHY_RC_FILE") != NULL) {
+        atexit(yashy_rc_flush);
+    }
 }
 
 /* The observability sink: one JSON object per line on stderr, with a
@@ -2086,6 +2090,25 @@ static int yashy_rc_cas(yashy_rc_cell *cell, long long *field, long long *expect
     *field = desired;
     return 1;
 #endif
+}
+
+/* At exit, `yashyc inspect --rc` asks for the live cells through a file. The
+ * runtime writes plain rows rather than JSON so it needs no JSON dependency;
+ * the driver renders the rows. A cell with a live strong count at exit is a
+ * leak or a cycle -- the runtime cannot tell which without an object graph. */
+static void yashy_rc_flush(void) {
+    const char *path = getenv("YASHY_RC_FILE");
+    if (path == NULL || path[0] == '\0') return;
+    FILE *out = fopen(path, "w");
+    if (out == NULL) return;
+    for (long long i = 0; i < YASHY_RC_CAPACITY; i++) {
+        yashy_rc_cell *cell = &yashy_rc_cells[i];
+        long long strong = yashy_rc_load(cell, &cell->strong);
+        long long weak = yashy_rc_load(cell, &cell->weak);
+        if (strong == 0 && weak == 0) continue;
+        fprintf(out, "%lld %lld %lld\n", i + 1, strong, weak);
+    }
+    fclose(out);
 }
 
 /* Claiming a free slot is always atomic, even for an Rc table: two threads

@@ -138,7 +138,13 @@ is a capability rather than an ambient read.
   are atomic in both modes. Cloning is an explicit call; release is explicit as
   `release_rc`/`release_arc`, with no `Drop`. The cells live in a fixed table
   rather than through the allocator interface, recorded as a deviation.
-- [ ] **Step 3: Cycles are the program's problem, and the tools say so.** `yashyc inspect --rc` lists live strong/weak counts at a breakpoint or at exit; a cycle is reported as a diagnostic aid, not silently collected.
+- [x] **Step 3: Cycles are the program's problem, and the tools say so.** `yashyc inspect --rc` lists live strong/weak counts at a breakpoint or at exit; a cycle is reported as a diagnostic aid, not silently collected.
+  *Current:* the runtime dumps live cells when `YASHY_RC_FILE` is set, and
+  `yashyc inspect --rc <file.ya>` builds, runs and renders them as schema-v1
+  JSON or aligned text. A cell with a live strong count is named as a leak or
+  a cycle; naming which one needs an object graph the runtime does not have,
+  and the report says so instead of guessing. Partial in that specific sense:
+  the counts are observable, cycle attribution is not.
 - [x] **Step 4: Commit.** Landed as one slice with the scalar handle table;
   `inspect --rc` stays open under Step 3.
 
@@ -481,6 +487,12 @@ is a capability rather than an ambient read.
   by `print`, `format` and `Debug` has one spelling. A `format` specifier on a
   type with no conversion is a compile-time diagnostic for a literal format
   string.
+  *Current:* the checker already lowers a literal field through `as_string`,
+  the same conversion `print` and interpolation use, and rejects a field whose
+  type cannot satisfy its spelling (`E0100`) or a precision on a non-float
+  field before the program runs. Debug uses `debug_string`. What is still owed
+  is the full width/precision unification for `print` and `Debug`, not a
+  second scalar conversion path.
 - [ ] **Step 6: Commit.**
   `git commit -m "feat(stdlib): iteration adapters and a total conversion matrix"`.
 

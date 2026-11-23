@@ -989,6 +989,11 @@ alignment and field offsets from the same layout walk the checker uses for
 `sizeof`/`offsetof`. Primitives and declared structs/enums are supported;
 generic instantiations need the parser's type syntax and are not guessed.
 
+`yashyc inspect --rc <file.ya>` builds and runs the program, then reports the
+reference-counted cells still held at exit: handle, strong count and weak
+count. A live strong count is named as a leak or a cycle; the runtime cannot
+tell the two apart without an object graph, and the report says so.
+
 `yashyc inspect --json <file.ya> <Name>` reports the symbol's facts. A `struct`
 or `enum` symbol also carries a `layout` object (`size`, `align`, `fields`)
 with the same numbers as `inspect --layout`, so a script that inspects a type
