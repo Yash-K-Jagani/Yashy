@@ -241,6 +241,13 @@ follow-up, not claimed as complete.
 | Sockets and deadlines | `cargo test -p yashy-driver --test net_package` and `-p yashy-runtime --test net` | loopback TCP/UDP/Unix echo, typed causes, expired deadline and cancellation, zero leaks |
 | No regression | `cargo test --workspace --no-fail-fast` | all targets green |
 
+**Dated exception (2026-11-23): TLS.** The TLS-negative fixture and the
+vetted-library wrapper cannot be built with the current `link`-input
+convention: mbedTLS needs a C build system and include paths, and the host
+OpenSSL has no development symlink. Owner: runtime maintainer. Closes when
+native dependencies can carry include paths and a pinned TLS release passes
+the expired/wrong-host/revoked/untrusted fixture on both operating systems.
+
 **Dated exceptions (2026-11-23).** The Windows named-pipe half of the
 `cfg`-selected local-socket API and a multi-record A/AAAA DNS fixture need a
 Windows runner and a controlled resolver fixture respectively. Owner: net

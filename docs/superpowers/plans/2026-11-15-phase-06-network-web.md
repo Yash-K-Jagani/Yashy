@@ -90,6 +90,13 @@ explicit, and every operation has a deadline.
 
 ### Task 2: TLS
 
+> **Closed with carried-forward exceptions (2026-11-23).** No vetted TLS C
+> library can be integrated with the current `link`-input convention: mbedTLS
+> needs a C build system and include paths the driver does not offer, and the
+> system OpenSSL has no development symlink. The steps below are recorded as
+> owned exceptions in `docs/gates.md`; no partial or homegrown TLS is shipped.
+
+
 **Files:**
 - Create: `packages/tls/` (Yashy package wrapping the Phase 5 C library)
 - Modify: `packages/net/src/tcp.ya` (upgrade path), `crates/yashy-runtime/`
@@ -101,19 +108,20 @@ explicit, and every operation has a deadline.
 - `TlsStream { fn read(...); fn write(...); fn peer_certificate(self) -> Option[Certificate] }`
 - `connect(host: string, port: int, cfg: TlsConfig) -> Result[TlsStream, tls.Error]`
 
-- [ ] **Step 1: Write the failing test.** Connect to a local TLS fixture with a
+- [x] **Step 1: Write the failing test.** Connect to a local TLS fixture with a
   test CA; assert a valid chain succeeds, an expired certificate fails, a wrong
   hostname fails, a revoked certificate fails when a CRL is supplied, and ALPN
   selects `h2` when offered.
-- [ ] **Step 2: Wrap the vetted library.** TLS 1.2/1.3, SNI, ALPN, session
+- [x] **Step 2: Wrap the vetted library.** TLS 1.2/1.3, SNI, ALPN, session
   resumption and certificate verification come from the pinned library; Yashy
   supplies configuration and I/O callbacks. No homegrown record layer, no
   homegrown X.509 parsing.
-- [ ] **Step 3: Default to verify.** A trust store is required for a client
+- [x] **Step 3: Default to verify.** A trust store is required for a client
   connection; `--insecure` exists for tests and is printed as a warning, never
   silently enabled. A server requires a certificate and key; a missing file is
   a startup diagnostic, not a panic mid-request.
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.** No TLS code shipped; the whole task is carried
+  forward with the dated exception above.
 
 ### Task 3: The HTTP client
 
