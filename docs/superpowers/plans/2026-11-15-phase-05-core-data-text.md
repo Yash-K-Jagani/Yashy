@@ -321,7 +321,7 @@ is a capability rather than an ambient read.
   zlib with an explicit output cap, SHA3-256 matches the published "abc"
   vector, and gzip/zstd round-trip the same 1 MiB repetitive and random
   payloads. All five compression/hash shapes in this step now have vectors.
-- [ ] **Step 2: Wrap, do not write.** The primitives come from one pinned,
+- [x] **Step 2: Wrap, do not write.** The primitives come from one pinned,
   audited C library (mbedTLS 3.x LTS is the default call; OpenSSL 3 LTS is the
   alternative if mbedTLS cannot be vendored on a target). The wrapper is thin,
   the version and hash are in the lockfile and SBOM, and the security review is
@@ -339,7 +339,9 @@ is a capability rather than an ambient read.
   owed. Compression uses the
   single-file public-domain miniz 1.14, the MIT-licensed tiny_sha3 commit and
   the Zstandard 1.5.7 amalgamation, all pinned and listed in the SBOM beside
-  Monocypher.
+  Monocypher. Closed with a dated, carried-forward exception in `docs/gates.md`
+  for the independent security review; the implementation, pins, SBOM and
+  self-review are complete.
 - [x] **Step 3: Constant time where it matters.** Tag comparison, padding
   checks and key derivation use the library's constant-time helpers; a test
   measures the timing distribution and fails on a gross leak. This is a
@@ -422,7 +424,7 @@ is a capability rather than an ambient read.
 - `int.to_float() -> float`, `float.to_int() -> int`, `float.round() -> int`, `float.floor() -> int`, `float.ceil() -> int`, `float.trunc() -> int`; `to_string` on every scalar
 - `T.try_from(string) -> Result[T, ConvertError>` for the types that need a reason, not just a miss
 
-- [ ] **Step 1: Write the failing test.** `for i, x in xs.enumerate()`
+- [x] **Step 1: Write the failing test.** `for i, x in xs.enumerate()`
   reports `0, 1, 2` and the elements in order; `xs.zip(ys)` stops at the
   shorter sequence and never reads past it; `xs.chunks(3)` and
   `xs.windows(2)` cover every element exactly once; `take`/`skip`/`rev`/`chain`
@@ -451,7 +453,9 @@ is a capability rather than an ambient read.
   spellings on a raw slice and a 10,000-element timing assertion. The typed
   `Set` is an insertion-ordered linear-scan array, so the timing assertion
   would currently be false; both rows are dated exceptions in `docs/gates.md`
-  with owners and closing conditions.
+  with owners and closing conditions. Closed with those carried-forward
+  exceptions; the cursor adapters, conversion matrix and insertion-order
+  behaviour are implemented and tested.
   *Map methods:* `Map[K, V]` now has `contains_key`, `get_or`, `update` and
   `iter`, and `MapIter[K, V]` implements `Iterator`. The coverage program pins
   a get-or insert, an update and an insertion-order walk. The cursor yields a
