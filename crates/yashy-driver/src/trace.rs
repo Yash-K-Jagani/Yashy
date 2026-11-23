@@ -426,6 +426,7 @@ pub fn parse_events(text: &str) -> (Vec<Event>, u64) {
             3 => "task_start",
             4 => "task_end",
             5 => "io",
+            6 => "clock",
             _ => continue,
         };
         let stack = fields

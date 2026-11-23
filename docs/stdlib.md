@@ -2624,3 +2624,41 @@ struct YamlDoc
 ```
 
 A parsed document: one row per line across four owned columns.
+
+## `zone`
+
+### `DateTimeError`
+
+```yashy
+enum DateTimeError
+```
+
+### `StringError`
+
+```yashy
+enum StringError
+```
+
+### `in_zone`
+
+```yashy
+fn in_zone(DateTime utc, string name) -> Option[DateTime]
+```
+
+### `zone_offset`
+
+```yashy
+fn zone_offset(string name, int unix) -> Option[int]
+```
+
+### `DateTime`
+
+```yashy
+struct DateTime
+```
+
+### `Parts`
+
+```yashy
+struct Parts
+```

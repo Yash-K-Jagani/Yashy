@@ -7773,6 +7773,13 @@ fn sbom_cmd(args: &[String]) -> ExitCode {
         yashy_runtime::UNICODE_DATA_HEADER.as_bytes(),
         "Unicode-3.0",
     ));
+    // The vendored time-zone transitions are pinned third-party data too.
+    packages.push(yashy_manifest::sbom::vendored_data(
+        "tzdata",
+        yashy_runtime::ZONE_VERSION,
+        yashy_runtime::ZONE_DATA_HEADER.as_bytes(),
+        "License-REF-public-domain",
+    ));
     let mut metadata = std::collections::BTreeMap::new();
     metadata.insert(
         "compiler_version".to_string(),
@@ -7782,6 +7789,10 @@ fn sbom_cmd(args: &[String]) -> ExitCode {
     metadata.insert(
         "unicode_version".to_string(),
         yashy_runtime::UNICODE_VERSION.to_string(),
+    );
+    metadata.insert(
+        "tzdata_version".to_string(),
+        yashy_runtime::ZONE_VERSION.to_string(),
     );
     println!(
         "{}",

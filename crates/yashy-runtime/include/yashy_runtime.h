@@ -44,6 +44,15 @@ typedef struct yashy_str yashy_str;
 #define YASHY_TRACE_TASK_START 3
 #define YASHY_TRACE_TASK_END 4
 #define YASHY_TRACE_IO 5
+#define YASHY_TRACE_CLOCK 6
+
+#ifndef YASHY_TRACE_CALLER
+#if defined(__clang__) || defined(__GNUC__)
+#define YASHY_TRACE_CALLER() ((unsigned long long)(size_t)__builtin_return_address(0))
+#else
+#define YASHY_TRACE_CALLER() ((unsigned long long)0)
+#endif
+#endif
 
 void yashy_trace_record(int kind, long long size, unsigned long long pc,
                         unsigned long long ptr);
@@ -516,6 +525,10 @@ int yashy_arch_id(void);
 long long yashy_pid(void);
 long long yashy_now_unix_ns(void);
 long long yashy_random_i64(void);
+/* The UTC offset in seconds for a named zone at a Unix instant. The answer is
+ * written to `*offset_out` and the return is 1 on a hit, 0 for an unknown zone. */
+int yashy_zone_offset(const yashy_str *name, int64_t at_unix,
+                      int64_t *offset_out);
 int yashy_is_tty(int fd);
 yashy_str *yashy_env_join(void);
 int yashy_env_set(const char *name, const char *value);

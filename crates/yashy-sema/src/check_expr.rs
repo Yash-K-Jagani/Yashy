@@ -1191,7 +1191,7 @@ impl<'src> Checker<'src> {
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ya`. Recorded as a divergence from the master plan's L3.
-        let builtins: [(&str, Vec<Type>, Type); 49] = [
+        let builtins: [(&str, Vec<Type>, Type); 50] = [
             ("alloc", vec![prim(TypeKind::I64)], ptr(prim(TypeKind::I64))),
             // The explicit unsafe spelling: same type as `alloc`, but the
             // runtime skips the zeroing. The checker refuses it outside an
@@ -1457,6 +1457,15 @@ impl<'src> Checker<'src> {
                 "display_width",
                 vec![prim(TypeKind::Str)],
                 prim(TypeKind::I64),
+            ),
+            // Time-zone offset lookup (Phase 5 Task 7). The table is generated
+            // from a pinned tzdata release and lives in the runtime; the
+            // stdlib wrapper in `zone.ya` names this builtin. A miss is `None`,
+            // never a default offset.
+            (
+                "zone_offset_at",
+                vec![prim(TypeKind::Str), prim(TypeKind::I64)],
+                option_of(prim(TypeKind::I64)),
             ),
             // Format-engine primitives, also used by the checker's lowering of
             // a literal `format` specifier; `format.ya` names them directly.

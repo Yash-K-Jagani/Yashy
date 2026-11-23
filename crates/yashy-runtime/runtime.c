@@ -2039,6 +2039,17 @@ long long yashy_getcwd(yashy_str **out) {
  */
 
 long long yashy_now_ms(void) {
+    /* The clock is a capability: `--deterministic` fixes it to the same seed
+     * the entropy source and the log sink use. A reader is named in
+     * `yashyc trace --events` so a program that looks at the clock can be
+     * found from its trace. */
+    const char *deterministic = getenv("YASHY_DETERMINISTIC");
+    if (deterministic != NULL && deterministic[0] == '1') {
+        const char *seed = getenv("YASHY_DETERMINISTIC_SEED");
+        long long fixed = seed != NULL && seed[0] != '\0' ? atoll(seed) : 1700000000000LL;
+        yashy_trace_record(YASHY_TRACE_CLOCK, fixed, YASHY_TRACE_CALLER(), 0);
+        return fixed;
+    }
 #if defined(_WIN32)
     FILETIME file_time;
     GetSystemTimeAsFileTime(&file_time);
@@ -3260,6 +3271,39 @@ void yashy_chan_free(yashy_chan *chan) {
     yashy_os_lock_destroy(&chan->lock);
     free(chan->slots);
     free(chan);
+}
+
+/* ---- Time zones (zone) ----------------------------------------------- */
+
+#include "src/zone_data.h"
+
+/* A pinned transition table, one binary search. `times[i]` is the instant a
+ * segment begins and `offsets[i]` its UTC offset; `times[0]` is INT64_MIN, so
+ * every instant has an answer. The table is generated offline from tzdata and
+ * frozen, so a lookup is the same on every OS. An unknown name answers 0
+ * rather than silently reading as UTC; the stdlib turns that into `None`. */
+int yashy_zone_offset(const yashy_str *name, int64_t at_unix,
+                      int64_t *offset_out) {
+    if (name == NULL || offset_out == NULL) return 0;
+    size_t zones = sizeof yashy_zone_tables / sizeof yashy_zone_tables[0];
+    for (size_t z = 0; z < zones; z++) {
+        size_t len = strlen(yashy_zone_tables[z].name);
+        if ((size_t)name->len != len) continue;
+        if (memcmp(name->data, yashy_zone_tables[z].name, len) != 0) continue;
+        size_t lo = 0;
+        size_t hi = yashy_zone_tables[z].count;
+        while (lo + 1 < hi) {
+            size_t mid = lo + (hi - lo) / 2;
+            if (yashy_zone_tables[z].times[mid] <= at_unix) {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        *offset_out = yashy_zone_tables[z].offsets[lo];
+        return 1;
+    }
+    return 0;
 }
 
 /* ---- Unicode case folding and display width -------------------------- */

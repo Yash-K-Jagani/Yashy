@@ -2081,6 +2081,7 @@ fn gen_call(
         "normalize_nfkd" => crate::strings::gen_str_transform(ctx, args, "yashy_str_nfkd"),
         "case_fold" => crate::strings::gen_str_transform(ctx, args, "yashy_str_case_fold"),
         "display_width" => crate::strings::gen_str_display_width(ctx, args),
+        "zone_offset_at" => crate::file::gen_zone_offset(ctx, args, ty),
         "str_get" => crate::strings::gen_str_get(ctx, args, ty),
         "str_index_of" => crate::strings::gen_str_index_of(ctx, args, ty),
         "str_split" => crate::strings::gen_str_split(ctx, args, ty),

@@ -92,6 +92,15 @@ pub const UNICODE_DATA_HEADER_PATH: &str = "src/unicode_data.h";
 /// The pinned Unicode release the vendored tables were generated from.
 pub const UNICODE_VERSION: &str = "18.0.0";
 
+/// The generated time-zone transition table compiled into the runtime.
+pub const ZONE_DATA_HEADER: &str = include_str!("../src/zone_data.h");
+
+/// The path `platform.c` includes the transition table at.
+pub const ZONE_DATA_HEADER_PATH: &str = "src/zone_data.h";
+
+/// The pinned tzdata release `ZONE_DATA_HEADER` was generated from.
+pub const ZONE_VERSION: &str = "2026c";
+
 /// The source file's file name, used when the driver writes it to disk.
 pub const RUNTIME_SOURCE_NAME: &str = "runtime.c";
 
@@ -694,6 +703,16 @@ unsafe extern "C" {
     /// Opens a TCP listening descriptor for `host` and `port`, or answers
     /// `-1`. `host` is a NUL-terminated string.
     pub fn yashy_tcp_listen(host: *const c_char, port: c_longlong) -> c_longlong;
+}
+
+unsafe extern "C" {
+    /// The UTC offset in seconds for a named zone at a Unix instant. The
+    /// return is 1 on a hit and 0 for an unknown name.
+    pub fn yashy_zone_offset(
+        name: *const c_char,
+        unix: c_longlong,
+        offset_out: *mut c_longlong,
+    ) -> c_int;
 }
 
 unsafe extern "C" {

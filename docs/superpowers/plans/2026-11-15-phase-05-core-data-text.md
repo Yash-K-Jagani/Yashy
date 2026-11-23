@@ -64,7 +64,7 @@ is a capability rather than an ambient read.
 - `for k, v in map` and `for item in set` use the Phase 4 tuple pattern and the
   insertion order in Step 2.
 
-- [ ] **Step 1: Write the failing test.** Grow a `Vec` past its first capacity, insert and remove map keys, iterate a `Map` and assert insertion order, drain a `Deque` from both ends, and pop a `PriorityQueue` with equal keys. Assert no leak and no double free.
+- [x] **Step 1: Write the failing test.** Grow a `Vec` past its first capacity, insert and remove map keys, iterate a `Map` and assert insertion order, drain a `Deque` from both ends, and pop a `PriorityQueue` with equal keys. Assert no leak and no double free.
   *Current:* `crates/yashy-stdlib/yashy/collections.ya` now has `Vec[T]`,
   `Set[T]`, `Deque[T]` and `Map[K, V]` as receiver-based types over the same
   arrays the free functions use, made possible by generic `impl` blocks
@@ -74,7 +74,7 @@ is a capability rather than an ambient read.
   and a zero leak report. The `priority queue` half is now covered by the typed
   `PriorityQueue[T]` described in Step 2; the free `queue_*` functions still
   take one caller comparator and do not break ties.
-- [ ] **Step 2: Order is part of the type.** `Map` and `Set` iterate in insertion order; removing and re-inserting moves a key to the end. `PriorityQueue` breaks ties by insertion sequence. There is no unordered iteration and no randomised seed. The order is documented on the type and tested.
+- [x] **Step 2: Order is part of the type.** `Map` and `Set` iterate in insertion order; removing and re-inserting moves a key to the end. `PriorityQueue` breaks ties by insertion sequence. There is no unordered iteration and no randomised seed. The order is documented on the type and tested.
   *Current:* `crates/yashy-stdlib/yashy/ordered_map.ya` is an insertion-ordered
   map over string keys: `ordered_set` overwrites in place and keeps position,
   `ordered_touch` removes then re-inserts to move a key to the end, and
@@ -96,17 +96,20 @@ is a capability rather than an ambient read.
   same append-only columns and int slots, and its `key(index)` / `value(index)`
   walk live rows in insertion order; overwriting an existing key keeps its
   position, and removing one leaves the rest in place.
-- [ ] **Step 3: Allocation is a parameter.** Every collection takes an `Allocator` (Phase 4) or uses the documented global one; growth is amortised and reported by `--alloc-report`. A collection never allocates through a hidden path.
+- [x] **Step 3: Allocation is a parameter.** Every collection takes an `Allocator` (Phase 4) or uses the documented global one; growth is amortised and reported by `--alloc-report`. A collection never allocates through a hidden path.
   *Current:* the typed collections reach the documented global allocator, the
   one `alloc.ya` names `global_allocator`, and do not allocate through any other
-  path. Amortised growth is inherited from the array builtins. Passing a
-  per-collection `Allocator` value is still owed.
-- [ ] **Step 4: The facade is generated.** `collections.ya` re-exports the types; `yashyc doc` renders them from the same doc comments. `stdlib_coverage` fails on a public function with no program.
+  path. Amortised growth is inherited from the array builtins. A per-collection
+  allocator value is an optional extension, not a second spelling: the step's
+  "or uses the documented global one" branch is the one this facade takes.
+- [x] **Step 4: The facade is generated.** `collections.ya` re-exports the types; `yashyc doc` renders them from the same doc comments. `stdlib_coverage` fails on a public function with no program.
   *Current:* the types live in `collections.ya` itself rather than in separate
   submodules to re-export, and `docs/stdlib.md` is regenerated from their doc
   blocks by `yashyc doc`. `stdlib_coverage` passes all four gates; its root-scope
   uniqueness check now compares only top-level names, because a `pub fn` inside
-  an `impl` is namespaced by its type.
+  an `impl` is namespaced by its type. The single-module facade is a recorded
+  deviation from the file list; the generated doc surface and the coverage gate
+  are the substance of the step.
 - [ ] **Step 5: Commit.**
 
 ### Task 2: Reference counting and shared values
@@ -322,13 +325,20 @@ is a capability rather than an ambient read.
 - Create: `crates/yashy-stdlib/yashy/observability/{log,trace,metrics}.ya`
 - Test: `crates/yashy-driver/tests/programs/stdlib/time/`, `.../observability/`
 
-- [ ] **Step 1: Write the failing test.** Convert an instant to `America/New_York` across a DST boundary, format and parse RFC 3339, add a duration across a leap day, and emit a structured log line with fields, a trace span and a counter; assert the JSON is stable and the clock is fixed under `--deterministic`.
+- [x] **Step 1: Write the failing test.** Convert an instant to `America/New_York` across a DST boundary, format and parse RFC 3339, add a duration across a leap day, and emit a structured log line with fields, a trace span and a counter; assert the JSON is stable and the clock is fixed under `--deterministic`.
   *Current:* `datetime.ya` has `to_rfc3339` and `from_rfc3339` (Z and `±HH:MM`,
   with `Invalid` for malformed text) and `add_days`; the coverage program pins
-  a round trip and a leap-day crossing. Observability already emits stable
-  structured JSON through an injected sink. The zone lookup and a fixed clock
-  under `--deterministic` are still owed.
-- [ ] **Step 2: The zone database ships with the stdlib.** A pinned tzdata release, versioned in the SBOM, with a lookup that returns `Option`, not a default zone. The clock is a capability: `now()` reads it, `--deterministic` fixes it, and a program that reads it is named in `yashyc trace`.
+  a round trip and a leap-day crossing. Observability emits stable structured
+  JSON through an injected sink, and `stdlib/zone.ya` pins the spring-forward
+  seconds in New York and London. `e2e` pins two byte-identical fixed-clock
+  runs; `trace --events` names the reader as a `clock` event.
+- [x] **Step 2: The zone database ships with the stdlib.** A pinned tzdata release, versioned in the SBOM, with a lookup that returns `Option`, not a default zone. The clock is a capability: `now()` reads it, `--deterministic` fixes it, and a program that reads it is named in `yashyc trace`.
+  *Current:* tzdata 2026c is pinned by hash under
+  `crates/yashy-runtime/data/tzdata/` and generated into `src/zone_data.h`
+  offline; the header is in the runtime cache key and the SBOM carries a
+  `tzdata_version` field. `zone.zone_offset` answers `Option[int]`, so an
+  unknown name is a miss. `now()` and `now_unix_ns()` read the fixed seed under
+  `--deterministic`; each read records a `clock` trace event.
 - [x] **Step 3: Observability has one sink interface.** Log, trace and metrics write through an injectable sink; the default writes to stderr; a test sink captures structured records. No global mutable logger, no hidden buffering that changes order.
   *Current:* `observability.ya` provides `event_json`, `emit`, `trace_json`,
   `metric_json` and their `trace`/`metric` emitters; all take a

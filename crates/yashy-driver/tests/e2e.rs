@@ -4501,6 +4501,55 @@ fn deterministic_mode_seeds_the_random_source() {
     );
 }
 
+#[test]
+fn deterministic_mode_fixes_the_clock() {
+    // `now()` reads the wall clock through one runtime entry point. Under
+    // `--deterministic` the driver fixes the seed, so two runs of a program
+    // that prints the clock must print the seed and the same bytes again.
+    let dir = work_dir("deterministic-clock");
+    let source = dir.join("main.ya");
+    fs::write(&source, "fn main() {\n    print(\"${now()}\");\n}\n")
+        .expect("write the clock program");
+    let exe = dir.join(format!("clock{}", std::env::consts::EXE_SUFFIX));
+    let compile = Command::new(yashyc())
+        .arg("build")
+        .arg(&source)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("the yashyc CLI must be runnable");
+    assert!(
+        compile.status.success(),
+        "compiling the clock program failed:\n{}",
+        stderr_of(&compile)
+    );
+    let run = |exe: &Path| -> Output {
+        launch_retrying(exe, |path| {
+            Command::new(path)
+                .env("YASHY_DETERMINISTIC", "1")
+                .env("YASHY_DETERMINISTIC_SEED", "1700000000000")
+                .output()
+        })
+        .expect("the compiled program must be runnable")
+    };
+    let first = run(&exe);
+    assert!(
+        first.status.success(),
+        "the clock program exited with {:?}",
+        first.status.code()
+    );
+    let stdout = stdout_of(&first);
+    assert_eq!(
+        stdout, "1700000000000\n",
+        "the fixed clock is the seed:\n{stdout}"
+    );
+    assert_eq!(
+        stdout_of(&run(&exe)),
+        stdout,
+        "two fixed-clock runs print the same bytes"
+    );
+}
+
 /// The stdlib programs: each builds once, runs twice, prints the same bytes both
 /// times, matches its pinned `.out` file, and releases everything it allocated.
 ///

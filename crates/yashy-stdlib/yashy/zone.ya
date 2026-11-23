@@ -1,0 +1,45 @@
+// Time-zone lookup over a pinned tzdata transition table.
+//
+// The table is generated offline from tzdata 2026c and compiled into the
+// runtime; this module only names the builtin that queries it. A name the
+// table does not carry is a miss (`None`), never a default offset, so a
+// misspelled zone cannot silently read as UTC.
+//
+// The lookup answers seconds east of UTC at a Unix instant. DST is already in
+// the table: the offset changes at the transition instant without a rule the
+// caller has to know.
+
+import datetime;
+
+/** The UTC offset in seconds for `name` at `unix`, or `None` when unknown. */
+pub fn zone_offset(string name, int unix) -> Option[int] {
+    return zone_offset_at(name, unix);
+}
+
+/** Apply a known offset to a UTC civil time. */
+fn shifted(DateTime utc, int offset) -> DateTime {
+    const wall = datetime.from_unix(datetime.to_unix(utc) + offset);
+    return DateTime {
+        year: wall.year,
+        month: wall.month,
+        day: wall.day,
+        hour: wall.hour,
+        minute: wall.minute,
+        second: wall.second,
+        offset_minutes: offset / 60,
+    };
+}
+
+/** Shift into a named zone, or `None` when the name is unknown. */
+fn shifted_option(Option[int] offset, DateTime utc) -> Option[DateTime] {
+    const Option[DateTime] missing = None;
+    return switch offset {
+        case Some(value) { Some(shifted(utc, value)) }
+        case None { missing }
+    };
+}
+
+/** The wall time in `name` for a UTC civil time, or `None` for an unknown zone. */
+pub fn in_zone(DateTime utc, string name) -> Option[DateTime] {
+    return shifted_option(zone_offset(name, datetime.to_unix(utc)), utc);
+}

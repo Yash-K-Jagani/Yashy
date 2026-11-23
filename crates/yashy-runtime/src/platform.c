@@ -113,6 +113,18 @@ long long yashy_pid(void) {
 
 /** Nanoseconds since the Unix epoch, from the wall clock. */
 long long yashy_now_unix_ns(void) {
+    /* `--deterministic` fixes the nanosecond clock as well as `now()`; the
+     * seed is milliseconds, so a fixed instant is seed * 1e6 ns. */
+    const char *deterministic = getenv("YASHY_DETERMINISTIC");
+    if (deterministic != NULL && deterministic[0] == '1') {
+        const char *seed = getenv("YASHY_DETERMINISTIC_SEED");
+        long long ms = seed != NULL && seed[0] != '\0' ? atoll(seed) : 1700000000000LL;
+        if (ms > LLONG_MAX / 1000000LL) {
+            return LLONG_MAX;
+        }
+        yashy_trace_record(YASHY_TRACE_CLOCK, ms, YASHY_TRACE_CALLER(), 0);
+        return ms * 1000000LL;
+    }
 #if defined(_WIN32)
     FILETIME ft;
     GetSystemTimeAsFileTime(&ft);

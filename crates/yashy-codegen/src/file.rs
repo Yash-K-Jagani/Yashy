@@ -566,6 +566,31 @@ pub fn gen_parse_f64(ctx: &mut FnCtx<'_>, args: &[HirExpr], ret: &TypeKind) -> G
     finish_option(ctx, ret, &present, Some(("double", &value)), "parse_f64")
 }
 
+/// Lower `zone_offset_at(name, unix) -> Option[int]`. The runtime writes the
+/// offset into an out slot and answers whether the zone name was known; a miss
+/// becomes `None` rather than a zero offset.
+pub fn gen_zone_offset(ctx: &mut FnCtx<'_>, args: &[HirExpr], ret: &TypeKind) -> GenValue {
+    if args.len() != 2 {
+        return zero_option(ctx, ret);
+    }
+    let name = gen_expr(ctx, &args[0]);
+    let unix = gen_expr(ctx, &args[1]);
+    let out_slot = ctx.alloc_slot();
+    ctx.push_alloca(format!("{out_slot} = alloca i64"));
+    ctx.push(format!("store i64 0, ptr {out_slot}"));
+    let flag = ctx.tmp();
+    ctx.push(format!(
+        "{flag} = call i64 @yashy_zone_offset(i8* {}, i64 {}, ptr {out_slot})",
+        name.value, unix.value
+    ));
+    ctx.release_owned(&name.value);
+    let value = ctx.tmp();
+    ctx.push(format!("{value} = load i64, ptr {out_slot}"));
+    let present = ctx.tmp();
+    ctx.push(format!("{present} = icmp ne i64 {flag}, 0"));
+    finish_option(ctx, ret, &present, Some(("i64", &value)), "zone_offset_at")
+}
+
 /// A `Result` whose tag is `0` and whose payload fields are `null`/`undef`, for
 /// the arity-mismatch fallback.
 fn zero_result(ctx: &mut FnCtx<'_>, ret: &TypeKind) -> GenValue {

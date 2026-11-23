@@ -1,0 +1,37 @@
+import zone;
+
+import datetime;
+
+fn offset_or_zero(Option[int] value) -> int {
+    return switch value {
+        case Some(seconds) { seconds }
+        case None { 999999 }
+    };
+}
+
+fn main() {
+    // The 2024 US spring-forward instant: one second before, EST; at the
+    // instant, EDT. The table carries the transition, not a caller-side rule.
+    const ny_before = offset_or_zero(zone.zone_offset("America/New_York", 1710053999));
+    const ny_after = offset_or_zero(zone.zone_offset("America/New_York", 1710054000));
+    print("ny ${ny_before} ${ny_after}");
+
+    // London changes an hour earlier the same spring.
+    const london_before = offset_or_zero(zone.zone_offset("Europe/London", 1711846799));
+    const london_after = offset_or_zero(zone.zone_offset("Europe/London", 1711846800));
+    print("london ${london_before} ${london_after}");
+
+    const fixed = offset_or_zero(zone.zone_offset("Asia/Tokyo", 0));
+    print("tokyo ${fixed}");
+
+    const missing = zone.zone_offset("Mars/Olympus", 0) matches None;
+    print("unknown ${missing}");
+
+    const utc = datetime.from_unix(1710054000);
+    const local = zone.in_zone(utc, "America/New_York");
+    const wall = switch local {
+        case Some(value) { datetime.format(value, "%Y-%m-%dT%H:%M:%S%z") }
+        case None { "unknown" }
+    };
+    print("wall ${wall}");
+}

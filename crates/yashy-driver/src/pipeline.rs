@@ -47,7 +47,8 @@ use yashy_runtime::{
     EXECUTOR_C_SOURCE, EXECUTOR_SOURCE_NAME, GRAPHEME_DATA_HEADER, GRAPHEME_DATA_HEADER_PATH,
     HASHMAP_C_SOURCE, HASHMAP_SOURCE_NAME, NET_C_SOURCE, NET_SOURCE_NAME, PLATFORM_C_SOURCE,
     PLATFORM_SOURCE_NAME, RUNTIME_C_SOURCE, RUNTIME_HEADER, RUNTIME_HEADER_NAME,
-    RUNTIME_SOURCE_NAME, UNICODE_DATA_HEADER, UNICODE_DATA_HEADER_PATH,
+    RUNTIME_SOURCE_NAME, UNICODE_DATA_HEADER, UNICODE_DATA_HEADER_PATH, ZONE_DATA_HEADER,
+    ZONE_DATA_HEADER_PATH,
 };
 use yashy_sema::{check_program_with, CheckOptions, HirItem, HirProgram};
 use yashy_verify::{verify, VerifyOptions, VerifyReport};
@@ -751,6 +752,7 @@ fn cache_extras(options: &BuildOptions) -> Vec<(&'static str, String)> {
         PLATFORM_C_SOURCE,
         GRAPHEME_DATA_HEADER,
         UNICODE_DATA_HEADER,
+        ZONE_DATA_HEADER,
     ] {
         fnv1a(&mut runtime, source.as_bytes());
     }
@@ -2148,6 +2150,20 @@ pub fn compile_hir_timed(
         ensure_dir(parent, entry_name)?;
     }
     write_or_report(&unicode_path, UNICODE_DATA_HEADER.as_bytes(), entry_name)?;
+    // `platform.c` includes the time-zone table at `src/zone_data.h`; it has to
+    // travel with the runtime sources for the same reason as the Unicode data.
+    let zone_path = runtime_dir.join(ZONE_DATA_HEADER_PATH);
+    if let Some(parent) = zone_path.parent() {
+        ensure_dir(parent, entry_name)?;
+    }
+    write_or_report(&zone_path, ZONE_DATA_HEADER.as_bytes(), entry_name)?;
+    // `platform.c` is written at the runtime root and includes the header by
+    // its short name, so it needs a copy there as well as under `src/`.
+    write_or_report(
+        &runtime_dir.join("zone_data.h"),
+        ZONE_DATA_HEADER.as_bytes(),
+        entry_name,
+    )?;
 
     let target = options.target;
 
