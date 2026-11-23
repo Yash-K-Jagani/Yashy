@@ -307,6 +307,12 @@ is a capability rather than an ambient read.
   byte-identical runs and the `true` report; the ordinary golden pins `false`.
   The `csprng_bytes` spelling and the crypto-backed primitives remain owed on
   Steps 1–2.
+  *Update:* `rand.csprng_bytes(count) -> Result[[]char, CsprngError]` now exists.
+  It returns a fresh byte array from the same one entropy source, answers
+  `NegativeCount` for a negative request, and is seeded by `--deterministic`
+  like every other draw; `deterministic()` reports which source is in use. The
+  plain `fill`, `range` and `u64` spellings draw from that same source, with no
+  hidden `rand()` call. The crypto primitives themselves are still owed.
 - [ ] **Step 5: Commit.**
 
 ### Task 7: Time, zones and observability
@@ -409,8 +415,10 @@ is a capability rather than an ambient read.
   `float.to_int`, `float.trunc`/`floor`/`ceil`/`round` (all answering `int`,
   lowering to `yashy_f64_round_to`) and `to_string` on every scalar. The
   coverage program pins their bytes, and `docs/stdlib.md` lists the free
-  functions they mirror. `try_from` still has only the float form, so the step
-  stays open.
+  functions they mirror. `try_from_bool` and `try_from_int` now join
+  `try_from_float`, all answering `Result[T, ConvertError]`; the coverage
+  program pins their success and failure cases. A single generic `try_from[T]`
+  still cannot dispatch on `T` because the language has no type reflection.
 - [ ] **Step 5: Formatting consumes the same conversions.** The `format`
   engine in Task 3 formats each scalar through this matrix, so a value printed
   by `print`, `format` and `Debug` has one spelling. A `format` specifier on a

@@ -36,6 +36,16 @@ fn ok_int(int value) -> Result[int, ConvertError] {
 fn err_int() -> Result[int, ConvertError] {
     return Err(ConvertError.Invalid);
 }
+/// Parse a boolean with the `try_from` spelling.
+pub fn try_from_bool(string text) -> Result[bool, ConvertError] {
+    return parse_bool(text);
+}
+
+/// Parse a decimal integer with the `try_from` spelling.
+pub fn try_from_int(string text) -> Result[int, ConvertError] {
+    return parse_int(text);
+}
+
 /// Parse a decimal integer. This is the `Result` spelling of `parse_i64`.
 pub fn parse_int(string text) -> Result[int, ConvertError] {
     const Option[int] parsed = text.parse_i64();

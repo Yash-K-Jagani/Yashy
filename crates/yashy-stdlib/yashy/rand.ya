@@ -62,6 +62,25 @@ pub fn range(int lo, int hi) -> int {
     return lo + (draw % span);
 }
 
+/// Why a CSPRNG request could not be satisfied.
+pub enum CsprngError {
+    /// A negative byte count has no meaning; `0` is a valid empty request.
+    NegativeCount,
+}
+
+/// `count` fresh bytes from the one entropy source, or a failure value.
+///
+/// This is the `Result` spelling of `fill`: `0` bytes is a valid empty answer,
+/// so it cannot also mean "failed". Under `--deterministic` the bytes come from
+/// the same fixed seed as every other draw, and `deterministic()` says so.
+/// The caller owns the returned array and releases it with `.free()`.
+pub fn csprng_bytes(int count) -> Result[[]char, CsprngError] {
+    if count < 0 {
+        return Err(CsprngError.NegativeCount);
+    }
+    return Ok(fill(count));
+}
+
 /// `count` random bytes.
 pub fn fill(int count) -> []char {
     let out = []char {};

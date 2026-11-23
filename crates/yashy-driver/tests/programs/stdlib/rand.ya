@@ -1,5 +1,18 @@
 import rand;
 
+fn report_csprng(Result[[]char, CsprngError] answer) -> bool {
+    const bool ok = answer matches Ok(_);
+    if !ok {
+        return false;
+    }
+    const []char bytes = switch answer {
+        case Ok(value) { value }
+        case Err(_) { []char {} }
+    };
+    bytes.free();
+    return true;
+}
+
 fn main() {
     // The report the deterministic contract promises: `true` under
     // `--deterministic`, `false` for the OS entropy source.
@@ -7,6 +20,8 @@ fn main() {
     const bytes = rand.fill(8);
     print("bytes ${bytes.len()}");
     bytes.free();
+    print("csprng ${report_csprng(rand.csprng_bytes(8))}");
+    print("csprng rejects negative ${rand.csprng_bytes(0-1) matches Err(_)}");
     const value = rand.range(0, 3);
     print("range in 0..3: ${value >= 0 && value < 3}");
     // One raw draw from the OS entropy source. Its value is deliberately not

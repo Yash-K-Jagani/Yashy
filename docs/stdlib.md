@@ -405,6 +405,14 @@ fn trunc(float value) -> int
 
 Truncate a float toward zero.
 
+### `try_from_bool`
+
+```yashy
+fn try_from_bool(string text) -> Result[bool, ConvertError]
+```
+
+Parse a boolean with the `try_from` spelling.
+
 ### `try_from_float`
 
 ```yashy
@@ -415,6 +423,14 @@ A checked float-to-int conversion with a documented range.
 
 Values outside `trunc(int)`'s decimal range answer `Overflow` rather than
 panicking or wrapping.
+
+### `try_from_int`
+
+```yashy
+fn try_from_int(string text) -> Result[int, ConvertError]
+```
+
+Parse a decimal integer with the `try_from` spelling.
 
 ## `csv`
 
@@ -1733,6 +1749,27 @@ A child that has already exited.
 
 ## `rand`
 
+### `CsprngError`
+
+```yashy
+enum CsprngError
+```
+
+Why a CSPRNG request could not be satisfied.
+
+### `csprng_bytes`
+
+```yashy
+fn csprng_bytes(int count) -> Result[[]char, CsprngError]
+```
+
+`count` fresh bytes from the one entropy source, or a failure value.
+
+This is the `Result` spelling of `fill`: `0` bytes is a valid empty answer,
+so it cannot also mean "failed". Under `--deterministic` the bytes come from
+the same fixed seed as every other draw, and `deterministic()` says so.
+The caller owns the returned array and releases it with `.free()`.
+
 ### `deterministic`
 
 ```yashy
@@ -2252,6 +2289,12 @@ A parsed URL: its scheme, authority parts, path, query and fragment.
 absent. Bracketed IPv6 hosts keep their brackets in `host`.
 
 ## `uuid`
+
+### `CsprngError`
+
+```yashy
+enum CsprngError
+```
 
 ### `UuidError`
 

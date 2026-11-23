@@ -1,5 +1,7 @@
 deterministic: false
 bytes 8
+csprng true
+csprng rejects negative true
 range in 0..3: true
 uniform: true
 shuffle consumed 4

@@ -17,6 +17,9 @@ fn main() {
     print(convert.ceil(1.1));
     print(convert.round(2.5));
     print(convert.try_from_float(3.0) matches Ok(3));
+    print(convert.try_from_bool("true") matches Ok(true));
+    print(convert.try_from_bool("TRUE") matches Err(_));
+    print(convert.try_from_int("ff") matches Err(_));
     // The scalar methods are the same conversions with one spelling.
     const float ratio = 2.9;
     const int two = 2;
