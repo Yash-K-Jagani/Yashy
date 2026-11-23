@@ -1,0 +1,143 @@
+// The net package's own end-to-end test: a loopback TCP echo, a UDP datagram
+// round-trip, a DNS lookup and an already-expired absolute deadline.
+import net;
+import udp;
+import dns;
+
+fn error_name(NetError error) -> string {
+    return switch error {
+        case Refused { "refused" }
+        case Reset { "reset" }
+        case Timeout { "timeout" }
+        case Cancelled { "cancelled" }
+        case Dns { "dns" }
+        case AddressInUse { "in-use" }
+        case Other { "other" }
+        case Failure { "failure" }
+    };
+}
+
+fn message(Option[string] value) -> string {
+    return switch value {
+        case Some(text) { text }
+        case None { "" }
+    };
+}
+
+fn tcp_echo() -> int {
+    const listener_result = net.net_listen("127.0.0.1", 19181);
+    const listener = switch listener_result {
+        case Ok(value) { value }
+        case Err(error) { panic("net: " + error_name(error)) }
+    };
+    const client_result = net.net_connect("127.0.0.1", 19181);
+    const client = switch client_result {
+        case Ok(value) { value }
+        case Err(error) { panic("net: " + error_name(error)) }
+    };
+    const sent_result = net.net_write(client, "hello");
+    const sent = switch sent_result {
+        case Ok(value) { value }
+        case Err(error) { panic("net: " + error_name(error)) }
+    };
+    assert(sent == 5);
+    const server_result = net.net_accept(listener);
+    const server = switch server_result {
+        case Ok(value) { value }
+        case Err(error) { panic("net: " + error_name(error)) }
+    };
+    const received_result = net.net_read(server);
+    const received = switch received_result {
+        case Ok(value) { value }
+        case Err(error) { panic("net: " + error_name(error)) }
+    };
+    const text = message(received);
+    assert(text == "hello");
+    const replied_result = net.net_write(server, "world");
+    const replied = switch replied_result {
+        case Ok(value) { value }
+        case Err(error) { panic("net: " + error_name(error)) }
+    };
+    assert(replied == 5);
+    const reply_result = net.net_read(client);
+    const reply = switch reply_result {
+        case Ok(value) { value }
+        case Err(error) { panic("net: " + error_name(error)) }
+    };
+    net.net_close(server);
+    net.net_close(client);
+    net.net_close_listener(listener);
+    const answer = message(reply);
+    return answer.len();
+}
+
+fn udp_roundtrip() -> int {
+    const server_result = udp.udp_bind("127.0.0.1", 19182);
+    const server = switch server_result {
+        case Ok(value) { value }
+        case Err(error) { panic("net: " + error_name(error)) }
+    };
+    const client_result = udp.udp_connect("127.0.0.1", 19182);
+    const client = switch client_result {
+        case Ok(value) { value }
+        case Err(error) { panic("net: " + error_name(error)) }
+    };
+    const sent_result = udp.udp_send(client, "datagram");
+    const sent = switch sent_result {
+        case Ok(value) { value }
+        case Err(error) { panic("net: " + error_name(error)) }
+    };
+    assert(sent == 8);
+    const got_result = udp.udp_recv(server, 64);
+    const got = switch got_result {
+        case Ok(value) { value }
+        case Err(error) { panic("net: " + error_name(error)) }
+    };
+    udp.udp_close(client);
+    udp.udp_close(server);
+    const payload = message(got);
+    return payload.len();
+}
+
+fn expired_deadline() -> string {
+    const listener_result = net.net_listen("127.0.0.1", 19183);
+    const listener = switch listener_result {
+        case Ok(value) { value }
+        case Err(error) { panic("net: " + error_name(error)) }
+    };
+    const client_result = net.net_connect("127.0.0.1", 19183);
+    const client = switch client_result {
+        case Ok(value) { value }
+        case Err(error) { panic("net: " + error_name(error)) }
+    };
+    const server_result = net.net_accept(listener);
+    const server = switch server_result {
+        case Ok(value) { value }
+        case Err(error) { panic("net: " + error_name(error)) }
+    };
+    const deadline_result = net.net_set_deadline(client, now() - 1);
+    const deadline_ok = switch deadline_result {
+        case Ok(_) { true }
+        case Err(error) { panic("net: " + error_name(error)) }
+    };
+    assert(deadline_ok);
+    const answer = net.net_read(client);
+    net.net_close(server);
+    net.net_close(client);
+    net.net_close_listener(listener);
+    return switch answer {
+        case Ok(_) { "unexpected-success" }
+        case Err(error) { error_name(error) }
+    };
+}
+
+fn main() {
+    print("tcp ${tcp_echo()}");
+    print("udp ${udp_roundtrip()}");
+    switch dns.resolve("localhost", 80) {
+        case Ok(answers) { print("dns ${answers.len() > 0}") }
+        case Err(error) { panic("net: " + error_name(error)) }
+    }
+    print("deadline ${expired_deadline()}");
+}
+

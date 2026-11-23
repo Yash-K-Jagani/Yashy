@@ -19,6 +19,8 @@ extern "C" {
     unsafe fn yashy_tcp_write(i64 fd, * const u8 buf, i64 len) -> i64;
     unsafe fn yashy_tcp_close(i64 fd) -> void;
     unsafe fn yashy_tcp_set_timeout(i64 fd, i64 millis) -> i64;
+    unsafe fn yashy_net_last_error() -> int;
+    unsafe fn yashy_net_set_deadline(i64 fd, i64 at_ms) -> i64;
 }
 
 pub struct Listener {
@@ -30,13 +32,63 @@ pub struct Socket {
 }
 
 pub enum NetError {
+    /// The peer refused the connection.
+    Refused,
+    /// The peer reset the connection.
+    Reset,
+    /// An absolute deadline passed before the call could complete.
+    Timeout,
+    /// The operation was cancelled and its socket was closed.
+    Cancelled,
+    /// The name could not be resolved.
+    Dns,
+    /// The local address was already in use.
+    AddressInUse,
+    /// A cause the runtime does not classify more finely.
+    Other,
+    /// Kept for callers of the original one-variant spelling.
     Failure,
+}
+
+/// Render a network error as a stable sentence.
+pub fn net_describe(NetError error) -> string {
+    return switch error {
+        case Refused { "connection refused" }
+        case Reset { "connection reset" }
+        case Timeout { "operation timed out" }
+        case Cancelled { "operation cancelled" }
+        case Dns { "name resolution failed" }
+        case AddressInUse { "address already in use" }
+        case Other { "socket failure" }
+        case Failure { "socket failure" }
+    };
+}
+
+/// Read and clear the last socket error. A successful operation clears it.
+/// Read and clear the raw last-error code, for sibling network modules.
+pub fn take_error_code() -> int {
+    return yashy_net_last_error();
+}
+
+/// Read and clear the last socket error, for sibling network modules.
+pub fn take_error() -> NetError {
+    const code = yashy_net_last_error();
+    return switch code {
+        case 1 { NetError.Refused }
+        case 2 { NetError.Reset }
+        case 3 { NetError.Timeout }
+        case 4 { NetError.Cancelled }
+        case 5 { NetError.Dns }
+        case 6 { NetError.AddressInUse }
+        case 7 { NetError.Other }
+        default { NetError.Failure }
+    };
 }
 
 pub unsafe fn net_listen(string host, int port) -> Result[Listener, NetError] {
     const fd = yashy_tcp_listen(host, port);
     if fd < 0 {
-        return Err(NetError.Failure);
+        return Err(take_error());
     }
     return Ok(Listener {
         fd: fd
@@ -47,7 +99,7 @@ pub unsafe fn net_listen(string host, int port) -> Result[Listener, NetError] {
 pub unsafe fn net_accept(Listener listener) -> Result[Socket, NetError] {
     const fd = yashy_tcp_accept(listener.fd);
     if fd < 0 {
-        return Err(NetError.Failure);
+        return Err(take_error());
     }
     return Ok(Socket {
         fd: fd
@@ -58,7 +110,7 @@ pub unsafe fn net_accept(Listener listener) -> Result[Socket, NetError] {
 pub unsafe fn net_connect(string host, int port) -> Result[Socket, NetError] {
     const fd = yashy_tcp_connect(host, port);
     if fd < 0 {
-        return Err(NetError.Failure);
+        return Err(take_error());
     }
     return Ok(Socket {
         fd: fd
@@ -77,7 +129,7 @@ pub unsafe fn net_read(Socket peer) -> Result[Option[string], NetError] {
         return Ok(nothing);
     }
     if status != 1 {
-        return Err(NetError.Failure);
+        return Err(take_error());
     }
     return Ok(Some(encoded.slice(1, encoded.len())));
 }
@@ -85,7 +137,7 @@ pub unsafe fn net_read(Socket peer) -> Result[Option[string], NetError] {
 pub unsafe fn net_write(Socket peer, string data) -> Result[int, NetError] {
     const sent = yashy_tcp_write(peer.fd, data, data.len());
     if sent < 0 {
-        return Err(NetError.Failure);
+        return Err(take_error());
     }
     return Ok(sent);
 }
@@ -104,4 +156,20 @@ pub unsafe fn net_set_timeout(Socket peer, int millis) -> Result[int, NetError] 
 
 pub unsafe fn net_close_listener(Listener listener) {
     yashy_tcp_close(listener.fd);
+}
+
+/// Close a raw socket handle held by a sibling network module.
+pub unsafe fn net_close_fd(int fd) {
+    yashy_tcp_close(fd);
+}
+
+/// Set an absolute deadline (Unix milliseconds) for a socket. A read or write
+/// that starts after the instant answers `Err(Timeout)`; the deadline does not
+/// reset on each call, so a slow peer cannot extend it.
+pub unsafe fn net_set_deadline(Socket peer, int at_ms) -> Result[int, NetError] {
+    const code = yashy_net_set_deadline(peer.fd, at_ms);
+    if code != 0 {
+        return Err(take_error());
+    }
+    return Ok(code);
 }

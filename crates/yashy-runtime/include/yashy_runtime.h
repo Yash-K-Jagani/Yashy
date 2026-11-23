@@ -529,6 +529,14 @@ long long yashy_random_i64(void);
  * written to `*offset_out` and the return is 1 on a hit, 0 for an unknown zone. */
 int yashy_zone_offset(const yashy_str *name, int64_t at_unix,
                       int64_t *offset_out);
+/* Network error and deadline support. The error code is thread-local and is
+ * cleared by a successful operation or by reading it. */
+int yashy_net_last_error(void);
+int64_t yashy_net_set_deadline(int64_t fd, int64_t at_unix_ms);
+int64_t yashy_udp_open(const char *host, int64_t port, int passive);
+int64_t yashy_udp_send(int64_t fd, const uint8_t *buf, int64_t len);
+yashy_str *yashy_udp_recv_str(int64_t fd, int64_t max);
+yashy_str *yashy_dns_resolve(const char *host, int64_t port);
 /* Reference-counted scalar cells (rc, arc). A handle is a table slot + 1; 0
  * means "no cell". `atomic` selects the Arc discipline. A weak reference
  * keeps the cell alive without keeping the value alive. */

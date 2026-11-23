@@ -57,10 +57,21 @@ explicit, and every operation has a deadline.
   round-trip; a DNS lookup of `localhost` and of a name with several A/AAAA
   records; a Unix socket on Linux/macOS and a named pipe on Windows behind the
   same `cfg`-selected API.
+  *Current:* `packages/net/tests/sockets.ya` pins a loopback TCP echo, a UDP
+  datagram round-trip, a DNS lookup of `localhost`, and an already-expired
+  absolute deadline answered as `Err(Timeout)`. The typed `NetError` now names
+  refused/reset/timeout/cancelled/DNS/address-in-use causes from a thread-local
+  runtime status. Still owed in this step: a multi-record A/AAAA fixture and
+  the `cfg`-selected Unix-socket/named-pipe API.
 - [ ] **Step 2: A deadline on every blocking call.** Timeouts are absolute
   instants, not per-read resets, so a slow peer cannot extend a request
   forever. Cancellation closes the socket and reports `Cancelled`, distinct
   from `Timeout` and from `Closed`.
+  *Current:* `net_set_deadline(fd, unix_ms)` stores an absolute instant in a
+  bounded runtime table and refuses a read or write begun after it with the
+  `Timeout` cause. The older per-call `SO_*TIMEO` spelling remains for callers
+  that want a reset-per-operation timeout. Cancellation and the `Closed` cause
+  are still owed.
 - [ ] **Step 3: Errors are values with a cause.** `net.Error` distinguishes
   refused, reset, timeout, cancelled, DNS failure and address-in-use; each maps
   to one message and one line in the docs. No errno number leaks as the only

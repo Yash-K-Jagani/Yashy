@@ -12,6 +12,16 @@
  */
 #include "yashy_runtime.h"
 
+/* The last socket failure, per thread. Codes are the Yashy-facing values:
+ * 1 refused, 2 reset, 3 timeout, 4 cancelled, 5 DNS, 6 address in use,
+ * 7 other. A successful call clears it. */
+#if defined(_WIN32)
+#define YASHY_NET_THREAD_LOCAL __declspec(thread)
+#else
+#define YASHY_NET_THREAD_LOCAL __thread
+#endif
+static YASHY_NET_THREAD_LOCAL int yashy_net_error = 0;
+
 #include <errno.h>
 #include <limits.h>
 #include <stddef.h>
@@ -28,6 +38,7 @@
 #include <ws2tcpip.h>
 #include <windows.h>
 #else
+#include <arpa/inet.h>
 #include <netdb.h>
 #include <pthread.h>
 #include <sys/socket.h>
@@ -61,6 +72,52 @@ static int yashy_socket_ready(void) {
     return pthread_once(&yashy_startup_once, yashy_posix_startup) == 0 ? 0 : -1;
 }
 #endif
+
+int yashy_net_last_error(void) {
+    int value = yashy_net_error;
+    yashy_net_error = 0;
+    return value;
+}
+
+static int yashy_net_os_error(void) {
+#if defined(_WIN32)
+    return (int)WSAGetLastError();
+#else
+    return errno;
+#endif
+}
+
+static int yashy_net_error_code(int os_error) {
+#if defined(_WIN32)
+    switch (os_error) {
+        case WSAECONNREFUSED: return 1;
+        case WSAECONNRESET: return 2;
+        case WSAETIMEDOUT: return 3;
+        case WSAEINTR: return 4;
+        case WSAHOST_NOT_FOUND:
+        case WSANO_DATA: return 5;
+        case WSAEADDRINUSE: return 6;
+        default: return 7;
+    }
+#else
+    switch (os_error) {
+        case ECONNREFUSED: return 1;
+        case ECONNRESET: return 2;
+        case ETIMEDOUT:
+        case EAGAIN: return 3;
+        case EINTR: return 4;
+        case EAI_NONAME:
+        case EAI_AGAIN:
+        case EAI_FAIL: return 5;
+        case EADDRINUSE: return 6;
+        default: return 7;
+    }
+#endif
+}
+
+static void yashy_net_note_last_error(void) {
+    yashy_net_error = yashy_net_error_code(yashy_net_os_error());
+}
 
 static yashy_net_socket yashy_invalid_socket(void) {
 #if defined(_WIN32)
@@ -110,7 +167,13 @@ static int yashy_resolve(const char *host, int64_t port, int passive, struct add
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
     hints.ai_flags = passive ? AI_PASSIVE : 0;
-    return getaddrinfo(host, service, &hints, out) == 0 ? 0 : -1;
+    int status = getaddrinfo(host, service, &hints, out);
+    if (status != 0) {
+        yashy_net_error = yashy_net_error_code(status);
+        return -1;
+    }
+    yashy_net_error = 0;
+    return 0;
 }
 
 int64_t yashy_tcp_listen(const char *host, int64_t port) {
@@ -131,10 +194,12 @@ int64_t yashy_tcp_listen(const char *host, int64_t port) {
                          (int)sizeof(enabled));
         if (bind(handle, address->ai_addr, address->ai_addrlen) != 0 ||
             listen(handle, 128) != 0) {
+            yashy_net_note_last_error();
             yashy_close_socket(handle);
             continue;
         }
         freeaddrinfo(addresses);
+        yashy_net_error = 0;
         return yashy_socket_to_i64(handle);
     }
     freeaddrinfo(addresses);
@@ -149,17 +214,20 @@ int64_t yashy_tcp_accept(int64_t listener) {
     for (;;) {
         yashy_net_socket accepted = accept(listener_socket, NULL, NULL);
         if (accepted != yashy_invalid_socket()) {
+            yashy_net_error = 0;
             return yashy_socket_to_i64(accepted);
         }
+        int os_error = yashy_net_os_error();
 #if defined(_WIN32)
-        if (WSAGetLastError() == WSAEINTR) {
+        if (os_error == WSAEINTR) {
             continue;
         }
 #else
-        if (errno == EINTR) {
+        if (os_error == EINTR) {
             continue;
         }
 #endif
+        yashy_net_error = yashy_net_error_code(os_error);
         return -1;
     }
 }
@@ -179,11 +247,47 @@ int64_t yashy_tcp_connect(const char *host, int64_t port) {
         }
         if (connect(handle, address->ai_addr, address->ai_addrlen) == 0) {
             freeaddrinfo(addresses);
+            yashy_net_error = 0;
             return yashy_socket_to_i64(handle);
         }
+        yashy_net_note_last_error();
         yashy_close_socket(handle);
     }
     freeaddrinfo(addresses);
+    return -1;
+}
+
+/* Absolute deadlines, distinct from the per-call SO_*TIMEO settings. A
+ * deadline is an instant in Unix milliseconds; a blocking read/write that
+ * starts after it is refused with the Timeout error. */
+#define YASHY_NET_DEADLINES 256
+static struct {
+    int64_t fd;
+    int64_t at_ms;
+} yashy_net_deadlines[YASHY_NET_DEADLINES];
+
+static int yashy_net_expired(int64_t fd) {
+    for (int i = 0; i < YASHY_NET_DEADLINES; i++) {
+        if (yashy_net_deadlines[i].fd == fd && yashy_net_deadlines[i].at_ms > 0) {
+            if (yashy_now_ms() >= yashy_net_deadlines[i].at_ms) {
+                yashy_net_error = 3; /* Timeout */
+                return 1;
+            }
+            return 0;
+        }
+    }
+    return 0;
+}
+
+int64_t yashy_net_set_deadline(int64_t fd, int64_t at_ms) {
+    if (fd < 0 || at_ms < 0) return -1;
+    for (int i = 0; i < YASHY_NET_DEADLINES; i++) {
+        if (yashy_net_deadlines[i].fd == fd || yashy_net_deadlines[i].fd == 0) {
+            yashy_net_deadlines[i].fd = fd;
+            yashy_net_deadlines[i].at_ms = at_ms;
+            return 0;
+        }
+    }
     return -1;
 }
 
@@ -196,20 +300,26 @@ int64_t yashy_tcp_read(int64_t fd, uint8_t *buf, int64_t len) {
     if (len == 0) {
         return 0;
     }
+    if (yashy_net_expired(fd)) {
+        return -1;
+    }
     for (;;) {
         int received = recv(socket, (char *)buf, (size_t)len, 0);
         if (received >= 0) {
+            yashy_net_error = 0;
             return (int64_t)received;
         }
+        int os_error = yashy_net_os_error();
 #if defined(_WIN32)
-        if (WSAGetLastError() == WSAEINTR) {
+        if (os_error == WSAEINTR) {
             continue;
         }
 #else
-        if (errno == EINTR) {
+        if (os_error == EINTR) {
             continue;
         }
 #endif
+        yashy_net_error = yashy_net_error_code(os_error);
         return -1;
     }
 }
@@ -261,6 +371,9 @@ int64_t yashy_tcp_write(int64_t fd, const uint8_t *buf, int64_t len) {
         (len > 0 && buf == NULL)) {
         return -1;
     }
+    if (yashy_net_expired(fd)) {
+        return -1;
+    }
     while (offset < len) {
         size_t remaining = (size_t)(len - offset);
         int sent = send(socket, (const char *)(buf + offset),
@@ -274,15 +387,17 @@ int64_t yashy_tcp_write(int64_t fd, const uint8_t *buf, int64_t len) {
             offset += (int64_t)sent;
             continue;
         }
+        int os_error = yashy_net_os_error();
 #if defined(_WIN32)
-        if (WSAGetLastError() == WSAEINTR) {
+        if (os_error == WSAEINTR) {
             continue;
         }
 #else
-        if (errno == EINTR) {
+        if (os_error == EINTR) {
             continue;
         }
 #endif
+        yashy_net_error = yashy_net_error_code(os_error);
         return -1;
     }
     return offset;
@@ -291,6 +406,165 @@ int64_t yashy_tcp_write(int64_t fd, const uint8_t *buf, int64_t len) {
 void yashy_tcp_close(int64_t fd) {
     yashy_net_socket socket = yashy_socket_from_i64(fd);
     yashy_close_socket(socket);
+}
+
+/* ---- UDP ---------------------------------------------------------------- */
+
+int64_t yashy_udp_open(const char *host, int64_t port, int passive) {
+    struct addrinfo *addresses = NULL;
+    struct addrinfo *address;
+    if (yashy_socket_ready() != 0 || host == NULL || port < 0 || port > 65535) {
+        yashy_net_error = 7;
+        return -1;
+    }
+    char service[16];
+    if (snprintf(service, sizeof(service), "%lld", (long long)port) >= (int)sizeof(service)) {
+        yashy_net_error = 7;
+        return -1;
+    }
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_DGRAM;
+    hints.ai_protocol = IPPROTO_UDP;
+    hints.ai_flags = passive ? AI_PASSIVE : 0;
+    int status = getaddrinfo(host, service, &hints, &addresses);
+    if (status != 0) {
+        yashy_net_error = yashy_net_error_code(status);
+        return -1;
+    }
+    for (address = addresses; address != NULL; address = address->ai_next) {
+        yashy_net_socket handle = socket(address->ai_family, SOCK_DGRAM, IPPROTO_UDP);
+        if (handle == yashy_invalid_socket()) {
+            yashy_net_note_last_error();
+            continue;
+        }
+        if (passive) {
+            if (bind(handle, address->ai_addr, address->ai_addrlen) != 0) {
+                yashy_net_note_last_error();
+                yashy_close_socket(handle);
+                continue;
+            }
+        } else if (connect(handle, address->ai_addr, address->ai_addrlen) != 0) {
+            yashy_net_note_last_error();
+            yashy_close_socket(handle);
+            continue;
+        }
+        freeaddrinfo(addresses);
+        yashy_net_error = 0;
+        return yashy_socket_to_i64(handle);
+    }
+    freeaddrinfo(addresses);
+    return -1;
+}
+
+int64_t yashy_udp_send(int64_t fd, const uint8_t *buf, int64_t len) {
+    yashy_net_socket socket = yashy_socket_from_i64(fd);
+    if (socket == yashy_invalid_socket() || len < 0 || len > INT_MAX ||
+        (len > 0 && buf == NULL)) {
+        yashy_net_error = 7;
+        return -1;
+    }
+    if (yashy_net_expired(fd)) return -1;
+    int sent = sendto(socket, (const char *)buf, (size_t)len, 0, NULL, 0);
+    if (sent < 0) {
+        yashy_net_note_last_error();
+        return -1;
+    }
+    yashy_net_error = 0;
+    return (int64_t)sent;
+}
+
+yashy_str *yashy_udp_recv_str(int64_t fd, int64_t max) {
+    yashy_net_socket socket = yashy_socket_from_i64(fd);
+    uint8_t error = 2;
+    if (socket == yashy_invalid_socket() || max < 0 || max > INT_MAX) {
+        yashy_net_error = 7;
+        return yashy_str_from_bytes(&error, 1);
+    }
+    if (yashy_net_expired(fd)) return yashy_str_from_bytes(&error, 1);
+    uint8_t *buffer = (uint8_t *)malloc(max > 0 ? (size_t)max : 1);
+    if (buffer == NULL) return yashy_str_from_bytes(&error, 1);
+    int received = recvfrom(socket, (char *)buffer, (size_t)max, 0, NULL, NULL);
+    if (received < 0) {
+        yashy_net_note_last_error();
+        free(buffer);
+        return yashy_str_from_bytes(&error, 1);
+    }
+    yashy_net_error = 0;
+    uint8_t *encoded = (uint8_t *)malloc((size_t)received + 1);
+    if (encoded == NULL) {
+        free(buffer);
+        return yashy_str_from_bytes(&error, 1);
+    }
+    encoded[0] = 1;
+    memcpy(encoded + 1, buffer, (size_t)received);
+    yashy_str *result = yashy_str_from_bytes(encoded, received + 1);
+    free(encoded);
+    free(buffer);
+    return result;
+}
+
+/* ---- DNS ---------------------------------------------------------------- */
+
+yashy_str *yashy_dns_resolve(const char *host, int64_t port) {
+    struct addrinfo *addresses = NULL;
+    struct addrinfo *address;
+    if (host == NULL || port < 0 || port > 65535 || yashy_socket_ready() != 0) {
+        yashy_net_error = 5;
+        return yashy_str_from_bytes((const uint8_t *)"", 0);
+    }
+    char service[16];
+    if (snprintf(service, sizeof(service), "%lld", (long long)port) >= (int)sizeof(service)) {
+        yashy_net_error = 5;
+        return yashy_str_from_bytes((const uint8_t *)"", 0);
+    }
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+    int status = getaddrinfo(host, service, &hints, &addresses);
+    if (status != 0) {
+        yashy_net_error = yashy_net_error_code(status);
+        return yashy_str_from_bytes((const uint8_t *)"", 0);
+    }
+    size_t capacity = 128;
+    size_t used = 0;
+    char *out = (char *)malloc(capacity);
+    if (out == NULL) {
+        freeaddrinfo(addresses);
+        return yashy_str_from_bytes((const uint8_t *)"", 0);
+    }
+    out[0] = '\0';
+    for (address = addresses; address != NULL; address = address->ai_next) {
+        char text[INET6_ADDRSTRLEN];
+        const void *source = NULL;
+        if (address->ai_family == AF_INET) {
+            source = &((struct sockaddr_in *)address->ai_addr)->sin_addr;
+        } else if (address->ai_family == AF_INET6) {
+            source = &((struct sockaddr_in6 *)address->ai_addr)->sin6_addr;
+        } else {
+            continue;
+        }
+        if (inet_ntop(address->ai_family, source, text, sizeof(text)) == NULL) continue;
+        size_t length = strlen(text);
+        if (used + length + 2 > capacity) {
+            capacity = (used + length + 2) * 2;
+            char *grown = (char *)realloc(out, capacity);
+            if (grown == NULL) break;
+            out = grown;
+        }
+        if (used > 0) out[used++] = '\n';
+        memcpy(out + used, text, length);
+        used += length;
+        out[used] = '\0';
+    }
+    freeaddrinfo(addresses);
+    yashy_net_error = 0;
+    yashy_str *result = yashy_str_from_bytes((const uint8_t *)out, (long long)used);
+    free(out);
+    return result;
 }
 
 int64_t yashy_tcp_set_timeout(int64_t fd, int64_t millis) {

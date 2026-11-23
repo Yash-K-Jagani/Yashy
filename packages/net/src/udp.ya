@@ -1,0 +1,64 @@
+// UDP datagrams over the same runtime handle discipline as TCP.
+//
+// A `UdpSocket` is a linear handle: bind it for a server, connect it for a
+// client, and close it exactly once. A receive that times out answers
+// `Err(Timeout)`, never an empty datagram. The peer address is not exposed yet.
+import net;
+
+extern "C" {
+    unsafe fn yashy_udp_open(*const u8 host, i64 port, i64 passive) -> i64;
+    unsafe fn yashy_udp_send(i64 fd, *const u8 buf, i64 len) -> i64;
+    unsafe fn yashy_udp_recv_str(i64 fd, i64 max) -> string;
+}
+
+/** A bound or connected UDP handle. */
+pub struct UdpSocket {
+    fd: int,
+}
+
+/** Bind a local address to receive datagrams. */
+pub unsafe fn udp_bind(string host, int port) -> Result[UdpSocket, NetError] {
+    const fd = yashy_udp_open(host, port, 1);
+    if fd < 0 {
+        return Err(net.take_error());
+    }
+    return Ok(UdpSocket { fd: fd });
+}
+
+/** Connect a socket to a remote address for sends. */
+pub unsafe fn udp_connect(string host, int port) -> Result[UdpSocket, NetError] {
+    const fd = yashy_udp_open(host, port, 0);
+    if fd < 0 {
+        return Err(net.take_error());
+    }
+    return Ok(UdpSocket { fd: fd });
+}
+
+/** Send one datagram. A short send is an error, not a silent partial write. */
+pub unsafe fn udp_send(UdpSocket peer, string data) -> Result[int, NetError] {
+    const length = data.len();
+    const sent = yashy_udp_send(peer.fd, data, length);
+    if sent != length {
+        return Err(net.take_error());
+    }
+    return Ok(sent);
+}
+
+/** Receive one datagram; `None` is only used for an empty datagram. */
+pub unsafe fn udp_recv(UdpSocket peer, int max) -> Result[Option[string], NetError] {
+    const encoded = yashy_udp_recv_str(peer.fd, max);
+    if encoded.len() == 0 {
+        return Err(net.take_error());
+    }
+    const status = encoded.byte_at(0).to_int();
+    if status != 1 {
+        return Err(net.take_error());
+    }
+    return Ok(Some(encoded.slice(1, encoded.len())));
+}
+
+/** Release the handle. A second close is a typestate error. */
+pub unsafe fn udp_close(UdpSocket peer) {
+    net.net_close_fd(peer.fd);
+}
+

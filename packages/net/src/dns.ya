@@ -1,0 +1,27 @@
+// Name resolution with the same typed failures as the socket surface.
+//
+// The runtime returns the resolved addresses as newline-separated text. This
+// module hands that text back as one owned string rather than wrapping it in
+// `[]string`: a returned string array is not released by the current ownership
+// pass, and leaking a value to satisfy an interface is worse than naming a
+// smaller interface. A caller that wants separate addresses can split the
+// text locally.
+import net;
+
+extern "C" {
+    unsafe fn yashy_dns_resolve(*const u8 host, i64 port) -> string;
+}
+
+/// Resolve `host` to newline-separated IPv4/IPv6 address text, or a typed
+/// error. A miss is `Ok("")`, which is different from a DNS failure.
+pub unsafe fn resolve(string host, int port) -> Result[string, NetError] {
+    const text = yashy_dns_resolve(host, port);
+    const code = net.take_error_code();
+    if code == 5 {
+        return Err(NetError.Dns);
+    }
+    if code == 7 {
+        return Err(NetError.Other);
+    }
+    return Ok(text);
+}
