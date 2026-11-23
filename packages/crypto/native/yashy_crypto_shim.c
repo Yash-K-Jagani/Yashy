@@ -166,6 +166,60 @@ yashy_str *yashy_crypto_hkdf_sha512_hex(const yashy_str *ikm, const yashy_str *s
     return result;
 }
 
+/* ---- Compression (miniz) ------------------------------------------------- */
+
+/* miniz.c is compiled from its own upstream source; these are its public
+ * zlib-compatible entry points. `unsigned long` is deliberate: miniz uses it
+ * for lengths on every target, including LLP64 Windows. */
+typedef unsigned long mz_ulong;
+extern int mz_compress2(unsigned char *dest, mz_ulong *dest_len,
+                        const unsigned char *source, mz_ulong source_len, int level);
+extern mz_ulong mz_compressBound(mz_ulong source_len);
+extern int mz_uncompress(unsigned char *dest, mz_ulong *dest_len,
+                         const unsigned char *source, mz_ulong source_len);
+
+yashy_str *yashy_compress_zlib_hex(const yashy_str *plain_hex, int level) {
+    size_t plain_size = 0;
+    uint8_t *plain = NULL;
+    if (plain_hex != NULL && yashy_str_len(plain_hex) == 0) {
+        plain = (uint8_t *)malloc(1); /* empty input is still a value */
+    } else {
+        plain = yashy_hex_alloc(plain_hex, &plain_size);
+    }
+    if (plain == NULL) return NULL;
+    if (level < 0 || level > 9) level = 6;
+    mz_ulong bound = mz_compressBound((mz_ulong)plain_size);
+    uint8_t *packed = (uint8_t *)malloc((size_t)bound + 1);
+    if (packed == NULL) {
+        free(plain);
+        return NULL;
+    }
+    mz_ulong packed_size = bound;
+    int ok = mz_compress2(packed, &packed_size, plain, (mz_ulong)plain_size, level);
+    yashy_str *result = ok == 0 ? yashy_hex_string(packed, (size_t)packed_size) : NULL;
+    free(packed);
+    free(plain);
+    return result;
+}
+
+yashy_str *yashy_decompress_zlib_hex(const yashy_str *packed_hex, long long max_bytes) {
+    if (max_bytes <= 0 || max_bytes > 64 * 1024 * 1024) return NULL;
+    size_t packed_size = 0;
+    uint8_t *packed = yashy_hex_alloc(packed_hex, &packed_size);
+    if (packed == NULL) return NULL;
+    uint8_t *plain = (uint8_t *)malloc((size_t)max_bytes + 1);
+    if (plain == NULL) {
+        free(packed);
+        return NULL;
+    }
+    mz_ulong plain_size = (mz_ulong)max_bytes;
+    int ok = mz_uncompress(plain, &plain_size, packed, (mz_ulong)packed_size);
+    yashy_str *result = ok == 0 ? yashy_hex_string(plain, (size_t)plain_size) : NULL;
+    free(plain);
+    free(packed);
+    return result;
+}
+
 /* ---- Ed25519 ------------------------------------------------------------- */
 
 yashy_str *yashy_crypto_ed25519_key_pair_hex(const yashy_str *seed_hex) {

@@ -528,6 +528,15 @@ fn aead_unlock_hex(string key, string nonce, string ad, string combined) -> Resu
 Decrypt a ChaCha20-Poly1305 value. A changed tag answers
 `AuthenticationFailed`; the plaintext is never returned on that path.
 
+### `compress_zlib_hex`
+
+```yashy
+fn compress_zlib_hex(string data, int level) -> Result[string, CryptoError]
+```
+
+Compress hex-encoded bytes with zlib at `level` (0–9; other values use 6).
+The answer is hex-encoded compressed bytes, or a typed error.
+
 ### `crypto_describe`
 
 ```yashy
@@ -535,6 +544,15 @@ fn crypto_describe(CryptoError error) -> string
 ```
 
 Render an error as a stable, human-readable sentence.
+
+### `decompress_zlib_hex`
+
+```yashy
+fn decompress_zlib_hex(string packed, int max_bytes) -> Result[string, CryptoError]
+```
+
+Decompress zlib bytes with an explicit output cap. A payload that would
+expand past `max_bytes` is an error, not an unbounded allocation.
 
 ### `ed25519_check`
 

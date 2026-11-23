@@ -317,8 +317,9 @@ is a capability rather than an ambient read.
   HMAC-SHA512 (RFC 4231) digests, RFC 8032 Ed25519 key/signature, RFC 7748
   X25519 both sides' shared secret, an AEAD round-trip with associated data,
   a one-nibble tag tamper, a constant-time tag compare and a typed bad-hex
-  error. Compression and SHA3 have no vectors yet; those primitives are not
-  available from the vendored library and remain owed.
+  error. A 1 MiB repetitive and a 1 MiB random payload now round-trip through
+  zlib with an explicit output cap; gzip, zstd and SHA3 are not available from
+  the vendored libraries and remain owed.
 - [ ] **Step 2: Wrap, do not write.** The primitives come from one pinned,
   audited C library (mbedTLS 3.x LTS is the default call; OpenSSL 3 LTS is the
   alternative if mbedTLS cannot be vendored on a target). The wrapper is thin,
@@ -332,7 +333,9 @@ is a capability rather than an ambient read.
   library. Deviations, recorded rather than hidden: the plan's mbedTLS needs a
   C build system and include paths that `link` inputs do not have; there is no
   native-dependency schema in `yashy.lock`, so the pin lives in `VENDOR.md` and
-  the SBOM; an independent security review is still owed.
+  the SBOM; an independent security review is still owed. Compression uses the
+  single-file public-domain miniz 1.14, pinned and listed in the SBOM beside
+  Monocypher.
 - [ ] **Step 3: Constant time where it matters.** Tag comparison, padding
   checks and key derivation use the library's constant-time helpers; a test
   measures the timing distribution and fails on a gross leak. This is a

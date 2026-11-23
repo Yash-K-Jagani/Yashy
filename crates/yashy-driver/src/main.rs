@@ -7901,6 +7901,14 @@ fn sbom_cmd(args: &[String]) -> ExitCode {
         "BSD-2-Clause OR CC0-1.0",
         "Loup Vaillant",
     ));
+    // The compression dependency is pinned by its own single upstream file.
+    packages.push(yashy_manifest::sbom::vendored_data_from(
+        "miniz",
+        "1.14",
+        include_bytes!("../../../packages/crypto/native/miniz.c"),
+        "Unlicense",
+        "Rich Geldreich",
+    ));
     // The vendored time-zone transitions are pinned third-party data too.
     packages.push(yashy_manifest::sbom::vendored_data(
         "tzdata",

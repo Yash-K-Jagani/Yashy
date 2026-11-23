@@ -11,3 +11,6 @@ aead true
 aead-tamper true
 verify16 true
 bad-hex true
+zlib-small true
+zlib-roundtrip true
+zlib-random true

@@ -20,8 +20,19 @@ directory and offers no include search path for package C sources. No algorithm
 code was changed. `native/yashy_crypto_shim.c` is this project's code: it only
 converts between Yashy strings and the library's byte buffers.
 
+Compression uses **miniz 1.14** (<https://github.com/richgel999/miniz>, tag
+`v114`), released under the Unlicense. `native/miniz.c` is a single upstream file:
+
+| File | SHA-256 |
+|---|---|
+| `native/miniz.c` | `254342f2712562d9cd86a1c5a5d7a6875d1d9f87e56a7b39b86d847368f9bebe` |
+
+It supplies the zlib-compatible `mz_compress2`/`mz_uncompress` entry points;
+the shim adds only hex conversion and the explicit output cap. Gzip and zstd
+are not supplied and remain owed.
+
 The SBOM pins the exact bytes the driver compiles: a SHA-256 over the four
-local files concatenated in the order listed above is
+Monocypher files concatenated in the order listed above is
 `a84d5c808ce023acd99c4571ce7f7f8d7726bb9f2cf94d263c8b535c24e16bf3`. It differs
 from a hash of the upstream bytes by the one include edit recorded below.
 

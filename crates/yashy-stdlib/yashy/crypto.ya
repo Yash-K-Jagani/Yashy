@@ -32,6 +32,12 @@ extern "C" link "../../../packages/crypto/native/yashy_crypto_shim.c" {
     unsafe fn c_aead_unlock_ok(string key, string nonce, string ad, string combined) -> int link_name "yashy_crypto_aead_unlock_ok";
     unsafe fn c_aead_unlock_hex(string key, string nonce, string ad, string combined) -> string link_name "yashy_crypto_aead_unlock_hex";
     unsafe fn c_verify16_hex(string left, string right) -> int link_name "yashy_crypto_verify16_hex";
+    unsafe fn c_compress_zlib_hex(string plain, int level) -> string link_name "yashy_compress_zlib_hex";
+    unsafe fn c_decompress_zlib_hex(string packed, int max_bytes) -> string link_name "yashy_decompress_zlib_hex";
+}
+
+extern "C" link "../../../packages/crypto/native/miniz.c" {
+    unsafe fn mz_compress_bound(int size) -> int link_name "mz_compressBound";
 }
 
 extern "C" link "../../../packages/crypto/native/monocypher.c" {
@@ -157,6 +163,21 @@ pub fn aead_unlock_hex(string key, string nonce, string ad, string combined) -> 
         return Err(CryptoError.AuthenticationFailed);
     }
     return answer(c_aead_unlock_hex(key, nonce, ad, combined));
+}
+
+/// Compress hex-encoded bytes with zlib at `level` (0–9; other values use 6).
+/// The answer is hex-encoded compressed bytes, or a typed error.
+pub fn compress_zlib_hex(string data, int level) -> Result[string, CryptoError] {
+    return answer(c_compress_zlib_hex(data, level));
+}
+
+/// Decompress zlib bytes with an explicit output cap. A payload that would
+/// expand past `max_bytes` is an error, not an unbounded allocation.
+pub fn decompress_zlib_hex(string packed, int max_bytes) -> Result[string, CryptoError] {
+    if max_bytes <= 0 || max_bytes > 67108864 {
+        return Err(CryptoError.OutOfRange);
+    }
+    return answer(c_decompress_zlib_hex(packed, max_bytes));
 }
 
 /// Compare two 16-byte hex tags with the library's constant-time primitive.
