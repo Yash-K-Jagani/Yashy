@@ -1,0 +1,28 @@
+import rc;
+
+fn show(Option[int] value) -> int {
+    return switch value {
+        case Some(number) { number }
+        case None { -1 }
+    };
+}
+
+fn main() {
+    let first = rc.make_rc(41);
+    let second = rc.clone_rc(first);
+    let third = rc.clone_rc(second);
+    rc.release_rc(first);
+    print("strong ${rc.strong_rc(third)}");
+    print("value ${show(rc.read_rc(third))}");
+
+    const observer = rc.downgrade_rc(third);
+    print("weak ${rc.weak_count_rc(third)}");
+    rc.release_rc(second);
+    print("after ${show(rc.read_rc(third))} ${rc.strong_rc(third)}");
+
+    // A weak observer cannot keep a value alive. Once the last strong owner
+    // leaves, upgrading is a miss rather than a read of freed memory.
+    rc.release_rc(third);
+    print("upgraded ${show(rc.upgrade_weak(observer))}");
+    rc.release_weak(observer);
+}

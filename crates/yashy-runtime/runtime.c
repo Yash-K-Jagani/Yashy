@@ -2030,6 +2030,160 @@ long long yashy_getcwd(yashy_str **out) {
 #endif
 }
 
+/* ---- Reference-counted shared scalars (rc, arc) --------------------------
+ *
+ * A fixed table of control blocks keeps the runtime out of the GC business:
+ * a handle is a slot index plus one, and a cell stays alive while either a
+ * strong or a weak reference names it. `Arc` uses the same table with atomic
+ * counters; `Rc` uses plain additions because it never crosses a thread.
+ * Values are `int64_t` scalars for now; a value that owns a Yashy array or a
+ * string needs a typed release hook, which the language does not expose yet.
+ */
+#define YASHY_RC_CAPACITY 4096
+
+typedef struct {
+    long long value;
+    long long strong;
+    long long weak;
+    int atomic;
+} yashy_rc_cell;
+
+static yashy_rc_cell yashy_rc_cells[YASHY_RC_CAPACITY];
+
+static long long yashy_rc_add(yashy_rc_cell *cell, long long *field, long long delta) {
+#if defined(_MSC_VER)
+    (void)cell;
+    return InterlockedExchangeAdd64((volatile LONG64 *)field, delta) + delta;
+#else
+    if (cell->atomic) {
+        return __atomic_add_fetch(field, delta, __ATOMIC_SEQ_CST);
+    }
+    *field += delta;
+    return *field;
+#endif
+}
+
+static long long yashy_rc_load(yashy_rc_cell *cell, long long *field) {
+#if defined(_MSC_VER)
+    (void)cell;
+    return InterlockedCompareExchange64((volatile LONG64 *)field, 0, 0);
+#else
+    return cell->atomic ? __atomic_load_n(field, __ATOMIC_SEQ_CST) : *field;
+#endif
+}
+
+static int yashy_rc_cas(yashy_rc_cell *cell, long long *field, long long *expected,
+                        long long desired) {
+#if defined(_MSC_VER)
+    (void)cell;
+    return InterlockedCompareExchange64((volatile LONG64 *)field, desired, *expected) == *expected;
+#else
+    if (cell->atomic) {
+        return __atomic_compare_exchange_n(field, expected, desired, 0,
+                                           __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+    }
+    if (*field != *expected) return 0;
+    *field = desired;
+    return 1;
+#endif
+}
+
+/* Claiming a free slot is always atomic, even for an Rc table: two threads
+ * may create an Rc and an Arc at the same time and must not claim one slot. */
+static int yashy_rc_claim(yashy_rc_cell *cell) {
+#if defined(_MSC_VER)
+    return InterlockedCompareExchange64((volatile LONG64 *)&cell->strong, 1, 0) == 0;
+#else
+    long long expected = 0;
+    return __atomic_compare_exchange_n(&cell->strong, &expected, 1, 0,
+                                       __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+#endif
+}
+
+static yashy_rc_cell *yashy_rc_cell_of(long long handle) {
+    if (handle <= 0 || handle > YASHY_RC_CAPACITY) {
+        return NULL;
+    }
+    return &yashy_rc_cells[(size_t)(handle - 1)];
+}
+
+long long yashy_rc_new(long long value, int atomic) {
+    for (long long i = 0; i < YASHY_RC_CAPACITY; i++) {
+        yashy_rc_cell *cell = &yashy_rc_cells[i];
+        if (!yashy_rc_claim(cell)) continue;
+        cell->atomic = atomic;
+        cell->value = value;
+        cell->weak = 0;
+        return i + 1;
+    }
+    return 0;
+}
+
+long long yashy_rc_clone(long long handle) {
+    yashy_rc_cell *cell = yashy_rc_cell_of(handle);
+    if (cell == NULL) return 0;
+    yashy_rc_add(cell, &cell->strong, 1);
+    return handle;
+}
+
+void yashy_rc_release(long long handle) {
+    yashy_rc_cell *cell = yashy_rc_cell_of(handle);
+    if (cell == NULL) return;
+    if (yashy_rc_add(cell, &cell->strong, -1) != 0) return;
+    if (yashy_rc_load(cell, &cell->weak) == 0) {
+        cell->value = 0;
+    }
+}
+
+int yashy_rc_get(long long handle, long long *out) {
+    yashy_rc_cell *cell = yashy_rc_cell_of(handle);
+    if (cell == NULL || out == NULL || yashy_rc_load(cell, &cell->strong) == 0) return 0;
+    *out = cell->value;
+    return 1;
+}
+
+long long yashy_rc_strong(long long handle) {
+    yashy_rc_cell *cell = yashy_rc_cell_of(handle);
+    return cell == NULL ? 0 : yashy_rc_load(cell, &cell->strong);
+}
+
+long long yashy_rc_weak(long long handle) {
+    yashy_rc_cell *cell = yashy_rc_cell_of(handle);
+    return cell == NULL ? 0 : yashy_rc_load(cell, &cell->weak);
+}
+
+long long yashy_weak_new(long long handle) {
+    yashy_rc_cell *cell = yashy_rc_cell_of(handle);
+    if (cell == NULL) return 0;
+    yashy_rc_add(cell, &cell->weak, 1);
+    return handle;
+}
+
+int yashy_weak_upgrade(long long handle, long long *out) {
+    yashy_rc_cell *cell = yashy_rc_cell_of(handle);
+    if (cell == NULL || out == NULL) return 0;
+    /* A weak reference keeps the cell, so a failed upgrade is a miss rather
+     * than a use-after-free. Compare and swap so a concurrent last release
+     * cannot be resurrected between the check and the increment. */
+    for (;;) {
+        long long strong = yashy_rc_load(cell, &cell->strong);
+        long long expected = strong;
+        if (strong == 0) return 0;
+        if (yashy_rc_cas(cell, &cell->strong, &expected, strong + 1)) break;
+    }
+    *out = cell->value;
+    return 1;
+}
+
+void yashy_weak_release(long long handle) {
+    yashy_rc_cell *cell = yashy_rc_cell_of(handle);
+    if (cell == NULL) return;
+    if (yashy_rc_add(cell, &cell->weak, -1) == 0
+        && yashy_rc_load(cell, &cell->strong) == 0) {
+        cell->value = 0;
+    }
+}
+
 /* ---- Clock and sleep ----
  *
  * `now()` is a wall clock in milliseconds since the Unix epoch, not a

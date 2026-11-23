@@ -1,0 +1,34 @@
+import arc;
+
+fn show(Option[int] value) -> int {
+    return switch value {
+        case Some(number) { number }
+        case None { -1 }
+    };
+}
+
+fn worker(Arc value, Channel[int] done) {
+    print("worker ${show(arc.read_arc(value))}");
+    arc.release_arc(value);
+    done.send(1);
+}
+
+fn main() {
+    let shared = arc.make_arc(7);
+    let one = arc.clone_arc(shared);
+    let two = arc.clone_arc(shared);
+    let three = arc.clone_arc(shared);
+    print("strong ${arc.strong_arc(shared)}");
+
+    let Channel[int] done = chan_new(3);
+    let h1 = thread_spawn(worker, one, done);
+    let h2 = thread_spawn(worker, two, done);
+    let h3 = thread_spawn(worker, three, done);
+    thread_join(h1);
+    thread_join(h2);
+    thread_join(h3);
+
+    arc.release_arc(shared);
+    print("final ${arc.strong_arc(shared)}");
+    done.free();
+}

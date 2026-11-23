@@ -1022,6 +1022,15 @@ impl Module {
         out.push_str("declare i8* @yashy_str_case_fold(i8*)\n");
         out.push_str("declare i64 @yashy_str_display_width(i8*)\n");
         out.push_str("declare i64 @yashy_zone_offset(i8*, i64, ptr)\n");
+        out.push_str("declare i64 @yashy_rc_new(i64, i64)\n");
+        out.push_str("declare i64 @yashy_rc_clone(i64)\n");
+        out.push_str("declare void @yashy_rc_release(i64)\n");
+        out.push_str("declare i64 @yashy_rc_get(i64, ptr)\n");
+        out.push_str("declare i64 @yashy_rc_strong(i64)\n");
+        out.push_str("declare i64 @yashy_rc_weak(i64)\n");
+        out.push_str("declare i64 @yashy_weak_new(i64)\n");
+        out.push_str("declare i64 @yashy_weak_upgrade(i64, ptr)\n");
+        out.push_str("declare void @yashy_weak_release(i64)\n");
         out.push_str("declare i8* @yashy_str_from_f64_prec(double, i64)\n");
         out.push_str("declare i8* @yashy_str_pad(i8*, i64, i64, i8*)\n");
         out.push_str("declare i64 @yashy_f64_round_to(double, i64)\n");

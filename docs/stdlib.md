@@ -97,6 +97,74 @@ The process-wide allocator as a value. Its methods reach the same runtime
 path as `global_alloc` / `global_free`, so a collection given this value
 allocates exactly where a bare `alloc` call does.
 
+## `arc`
+
+### `clone_arc`
+
+```yashy
+fn clone_arc(Arc value) -> Arc
+```
+
+### `downgrade_arc`
+
+```yashy
+fn downgrade_arc(Arc value) -> ArcWeak
+```
+
+### `make_arc`
+
+```yashy
+fn make_arc(int value) -> Arc
+```
+
+### `read_arc`
+
+```yashy
+fn read_arc(Arc value) -> Option[int]
+```
+
+### `release_arc`
+
+```yashy
+fn release_arc(Arc value) -> void
+```
+
+### `release_arc_weak`
+
+```yashy
+fn release_arc_weak(ArcWeak value) -> void
+```
+
+### `strong_arc`
+
+```yashy
+fn strong_arc(Arc value) -> int
+```
+
+### `upgrade_arc_weak`
+
+```yashy
+fn upgrade_arc_weak(ArcWeak value) -> Option[int]
+```
+
+### `weak_count_arc`
+
+```yashy
+fn weak_count_arc(Arc value) -> int
+```
+
+### `Arc`
+
+```yashy
+struct Arc
+```
+
+### `ArcWeak`
+
+```yashy
+struct ArcWeak
+```
+
 ## `args`
 
 ### `all`
@@ -1851,6 +1919,74 @@ fn u64() -> int
 ```
 
 One 64-bit draw from the OS entropy source.
+
+## `rc`
+
+### `clone_rc`
+
+```yashy
+fn clone_rc(Rc value) -> Rc
+```
+
+### `downgrade_rc`
+
+```yashy
+fn downgrade_rc(Rc value) -> Weak
+```
+
+### `make_rc`
+
+```yashy
+fn make_rc(int value) -> Rc
+```
+
+### `read_rc`
+
+```yashy
+fn read_rc(Rc value) -> Option[int]
+```
+
+### `release_rc`
+
+```yashy
+fn release_rc(Rc value) -> void
+```
+
+### `release_weak`
+
+```yashy
+fn release_weak(Weak value) -> void
+```
+
+### `strong_rc`
+
+```yashy
+fn strong_rc(Rc value) -> int
+```
+
+### `upgrade_weak`
+
+```yashy
+fn upgrade_weak(Weak value) -> Option[int]
+```
+
+### `weak_count_rc`
+
+```yashy
+fn weak_count_rc(Rc value) -> int
+```
+
+### `Rc`
+
+```yashy
+struct Rc
+```
+
+### `Weak`
+
+```yashy
+struct Weak
+```
 
 ## `regex`
 

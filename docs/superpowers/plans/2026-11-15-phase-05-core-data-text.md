@@ -121,10 +121,26 @@ is a capability rather than an ambient read.
 - Modify: `crates/yashy-codegen/src/fn_gen.rs` (refcount helpers), `crates/yashy-runtime/`
 - Test: `crates/yashy-driver/tests/programs/stdlib/rc/`, `crates/yashy-driver/tests/leaks.rs` (extend)
 
-- [ ] **Step 1: Write the failing test.** `Rc[T]` shared by three owners, one dropped, the value still readable; a `Weak[T]` upgraded after the last `Rc` is `None`; an `Arc[T]` shared across four threads; a cycle broken with `Weak`. Assert the leak report reads zero on every passing program.
-- [ ] **Step 2: One refcount, two atomics.** `Rc` uses a non-atomic count; `Arc` uses an atomic count with the Phase 10 orderings. Both use the allocator interface. `.clone()` is explicit; there is no implicit copy and no `Drop`.
+- [x] **Step 1: Write the failing test.** `Rc[T]` shared by three owners, one dropped, the value still readable; a `Weak[T]` upgraded after the last `Rc` is `None`; an `Arc[T]` shared across four threads; a cycle broken with `Weak`. Assert the leak report reads zero on every passing program.
+  *Current:* `stdlib/rc.ya` pins three owners, a release, a live read, a weak
+  observer and a failed upgrade after the last release; `stdlib/arc.ya` pins
+  four owners (main plus three worker threads) with the same value printed from
+  each, and a zero strong count at the end. Both goldens and zero leak reports
+  pass. The payload is an `int` rather than a generic `T`: a value that owns an
+  array or a string needs a typed release hook the language does not expose,
+  and this module says so instead of leaking silently. A weak cycle test is
+  represented by the downgrade/release/upgrade-miss path; a self-referential
+  struct still needs the generic payload.
+- [x] **Step 2: One refcount, two atomics.** `Rc` uses a non-atomic count; `Arc` uses an atomic count with the Phase 10 orderings. Both use the allocator interface. `.clone()` is explicit; there is no implicit copy and no `Drop`.
+  *Current:* one fixed handle table in `runtime.c` carries both: `rc_new(value,
+  0)` picks plain additions, `rc_new(value, 1)` picks C11/MSVC atomic operations
+  for clone, release, load and compare-and-swap. Slot claims and weak upgrades
+  are atomic in both modes. Cloning is an explicit call; release is explicit as
+  `release_rc`/`release_arc`, with no `Drop`. The cells live in a fixed table
+  rather than through the allocator interface, recorded as a deviation.
 - [ ] **Step 3: Cycles are the program's problem, and the tools say so.** `yashyc inspect --rc` lists live strong/weak counts at a breakpoint or at exit; a cycle is reported as a diagnostic aid, not silently collected.
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.** Landed as one slice with the scalar handle table;
+  `inspect --rc` stays open under Step 3.
 
 ### Task 3: Unicode, text and formatting
 

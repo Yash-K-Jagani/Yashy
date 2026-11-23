@@ -1,0 +1,61 @@
+// Atomic reference counting for scalar values shared across threads.
+//
+// `arc` uses the same handle table as `rc` with atomic counters, so a clone,
+// a release and an upgrade are safe from several threads at once. A handle is
+// an `int` and can be passed to `thread_spawn`; each owner releases it once.
+// As in `rc`, the payload is an `int` until a typed release hook exists.
+
+/** One atomic strong owner of a reference-counted scalar. */
+pub struct Arc {
+    handle: int,
+}
+
+/** A non-owning observer of an atomic strong owner. */
+pub struct ArcWeak {
+    handle: int,
+}
+
+/** Create one atomic strong owner of `value`. */
+pub fn make_arc(int value) -> Arc {
+    return Arc { handle: rc_new(value, 1) };
+}
+
+/** Add one atomic strong owner. Both handles must be released. */
+pub fn clone_arc(Arc value) -> Arc {
+    return Arc { handle: rc_clone(value.handle) };
+}
+
+/** The stored value, or `None` when no strong owner is left. */
+pub fn read_arc(Arc value) -> Option[int] {
+    return rc_get(value.handle);
+}
+
+/** The number of strong owners, read atomically. */
+pub fn strong_arc(Arc value) -> int {
+    return rc_strong(value.handle);
+}
+
+/** Drop one atomic strong owner. */
+pub fn release_arc(Arc value) {
+    rc_release(value.handle);
+}
+
+/** Observe an atomic owner without keeping its value alive. */
+pub fn downgrade_arc(Arc value) -> ArcWeak {
+    return ArcWeak { handle: weak_new(value.handle) };
+}
+
+/** The number of weak observers, read atomically. */
+pub fn weak_count_arc(Arc value) -> int {
+    return rc_weak(value.handle);
+}
+
+/** Upgrade an observer, or answer `None` after the last strong owner leaves. */
+pub fn upgrade_arc_weak(ArcWeak value) -> Option[int] {
+    return weak_upgrade(value.handle);
+}
+
+/** Drop one weak observer. */
+pub fn release_arc_weak(ArcWeak value) {
+    weak_release(value.handle);
+}

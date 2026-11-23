@@ -1,0 +1,63 @@
+// Single-threaded reference counting for scalar values.
+//
+// The cell lives in the runtime's fixed handle table. A handle is a plain
+// `int`, so cloning it is a copy; each owner still calls `release_rc` exactly
+// once. There is no `Drop` and no implicit copy of an owning handle. The
+// value is an `int` for now: a value that owns an array or a string needs a
+// typed release hook the language does not expose yet, and silently leaking
+// one would be worse than stating the restriction here.
+
+/** One strong owner of a reference-counted scalar. */
+pub struct Rc {
+    handle: int,
+}
+
+/** A non-owning observer that can ask for a strong owner while one exists. */
+pub struct Weak {
+    handle: int,
+}
+
+/** Create one strong owner of `value`. */
+pub fn make_rc(int value) -> Rc {
+    return Rc { handle: rc_new(value, 0) };
+}
+
+/** Add one strong owner. The handles are equal but both must be released. */
+pub fn clone_rc(Rc value) -> Rc {
+    return Rc { handle: rc_clone(value.handle) };
+}
+
+/** The stored value, or `None` when no strong owner is left. */
+pub fn read_rc(Rc value) -> Option[int] {
+    return rc_get(value.handle);
+}
+
+/** The number of strong owners. */
+pub fn strong_rc(Rc value) -> int {
+    return rc_strong(value.handle);
+}
+
+/** Drop one strong owner; the cell dies when the last weak observer leaves. */
+pub fn release_rc(Rc value) {
+    rc_release(value.handle);
+}
+
+/** Observe a strong owner without keeping its value alive. */
+pub fn downgrade_rc(Rc value) -> Weak {
+    return Weak { handle: weak_new(value.handle) };
+}
+
+/** The number of weak observers. */
+pub fn weak_count_rc(Rc value) -> int {
+    return rc_weak(value.handle);
+}
+
+/** Upgrade an observer, or answer `None` after the last strong owner leaves. */
+pub fn upgrade_weak(Weak value) -> Option[int] {
+    return weak_upgrade(value.handle);
+}
+
+/** Drop one weak observer. */
+pub fn release_weak(Weak value) {
+    weak_release(value.handle);
+}

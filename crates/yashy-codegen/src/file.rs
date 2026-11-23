@@ -591,6 +591,28 @@ pub fn gen_zone_offset(ctx: &mut FnCtx<'_>, args: &[HirExpr], ret: &TypeKind) ->
     finish_option(ctx, ret, &present, Some(("i64", &value)), "zone_offset_at")
 }
 
+/// Lower a refcount query that writes an `i64` into an out slot and reports a
+/// hit with an `i1` flag: `rc_get` and `weak_upgrade` share this shape.
+pub fn gen_rc_option(ctx: &mut FnCtx<'_>, args: &[HirExpr], ret: &TypeKind, symbol: &str) -> GenValue {
+    if args.len() != 1 {
+        return zero_option(ctx, ret);
+    }
+    let handle = gen_expr(ctx, &args[0]);
+    let out_slot = ctx.alloc_slot();
+    ctx.push_alloca(format!("{out_slot} = alloca i64"));
+    ctx.push(format!("store i64 0, ptr {out_slot}"));
+    let flag = ctx.tmp();
+    ctx.push(format!(
+        "{flag} = call i64 @{symbol}(i64 {}, ptr {out_slot})",
+        handle.value
+    ));
+    let value = ctx.tmp();
+    ctx.push(format!("{value} = load i64, ptr {out_slot}"));
+    let present = ctx.tmp();
+    ctx.push(format!("{present} = icmp ne i64 {flag}, 0"));
+    finish_option(ctx, ret, &present, Some(("i64", &value)), symbol)
+}
+
 /// A `Result` whose tag is `0` and whose payload fields are `null`/`undef`, for
 /// the arity-mismatch fallback.
 fn zero_result(ctx: &mut FnCtx<'_>, ret: &TypeKind) -> GenValue {

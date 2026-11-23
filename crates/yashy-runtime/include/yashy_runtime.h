@@ -529,6 +529,19 @@ long long yashy_random_i64(void);
  * written to `*offset_out` and the return is 1 on a hit, 0 for an unknown zone. */
 int yashy_zone_offset(const yashy_str *name, int64_t at_unix,
                       int64_t *offset_out);
+/* Reference-counted scalar cells (rc, arc). A handle is a table slot + 1; 0
+ * means "no cell". `atomic` selects the Arc discipline. A weak reference
+ * keeps the cell alive without keeping the value alive. */
+long long yashy_rc_new(long long value, int atomic);
+long long yashy_rc_clone(long long handle);
+void yashy_rc_release(long long handle);
+int yashy_rc_get(long long handle, long long *out);
+long long yashy_rc_strong(long long handle);
+long long yashy_rc_weak(long long handle);
+long long yashy_weak_new(long long handle);
+int yashy_weak_upgrade(long long handle, long long *out);
+void yashy_weak_release(long long handle);
+
 int yashy_is_tty(int fd);
 yashy_str *yashy_env_join(void);
 int yashy_env_set(const char *name, const char *value);

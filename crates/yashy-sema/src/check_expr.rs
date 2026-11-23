@@ -1191,7 +1191,7 @@ impl<'src> Checker<'src> {
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ya`. Recorded as a divergence from the master plan's L3.
-        let builtins: [(&str, Vec<Type>, Type); 50] = [
+        let builtins: [(&str, Vec<Type>, Type); 59] = [
             ("alloc", vec![prim(TypeKind::I64)], ptr(prim(TypeKind::I64))),
             // The explicit unsafe spelling: same type as `alloc`, but the
             // runtime skips the zeroing. The checker refuses it outside an
@@ -1466,6 +1466,50 @@ impl<'src> Checker<'src> {
                 "zone_offset_at",
                 vec![prim(TypeKind::Str), prim(TypeKind::I64)],
                 option_of(prim(TypeKind::I64)),
+            ),
+            // Reference-counted scalar cells (Phase 5 Task 2). The handle is
+            // an int; `atomic = 1` selects the Arc discipline. The stdlib
+            // wrappers keep the user-facing spelling and the explicit release.
+            (
+                "rc_new",
+                vec![prim(TypeKind::I64), prim(TypeKind::I64)],
+                prim(TypeKind::I64),
+            ),
+            (
+                "rc_clone",
+                vec![prim(TypeKind::I64)],
+                prim(TypeKind::I64),
+            ),
+            ("rc_release", vec![prim(TypeKind::I64)], prim(TypeKind::Unit)),
+            (
+                "rc_get",
+                vec![prim(TypeKind::I64)],
+                option_of(prim(TypeKind::I64)),
+            ),
+            (
+                "rc_strong",
+                vec![prim(TypeKind::I64)],
+                prim(TypeKind::I64),
+            ),
+            (
+                "rc_weak",
+                vec![prim(TypeKind::I64)],
+                prim(TypeKind::I64),
+            ),
+            (
+                "weak_new",
+                vec![prim(TypeKind::I64)],
+                prim(TypeKind::I64),
+            ),
+            (
+                "weak_upgrade",
+                vec![prim(TypeKind::I64)],
+                option_of(prim(TypeKind::I64)),
+            ),
+            (
+                "weak_release",
+                vec![prim(TypeKind::I64)],
+                prim(TypeKind::Unit),
             ),
             // Format-engine primitives, also used by the checker's lowering of
             // a literal `format` specifier; `format.ya` names them directly.
