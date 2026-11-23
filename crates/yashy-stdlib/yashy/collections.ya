@@ -647,3 +647,137 @@ impl Map[K, V] {
         live.free();
     }
 }
+
+/** Compare a comparator's answer, breaking a tie by insertion sequence. */
+fn pq_order(int order, int left_seq, int right_seq) -> bool {
+    if order < 0 { return true; }
+    if order > 0 { return false; }
+    return left_seq < right_seq;
+}
+
+/** The smaller of two optional values, breaking equal keys by insertion
+ * sequence. A missing value never wins, so the helper needs no default `T`. */
+fn pq_before[T](Option[T] left, int left_seq, Option[T] right, int right_seq, fn (T, T) -> int cmp) -> bool {
+    return switch left {
+        case Some(a) {
+            switch right {
+                case Some(b) { pq_order(cmp(a, b), left_seq, right_seq) }
+                case None { false }
+            }
+        }
+        case None { false }
+    };
+}
+
+/** A min-queue that breaks equal keys by insertion sequence. The value column
+ * is append-only, and the heap holds `int` indices into it, so a swap never
+ * has to set a `string` element. */
+pub struct PriorityQueue[T] {
+    pub values: []T,
+    pub heap: []int,
+    pub count: int,
+}
+
+/** A fresh empty priority queue. Release it with `free`. */
+pub fn pq_new[T]() -> PriorityQueue[T] {
+    return PriorityQueue { values: []T {}, heap: []int {}, count: 0 };
+}
+
+impl PriorityQueue[T] {
+    /// The number of queued elements.
+    pub fn len(self) -> int {
+        return self.count;
+    }
+
+    /// The smallest element under `cmp`, without removing it.
+    pub fn peek(self, fn (T, T) -> int cmp) -> Option[T] {
+        if self.count == 0 {
+            const Option[T] missing = None;
+            return missing;
+        }
+        const Option[int] first = self.heap[0];
+        const int index = switch first { case Some(value) { value } case None { 0 } };
+        return self.values[index];
+    }
+
+    /// Insert `value`, re-heapifying with `cmp` and insertion order as the key.
+    pub fn push(self: *mut PriorityQueue[T], T value, fn (T, T) -> int cmp) {
+        let values = self[0].values;
+        values.push(value);
+        const int index = values.len() - 1;
+        self[0].values = values;
+        let heap = self[0].heap;
+        heap.push(index);
+        let at = heap.len() - 1;
+        self[0].count = self[0].count + 1;
+        while at > 0 {
+            const parent = (at - 1) / 2;
+            const int child_slot = switch heap[at] { case Some(v) { v } case None { 0 } };
+            const int parent_slot = switch heap[parent] { case Some(v) { v } case None { 0 } };
+            if pq_before(self[0].values[child_slot], child_slot, self[0].values[parent_slot], parent_slot, cmp) {
+                heap.set(at, parent_slot);
+                heap.set(parent, child_slot);
+                at = parent;
+            } else {
+                break;
+            }
+        }
+        self[0].heap = heap;
+    }
+
+    /// Remove and answer the smallest element, or `None` when empty.
+    pub fn pop(self: *mut PriorityQueue[T], fn (T, T) -> int cmp) -> Option[T] {
+        if self[0].count == 0 {
+            const Option[T] missing = None;
+            return missing;
+        }
+        let heap = self[0].heap;
+        const Option[int] root = heap[0];
+        const int index = switch root { case Some(value) { value } case None { 0 } };
+        const last = heap.len() - 1;
+        const Option[int] tail = heap[last];
+        const int tail_slot = switch tail { case Some(value) { value } case None { 0 } };
+        heap.set(0, tail_slot);
+        let at = 0;
+        while true {
+            const left = 2 * at + 1;
+            if left >= last {
+                break;
+            }
+            let best = at;
+            const int at_slot = switch heap[at] { case Some(v) { v } case None { 0 } };
+            const int left_slot = switch heap[left] { case Some(v) { v } case None { 0 } };
+            if pq_before(self[0].values[left_slot], left_slot, self[0].values[at_slot], at_slot, cmp) {
+                best = left;
+            }
+            const right = left + 1;
+            if right < last {
+                const int best_slot = switch heap[best] { case Some(v) { v } case None { 0 } };
+                const int right_slot = switch heap[right] { case Some(v) { v } case None { 0 } };
+                if pq_before(self[0].values[right_slot], right_slot, self[0].values[best_slot], best_slot, cmp) {
+                    best = right;
+                }
+            }
+            if best == at {
+                break;
+            }
+            const int best_slot = switch heap[best] { case Some(v) { v } case None { 0 } };
+            const int here_slot = switch heap[at] { case Some(v) { v } case None { 0 } };
+            heap.set(at, best_slot);
+            heap.set(best, here_slot);
+            at = best;
+        }
+        heap.remove(last);
+        self[0].heap = heap;
+        self[0].count = self[0].count - 1;
+        return self[0].values[index];
+    }
+
+    /// Release the value and heap arrays. The queue must not be used afterwards.
+    pub fn free(self) {
+        const values = self.values;
+        const heap = self.heap;
+        values.free();
+        heap.free();
+    }
+}

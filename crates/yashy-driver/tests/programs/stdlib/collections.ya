@@ -11,6 +11,10 @@ fn unwrap(Option[int] value) -> int {
     };
 }
 
+fn text_len(string left, string right) -> int {
+    return left.len() - right.len();
+}
+
 fn unwrap_text(Option[string] value) -> string {
     return switch value {
         case Some(text) { text }
@@ -75,6 +79,18 @@ fn typed_collections() {
     const removed = unwrap_text(m.remove("b"));
     print("removed ${removed} ${m.len()}");
     m.free();
+
+    let pq = PriorityQueue { values: []string {}, heap: []int {}, count: 0 };
+    pq.push("bb", text_len);
+    pq.push("a", text_len);
+    pq.push("aa", text_len);
+    pq.push("cc", text_len);
+    const pq1 = unwrap_text(pq.pop(text_len));
+    const pq2 = unwrap_text(pq.pop(text_len));
+    const pq3 = unwrap_text(pq.pop(text_len));
+    const pq4 = unwrap_text(pq.pop(text_len));
+    print("pq ${pq1} ${pq2} ${pq3} ${pq4} ${pq.len()}");
+    pq.free();
 }
 
 fn main() {

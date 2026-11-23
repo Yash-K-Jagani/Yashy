@@ -13,3 +13,4 @@ set 2 alpha beta true
 deque 1 3 1 3 1
 map 2 9 a 9 b
 removed 2 1
+pq a bb aa cc 0

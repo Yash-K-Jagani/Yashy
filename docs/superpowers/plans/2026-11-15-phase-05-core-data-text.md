@@ -71,9 +71,9 @@ is a capability rather than an ambient read.
   (`a7ca38d`). `stdlib/collections.ya` grows a vector past its first capacity,
   dedupes and walks a set, pushes and drains a deque from both ends, inserts,
   overwrites, removes and iterates a string map, and the e2e gate pins the bytes
-  and a zero leak report. The `priority queue` half of the failing test is still
-  owed: the free `queue_*` functions take one caller comparator and have no
-  insertion counter to break ties with.
+  and a zero leak report. The `priority queue` half is now covered by the typed
+  `PriorityQueue[T]` described in Step 2; the free `queue_*` functions still
+  take one caller comparator and do not break ties.
 - [ ] **Step 2: Order is part of the type.** `Map` and `Set` iterate in insertion order; removing and re-inserting moves a key to the end. `PriorityQueue` breaks ties by insertion sequence. There is no unordered iteration and no randomised seed. The order is documented on the type and tested.
   *Current:* `crates/yashy-stdlib/yashy/ordered_map.ya` is an insertion-ordered
   map over string keys: `ordered_set` overwrites in place and keeps position,
@@ -85,7 +85,14 @@ is a capability rather than an ambient read.
   a missing lookup, and the e2e gate confirms zero leaks. `PriorityQueue` equal
   keys still do not break ties by insertion sequence: the queue is a `[]T` with
   a caller comparator, so it has nowhere to carry an insertion counter without
-  a second parallel column; that half stays open. The typed `Map[K, V]` uses the
+  a second parallel column; that half stays open.
+  *Update:* `PriorityQueue[T]` now carries insertion sequence without a second
+  counter: `values` is append-only, so a value's index is its sequence, and the
+  heap is an append-only `[]int` of those indices. Swapping heap slots never
+  sets a `string` element. The coverage program pushes four strings with equal
+  comparison keys and pins `a bb aa cc` — the earlier `bb` precedes the later
+  `aa` — with a zero leak report.
+  The typed `Map[K, V]` uses the
   same append-only columns and int slots, and its `key(index)` / `value(index)`
   walk live rows in insertion order; overwriting an existing key keeps its
   position, and removing one leaves the rest in place.

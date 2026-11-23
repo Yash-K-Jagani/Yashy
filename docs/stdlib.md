@@ -237,6 +237,12 @@ fn int_sort_insert([]int items, int value) -> []int
 fn map_new[K, V]() -> Map[K, V]
 ```
 
+### `pq_new`
+
+```yashy
+fn pq_new[T]() -> PriorityQueue[T]
+```
+
 ### `queue_peek`
 
 ```yashy
