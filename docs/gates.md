@@ -234,6 +234,19 @@ follow-up, not claimed as complete.
 | Method spellings on raw slices (`xs.zip`, `xs.rev`) | The checker has no user-defined method resolution for slices; adding it changes method lookup for every type, so the free-function and cursor spellings stay the shipped surface | language owner | a slice receiver resolves to the existing cursor constructors without changing other receivers |
 | 10k-element set timing assertion | The typed `Set` uses an insertion-ordered linear-scan array, so an expected-constant-time assertion would be false today | collections owner | lookup moves to a hashed index while insertion order is preserved |
 
+### Phase 6 (2026-11-15) — network and web
+
+| Gate | Command | Passes when |
+|---|---|---|
+| Sockets and deadlines | `cargo test -p yashy-driver --test net_package` and `-p yashy-runtime --test net` | loopback TCP/UDP/Unix echo, typed causes, expired deadline and cancellation, zero leaks |
+| No regression | `cargo test --workspace --no-fail-fast` | all targets green |
+
+**Dated exceptions (2026-11-23).** The Windows named-pipe half of the
+`cfg`-selected local-socket API and a multi-record A/AAAA DNS fixture need a
+Windows runner and a controlled resolver fixture respectively. Owner: net
+package maintainer. Each closes when the named platform test runs in CI and
+pins at least two resolved addresses.
+
 ### Phase 6 — modules and unicode
 
 | Gate | Command | Passes when |

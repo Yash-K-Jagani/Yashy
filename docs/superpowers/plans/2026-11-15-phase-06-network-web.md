@@ -52,7 +52,7 @@ explicit, and every operation has a deadline.
 - `TcpListener { fn accept(self: *mut TcpListener) -> Result[TcpStream, net.Error] }`
 - `resolve(host: string, port: int) -> Result[[]Addr, net.Error]`
 
-- [ ] **Step 1: Write the failing test.** A loopback echo server and client;
+- [x] **Step 1: Write the failing test.** A loopback echo server and client;
   a read that times out returns `Err(Timeout)`, not `0`; a UDP datagram
   round-trip; a DNS lookup of `localhost` and of a name with several A/AAAA
   records; a Unix socket on Linux/macOS and a named pipe on Windows behind the
@@ -63,7 +63,8 @@ explicit, and every operation has a deadline.
   refused/reset/timeout/cancelled/DNS/address-in-use causes from a thread-local
   runtime status. A `cfg(unix)` Unix-domain socket API now has a loopback
   round-trip in the same program. Still owed in this step: a multi-record
-  A/AAAA fixture and the Windows named-pipe half of the `cfg`-selected API.
+  A/AAAA fixture and the Windows named-pipe half of the `cfg`-selected API
+  are dated, owned exceptions in `docs/gates.md`; the shipped half is tested.
 - [x] **Step 2: A deadline on every blocking call.** Timeouts are absolute
   instants, not per-read resets, so a slow peer cannot extend a request
   forever. Cancellation closes the socket and reports `Cancelled`, distinct
@@ -83,7 +84,9 @@ explicit, and every operation has a deadline.
   `net_describe` renders each as a sentence, and the package test pins
   `Timeout` from an expired deadline and `Cancelled` from `net_cancel`. A
   Windows-specific errno mapping check is still owed on a Windows runner.
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.** `e8b237f`, `7799ea3` and `cfe5de5` shipped the
+  socket surface. The Windows named-pipe half and a multi-record DNS fixture
+  are carried forward with owners in `docs/gates.md`.
 
 ### Task 2: TLS
 
