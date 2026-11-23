@@ -21,6 +21,7 @@ extern "C" link "../../../packages/crypto/native/yashy_crypto_shim.c" {
     unsafe fn c_valid_hex(string text, int bytes) -> int link_name "yashy_crypto_valid_hex";
     unsafe fn c_valid_any_hex(string text) -> int link_name "yashy_crypto_valid_any_hex";
     unsafe fn c_sha512_hex(string message) -> string link_name "yashy_crypto_sha512_hex";
+    unsafe fn c_sha3_256_hex(string message) -> string link_name "yashy_crypto_sha3_256_hex";
     unsafe fn c_hmac_sha512_hex(string key, string message) -> string link_name "yashy_crypto_hmac_sha512_hex";
     unsafe fn c_hkdf_sha512_hex(string ikm, string salt, string info, int length) -> string link_name "yashy_crypto_hkdf_sha512_hex";
     unsafe fn c_ed25519_key_pair_hex(string seed) -> string link_name "yashy_crypto_ed25519_key_pair_hex";
@@ -34,10 +35,22 @@ extern "C" link "../../../packages/crypto/native/yashy_crypto_shim.c" {
     unsafe fn c_verify16_hex(string left, string right) -> int link_name "yashy_crypto_verify16_hex";
     unsafe fn c_compress_zlib_hex(string plain, int level) -> string link_name "yashy_compress_zlib_hex";
     unsafe fn c_decompress_zlib_hex(string packed, int max_bytes) -> string link_name "yashy_decompress_zlib_hex";
+    unsafe fn c_compress_gzip_hex(string plain) -> string link_name "yashy_compress_gzip_hex";
+    unsafe fn c_decompress_gzip_hex(string packed, int max_bytes) -> string link_name "yashy_decompress_gzip_hex";
+    unsafe fn c_compress_zstd_hex(string plain, int level) -> string link_name "yashy_compress_zstd_hex";
+    unsafe fn c_decompress_zstd_hex(string packed, int max_bytes) -> string link_name "yashy_decompress_zstd_hex";
 }
 
 extern "C" link "../../../packages/crypto/native/miniz.c" {
     unsafe fn mz_compress_bound(int size) -> int link_name "mz_compressBound";
+}
+
+extern "C" link "../../../packages/crypto/native/sha3/sha3.c" {
+    unsafe fn sha3_keccakf(*char state);
+}
+
+extern "C" link "../../../packages/crypto/native/zstd/zstd.c" {
+    unsafe fn zstd_compress_bound(int size) -> int link_name "ZSTD_compressBound";
 }
 
 extern "C" link "../../../packages/crypto/native/monocypher.c" {
@@ -81,6 +94,11 @@ fn answer(string value) -> Result[string, CryptoError] {
 /// SHA-512 over the message bytes, as 128 lowercase hex characters.
 pub fn sha512_hex(string message) -> Result[string, CryptoError] {
     return answer(c_sha512_hex(message));
+}
+
+/// SHA3-256 over the message bytes, as 64 lowercase hex characters.
+pub fn sha3_256_hex(string message) -> Result[string, CryptoError] {
+    return answer(c_sha3_256_hex(message));
 }
 
 /// HMAC-SHA512 over the message bytes, as 128 lowercase hex characters. The
@@ -178,6 +196,37 @@ pub fn decompress_zlib_hex(string packed, int max_bytes) -> Result[string, Crypt
         return Err(CryptoError.OutOfRange);
     }
     return answer(c_decompress_zlib_hex(packed, max_bytes));
+}
+
+/// Compress hex-encoded bytes into gzip (a 10-byte header, raw deflate from
+/// miniz, and a CRC32/ISIZE footer). The answer is hex.
+pub fn compress_gzip_hex(string data) -> Result[string, CryptoError] {
+    return answer(c_compress_gzip_hex(data));
+}
+
+/// Decompress gzip bytes with an explicit output cap read from ISIZE before
+/// any allocation. A corrupt footer or a CRC mismatch is a typed error.
+pub fn decompress_gzip_hex(string packed, int max_bytes) -> Result[string, CryptoError] {
+    if max_bytes <= 0 || max_bytes > 67108864 {
+        return Err(CryptoError.OutOfRange);
+    }
+    return answer(c_decompress_gzip_hex(packed, max_bytes));
+}
+
+/// Compress hex-encoded bytes with Zstandard at `level` (1–22; other values
+/// use 3). The frame header carries the content size, which the decoder checks
+/// against its cap before allocating.
+pub fn compress_zstd_hex(string data, int level) -> Result[string, CryptoError] {
+    return answer(c_compress_zstd_hex(data, level));
+}
+
+/// Decompress a Zstandard frame with an explicit output cap. An unknown or
+/// oversized content size is a typed error.
+pub fn decompress_zstd_hex(string packed, int max_bytes) -> Result[string, CryptoError] {
+    if max_bytes <= 0 || max_bytes > 67108864 {
+        return Err(CryptoError.OutOfRange);
+    }
+    return answer(c_decompress_zstd_hex(packed, max_bytes));
 }
 
 /// Compare two 16-byte hex tags with the library's constant-time primitive.

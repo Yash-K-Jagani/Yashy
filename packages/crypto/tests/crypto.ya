@@ -19,6 +19,7 @@ fn yes(Result[bool, CryptoError] answer) -> bool {
 fn main() {
     // FIPS 180-4 and RFC 4231 published answers.
     print("sha512 ${show(crypto.sha512_hex("abc")) == "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f"}");
+    print("sha3 ${show(crypto.sha3_256_hex("abc")) == "3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532"}");
     const rfc4231_key = "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b";
     print("hmac ${show(crypto.hmac_sha512_hex(rfc4231_key, "Hi There")) == "87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e2ce4ec2787ad0b30545e17cdedaa833b7d6b8a702038b274eaea3f4e4be9d914eeb61f1702e696c203a126854"}");
 
@@ -73,6 +74,11 @@ fn main() {
     const packed_repeated = show(crypto.compress_zlib_hex(repeated_hex, 6));
     print("zlib-small ${packed_repeated.len() < repeated_hex.len()}");
     print("zlib-roundtrip ${show(crypto.decompress_zlib_hex(packed_repeated, 1048576)) == repeated_hex}");
+    const gzip_repeated = show(crypto.compress_gzip_hex(repeated_hex));
+    print("gzip-header ${gzip_repeated.slice(0, 4) == "1f8b"}");
+    print("gzip-roundtrip ${show(crypto.decompress_gzip_hex(gzip_repeated, 1048576)) == repeated_hex}");
+    const zstd_repeated = show(crypto.compress_zstd_hex(repeated_hex, 3));
+    print("zstd-roundtrip ${show(crypto.decompress_zstd_hex(zstd_repeated, 1048576)) == repeated_hex}");
 
     const draw = rand.csprng_bytes(1048576);
     const random_bytes = switch draw {
@@ -82,5 +88,7 @@ fn main() {
     const random_hex = text.hex_encode(random_bytes);
     const packed_random = show(crypto.compress_zlib_hex(random_hex, 6));
     print("zlib-random ${show(crypto.decompress_zlib_hex(packed_random, 1048576)) == random_hex}");
+    const zstd_random = show(crypto.compress_zstd_hex(random_hex, 3));
+    print("zstd-random ${show(crypto.decompress_zstd_hex(zstd_random, 1048576)) == random_hex}");
 }
 

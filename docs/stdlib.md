@@ -528,6 +528,15 @@ fn aead_unlock_hex(string key, string nonce, string ad, string combined) -> Resu
 Decrypt a ChaCha20-Poly1305 value. A changed tag answers
 `AuthenticationFailed`; the plaintext is never returned on that path.
 
+### `compress_gzip_hex`
+
+```yashy
+fn compress_gzip_hex(string data) -> Result[string, CryptoError]
+```
+
+Compress hex-encoded bytes into gzip (a 10-byte header, raw deflate from
+miniz, and a CRC32/ISIZE footer). The answer is hex.
+
 ### `compress_zlib_hex`
 
 ```yashy
@@ -537,6 +546,16 @@ fn compress_zlib_hex(string data, int level) -> Result[string, CryptoError]
 Compress hex-encoded bytes with zlib at `level` (0–9; other values use 6).
 The answer is hex-encoded compressed bytes, or a typed error.
 
+### `compress_zstd_hex`
+
+```yashy
+fn compress_zstd_hex(string data, int level) -> Result[string, CryptoError]
+```
+
+Compress hex-encoded bytes with Zstandard at `level` (1–22; other values
+use 3). The frame header carries the content size, which the decoder checks
+against its cap before allocating.
+
 ### `crypto_describe`
 
 ```yashy
@@ -544,6 +563,15 @@ fn crypto_describe(CryptoError error) -> string
 ```
 
 Render an error as a stable, human-readable sentence.
+
+### `decompress_gzip_hex`
+
+```yashy
+fn decompress_gzip_hex(string packed, int max_bytes) -> Result[string, CryptoError]
+```
+
+Decompress gzip bytes with an explicit output cap read from ISIZE before
+any allocation. A corrupt footer or a CRC mismatch is a typed error.
 
 ### `decompress_zlib_hex`
 
@@ -553,6 +581,15 @@ fn decompress_zlib_hex(string packed, int max_bytes) -> Result[string, CryptoErr
 
 Decompress zlib bytes with an explicit output cap. A payload that would
 expand past `max_bytes` is an error, not an unbounded allocation.
+
+### `decompress_zstd_hex`
+
+```yashy
+fn decompress_zstd_hex(string packed, int max_bytes) -> Result[string, CryptoError]
+```
+
+Decompress a Zstandard frame with an explicit output cap. An unknown or
+oversized content size is a typed error.
 
 ### `ed25519_check`
 
@@ -596,6 +633,14 @@ fn hmac_sha512_hex(string key, string message) -> Result[string, CryptoError]
 
 HMAC-SHA512 over the message bytes, as 128 lowercase hex characters. The
 key may be any non-empty byte string, as RFC 4231's vectors require.
+
+### `sha3_256_hex`
+
+```yashy
+fn sha3_256_hex(string message) -> Result[string, CryptoError]
+```
+
+SHA3-256 over the message bytes, as 64 lowercase hex characters.
 
 ### `sha512_hex`
 

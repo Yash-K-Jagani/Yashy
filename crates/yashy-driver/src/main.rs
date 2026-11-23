@@ -7909,6 +7909,38 @@ fn sbom_cmd(args: &[String]) -> ExitCode {
         "Unlicense",
         "Rich Geldreich",
     ));
+    // SHA3 is pinned by the tiny_sha3 commit and the three compiled files.
+    let mut sha3_sources = Vec::new();
+    for bytes in [
+        &include_bytes!("../../../packages/crypto/native/sha3/sha3.c")[..],
+        &include_bytes!("../../../packages/crypto/native/sha3/sha3.h")[..],
+        &include_bytes!("../../../packages/crypto/native/sha3/LICENSE")[..],
+    ] {
+        sha3_sources.extend_from_slice(bytes);
+    }
+    packages.push(yashy_manifest::sbom::vendored_data_from(
+        "tiny_sha3",
+        "dcbb3192047c2a721f5f851db591871d428036a9",
+        &sha3_sources,
+        "MIT",
+        "Markku-Juhani O. Saarinen",
+    ));
+    // Zstandard is pinned by its tag and the three compiled files.
+    let mut zstd_sources = Vec::new();
+    for bytes in [
+        &include_bytes!("../../../packages/crypto/native/zstd/zstd.c")[..],
+        &include_bytes!("../../../packages/crypto/native/zstd/zstd.h")[..],
+        &include_bytes!("../../../packages/crypto/native/zstd/zstd_errors.h")[..],
+    ] {
+        zstd_sources.extend_from_slice(bytes);
+    }
+    packages.push(yashy_manifest::sbom::vendored_data_from(
+        "zstd",
+        "1.5.7",
+        &zstd_sources,
+        "BSD-3-Clause",
+        "Facebook, Inc.",
+    ));
     // The vendored time-zone transitions are pinned third-party data too.
     packages.push(yashy_manifest::sbom::vendored_data(
         "tzdata",

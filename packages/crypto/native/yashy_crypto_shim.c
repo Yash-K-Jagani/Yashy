@@ -17,6 +17,8 @@
 
 #include "monocypher.h"
 #include "optional/monocypher-ed25519.h"
+#include "sha3/sha3.h"
+#include "zstd/zstd.h"
 
 /* The driver compiles link inputs without the runtime include path, so the
  * three string ABI facts the shim needs are stated here. They are the same
@@ -126,6 +128,12 @@ yashy_str *yashy_crypto_sha512_hex(const yashy_str *message) {
     return yashy_hex_string(digest, sizeof digest);
 }
 
+yashy_str *yashy_crypto_sha3_256_hex(const yashy_str *message) {
+    uint8_t digest[32];
+    sha3(yashy_text_data(message), yashy_text_size(message), digest, sizeof digest);
+    return yashy_hex_string(digest, sizeof digest);
+}
+
 yashy_str *yashy_crypto_hmac_sha512_hex(const yashy_str *key, const yashy_str *message) {
     size_t key_size = 0;
     uint8_t *key_bytes = yashy_hex_alloc(key, &key_size);
@@ -177,6 +185,11 @@ extern int mz_compress2(unsigned char *dest, mz_ulong *dest_len,
 extern mz_ulong mz_compressBound(mz_ulong source_len);
 extern int mz_uncompress(unsigned char *dest, mz_ulong *dest_len,
                          const unsigned char *source, mz_ulong source_len);
+extern mz_ulong mz_crc32(mz_ulong crc, const unsigned char *ptr, size_t len);
+extern void *tdefl_compress_mem_to_heap(const void *src, size_t src_len,
+                                        size_t *out_len, int flags);
+extern void *tinfl_decompress_mem_to_heap(const void *src, size_t src_len,
+                                          size_t *out_len, int flags);
 
 yashy_str *yashy_compress_zlib_hex(const yashy_str *plain_hex, int level) {
     size_t plain_size = 0;
@@ -215,6 +228,141 @@ yashy_str *yashy_decompress_zlib_hex(const yashy_str *packed_hex, long long max_
     mz_ulong plain_size = (mz_ulong)max_bytes;
     int ok = mz_uncompress(plain, &plain_size, packed, (mz_ulong)packed_size);
     yashy_str *result = ok == 0 ? yashy_hex_string(plain, (size_t)plain_size) : NULL;
+    free(plain);
+    free(packed);
+    return result;
+}
+
+/* ---- Zstandard ----------------------------------------------------------- */
+
+yashy_str *yashy_compress_zstd_hex(const yashy_str *plain_hex, int level) {
+    size_t plain_size = 0;
+    uint8_t *plain = NULL;
+    if (plain_hex != NULL && yashy_str_len(plain_hex) == 0) {
+        plain = (uint8_t *)malloc(1);
+    } else {
+        plain = yashy_hex_alloc(plain_hex, &plain_size);
+    }
+    if (plain == NULL) return NULL;
+    if (level < 1 || level > 22) level = 3;
+    size_t bound = ZSTD_compressBound(plain_size);
+    uint8_t *packed = (uint8_t *)malloc(bound + 1);
+    if (packed == NULL) {
+        free(plain);
+        return NULL;
+    }
+    size_t packed_size = ZSTD_compress(packed, bound, plain, plain_size, level);
+    yashy_str *result = ZSTD_isError(packed_size) ? NULL : yashy_hex_string(packed, packed_size);
+    free(packed);
+    free(plain);
+    return result;
+}
+
+yashy_str *yashy_decompress_zstd_hex(const yashy_str *packed_hex, long long max_bytes) {
+    if (max_bytes <= 0 || max_bytes > 64 * 1024 * 1024) return NULL;
+    size_t packed_size = 0;
+    uint8_t *packed = yashy_hex_alloc(packed_hex, &packed_size);
+    if (packed == NULL) return NULL;
+    unsigned long long declared = ZSTD_getFrameContentSize(packed, packed_size);
+    if (declared == ZSTD_CONTENTSIZE_ERROR || declared == ZSTD_CONTENTSIZE_UNKNOWN
+        || declared > (unsigned long long)max_bytes) {
+        free(packed);
+        return NULL;
+    }
+    uint8_t *plain = (uint8_t *)malloc((size_t)declared + 1);
+    if (plain == NULL) {
+        free(packed);
+        return NULL;
+    }
+    size_t plain_size = ZSTD_decompress(plain, (size_t)declared, packed, packed_size);
+    yashy_str *result = ZSTD_isError(plain_size) || plain_size != declared
+                            ? NULL
+                            : yashy_hex_string(plain, plain_size);
+    free(plain);
+    free(packed);
+    return result;
+}
+
+/* Gzip framing around miniz's raw deflate. The 10-byte header and the
+ * CRC32/ISIZE footer are the gzip wrapper; the compressor and decompressor
+ * are miniz. ISIZE bounds the output before any allocation happens. */
+static const uint8_t yashy_gzip_header[10] = {
+    0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0xff
+};
+
+yashy_str *yashy_compress_gzip_hex(const yashy_str *plain_hex) {
+    size_t plain_size = 0;
+    uint8_t *plain = NULL;
+    if (plain_hex != NULL && yashy_str_len(plain_hex) == 0) {
+        plain = (uint8_t *)malloc(1);
+    } else {
+        plain = yashy_hex_alloc(plain_hex, &plain_size);
+    }
+    if (plain == NULL) return NULL;
+    size_t deflate_size = 0;
+    void *deflate = tdefl_compress_mem_to_heap(plain, plain_size, &deflate_size, 128);
+    if (deflate == NULL) {
+        free(plain);
+        return NULL;
+    }
+    size_t total = 10 + deflate_size + 8;
+    uint8_t *out = (uint8_t *)malloc(total);
+    if (out == NULL) {
+        free(deflate);
+        free(plain);
+        return NULL;
+    }
+    memcpy(out, yashy_gzip_header, 10);
+    memcpy(out + 10, deflate, deflate_size);
+    uint32_t crc = (uint32_t)mz_crc32(0, plain, plain_size);
+    uint32_t size32 = (uint32_t)plain_size;
+    for (int i = 0; i < 4; i++) {
+        out[10 + deflate_size + i] = (uint8_t)(crc >> (i * 8));
+        out[14 + deflate_size + i] = (uint8_t)(size32 >> (i * 8));
+    }
+    yashy_str *result = yashy_hex_string(out, total);
+    free(out);
+    free(deflate);
+    free(plain);
+    return result;
+}
+
+yashy_str *yashy_decompress_gzip_hex(const yashy_str *packed_hex, long long max_bytes) {
+    if (max_bytes <= 0 || max_bytes > 64 * 1024 * 1024) return NULL;
+    size_t packed_size = 0;
+    uint8_t *packed = yashy_hex_alloc(packed_hex, &packed_size);
+    if (packed == NULL || packed_size < 18) {
+        free(packed);
+        return NULL;
+    }
+    for (int i = 0; i < 10; i++) {
+        if (packed[i] != yashy_gzip_header[i]) {
+            free(packed);
+            return NULL;
+        }
+    }
+    uint32_t size32 = 0;
+    for (int i = 0; i < 4; i++) {
+        size32 |= (uint32_t)packed[packed_size - 4 + i] << (i * 8);
+    }
+    if ((long long)size32 > max_bytes) {
+        free(packed);
+        return NULL;
+    }
+    size_t deflate_size = packed_size - 18;
+    size_t plain_size = 0;
+    void *plain = tinfl_decompress_mem_to_heap(packed + 10, deflate_size, &plain_size, 0);
+    if (plain == NULL || plain_size != size32) {
+        free(plain);
+        free(packed);
+        return NULL;
+    }
+    uint32_t crc = (uint32_t)mz_crc32(0, (const unsigned char *)plain, plain_size);
+    uint32_t expected = 0;
+    for (int i = 0; i < 4; i++) {
+        expected |= (uint32_t)packed[10 + deflate_size + i] << (i * 8);
+    }
+    yashy_str *result = crc == expected ? yashy_hex_string((const uint8_t *)plain, plain_size) : NULL;
     free(plain);
     free(packed);
     return result;

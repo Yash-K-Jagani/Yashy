@@ -1,4 +1,5 @@
 sha512 true
+sha3 true
 hmac true
 ed-pub true
 ed-sign true
@@ -13,4 +14,8 @@ verify16 true
 bad-hex true
 zlib-small true
 zlib-roundtrip true
+gzip-header true
+gzip-roundtrip true
+zstd-roundtrip true
 zlib-random true
+zstd-random true
