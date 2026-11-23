@@ -178,7 +178,8 @@ is a capability rather than an ambient read.
   the same grammar, alignment, width, precision and `{{`/`}}` rules. The
   checker points non-literal `format(...)` uses at it. `stdlib/format.ya`
   pins a dynamic spec with alignment/precision, escapes and all three errors.
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.** Landed with the Unicode data and format-engine
+  slices (`6668957`, `172045b`) and pushed to `origin/main`.
 
 ### Task 4: Encodings — JSON, TOML, YAML, CSV, XML
 
@@ -233,7 +234,9 @@ is a capability rather than an ambient read.
   and base64/hex parsers, asserting no crash and zero leaks; the
   e2e gate covers it. Private helpers that collided across modules
   (`hex_value`, `find_from`) were renamed with module prefixes.
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.** Landed with `e9b2c66`, `907807f`, `316f2e9`,
+  `f0f2b00`, `21c4454`, `f6cd78b`, `4971f14`, `3fe4074` and `7103be5`, all
+  pushed to `origin/main`.
 
 ### Task 5: Internet primitives
 
@@ -262,7 +265,8 @@ is a capability rather than an ambient read.
   pinned in the stdlib coverage program.
   stays open only for a fuzz corpus in Step 2.
 - [x] **Step 2: One parser per grammar.** No regex-based URL parsing; each format has a grammar, a table-driven test and a fuzz corpus. A malformed input returns `Result` with the byte offset.
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.** Landed with `f20eb2d`, `f0f2b00` and `c3797d5`,
+  pushed to `origin/main`.
 
 ### Task 6: Crypto, CSPRNG and compression
 
@@ -364,6 +368,12 @@ is a capability rather than an ambient read.
   pins it. The free callback adapters stay for callers that want them.
   Still owed here: `chain` as a cursor, `xs.zip(ys)` / `xs.rev()` method
   spellings on a raw slice, and a 10,000-element timing assertion.
+  *Map methods:* `Map[K, V]` now has `contains_key`, `get_or`, `update` and
+  `iter`, and `MapIter[K, V]` implements `Iterator`. The coverage program pins
+  a get-or insert, an update and an insertion-order walk. The cursor yields a
+  `MapEntry[K, V]` struct rather than a `(K, V)` tuple because a tuple is copied
+  by bytes and cannot own a string; `for (k, v) in map` therefore stays open,
+  while `for entry in map.iter()` is covered.
 - [ ] **Step 2: An adapter adds no HIR.** `enumerate`, `zip`, `chunks`,
   `windows`, `take`, `skip`, `rev` and `chain` are ordinary generic structs
   implementing the compiler-known `Iterator[T]` protocol; `for` over one lowers

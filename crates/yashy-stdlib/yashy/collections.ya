@@ -646,6 +646,77 @@ impl Map[K, V] {
         slots.free();
         live.free();
     }
+
+    /// Whether the map holds `key`.
+    pub fn contains_key(self, K key) -> bool {
+        return self.row(key) >= 0;
+    }
+
+    /// Answer the value under `key`, inserting `fallback` when it is absent.
+    pub fn get_or(self: *mut Map[K, V], K key, V fallback) -> V {
+        const map = self[0];
+        if map.contains_key(key) {
+            return switch map.get(key) {
+                case Some(value) { value }
+                case None { fallback }
+            };
+        }
+        let values = self[0].values;
+        values.push(fallback);
+        const int slot = values.len() - 1;
+        self[0].values = values;
+        let keys = self[0].keys;
+        keys.push(key);
+        self[0].keys = keys;
+        let slots = self[0].slots;
+        slots.push(slot);
+        self[0].slots = slots;
+        let live = self[0].live;
+        live.push(1);
+        self[0].live = live;
+        return fallback;
+    }
+
+    /// Apply `change` to the value under `key`; an absent key is untouched.
+    pub fn update(self: *mut Map[K, V], K key, fn (V) -> V change) {
+        const map = self[0];
+        if !map.contains_key(key) {
+            return;
+        }
+        const Option[V] missing = None;
+        const updated = switch map.get(key) {
+            case Some(value) { Some(change(value)) }
+            case None { missing }
+        };
+        if !(updated matches Some(_)) {
+            return;
+        }
+        const current = switch updated {
+            case Some(value) { value }
+            case None { panic("update: the key was checked to be present") }
+        };
+        let values = self[0].values;
+        values.push(current);
+        const int slot = values.len() - 1;
+        self[0].values = values;
+        let slots = self[0].slots;
+        const int at = map.row(key);
+        slots.set(at, slot);
+        self[0].slots = slots;
+    }
+
+    /// A cursor over the live entries in insertion order.
+    pub fn iter(self) -> MapIter[K, V] {
+        const keys = self.keys;
+        return MapIter {
+            keys: keys,
+            values: self.values,
+            slots: self.slots,
+            live: self.live,
+            at: 0,
+            len: keys.len(),
+        };
+    }
 }
 
 /** Compare a comparator's answer, breaking a tie by insertion sequence. */
@@ -779,5 +850,58 @@ impl PriorityQueue[T] {
         const heap = self.heap;
         values.free();
         heap.free();
+    }
+}
+
+/** One live map row. A struct, not a tuple: a tuple cannot own a string. */
+pub struct MapEntry[K, V] {
+    pub key: K,
+    pub value: V,
+}
+
+/** Pair a live map row with the value its slot points at. */
+fn map_entry[K, V](Option[K] key, Option[int] slot, []V values) -> Option[MapEntry[K, V]] {
+    const Option[MapEntry[K, V]] missing = None;
+    return switch key {
+        case Some(name) {
+            switch slot {
+                case Some(at) {
+                    switch values[at] {
+                        case Some(value) { Some(MapEntry { key: name, value: value }) }
+                        case None { missing }
+                    }
+                }
+                case None { missing }
+            }
+        }
+        case None { missing }
+    };
+}
+
+/** A cursor over the live entries of a map, in insertion order. */
+pub struct MapIter[K, V] {
+    keys: []K,
+    values: []V,
+    slots: []int,
+    live: []int,
+    at: int,
+    len: int,
+}
+
+impl Iterator for MapIter[K, V] {
+    /// The next live entry, or `None` at the end.
+    pub fn next(self: *mut Self) -> Option[MapEntry[K, V]] {
+        let at = self[0].at;
+        while at < self[0].len {
+            const int flag = switch self[0].live[at] { case Some(value) { value } case None { 0 } };
+            at = at + 1;
+            if flag == 1 {
+                self[0].at = at;
+                return map_entry(self[0].keys[at - 1], self[0].slots[at - 1], self[0].values);
+            }
+        }
+        self[0].at = at;
+        const Option[MapEntry[K, V]] missing = None;
+        return missing;
     }
 }

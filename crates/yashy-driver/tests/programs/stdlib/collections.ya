@@ -11,6 +11,10 @@ fn unwrap(Option[int] value) -> int {
     };
 }
 
+fn bang(string text) -> string {
+    return text + "!";
+}
+
 fn text_len(string left, string right) -> int {
     return left.len() - right.len();
 }
@@ -78,6 +82,15 @@ fn typed_collections() {
     print("map ${m.len()} ${at_a} ${key0} ${value0} ${key1}");
     const removed = unwrap_text(m.remove("b"));
     print("removed ${removed} ${m.len()}");
+    const has_a = m.contains_key("a");
+    const existing = m.get_or("a", "0");
+    const inserted = m.get_or("c", "3");
+    m.update("a", bang);
+    print("lookups ${has_a} ${existing} ${inserted}");
+    let entries = m.iter();
+    for entry in entries {
+        print("entry ${entry.key}=${entry.value}");
+    }
     m.free();
 
     let pq = PriorityQueue { values: []string {}, heap: []int {}, count: 0 };
