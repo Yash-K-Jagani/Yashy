@@ -308,6 +308,40 @@ impl Iterator for Zip[A, B] {
     }
 }
 
+/** An iterator over two slices, yielding the first and then the second. */
+pub struct Chain[T] {
+    pub left: []T,
+    pub right: []T,
+    at: int,
+    left_len: int,
+    right_len: int,
+}
+
+/** Wrap two slices in an iterator that yields `left` then `right`. */
+pub fn chain_of[T]([]T left, []T right) -> Chain[T] {
+    const left_len = left.len();
+    const right_len = right.len();
+    return Chain { left: left, right: right, at: 0, left_len: left_len, right_len: right_len };
+}
+
+impl Iterator for Chain[T] {
+    /// The next element, or `None` after both slices are exhausted.
+    pub fn next(self: *mut Self) -> Option[T] {
+        const at = self[0].at;
+        const left_len = self[0].left_len;
+        if at < left_len {
+            self[0].at = at + 1;
+            return self[0].left[at];
+        }
+        const right_at = at - left_len;
+        if right_at >= self[0].right_len {
+            return None;
+        }
+        self[0].at = at + 1;
+        return self[0].right[right_at];
+    }
+}
+
 /** An iterator over non-overlapping `(start, end)` ranges of a slice. */
 pub struct Chunks {
     len: int,

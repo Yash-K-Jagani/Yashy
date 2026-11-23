@@ -42,6 +42,26 @@ fn iterator_types() {
     pair_left.free();
     pair_right.free();
 
+    let linked = chain_of([]int { 1, 2 }, []int { 3, 4 });
+    for value in linked {
+        print("n${value}");
+    }
+    const chain_left = linked.left;
+    const chain_right = linked.right;
+    chain_left.free();
+    chain_right.free();
+
+    // An empty first slice has no boundary to skip: the cursor starts on the
+    // right-hand slice and stops after it.
+    let linked_empty = chain_of([]int {}, []int { 5 });
+    for value in linked_empty {
+        print("m${value}");
+    }
+    const empty_left = linked_empty.left;
+    const empty_right = linked_empty.right;
+    empty_left.free();
+    empty_right.free();
+
     let ranges = chunks_of(3, 2);
     for (start, end) in ranges {
         print("c${start}-${end}");

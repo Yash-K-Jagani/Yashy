@@ -390,8 +390,10 @@ is a capability rather than an ambient read.
   including `for (index, value)` and `for (left, right)`. `Vec[T].enumerate()`
   gives the method spelling on a typed vector, and `stdlib/collections.ya`
   pins it. The free callback adapters stay for callers that want them.
-  Still owed here: `chain` as a cursor, `xs.zip(ys)` / `xs.rev()` method
-  spellings on a raw slice, and a 10,000-element timing assertion.
+  `Chain[T]` is now a cursor too: `chain_of(left, right)` implements `Iterator`,
+  and `stdlib/iter_adapters.ya` pins a two-slice chain and an empty-first-slice
+  chain. Still owed here: `xs.zip(ys)` / `xs.rev()` method
+  spellings on a raw slice and a 10,000-element timing assertion.
   *Map methods:* `Map[K, V]` now has `contains_key`, `get_or`, `update` and
   `iter`, and `MapIter[K, V]` implements `Iterator`. The coverage program pins
   a get-or insert, an update and an insertion-order walk. The cursor yields a
@@ -406,7 +408,9 @@ is a capability rather than an ambient read.
   *Current:* the seven cursor structs above implement `Iterator` and lower to
   the existing `for` loop; no adapter-specific HIR was added. `for` already
   accepts a tuple pattern over an iterator whose element is a tuple, pinned by
-  the coverage program. `chain` remains a callback free function.
+  the coverage program. All eight adapters now have cursor forms; `chain_of`
+  stores both slice lengths at construction and indexes the two fields in
+  source order.
 - [ ] **Step 3: `zip` is total and ordered.** It stops at the shorter input, is
   eager only when the caller asks for an array, and never allocates on the
   per-item path. `enumerate` starts at 0 and never yields a negative index; a

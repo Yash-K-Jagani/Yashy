@@ -816,6 +816,12 @@ fn chain[A]([]A left, []A right, fn(A) -> void visit) -> PairSeq[A, A]
 Call `visit(value)` for every element of `left` then every element of
 `right`, preserving each sequence's order. Returns both slices.
 
+### `chain_of`
+
+```yashy
+fn chain_of[T]([]T left, []T right) -> Chain[T]
+```
+
 ### `chunks`
 
 ```yashy
