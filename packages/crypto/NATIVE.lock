@@ -1,0 +1,10 @@
+# Native dependency pins for the crypto package.
+#
+# Each row is name=version:sha256, where the hash is over the exact bytes the
+# driver compiles, concatenated in the order recorded in VENDOR.md. This is a
+# lockfile for code that has no Cargo or Yashy manifest representation yet;
+# `crates/yashy-driver/tests/native_pins.rs` verifies every row against disk.
+monocypher=4.0.3:a84d5c808ce023acd99c4571ce7f7f8d7726bb9f2cf94d263c8b535c24e16bf3
+miniz=1.14:254342f2712562d9cd86a1c5a5d7a6875d1d9f87e56a7b39b86d847368f9bebe
+tiny_sha3=dcbb3192047c2a721f5f851db591871d428036a9:6c070ef860d9b693fa664834952412306f0182325c588ad323b5d331335f8f35
+zstd=1.5.7:5c09f3d8e717fc52f5d588fedc4481c35b0b5cc72046d8dbc43e45569c8ef0f6

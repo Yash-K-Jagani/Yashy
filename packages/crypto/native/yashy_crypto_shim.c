@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "monocypher.h"
 #include "optional/monocypher-ed25519.h"
@@ -522,4 +523,29 @@ int yashy_crypto_verify16_hex(const yashy_str *left_hex, const yashy_str *right_
     if (!yashy_hex_bytes(left_hex, left, sizeof left)) return 0;
     if (!yashy_hex_bytes(right_hex, right, sizeof right)) return 0;
     return crypto_verify16(left, right) == 0;
+}
+
+/* Timing smoke test used by the crypto test suite, not part of the language
+ * surface. It compares CPU time for a mismatching and a matching tag over the
+ * same number of calls and returns the ratio in hundredths. A gross leak in
+ * the library's constant-time primitive shows up as a large ratio. */
+long long yashy_crypto_verify_timing(int iterations) {
+    if (iterations <= 0) return -1;
+    uint8_t left[16] = {0};
+    uint8_t different[16] = {0};
+    different[15] = 1;
+    clock_t start = clock();
+    for (int i = 0; i < iterations; i++) {
+        volatile int result = crypto_verify16(left, different);
+        (void)result;
+    }
+    clock_t mismatch_end = clock();
+    for (int i = 0; i < iterations; i++) {
+        volatile int result = crypto_verify16(left, left);
+        (void)result;
+    }
+    clock_t equal_end = clock();
+    if (mismatch_end == start || equal_end == mismatch_end) return -1;
+    double ratio = (double)(mismatch_end - start) / (double)(equal_end - mismatch_end);
+    return (long long)(ratio * 100.0);
 }

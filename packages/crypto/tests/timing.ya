@@ -1,0 +1,32 @@
+// Timing smoke test for the library's constant-time tag comparison.
+// The ratio is CPU time for a mismatching tag over a matching one, in
+// hundredths. The test that runs this file fails on a gross timing leak.
+extern "C" link "../native/yashy_crypto_shim.c" {
+    unsafe fn timing(int iterations) -> int link_name "yashy_crypto_verify_timing";
+}
+
+extern "C" link "../native/monocypher.c" {
+    unsafe fn crypto_verify16(*char left, *char right) -> int;
+}
+
+// The shim is one translation unit, so every library it calls is a link
+// input even when this probe only times one primitive.
+extern "C" link "../native/optional/monocypher-ed25519.c" {
+    unsafe fn crypto_sha512_init(*char context);
+}
+
+extern "C" link "../native/miniz.c" {
+    unsafe fn mz_compress_bound(int size) -> int link_name "mz_compressBound";
+}
+
+extern "C" link "../native/sha3/sha3.c" {
+    unsafe fn sha3_keccakf(*char state);
+}
+
+extern "C" link "../native/zstd/zstd.c" {
+    unsafe fn zstd_compress_bound(int size) -> int link_name "ZSTD_compressBound";
+}
+
+fn main() {
+    print(timing(1000000));
+}

@@ -309,7 +309,7 @@ is a capability rather than an ambient read.
 - `Ed25519`, `X25519`; `csprng_bytes(n) -> Result[[]u8, rand.Error]`
 - `gzip`, `zlib`, `zstd` compress/decompress with a size limit
 
-- [ ] **Step 1: Write the failing test.** Published known-answer vectors for
+- [x] **Step 1: Write the failing test.** Published known-answer vectors for
   every primitive; an AEAD tamper test (one flipped bit fails authentication);
   an Ed25519 sign/verify round-trip; a gzip/zstd round-trip of 1 MiB of random
   and of repetitive data.
@@ -333,19 +333,23 @@ is a capability rather than an ambient read.
   only converts Yashy strings to byte buffers; all primitives come from the
   library. Deviations, recorded rather than hidden: the plan's mbedTLS needs a
   C build system and include paths that `link` inputs do not have; there is no
-  native-dependency schema in `yashy.lock`, so the pin lives in `VENDOR.md` and
-  the SBOM; an independent security review is still owed. Compression uses the
+  `yashy.lock` has no native-dependency schema, so `packages/crypto/NATIVE.lock`
+  pins each library by the hash of the exact compiled bytes and
+  `tests/native_pins.rs` verifies it; an independent security review is still
+  owed. Compression uses the
   single-file public-domain miniz 1.14, the MIT-licensed tiny_sha3 commit and
   the Zstandard 1.5.7 amalgamation, all pinned and listed in the SBOM beside
   Monocypher.
-- [ ] **Step 3: Constant time where it matters.** Tag comparison, padding
+- [x] **Step 3: Constant time where it matters.** Tag comparison, padding
   checks and key derivation use the library's constant-time helpers; a test
   measures the timing distribution and fails on a gross leak. This is a
   smoke test, not a proof; the security review is the real gate.
   *Current:* AEAD authentication and the exposed `verify16_hex` use
   Monocypher's `crypto_aead_unlock` and `crypto_verify16`; key derivation uses
-  its HKDF/HMAC helpers. The timing-distribution smoke test is not written yet,
-  so this step is covered by the library's helpers and the tamper test only.
+  its HKDF/HMAC helpers. `crates/yashy-driver/tests/crypto_timing.rs` builds a
+  probe that times a million matching and a million mismatching tags and
+  fails outside 0.05x–20x. The independent security review remains the real
+  gate and is recorded as open under Step 2.
 - [x] **Step 4: Entropy is a capability.** `csprng_bytes` is the only source of
   randomness; under `--deterministic` it reads a fixed seed and reports that it
   did. A library that calls `rand()` behind the language's back is a defect.
