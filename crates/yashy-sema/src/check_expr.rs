@@ -243,6 +243,49 @@ struct GenericFn {
     file: FileId,
 }
 
+/// One method of a generic `impl`, kept until a monomorph fixes the type
+/// arguments. A method's body mentions the impl's type parameters, so it is
+/// checked once per monomorph of the receiver type, just like a generic free
+/// function. The symbol it emits is `Monomorph.method`, which is where method
+/// calls on that monomorph resolve.
+#[derive(Clone, Debug)]
+struct GenericImplMethod {
+    name: String,
+    params: Vec<Param>,
+    ret: Option<TypeExpr>,
+    requires: Vec<Contract>,
+    ensures: Vec<Contract>,
+    body: Block,
+    is_async: bool,
+    declared: yashy_common::DeclaredEffect,
+    public: bool,
+    span: Span,
+    file: FileId,
+}
+
+/// A whole generic `impl` block, keyed by the scheme's name.
+#[derive(Clone, Debug)]
+struct GenericImpl {
+    type_params: Vec<TypeParam>,
+    trait_name: Option<String>,
+    methods: Vec<GenericImplMethod>,
+    span: Span,
+}
+
+/// One method body waiting for its type substitution to be restored.
+#[derive(Clone, Debug)]
+struct MethodJob {
+    /// The emitted symbol, for example `Box_i64.get` or
+    /// `MyIter_i64.Iterator.next`.
+    name: String,
+    /// The impl's type parameters and the concrete arguments of this monomorph.
+    type_params: Vec<TypeParam>,
+    subst: Vec<Type>,
+    /// The receiver type the method belongs to.
+    receiver: Type,
+    method: GenericImplMethod,
+}
+
 /// One parameter binding whose declared type is a type parameter with
 /// bounds, while a generic body is being checked.
 ///
@@ -444,6 +487,36 @@ fn mangled_generic_name(name: &str, subst: &[Type]) -> String {
         mangled.push_str(&mangled_type_name(ty));
     }
     mangled
+}
+
+/// The declared effect of a method, taken from its own wrapper first and then
+/// from the trait it implements. Shared by ordinary and generic impls so the
+/// two agree on which bodies a `pure trait` may hold.
+fn declared_effect_of(
+    method: &Item,
+    trait_name: Option<&str>,
+    traits: &std::collections::BTreeMap<String, TraitSig>,
+) -> yashy_common::DeclaredEffect {
+    let mut current = method;
+    let mut found = yashy_common::DeclaredEffect::Inferred;
+    loop {
+        match current {
+            Item::Effect { effect, item, .. } => {
+                found = *effect;
+                current = item;
+            }
+            Item::Public { item, .. } | Item::Documented { item, .. } => current = item,
+            _ => break,
+        }
+    }
+    if found == yashy_common::DeclaredEffect::Inferred {
+        if let Some(t) = trait_name {
+            if let Some(sig) = traits.get(t) {
+                found = sig.declared;
+            }
+        }
+    }
+    found
 }
 
 /// Read the bracketed part of `Buffer[16]` in an expression as a type argument.
@@ -855,6 +928,13 @@ pub struct Checker<'src> {
     /// mention type variables. A call finds it here, infers a substitution and
     /// queues an instantiation; the body is checked once per substitution.
     generics: HashMap<String, GenericFn>,
+    /// Generic `impl` blocks, keyed by the type scheme's name. Their methods
+    /// are registered on each monomorph when it is interned.
+    generic_impls: HashMap<String, GenericImpl>,
+    /// Monomorphs whose generic methods have already been registered.
+    generic_impl_registered: HashSet<String>,
+    /// Generic method bodies waiting for their substitution to be restored.
+    pending_generic_methods: Vec<MethodJob>,
     /// The substitution in force while a generic body is being checked.
     ///
     /// Empty everywhere else. `resolve_type` consults it before the declared
@@ -1445,6 +1525,9 @@ impl<'src> Checker<'src> {
             enums: builtin_enums(),
             fns: HashMap::new(),
             generics: HashMap::new(),
+            generic_impls: HashMap::new(),
+            generic_impl_registered: HashSet::new(),
+            pending_generic_methods: Vec::new(),
             type_subst: HashMap::new(),
             const_subst: HashMap::new(),
             const_ints: HashMap::new(),
@@ -2073,6 +2156,24 @@ impl<'src> Checker<'src> {
             self.aliases.push((*file, module_aliases));
         }
         self.check_symbol_collisions();
+        // Pass one may have interned a monomorph before it saw the generic
+        // impl for its scheme. Register those methods now, before bodies are
+        // checked: a call in any body must find them.
+        let pending: Vec<(String, String, Vec<Type>)> = self
+            .type_monomorphs
+            .iter()
+            .map(|(mangled, args)| {
+                let scheme = self
+                    .monomorph_schemes
+                    .get(mangled)
+                    .cloned()
+                    .unwrap_or_default();
+                (mangled.clone(), scheme, args.clone())
+            })
+            .collect();
+        for (mangled, scheme, args) in pending {
+            self.register_generic_impl_methods(&scheme, &mangled, &args);
+        }
         let mut items = Vec::new();
         for (file, ast) in &expanded {
             self.file = *file;
@@ -2085,7 +2186,15 @@ impl<'src> Checker<'src> {
         // Generic bodies are checked last, once per substitution the program
         // asked for. This has to follow every module: a generic body may call
         // anything the program declares.
-        self.instantiate_generics(&mut items);
+        // Generic method bodies and generic function bodies can each ask for
+        // more of the other, so drain both until neither queue grows.
+        loop {
+            self.instantiate_generics(&mut items);
+            self.instantiate_generic_methods(&mut items);
+            if self.pending_generics.is_empty() && self.pending_generic_methods.is_empty() {
+                break;
+            }
+        }
         // Comprehension builders, like generic instantiations: checking one
         // may queue another (a nested comprehension), so drain until empty.
         while let Some(job) = self.pending_comps.pop() {
@@ -2723,7 +2832,196 @@ impl<'src> Checker<'src> {
         self.const_subst = outer_const;
         self.file = outer_file;
         self.instantiating.pop();
+        self.register_generic_impl_methods(name, &mangled, &arg_tys);
         self.instantiated_types.push(mangled);
+    }
+
+    /// Rebuild a method item from the pieces kept by a generic impl, so the
+    /// existing trait-impl coherence and completeness checks can run on it.
+    fn generic_impl_item(method: &GenericImplMethod) -> Item {
+        let mut item = Item::Fn {
+            name: method.name.clone(),
+            type_params: Vec::new(),
+            params: method.params.clone(),
+            ret: method.ret.clone(),
+            requires: method.requires.clone(),
+            ensures: method.ensures.clone(),
+            body: method.body.clone(),
+            span: method.span,
+        };
+        if method.declared != yashy_common::DeclaredEffect::Inferred {
+            item = Item::Effect {
+                effect: method.declared,
+                item: Box::new(item),
+                span: method.span,
+            };
+        }
+        if method.public {
+            Item::Public {
+                item: Box::new(item),
+                crate_visible: false,
+                span: method.span,
+            }
+        } else {
+            item
+        }
+    }
+
+    /// Register a generic impl's methods on one monomorph.
+    ///
+    /// Called when the monomorph is interned, and again in a sweep after pass
+    /// one: an impl may appear after a type use, so the first intern can happen
+    /// before the impl is known. The `generic_impl_registered` set keeps it to
+    /// one registration per monomorph.
+    fn register_generic_impl_methods(&mut self, scheme: &str, mangled: &str, arg_tys: &[Type]) {
+        if self.generic_impl_registered.contains(mangled) {
+            return;
+        }
+        let Some(imp) = self.generic_impls.get(scheme).cloned() else {
+            return;
+        };
+        self.generic_impl_registered.insert(mangled.to_string());
+        let params = self
+            .struct_schemes
+            .get(scheme)
+            .map(|s| s.type_params.clone())
+            .or_else(|| self.enum_schemes.get(scheme).map(|s| s.type_params.clone()))
+            .unwrap_or_default();
+        let outer_file = self.file;
+        let outer_subst = std::mem::replace(
+            &mut self.type_subst,
+            params
+                .iter()
+                .zip(arg_tys.iter())
+                .filter(|(param, _)| !param.is_const)
+                .map(|(param, ty)| (param.name.clone(), ty.clone()))
+                .collect(),
+        );
+        let outer_self = self.self_type.take();
+        self.file = imp.methods.first().map(|m| m.file).unwrap_or(outer_file);
+        let receiver_kind = if self.struct_schemes.contains_key(scheme) {
+            TypeKind::Struct(mangled.to_string())
+        } else {
+            TypeKind::Enum(mangled.to_string())
+        };
+        let receiver = Type {
+            kind: receiver_kind,
+            span: imp.span,
+        };
+        let trait_name = imp.trait_name.as_deref();
+        if let Some(trait_name) = trait_name {
+            // Reuse the ordinary coherence and completeness checks, with the
+            // monomorph as the implementing type.
+            let items: Vec<Item> = imp.methods.iter().map(Self::generic_impl_item).collect();
+            self.declare_trait_impl(trait_name, mangled, &items, &receiver, imp.span);
+        }
+        for method in &imp.methods {
+            let symbol = match trait_name {
+                Some(trait_name) => format!("{mangled}.{trait_name}.{}", method.name),
+                None => format!("{mangled}.{}", method.name),
+            };
+            if trait_name.is_none() {
+                let sig = self.method_signature(
+                    mangled,
+                    &method.name,
+                    &method.params,
+                    &method.ret,
+                    &receiver,
+                    method.public,
+                    method.span,
+                    method.is_async,
+                );
+                if let Some(previous) = self.methods.insert(symbol.clone(), sig) {
+                    if previous.name == method.name {
+                        self.error(
+                            method.span,
+                            format!("`{mangled}` already has a method named `{}`", method.name),
+                        );
+                    }
+                }
+            }
+            // An async method's body answers the inner type; the call site
+            // sees `Task[T]`. Recompute both from the substituted annotation.
+            let ret_ty = match &method.ret {
+                Some(ty) => self.resolve_or_report_return(ty, method.span),
+                None => prim(TypeKind::Unit),
+            };
+            let body_ret = if method.is_async {
+                Self::unwrap_async_ret(&Self::wrap_async_ret(ret_ty, method.span))
+            } else {
+                ret_ty
+            };
+            let _ = body_ret;
+            self.pending_generic_methods.push(MethodJob {
+                name: symbol,
+                type_params: params.clone(),
+                subst: arg_tys.to_vec(),
+                receiver: receiver.clone(),
+                method: method.clone(),
+            });
+        }
+        self.self_type = outer_self;
+        self.type_subst = outer_subst;
+        self.file = outer_file;
+    }
+
+    /// Check the method bodies queued by monomorph registration.
+    fn instantiate_generic_methods(&mut self, items: &mut Vec<HirItem>) {
+        while let Some(job) = self.pending_generic_methods.pop() {
+            let outer_file = self.file;
+            let outer_subst = std::mem::replace(
+                &mut self.type_subst,
+                job.type_params
+                    .iter()
+                    .zip(job.subst.iter())
+                    .filter(|(param, _)| !param.is_const)
+                    .map(|(param, ty)| (param.name.clone(), ty.clone()))
+                    .collect(),
+            );
+            let outer_self = self.self_type.replace(job.receiver.clone());
+            self.file = job.method.file;
+            let ret = match &job.method.ret {
+                Some(ty) => self.resolve_or_report_return(ty, job.method.span),
+                None => prim(TypeKind::Unit),
+            };
+            let body_ret = if job.method.is_async {
+                Self::unwrap_async_ret(&Self::wrap_async_ret(ret, job.method.span))
+            } else {
+                ret
+            };
+            let mut param_tys = Vec::new();
+            for (index, param) in job.method.params.iter().enumerate() {
+                if index == 0 && param.name == "self" {
+                    if let TypeExpr::Ptr { .. } = param.ty {
+                        param_tys.push(Type {
+                            kind: TypeKind::Ptr(Box::new(job.receiver.clone())),
+                            span: param.span,
+                        });
+                    } else {
+                        param_tys.push(job.receiver.clone());
+                    }
+                } else {
+                    param_tys.push(self.resolve_or_report(&param.ty, param.span));
+                }
+            }
+            let checked = self.check_fn_body(
+                &job.name,
+                &job.method.params,
+                &param_tys,
+                &body_ret,
+                &job.method.requires,
+                &job.method.ensures,
+                &job.method.body,
+                job.method.span,
+                job.method.declared,
+            );
+            self.type_subst = outer_subst;
+            self.self_type = outer_self;
+            self.file = outer_file;
+            if let Some(hir) = checked {
+                items.push(HirItem::Fn(hir));
+            }
+        }
     }
 
     /// The monomorphs interned this check, after everything is checked.
@@ -3371,9 +3669,67 @@ impl<'src> Checker<'src> {
             Item::Impl {
                 type_name,
                 trait_name,
+                type_params,
                 methods,
                 span,
             } => {
+                if !type_params.is_empty() {
+                    // A generic impl names a scheme, not a declared type. Its
+                    // methods are registered on each monomorph as that type is
+                    // interned, with the impl's type parameters substituted.
+                    let mut generic_methods = Vec::new();
+                    for method in methods {
+                        let Item::Fn {
+                            name,
+                            type_params: method_params,
+                            params,
+                            ret,
+                            requires,
+                            ensures,
+                            body,
+                            span: method_span,
+                        } = unwrap_public(method)
+                        else {
+                            self.error(*span, "an `impl` block holds only methods");
+                            continue;
+                        };
+                        if !method_params.is_empty() {
+                            self.error(*method_span, "a method cannot have type parameters yet");
+                            continue;
+                        }
+                        let declared =
+                            declared_effect_of(method, trait_name.as_deref(), &self.traits);
+                        generic_methods.push(GenericImplMethod {
+                            name: name.clone(),
+                            params: params.clone(),
+                            ret: ret.clone(),
+                            requires: requires.clone(),
+                            ensures: ensures.clone(),
+                            body: body.clone(),
+                            is_async: Self::item_is_async(method),
+                            declared,
+                            public: Self::is_public_item(method),
+                            span: *method_span,
+                            file: self.file,
+                        });
+                    }
+                    if let Some(previous) = self.generic_impls.insert(
+                        type_name.clone(),
+                        GenericImpl {
+                            type_params: type_params.clone(),
+                            trait_name: trait_name.clone(),
+                            methods: generic_methods,
+                            span: *span,
+                        },
+                    ) {
+                        let _ = previous;
+                        self.error(
+                            *span,
+                            format!("`{type_name}` already has a generic `impl` block"),
+                        );
+                    }
+                    return;
+                }
                 let Some(receiver_ty) = self.declared_type(type_name) else {
                     self.error(
                         *span,
@@ -5503,9 +5859,18 @@ impl<'src> Checker<'src> {
             Item::Impl {
                 type_name,
                 trait_name,
+                type_params,
                 methods,
                 span: _,
-            } => self.check_impl_methods(type_name, trait_name.as_deref(), methods),
+            } => {
+                if type_params.is_empty() {
+                    self.check_impl_methods(type_name, trait_name.as_deref(), methods)
+                } else {
+                    // Generic methods are checked once per monomorph, after
+                    // every module has been declared and the worklist is full.
+                    None
+                }
+            }
             Item::ConstFn { name, .. } => {
                 // The body is checked here and the function is *not* emitted:
                 // a `const fn` exists only to be computed by the compiler, so

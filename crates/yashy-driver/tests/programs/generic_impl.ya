@@ -1,0 +1,28 @@
+// Generic inherent methods: a method's body is checked once per monomorph.
+//
+// The receiver is spelled with the impl's type parameter (`*mut Box[T]`), and
+// the call site names the concrete `Box[int]`. Each substitution gets its own
+// `HirFn`, so `Box[int].get` and `Box[string].get` do not share a slot map.
+
+struct Box[T] {
+    item: T,
+}
+
+impl Box[T] {
+    fn get(self) -> T {
+        return self.item;
+    }
+
+    fn set(self: *mut Box[T], T value) {
+        self[0].item = value;
+    }
+}
+
+fn main() {
+    const ints = Box { item: 7 };
+    print(ints.get());
+    let words = Box { item: "hi" };
+    print(words.get());
+    words.set("bye");
+    print(words.get());
+}

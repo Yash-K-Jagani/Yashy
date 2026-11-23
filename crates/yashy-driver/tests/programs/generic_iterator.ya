@@ -1,0 +1,34 @@
+// A generic type implementing the compiler-known `Iterator` protocol.
+//
+// `Steps[T]` is a scheme; `for` over a `Steps[int]` needs the `Iterator` impl
+// registered on that one monomorph, with `T` substituted in `next`'s signature
+// and body. The slice is borrowed from the struct field through an index.
+
+import iter;
+
+struct Steps[T] {
+    values: []T,
+    at: int,
+}
+
+impl Iterator for Steps[T] {
+    fn next(self: *mut Self) -> Option[T] {
+        const at = self[0].at;
+        const values = self[0].values;
+        if at >= values.len() {
+            return None;
+        }
+        self[0].at = at + 1;
+        return values[at];
+    }
+}
+
+fn main() {
+    const xs = []int { 4, 5, 6 };
+    let steps = Steps { values: xs, at: 0 };
+    for value in steps {
+        print(value);
+    }
+    const values = steps.values;
+    values.free();
+}

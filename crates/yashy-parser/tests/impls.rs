@@ -89,6 +89,51 @@ fn a_trait_impl_names_its_trait_and_its_type() {
 }
 
 #[test]
+fn a_generic_impl_carries_its_type_parameters() {
+    // `impl Box[T]` names a scheme: the parameters are bound by the block and
+    // are in scope in every method signature and body.
+    let items = items_of("impl Box[T, U] { fn get(self) -> T { return self.item; } }");
+    let Item::Impl {
+        type_name,
+        type_params,
+        trait_name,
+        methods,
+        ..
+    } = &items[0]
+    else {
+        panic!("the program has an impl block");
+    };
+    assert_eq!(type_name, "Box");
+    assert_eq!(trait_name.as_deref(), None);
+    assert_eq!(
+        type_params
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["T", "U"]
+    );
+    assert_eq!(methods.len(), 1);
+}
+
+#[test]
+fn a_generic_trait_impl_puts_parameters_on_the_implementing_type() {
+    let items = items_of("impl Show for Box[T] { fn show(self) -> string { return \"b\"; } }");
+    let Item::Impl {
+        type_name,
+        trait_name,
+        type_params,
+        ..
+    } = &items[0]
+    else {
+        panic!("the program has a trait impl block");
+    };
+    assert_eq!(type_name, "Box");
+    assert_eq!(trait_name.as_deref(), Some("Show"));
+    assert_eq!(type_params.len(), 1);
+    assert_eq!(type_params[0].name, "T");
+}
+
+#[test]
 fn an_inherent_impl_names_no_trait() {
     let items = items_of("impl Point { fn sum(self) -> int { return 1; } }");
     let Item::Impl {

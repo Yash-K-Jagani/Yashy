@@ -480,6 +480,7 @@ fn expand_enum(
         added.push(Item::Impl {
             type_name: name.to_string(),
             trait_name: None,
+            type_params: Vec::new(),
             methods: vec![method(
                 method_name,
                 params,
@@ -555,6 +556,7 @@ pub fn expand(program: &Program) -> Result<Program, Vec<(Span, String)>> {
                             added.push(Item::Impl {
                                 type_name: name.clone(),
                                 trait_name: None,
+                                type_params: Vec::new(),
                                 methods: vec![method(
                                     "debug",
                                     vec![receiver(*span)],
@@ -607,6 +609,7 @@ pub fn expand(program: &Program) -> Result<Program, Vec<(Span, String)>> {
                             added.push(Item::Impl {
                                 type_name: name.clone(),
                                 trait_name: None,
+                                type_params: Vec::new(),
                                 methods: vec![method(
                                     "eq",
                                     vec![receiver(*span), other],
@@ -660,6 +663,7 @@ pub fn expand(program: &Program) -> Result<Program, Vec<(Span, String)>> {
                             added.push(Item::Impl {
                                 type_name: name.clone(),
                                 trait_name: None,
+                                type_params: Vec::new(),
                                 methods: vec![method(
                                     "hash",
                                     vec![receiver(*span)],

@@ -66,6 +66,45 @@ fn an_entry_of_string_and_int_constructs_and_reads() {
 }
 
 #[test]
+fn a_generic_impl_registers_a_method_on_each_monomorph() {
+    let hir = check_source(
+        "struct Box[T] { item: T }\n\
+         impl Box[T] { fn get(self) -> T { return self.item; } }\n\
+         fn f() -> int {\n\
+             const Box[int] a = Box { item: 3 };\n\
+             const Box[string] b = Box { item: \"x\" };\n\
+             const ignored = b.get();\n\
+             return a.get();\n\
+         }",
+    )
+    .expect("the two monomorphs each have their own `get`");
+    let emitted = hir
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            HirItem::Fn(f) => Some(f.name.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        emitted
+            .iter()
+            .filter(|name| **name == "Box_i64.get")
+            .count(),
+        1,
+        "one Box_i64.get, got {emitted:?}"
+    );
+    assert_eq!(
+        emitted
+            .iter()
+            .filter(|name| **name == "Box_string.get")
+            .count(),
+        1,
+        "one Box_string.get, got {emitted:?}"
+    );
+}
+
+#[test]
 fn a_maybe_matches_exhaustively_at_each_instantiation() {
     check_source(
         "enum Maybe[T] { Nothing, Just(T) }\n\

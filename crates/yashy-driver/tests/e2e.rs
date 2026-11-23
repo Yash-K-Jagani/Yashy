@@ -623,6 +623,23 @@ fn generic_types_construct_and_read_one_monomorph_each() {
 }
 
 #[test]
+fn generic_impl_methods_are_monomorphized_per_receiver_type() {
+    // One `impl Box[T]` body, two receiver types: `get` and `set` are emitted
+    // once for `Box[int]` and once for `Box[string]`, and a call resolves to
+    // the symbol registered on its own monomorph.
+    let output = build_and_run("generic_impl");
+    assert_eq!(stdout_of(&output), "7\nhi\nbye\n");
+}
+
+#[test]
+fn a_generic_iterator_impl_drives_a_for_loop() {
+    // `Iterator` is registered on the `Steps[int]` monomorph, with `T`
+    // substituted in `next`'s signature and body.
+    let output = build_and_run("generic_iterator");
+    assert_eq!(stdout_of(&output), "4\n5\n6\n");
+}
+
+#[test]
 fn associated_functions_through_both_type_path_spellings() {
     let output = build_and_run("associated_fns");
     assert_eq!(stdout_of(&output), "3\n7\nshow\n");

@@ -516,14 +516,20 @@ impl<'src> Parser<'src> {
     /// A trait impl writes the trait first: `impl Trait for Type`. The `for`
     /// after the first name is what tells the two apart; a type name cannot be
     /// `for`, because it is a keyword.
+    ///
+    /// A generic impl writes the type parameters on the receiver type:
+    /// `impl Box[T] { .. }`. They are in scope in every method signature and
+    /// body, and the checker checks each method once per monomorph of `Box`.
     fn parse_impl(&mut self) -> Result<Item, ParseError> {
         let keyword = self.expect(TokenKind::Impl)?;
         let (first, _) = self.identifier()?;
-        let (trait_name, type_name) = if self.eat(TokenKind::For) {
+        let (trait_name, type_name, type_params) = if self.eat(TokenKind::For) {
             let (type_name, _) = self.identifier()?;
-            (Some(first), type_name)
+            let type_params = self.parse_type_params()?;
+            (Some(first), type_name, type_params)
         } else {
-            (None, first)
+            let type_params = self.parse_type_params()?;
+            (None, first, type_params)
         };
         let open = self.expect(TokenKind::LBrace)?;
         let _ = self.push_open(TokenKind::LBrace, open.span)?;
@@ -538,6 +544,7 @@ impl<'src> Parser<'src> {
         Ok(Item::Impl {
             type_name,
             trait_name,
+            type_params,
             methods,
             span: cover(keyword.span, close.span),
         })

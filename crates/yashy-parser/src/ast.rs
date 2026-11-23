@@ -197,11 +197,15 @@ pub enum Item {
     /// items: the difference is where they live and that their first
     /// parameter is the receiver.
     Impl {
-        /// The type the methods belong to.
+        /// The type the methods belong to. For `impl Box[T]`, this is the
+        /// scheme's name, `Box`; each monomorph gets its own method symbols.
         type_name: String,
         /// `impl Trait for Type { .. }` names the trait the block implements;
         /// `None` is an inherent impl.
         trait_name: Option<String>,
+        /// The type parameters named on the receiver type, empty for an
+        /// ordinary impl. They are in scope in every method.
+        type_params: Vec<TypeParam>,
         /// The methods, each an [`Item::Fn`].
         methods: Vec<Item>,
         span: Span,

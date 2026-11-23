@@ -252,6 +252,7 @@ fn filter_item(
         Item::Impl {
             type_name,
             trait_name,
+            type_params,
             mut methods,
             span,
         } => {
@@ -259,6 +260,7 @@ fn filter_item(
             Some(Item::Impl {
                 type_name,
                 trait_name,
+                type_params,
                 methods,
                 span,
             })
