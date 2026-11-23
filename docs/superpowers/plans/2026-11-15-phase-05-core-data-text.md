@@ -344,7 +344,7 @@ is a capability rather than an ambient read.
   Monocypher's `crypto_aead_unlock` and `crypto_verify16`; key derivation uses
   its HKDF/HMAC helpers. The timing-distribution smoke test is not written yet,
   so this step is covered by the library's helpers and the tamper test only.
-- [ ] **Step 4: Entropy is a capability.** `csprng_bytes` is the only source of
+- [x] **Step 4: Entropy is a capability.** `csprng_bytes` is the only source of
   randomness; under `--deterministic` it reads a fixed seed and reports that it
   did. A library that calls `rand()` behind the language's back is a defect.
   *Current:* `rand.u64`, `range`, `fill` and `shuffle` draw from the OS entropy
@@ -361,7 +361,9 @@ is a capability rather than an ambient read.
   `NegativeCount` for a negative request, and is seeded by `--deterministic`
   like every other draw; `deterministic()` reports which source is in use. The
   plain `fill`, `range` and `u64` spellings draw from that same source, with no
-  hidden `rand()` call. The crypto primitives themselves are still owed.
+  hidden `rand()` call. The vendored crypto and compression libraries take caller-supplied keys and
+  nonces and call no random source of their own, so the capability is still the
+  only entropy path after their addition.
 - [ ] **Step 5: Commit.**
 
 ### Task 7: Time, zones and observability
@@ -444,7 +446,7 @@ is a capability rather than an ambient read.
   `MapEntry[K, V]` struct rather than a `(K, V)` tuple because a tuple is copied
   by bytes and cannot own a string; `for (k, v) in map` therefore stays open,
   while `for entry in map.iter()` is covered.
-- [ ] **Step 2: An adapter adds no HIR.** `enumerate`, `zip`, `chunks`,
+- [x] **Step 2: An adapter adds no HIR.** `enumerate`, `zip`, `chunks`,
   `windows`, `take`, `skip`, `rev` and `chain` are ordinary generic structs
   implementing the compiler-known `Iterator[T]` protocol; `for` over one lowers
   to the existing loop. A tuple binding in the head is the Phase 4 tuple
@@ -455,7 +457,7 @@ is a capability rather than an ambient read.
   the coverage program. All eight adapters now have cursor forms; `chain_of`
   stores both slice lengths at construction and indexes the two fields in
   source order.
-- [ ] **Step 3: `zip` is total and ordered.** It stops at the shorter input, is
+- [x] **Step 3: `zip` is total and ordered.** It stops at the shorter input, is
   eager only when the caller asks for an array, and never allocates on the
   per-item path. `enumerate` starts at 0 and never yields a negative index; a
   reversed range yields nothing rather than counting down.
@@ -485,7 +487,7 @@ is a capability rather than an ambient read.
   `try_from_float`, all answering `Result[T, ConvertError]`; the coverage
   program pins their success and failure cases. A single generic `try_from[T]`
   still cannot dispatch on `T` because the language has no type reflection.
-- [ ] **Step 5: Formatting consumes the same conversions.** The `format`
+- [x] **Step 5: Formatting consumes the same conversions.** The `format`
   engine in Task 3 formats each scalar through this matrix, so a value printed
   by `print`, `format` and `Debug` has one spelling. A `format` specifier on a
   type with no conversion is a compile-time diagnostic for a literal format
@@ -496,8 +498,9 @@ is a capability rather than an ambient read.
   field before the program runs. Debug uses `debug_string`. What is still owed
   is the full width/precision unification for `print` and `Debug`, not a
   second scalar conversion path.
-- [ ] **Step 6: Commit.**
-  `git commit -m "feat(stdlib): iteration adapters and a total conversion matrix"`.
+- [x] **Step 6: Commit.** The adapter and conversion work landed in
+  `7e42aee`, `68c693b` and `e49c1e4`; the remaining bookkeeping closes with
+  this slice.
 
 ## Gates
 
