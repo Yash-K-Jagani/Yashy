@@ -472,11 +472,26 @@ fn write_crlf([]string rows) -> string
 
 ## `datetime`
 
+### `DateTimeError`
+
+```yashy
+enum DateTimeError
+```
+
 ### `StringError`
 
 ```yashy
 enum StringError
 ```
+
+### `add_days`
+
+```yashy
+fn add_days(DateTime at, int days) -> DateTime
+```
+
+Add whole civil days. Crossing a leap day is ordinary calendar arithmetic,
+not an extra rule: the day count is converted to seconds at fixed length.
 
 ### `add_seconds`
 
@@ -490,6 +505,15 @@ fn add_seconds(DateTime at, int seconds) -> DateTime
 fn format(DateTime at, string format) -> string
 ```
 
+### `from_rfc3339`
+
+```yashy
+fn from_rfc3339(string text) -> Result[DateTime, DateTimeError]
+```
+
+Parse RFC 3339 seconds precision. Both `Z` and `±HH:MM` offsets are
+accepted; malformed text answers `Invalid` rather than guessing a date.
+
 ### `from_unix`
 
 ```yashy
@@ -501,6 +525,16 @@ fn from_unix(int unix) -> DateTime
 ```yashy
 fn parse(string text, string format) -> DateTime
 ```
+
+### `to_rfc3339`
+
+```yashy
+fn to_rfc3339(DateTime at) -> string
+```
+
+A timestamp in RFC 3339 seconds precision: `Z` for UTC, otherwise a
+`±HH:MM` offset. There is no fractional part because the storage is whole
+seconds.
 
 ### `to_unix`
 

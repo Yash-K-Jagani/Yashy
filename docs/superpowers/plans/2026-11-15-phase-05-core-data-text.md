@@ -323,6 +323,11 @@ is a capability rather than an ambient read.
 - Test: `crates/yashy-driver/tests/programs/stdlib/time/`, `.../observability/`
 
 - [ ] **Step 1: Write the failing test.** Convert an instant to `America/New_York` across a DST boundary, format and parse RFC 3339, add a duration across a leap day, and emit a structured log line with fields, a trace span and a counter; assert the JSON is stable and the clock is fixed under `--deterministic`.
+  *Current:* `datetime.ya` has `to_rfc3339` and `from_rfc3339` (Z and `±HH:MM`,
+  with `Invalid` for malformed text) and `add_days`; the coverage program pins
+  a round trip and a leap-day crossing. Observability already emits stable
+  structured JSON through an injected sink. The zone lookup and a fixed clock
+  under `--deterministic` are still owed.
 - [ ] **Step 2: The zone database ships with the stdlib.** A pinned tzdata release, versioned in the SBOM, with a lookup that returns `Option`, not a default zone. The clock is a capability: `now()` reads it, `--deterministic` fixes it, and a program that reads it is named in `yashyc trace`.
 - [x] **Step 3: Observability has one sink interface.** Log, trace and metrics write through an injectable sink; the default writes to stderr; a test sink captures structured records. No global mutable logger, no hidden buffering that changes order.
   *Current:* `observability.ya` provides `event_json`, `emit`, `trace_json`,

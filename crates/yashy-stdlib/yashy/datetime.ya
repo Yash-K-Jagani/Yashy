@@ -22,6 +22,12 @@ pub struct DateTime {
     pub offset_minutes: int,
 }
 
+/** Why text is not a timestamp this module accepts. */
+pub enum DateTimeError {
+    /** The text is not `YYYY-MM-DDTHH:MM:SSZ` or `...±HH:MM`. */
+    Invalid,
+}
+
 /** A (year, month, day) triple used between the calendar functions. */
 struct Parts {
     year: int,
@@ -245,6 +251,72 @@ pub fn parse(string text, string format) -> DateTime {
         second: second,
         offset_minutes: offset_minutes,
     };
+}
+
+/// A timestamp in RFC 3339 seconds precision: `Z` for UTC, otherwise a
+/// `±HH:MM` offset. There is no fractional part because the storage is whole
+/// seconds.
+pub fn to_rfc3339(DateTime at) -> string {
+    // Spelled out rather than calling `format`: a call to that name inside
+    // the module is read as the checker's builtin format, whose first argument
+    // must be a literal specifier.
+    const base = string.pad_start(str_from_i64(at.year), 4, "0") + "-" +
+    string.pad_start(str_from_i64(at.month), 2, "0") + "-" +
+    string.pad_start(str_from_i64(at.day), 2, "0") + "T" +
+    string.pad_start(str_from_i64(at.hour), 2, "0") + ":" +
+    string.pad_start(str_from_i64(at.minute), 2, "0") + ":" +
+    string.pad_start(str_from_i64(at.second), 2, "0");
+    if at.offset_minutes == 0 {
+        return base + "Z";
+    }
+    let sign = "+";
+    let magnitude = at.offset_minutes;
+    if magnitude < 0 {
+        sign = "-";
+        magnitude = 0 - magnitude;
+    }
+    return base + sign + string.pad_start(str_from_i64(magnitude / 60), 2, "0") + ":" +
+    string.pad_start(str_from_i64(magnitude % 60), 2, "0");
+}
+
+fn ok_datetime(DateTime value) -> Result[DateTime, DateTimeError] {
+    return Ok(value);
+}
+
+fn bad_datetime() -> Result[DateTime, DateTimeError] {
+    return Err(DateTimeError.Invalid);
+}
+
+/// Parse RFC 3339 seconds precision. Both `Z` and `±HH:MM` offsets are
+/// accepted; malformed text answers `Invalid` rather than guessing a date.
+pub fn from_rfc3339(string text) -> Result[DateTime, DateTimeError] {
+    if text.len() < 20 {
+        return bad_datetime();
+    }
+    if text.byte_at(4) != '-' || text.byte_at(7) != '-' || text.byte_at(10) != 'T' {
+        return bad_datetime();
+    }
+    if text.byte_at(13) != ':' || text.byte_at(16) != ':' {
+        return bad_datetime();
+    }
+    if text.byte_at(19) == 'Z' && text.len() == 20 {
+        return ok_datetime(parse(text, "%Y-%m-%dT%H:%M:%SZ"));
+    }
+    if text.len() != 25 || text.byte_at(22) != ':' {
+        return bad_datetime();
+    }
+    const sign = text.byte_at(19);
+    if sign != '+' && sign != '-' {
+        return bad_datetime();
+    }
+    const offset = sign.to_string() + text.slice(20, 22) + text.slice(23, 25);
+    return ok_datetime(parse(text.slice(0, 19) + offset, "%Y-%m-%dT%H:%M:%S%z"));
+}
+
+/// Add whole civil days. Crossing a leap day is ordinary calendar arithmetic,
+/// not an extra rule: the day count is converted to seconds at fixed length.
+pub fn add_days(DateTime at, int days) -> DateTime {
+    return add_seconds(at, days * 86400);
 }
 
 /**

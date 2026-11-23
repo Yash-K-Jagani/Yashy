@@ -3,3 +3,8 @@
 offset minutes 150
 unix positive: true
 1970-01-02
+rfc 2024-02-29T12:30:45+02:30
+roundtrip 2024-02-29T12:30:45+0230
+utc 1970-01-01T00:00:00Z
+bad true
+leap 2024-02-29

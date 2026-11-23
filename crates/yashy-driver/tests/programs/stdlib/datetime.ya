@@ -13,4 +13,21 @@ fn main() {
 
     const next_day = datetime.add_seconds(epoch, 86400);
     print(datetime.format(next_day, "%Y-%m-%d"));
+
+    const rfc = datetime.to_rfc3339(parsed);
+    print("rfc ${rfc}");
+    const back = datetime.from_rfc3339(rfc);
+    const roundtrip = switch back {
+        case Ok(value) { datetime.format(value, "%Y-%m-%dT%H:%M:%S%z") }
+        case Err(_) { "invalid" }
+    };
+    print("roundtrip ${roundtrip}");
+    print("utc ${datetime.to_rfc3339(epoch)}");
+    const rejected = datetime.from_rfc3339("not a date") matches Err(_);
+    print("bad ${rejected}");
+
+    const leap = datetime.parse("2024-02-28T12:00:00Z", "%Y-%m-%dT%H:%M:%SZ");
+    const after = datetime.add_days(leap, 1);
+    const leap_text = datetime.format(after, "%Y-%m-%d");
+    print("leap ${leap_text}");
 }
