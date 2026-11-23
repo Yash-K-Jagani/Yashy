@@ -134,10 +134,15 @@ fn public_fns(text: &str) -> Vec<PublicFn> {
     found
 }
 
-/// Public item names declared by one module, for the uniqueness check.
+/// Public item names declared at the root of one module, for the uniqueness
+/// check. A `pub fn` inside an `impl` is namespaced by its type, so two types
+/// may both have a `pub fn get` without colliding in the root scope.
 fn public_names(text: &str) -> Vec<String> {
     let mut names = Vec::new();
     for line in text.lines() {
+        if line.starts_with(' ') || line.starts_with('\t') {
+            continue;
+        }
         let trimmed = line.trim_start();
         for keyword in [
             "pub fn ",

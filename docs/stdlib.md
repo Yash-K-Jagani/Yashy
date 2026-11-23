@@ -195,6 +195,12 @@ fn deque_back[T]([]T items) -> QPop[T]
 fn deque_front[T]([]T items) -> QPop[T]
 ```
 
+### `deque_new`
+
+```yashy
+fn deque_new[T]() -> Deque[T]
+```
+
 ### `deque_pop_back`
 
 ```yashy
@@ -223,6 +229,12 @@ fn deque_push_front[T]([]T items, T value) -> []T
 
 ```yashy
 fn int_sort_insert([]int items, int value) -> []int
+```
+
+### `map_new`
+
+```yashy
+fn map_new[K, V]() -> Map[K, V]
 ```
 
 ### `queue_peek`
@@ -255,10 +267,22 @@ fn set_contains[T]([]T items, T value) -> QHas[T]
 fn set_insert[T]([]T items, T value) -> []T
 ```
 
+### `set_new`
+
+```yashy
+fn set_new[T]() -> Set[T]
+```
+
 ### `set_remove`
 
 ```yashy
 fn set_remove[T]([]T items, T value) -> []T
+```
+
+### `vec_new`
+
+```yashy
+fn vec_new[T]() -> Vec[T]
 ```
 
 ## `convert`

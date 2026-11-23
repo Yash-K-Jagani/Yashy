@@ -300,3 +300,343 @@ pub fn int_sort_insert([]int items, int value) -> []int {
     items.insert(index, value);
     return items;
 }
+
+// --- Collections as types ---------------------------------------------------
+//
+// The functions above stay: they are the original value-oriented interface.
+// The types below wrap the same arrays in a receiver, so a program can write
+// `items.push(value)` instead of `items = array_push(items, value)`. A struct
+// holds the array header; the binding that owns the struct releases it with
+// `free`. Nothing is copied on a method call.
+//
+// A `string` column cannot be overwritten or removed in place (the array owns
+// the old reference), so the map keeps append-only columns plus an `int` slot
+// per key row, the same shape `ordered_map.ya` uses. A `set` of the key row
+// redirects an overwrite; a `set` of a live flag records a removal.
+
+/** An optional element equals a value, without inventing a default element. */
+fn same_element[T](Option[T] found, T value) -> bool {
+    return switch found {
+        case Some(element) { element == value }
+        case None { false }
+    };
+}
+
+/** A growable sequence that keeps insertion order. Release it with `free`. */
+pub struct Vec[T] {
+    pub items: []T,
+}
+
+/** A fresh empty vector. The caller owns the array and frees it with `free`. */
+pub fn vec_new[T]() -> Vec[T] {
+    return Vec { items: []T {} };
+}
+
+impl Vec[T] {
+    /// The number of elements.
+    pub fn len(self) -> int {
+        const items = self.items;
+        return items.len();
+    }
+
+    /// The element at `index`, or `None` when it is out of range.
+    pub fn get(self, int index) -> Option[T] {
+        return self.items[index];
+    }
+
+    /// Append `value` at the end.
+    pub fn push(self: *mut Vec[T], T value) {
+        let items = self[0].items;
+        items.push(value);
+        self[0].items = items;
+    }
+
+    /// Remove and answer the last element, or `None` when empty.
+    pub fn pop(self: *mut Vec[T]) -> Option[T] {
+        let items = self[0].items;
+        const value = items.pop();
+        self[0].items = items;
+        return value;
+    }
+
+    /// Release the backing array. The vector must not be used afterwards.
+    pub fn free(self) {
+        const items = self.items;
+        items.free();
+    }
+}
+
+/** A set with insertion order. Release it with `free`. */
+pub struct Set[T] {
+    pub items: []T,
+}
+
+/** A fresh empty set. The caller owns the array and frees it with `free`. */
+pub fn set_new[T]() -> Set[T] {
+    return Set { items: []T {} };
+}
+
+impl Set[T] {
+    /// The number of members.
+    pub fn len(self) -> int {
+        const items = self.items;
+        return items.len();
+    }
+
+    /// Whether the set holds `value`.
+    pub fn contains(self, T value) -> bool {
+        const []T items = self.items;
+        let index = 0;
+        while index < items.len() {
+            if same_element(items[index], value) {
+                return true;
+            }
+            index = index + 1;
+        }
+        return false;
+    }
+
+    /// Add `value` when it is absent. The order of existing members is kept.
+    pub fn insert(self: *mut Set[T], T value) {
+        const set = self[0];
+        if set.contains(value) {
+            return;
+        }
+        let items = self[0].items;
+        items.push(value);
+        self[0].items = items;
+    }
+
+    /// The member at row `index` in insertion order, or `None` past the end.
+    pub fn at(self, int index) -> Option[T] {
+        return self.items[index];
+    }
+
+    /// Release the backing array. The set must not be used afterwards.
+    pub fn free(self) {
+        const items = self.items;
+        items.free();
+    }
+}
+
+/** A double-ended sequence. Release it with `free`. */
+pub struct Deque[T] {
+    pub items: []T,
+}
+
+/** A fresh empty deque. The caller owns the array and frees it with `free`. */
+pub fn deque_new[T]() -> Deque[T] {
+    return Deque { items: []T {} };
+}
+
+impl Deque[T] {
+    /// The number of elements.
+    pub fn len(self) -> int {
+        const items = self.items;
+        return items.len();
+    }
+
+    /// Append `value` at the back.
+    pub fn push_back(self: *mut Deque[T], T value) {
+        let items = self[0].items;
+        items.push(value);
+        self[0].items = items;
+    }
+
+    /// Prepend `value` at the front.
+    pub fn push_front(self: *mut Deque[T], T value) {
+        let items = self[0].items;
+        items.insert(0, value);
+        self[0].items = items;
+    }
+
+    /// The front element without removing it, or `None` when empty.
+    pub fn front(self: *mut Deque[T]) -> Option[T] {
+        let items = self[0].items;
+        const value = items.first();
+        self[0].items = items;
+        return value;
+    }
+
+    /// The back element without removing it, or `None` when empty.
+    pub fn back(self: *mut Deque[T]) -> Option[T] {
+        let items = self[0].items;
+        const value = items.last();
+        self[0].items = items;
+        return value;
+    }
+
+    /// Remove and answer the front element, or `None` when empty.
+    pub fn pop_front(self: *mut Deque[T]) -> Option[T] {
+        let items = self[0].items;
+        const value = items.remove(0);
+        self[0].items = items;
+        return value;
+    }
+
+    /// Remove and answer the back element, or `None` when empty.
+    pub fn pop_back(self: *mut Deque[T]) -> Option[T] {
+        let items = self[0].items;
+        const value = items.pop();
+        self[0].items = items;
+        return value;
+    }
+
+    /// Release the backing array. The deque must not be used afterwards.
+    pub fn free(self) {
+        const items = self.items;
+        items.free();
+    }
+}
+
+/** A map with insertion-ordered iteration. Release it with `free`. */
+pub struct Map[K, V] {
+    pub keys: []K,
+    pub values: []V,
+    pub slots: []int,
+    pub live: []int,
+}
+
+/** A fresh empty map. The caller owns the columns and frees them with `free`. */
+pub fn map_new[K, V]() -> Map[K, V] {
+    return Map {
+        keys: []K {},
+        values: []V {},
+        slots: []int {},
+        live: []int {},
+    };
+}
+
+impl Map[K, V] {
+    /// The number of live entries.
+    pub fn len(self) -> int {
+        const []int live = self.live;
+        let count = 0;
+        let index = 0;
+        while index < live.len() {
+            const int flag = switch live[index] { case Some(value) { value } case None { 0 } };
+            count = count + flag;
+            index = index + 1;
+        }
+        return count;
+    }
+
+    /// The row holding `key`, or `-1` when it is absent.
+    fn row(self, K key) -> int {
+        const []int live = self.live;
+        let index = 0;
+        while index < live.len() {
+            const int flag = switch live[index] { case Some(value) { value } case None { 0 } };
+            if flag == 1 && same_element(self.keys[index], key) {
+                return index;
+            }
+            index = index + 1;
+        }
+        return 0 - 1;
+    }
+
+    /// The value under `key`, or `None` when it is absent.
+    pub fn get(self, K key) -> Option[V] {
+        const int at = self.row(key);
+        if at < 0 {
+            const Option[V] missing = None;
+            return missing;
+        }
+        const Option[int] slot = self.slots[at];
+        const int index = switch slot { case Some(value) { value } case None { 0 } };
+        return self.values[index];
+    }
+
+    /// Insert or overwrite `key`. An overwrite keeps the key's position.
+    pub fn put(self: *mut Map[K, V], K key, V value) {
+        const map = self[0];
+        const int at = map.row(key);
+        let values = self[0].values;
+        values.push(value);
+        const int slot = values.len() - 1;
+        self[0].values = values;
+        if at >= 0 {
+            let slots = self[0].slots;
+            slots.set(at, slot);
+            self[0].slots = slots;
+            return;
+        }
+        let keys = self[0].keys;
+        keys.push(key);
+        self[0].keys = keys;
+        let slots = self[0].slots;
+        slots.push(slot);
+        self[0].slots = slots;
+        let live = self[0].live;
+        live.push(1);
+        self[0].live = live;
+    }
+
+    /// Remove `key`. The remaining keys keep their positions.
+    pub fn remove(self: *mut Map[K, V], K key) -> Option[V] {
+        const map = self[0];
+        const int at = map.row(key);
+        if at < 0 {
+            const Option[V] missing = None;
+            return missing;
+        }
+        const Option[int] slot = self[0].slots[at];
+        const int index = switch slot { case Some(value) { value } case None { 0 } };
+        let live = self[0].live;
+        live.set(at, 0);
+        self[0].live = live;
+        return self[0].values[index];
+    }
+
+    /// The live key at position `index`, or `None` past the end.
+    pub fn key(self, int index) -> Option[K] {
+        const []int live = self.live;
+        let seen = 0;
+        let row = 0;
+        while row < live.len() {
+            const int flag = switch live[row] { case Some(value) { value } case None { 0 } };
+            if flag == 1 {
+                if seen == index {
+                    return self.keys[row];
+                }
+                seen = seen + 1;
+            }
+            row = row + 1;
+        }
+        const Option[K] missing = None;
+        return missing;
+    }
+
+    /// The value at position `index`, or `None` past the end.
+    pub fn value(self, int index) -> Option[V] {
+        const []int live = self.live;
+        let seen = 0;
+        let row = 0;
+        while row < live.len() {
+            const int flag = switch live[row] { case Some(value) { value } case None { 0 } };
+            if flag == 1 {
+                if seen == index {
+                    const Option[int] slot = self.slots[row];
+                    const int at = switch slot { case Some(value) { value } case None { 0 } };
+                    return self.values[at];
+                }
+                seen = seen + 1;
+            }
+            row = row + 1;
+        }
+        const Option[V] missing = None;
+        return missing;
+    }
+
+    /// Release every column. The map must not be used afterwards.
+    pub fn free(self) {
+        const keys = self.keys;
+        const values = self.values;
+        const slots = self.slots;
+        const live = self.live;
+        keys.free();
+        values.free();
+        slots.free();
+        live.free();
+    }
+}

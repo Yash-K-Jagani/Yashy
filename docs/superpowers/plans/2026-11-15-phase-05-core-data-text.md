@@ -65,6 +65,15 @@ is a capability rather than an ambient read.
   insertion order in Step 2.
 
 - [ ] **Step 1: Write the failing test.** Grow a `Vec` past its first capacity, insert and remove map keys, iterate a `Map` and assert insertion order, drain a `Deque` from both ends, and pop a `PriorityQueue` with equal keys. Assert no leak and no double free.
+  *Current:* `crates/yashy-stdlib/yashy/collections.ya` now has `Vec[T]`,
+  `Set[T]`, `Deque[T]` and `Map[K, V]` as receiver-based types over the same
+  arrays the free functions use, made possible by generic `impl` blocks
+  (`a7ca38d`). `stdlib/collections.ya` grows a vector past its first capacity,
+  dedupes and walks a set, pushes and drains a deque from both ends, inserts,
+  overwrites, removes and iterates a string map, and the e2e gate pins the bytes
+  and a zero leak report. The `priority queue` half of the failing test is still
+  owed: the free `queue_*` functions take one caller comparator and have no
+  insertion counter to break ties with.
 - [ ] **Step 2: Order is part of the type.** `Map` and `Set` iterate in insertion order; removing and re-inserting moves a key to the end. `PriorityQueue` breaks ties by insertion sequence. There is no unordered iteration and no randomised seed. The order is documented on the type and tested.
   *Current:* `crates/yashy-stdlib/yashy/ordered_map.ya` is an insertion-ordered
   map over string keys: `ordered_set` overwrites in place and keeps position,
@@ -76,9 +85,21 @@ is a capability rather than an ambient read.
   a missing lookup, and the e2e gate confirms zero leaks. `PriorityQueue` equal
   keys still do not break ties by insertion sequence: the queue is a `[]T` with
   a caller comparator, so it has nowhere to carry an insertion counter without
-  a second parallel column; that half stays open.
+  a second parallel column; that half stays open. The typed `Map[K, V]` uses the
+  same append-only columns and int slots, and its `key(index)` / `value(index)`
+  walk live rows in insertion order; overwriting an existing key keeps its
+  position, and removing one leaves the rest in place.
 - [ ] **Step 3: Allocation is a parameter.** Every collection takes an `Allocator` (Phase 4) or uses the documented global one; growth is amortised and reported by `--alloc-report`. A collection never allocates through a hidden path.
+  *Current:* the typed collections reach the documented global allocator, the
+  one `alloc.ya` names `global_allocator`, and do not allocate through any other
+  path. Amortised growth is inherited from the array builtins. Passing a
+  per-collection `Allocator` value is still owed.
 - [ ] **Step 4: The facade is generated.** `collections.ya` re-exports the types; `yashyc doc` renders them from the same doc comments. `stdlib_coverage` fails on a public function with no program.
+  *Current:* the types live in `collections.ya` itself rather than in separate
+  submodules to re-export, and `docs/stdlib.md` is regenerated from their doc
+  blocks by `yashyc doc`. `stdlib_coverage` passes all four gates; its root-scope
+  uniqueness check now compares only top-level names, because a `pub fn` inside
+  an `impl` is namespaced by its type.
 - [ ] **Step 5: Commit.**
 
 ### Task 2: Reference counting and shared values
