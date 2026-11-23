@@ -500,6 +500,119 @@ fn try_from_int(string text) -> Result[int, ConvertError]
 
 Parse a decimal integer with the `try_from` spelling.
 
+## `crypto`
+
+### `CryptoError`
+
+```yashy
+enum CryptoError
+```
+
+Why a cryptographic operation could not answer with a value.
+
+### `aead_lock_hex`
+
+```yashy
+fn aead_lock_hex(string key, string nonce, string ad, string message) -> Result[string, CryptoError]
+```
+
+Encrypt with ChaCha20-Poly1305. The answer is a 16-byte tag followed by the
+ciphertext, all hex, with `ad` authenticated but not encrypted.
+
+### `aead_unlock_hex`
+
+```yashy
+fn aead_unlock_hex(string key, string nonce, string ad, string combined) -> Result[string, CryptoError]
+```
+
+Decrypt a ChaCha20-Poly1305 value. A changed tag answers
+`AuthenticationFailed`; the plaintext is never returned on that path.
+
+### `crypto_describe`
+
+```yashy
+fn crypto_describe(CryptoError error) -> string
+```
+
+Render an error as a stable, human-readable sentence.
+
+### `ed25519_check`
+
+```yashy
+fn ed25519_check(string signature, string public_key, string message) -> Result[bool, CryptoError]
+```
+
+Verify an Ed25519 signature; malformed hex is an error, a bad signature is
+`Ok(false)`.
+
+### `ed25519_key_pair_hex`
+
+```yashy
+fn ed25519_key_pair_hex(string seed) -> Result[string, CryptoError]
+```
+
+Derive a 128-character secret and a 64-character public key from a 32-byte
+seed. The returned hex is the 96-byte secret followed by the public key.
+
+### `ed25519_sign_hex`
+
+```yashy
+fn ed25519_sign_hex(string secret, string message) -> Result[string, CryptoError]
+```
+
+Sign a message with a 64-byte Ed25519 secret key, as 128 hex characters.
+
+### `hkdf_sha512_hex`
+
+```yashy
+fn hkdf_sha512_hex(string ikm, string salt, string info, int length) -> Result[string, CryptoError]
+```
+
+HKDF-SHA512 expanding `ikm` with `salt` and `info` to `length` bytes.
+
+### `hmac_sha512_hex`
+
+```yashy
+fn hmac_sha512_hex(string key, string message) -> Result[string, CryptoError]
+```
+
+HMAC-SHA512 over the message bytes, as 128 lowercase hex characters. The
+key may be any non-empty byte string, as RFC 4231's vectors require.
+
+### `sha512_hex`
+
+```yashy
+fn sha512_hex(string message) -> Result[string, CryptoError]
+```
+
+SHA-512 over the message bytes, as 128 lowercase hex characters.
+
+### `verify16_hex`
+
+```yashy
+fn verify16_hex(string left, string right) -> Result[bool, CryptoError]
+```
+
+Compare two 16-byte hex tags with the library's constant-time primitive.
+
+### `x25519_public_hex`
+
+```yashy
+fn x25519_public_hex(string secret) -> Result[string, CryptoError]
+```
+
+Derive an X25519 public key from a 32-byte secret.
+
+### `x25519_shared_hex`
+
+```yashy
+fn x25519_shared_hex(string secret, string public_key) -> Result[string, CryptoError]
+```
+
+Compute an X25519 shared secret from a 32-byte secret and a peer's public
+key. Both parties must run their own `crypto_wipe`-equivalent discipline;
+the hex string this returns is a fresh owned value.
+
 ## `csv`
 
 ### `CsvError`

@@ -1,0 +1,60 @@
+import crypto;
+
+fn text(Result[string, CryptoError] answer) -> string {
+    return switch answer {
+        case Ok(value) { value }
+        case Err(error) { "ERR:" + crypto.crypto_describe(error) }
+    };
+}
+
+fn yes(Result[bool, CryptoError] answer) -> bool {
+    return switch answer {
+        case Ok(value) { value }
+        case Err(_) { false }
+    };
+}
+
+fn main() {
+    // FIPS 180-4 and RFC 4231 published answers.
+    print("sha512 ${text(crypto.sha512_hex("abc")) == "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f"}");
+    const rfc4231_key = "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b";
+    print("hmac ${text(crypto.hmac_sha512_hex(rfc4231_key, "Hi There")) == "87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e2ce4ec2787ad0b30545e17cdedaa833b7d6b8a702038b274eaea3f4e4be9d914eeb61f1702e696c203a126854"}");
+
+    // RFC 8032 test vector 1: empty message, published key and signature.
+    const seed = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
+    const pair = text(crypto.ed25519_key_pair_hex(seed));
+    const secret = pair.slice(0, 128);
+    const public_key = pair.slice(128, 192);
+    print("ed-pub ${public_key == "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"}");
+    const signature = text(crypto.ed25519_sign_hex(secret, ""));
+    print("ed-sign ${signature == "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"}");
+    print("ed-verify ${yes(crypto.ed25519_check(signature, public_key, ""))}");
+    print("ed-bad ${yes(crypto.ed25519_check(signature, public_key, "tampered"))}");
+
+    // RFC 7748 section 6.1, Alice and Bob's shared secret.
+    const alice_secret = "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a";
+    const alice_public = "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a";
+    const bob_secret = "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb";
+    const bob_public = "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f";
+    const shared = "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742";
+    print("x-pub ${text(crypto.x25519_public_hex(alice_secret)) == alice_public}");
+    print("x-shared ${text(crypto.x25519_shared_hex(alice_secret, bob_public)) == shared}");
+    print("x-shared2 ${text(crypto.x25519_shared_hex(bob_secret, alice_public)) == shared}");
+
+    // AEAD round-trip, associated data, and a one-nibble tag change.
+    const key = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+    const nonce = "000102030405060708090a0b0c0d0e0f1011121314151617";
+    const sealed = text(crypto.aead_lock_hex(key, nonce, "header", "attack at dawn"));
+    print("aead ${text(crypto.aead_unlock_hex(key, nonce, "header", sealed)) == "61747461636b206174206461776e"}");
+    const tag = sealed.slice(0, 32);
+    let replacement = "1";
+    if tag.slice(0, 1) == "1" {
+        replacement = "0";
+    }
+    const changed = replacement + tag.slice(1, tag.len()) + sealed.slice(32, sealed.len());
+    print("aead-tamper ${text(crypto.aead_unlock_hex(key, nonce, "header", changed)) == "ERR:authentication failed"}");
+    print("verify16 ${yes(crypto.verify16_hex(tag, tag))}");
+
+    // A malformed key is a typed error, not a guess or an empty answer.
+    print("bad-hex ${text(crypto.aead_lock_hex("00", nonce, "", "x")) == "ERR:invalid hex input"}");
+}

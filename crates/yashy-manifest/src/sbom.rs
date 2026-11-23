@@ -150,12 +150,24 @@ pub fn compiler(exe: &[u8], version: &str) -> SbomPackage {
 /// are offline. Their hash and version travel in the SBOM, making the pin
 /// auditable rather than a comment in a generated header.
 pub fn vendored_data(name: &str, version: &str, bytes: &[u8], license: &str) -> SbomPackage {
+    vendored_data_from(name, version, bytes, license, "Unicode, Inc.")
+}
+
+/// The same pin with an explicit supplier, for vendored code rather than the
+/// Unicode data the original helper names.
+pub fn vendored_data_from(
+    name: &str,
+    version: &str,
+    bytes: &[u8],
+    license: &str,
+    supplier: &str,
+) -> SbomPackage {
     SbomPackage {
         name: name.to_string(),
         version: version.to_string(),
         hash: sha256_hex(bytes),
         license: license.to_string(),
-        supplier: "Unicode, Inc.".to_string(),
+        supplier: supplier.to_string(),
         dependencies: Vec::new(),
     }
 }

@@ -1,0 +1,5 @@
+[package]
+name = "crypto"
+version = "1.0.0"
+license = "BSD-2-Clause OR CC0-1.0"
+description = "Vetted cryptographic primitives with Result-spelled failures"

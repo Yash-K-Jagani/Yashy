@@ -1,0 +1,13 @@
+sha512 true
+hmac true
+ed-pub true
+ed-sign true
+ed-verify true
+ed-bad false
+x-pub true
+x-shared true
+x-shared2 true
+aead true
+aead-tamper true
+verify16 true
+bad-hex true

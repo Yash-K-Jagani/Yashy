@@ -7773,6 +7773,25 @@ fn sbom_cmd(args: &[String]) -> ExitCode {
         yashy_runtime::UNICODE_DATA_HEADER.as_bytes(),
         "Unicode-3.0",
     ));
+    // The vendored crypto library is pinned by the exact bytes the driver
+    // compiles into each program. The hash is over these four sources in the
+    // order below, matching packages/crypto/VENDOR.md.
+    let mut crypto_sources = Vec::new();
+    for bytes in [
+        &include_bytes!("../../../packages/crypto/native/monocypher.c")[..],
+        &include_bytes!("../../../packages/crypto/native/monocypher.h")[..],
+        &include_bytes!("../../../packages/crypto/native/optional/monocypher-ed25519.c")[..],
+        &include_bytes!("../../../packages/crypto/native/optional/monocypher-ed25519.h")[..],
+    ] {
+        crypto_sources.extend_from_slice(bytes);
+    }
+    packages.push(yashy_manifest::sbom::vendored_data_from(
+        "monocypher",
+        "4.0.3",
+        &crypto_sources,
+        "BSD-2-Clause OR CC0-1.0",
+        "Loup Vaillant",
+    ));
     // The vendored time-zone transitions are pinned third-party data too.
     packages.push(yashy_manifest::sbom::vendored_data(
         "tzdata",

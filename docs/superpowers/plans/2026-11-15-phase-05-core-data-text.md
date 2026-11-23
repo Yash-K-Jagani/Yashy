@@ -307,15 +307,34 @@ is a capability rather than an ambient read.
   every primitive; an AEAD tamper test (one flipped bit fails authentication);
   an Ed25519 sign/verify round-trip; a gzip/zstd round-trip of 1 MiB of random
   and of repetitive data.
+  *Current:* `stdlib/crypto.ya` pins the published SHA-512 ("abc") and
+  HMAC-SHA512 (RFC 4231) digests, RFC 8032 Ed25519 key/signature, RFC 7748
+  X25519 both sides' shared secret, an AEAD round-trip with associated data,
+  a one-nibble tag tamper, a constant-time tag compare and a typed bad-hex
+  error. Compression and SHA3 have no vectors yet; those primitives are not
+  available from the vendored library and remain owed.
 - [ ] **Step 2: Wrap, do not write.** The primitives come from one pinned,
   audited C library (mbedTLS 3.x LTS is the default call; OpenSSL 3 LTS is the
   alternative if mbedTLS cannot be vendored on a target). The wrapper is thin,
   the version and hash are in the lockfile and SBOM, and the security review is
   a gate. No homegrown S-box, no homegrown curve arithmetic.
+  *Current:* `packages/crypto/native/` vendors Monocypher 4.0.3 (BSD-2 / CC0)
+  with its Ed25519 extension; `VENDOR.md` records the upstream SHA-256 of each
+  file and the combined hash of the compiled bytes. `yashyc sbom` now lists
+  `monocypher 4.0.3` with that combined hash and its supplier. A thin C shim
+  only converts Yashy strings to byte buffers; all primitives come from the
+  library. Deviations, recorded rather than hidden: the plan's mbedTLS needs a
+  C build system and include paths that `link` inputs do not have; there is no
+  native-dependency schema in `yashy.lock`, so the pin lives in `VENDOR.md` and
+  the SBOM; an independent security review is still owed.
 - [ ] **Step 3: Constant time where it matters.** Tag comparison, padding
   checks and key derivation use the library's constant-time helpers; a test
   measures the timing distribution and fails on a gross leak. This is a
   smoke test, not a proof; the security review is the real gate.
+  *Current:* AEAD authentication and the exposed `verify16_hex` use
+  Monocypher's `crypto_aead_unlock` and `crypto_verify16`; key derivation uses
+  its HKDF/HMAC helpers. The timing-distribution smoke test is not written yet,
+  so this step is covered by the library's helpers and the tamper test only.
 - [ ] **Step 4: Entropy is a capability.** `csprng_bytes` is the only source of
   randomness; under `--deterministic` it reads a fixed seed and reports that it
   did. A library that calls `rand()` behind the language's back is a defect.

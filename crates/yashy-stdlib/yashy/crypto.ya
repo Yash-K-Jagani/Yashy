@@ -1,0 +1,168 @@
+// Cryptographic primitives from one vendored, pinned C library.
+//
+// `Monocypher 4.0.3` supplies the curve arithmetic, the S-boxes, the constant
+// time tag comparison and the KDF. The only C written here is a thin shim that
+// moves bytes between Yashy strings and those functions. No primitive is
+// reimplemented in Yashy, and a C failure is turned into `Result`, never into
+// an empty string or a zero.
+//
+// Keys, nonces, signatures and ciphertexts are lowercase hex strings. That is
+// deliberate: a Yashy program cannot name a byte pointer safely, while a hex
+// string is a value a program can print, store and compare.
+//
+// Deviation from the phase plan: it names mbedTLS 3.x LTS, which needs a full
+// C build system and include paths the driver does not offer for link inputs.
+// Monocypher is a single pinned source tree with the same audited-primitive
+// rule, so it is vendored here with hashes in `packages/crypto/VENDOR.md`.
+// SHA-256 already lives in `hash.ya`; SHA3 and AES-GCM remain owed.
+
+extern "C" link "../../../packages/crypto/native/yashy_crypto_shim.c" {
+    unsafe fn c_ok(string value) -> int link_name "yashy_crypto_ok";
+    unsafe fn c_valid_hex(string text, int bytes) -> int link_name "yashy_crypto_valid_hex";
+    unsafe fn c_valid_any_hex(string text) -> int link_name "yashy_crypto_valid_any_hex";
+    unsafe fn c_sha512_hex(string message) -> string link_name "yashy_crypto_sha512_hex";
+    unsafe fn c_hmac_sha512_hex(string key, string message) -> string link_name "yashy_crypto_hmac_sha512_hex";
+    unsafe fn c_hkdf_sha512_hex(string ikm, string salt, string info, int length) -> string link_name "yashy_crypto_hkdf_sha512_hex";
+    unsafe fn c_ed25519_key_pair_hex(string seed) -> string link_name "yashy_crypto_ed25519_key_pair_hex";
+    unsafe fn c_ed25519_sign_hex(string secret, string message) -> string link_name "yashy_crypto_ed25519_sign_hex";
+    unsafe fn c_ed25519_check_hex(string signature, string public_key, string message) -> int link_name "yashy_crypto_ed25519_check_hex";
+    unsafe fn c_x25519_public_hex(string secret) -> string link_name "yashy_crypto_x25519_public_hex";
+    unsafe fn c_x25519_shared_hex(string secret, string public_key) -> string link_name "yashy_crypto_x25519_shared_hex";
+    unsafe fn c_aead_lock_hex(string key, string nonce, string ad, string message) -> string link_name "yashy_crypto_aead_lock_hex";
+    unsafe fn c_aead_unlock_ok(string key, string nonce, string ad, string combined) -> int link_name "yashy_crypto_aead_unlock_ok";
+    unsafe fn c_aead_unlock_hex(string key, string nonce, string ad, string combined) -> string link_name "yashy_crypto_aead_unlock_hex";
+    unsafe fn c_verify16_hex(string left, string right) -> int link_name "yashy_crypto_verify16_hex";
+}
+
+extern "C" link "../../../packages/crypto/native/monocypher.c" {
+    unsafe fn crypto_wipe(*char bytes, usize size);
+}
+
+extern "C" link "../../../packages/crypto/native/optional/monocypher-ed25519.c" {
+    unsafe fn crypto_sha512_init(*char context);
+}
+
+/// Why a cryptographic operation could not answer with a value.
+pub enum CryptoError {
+    /// An argument was not a well-formed fixed-width lowercase hex string.
+    InvalidInput,
+    /// A length was outside the operation's documented range.
+    OutOfRange,
+    /// The AEAD tag did not authenticate the message and associated data.
+    AuthenticationFailed,
+    /// The native library could not allocate a result.
+    OutOfMemory,
+}
+
+/// Render an error as a stable, human-readable sentence.
+pub fn crypto_describe(CryptoError error) -> string {
+    return switch error {
+        case InvalidInput { "invalid hex input" }
+        case OutOfRange { "requested length out of range" }
+        case AuthenticationFailed { "authentication failed" }
+        case OutOfMemory { "native allocation failed" }
+    };
+}
+
+/// Turn a native answer into a `Result`; a null answer is not a value.
+fn answer(string value) -> Result[string, CryptoError] {
+    if c_ok(value) == 0 {
+        return Err(CryptoError.InvalidInput);
+    }
+    return Ok(value);
+}
+
+/// SHA-512 over the message bytes, as 128 lowercase hex characters.
+pub fn sha512_hex(string message) -> Result[string, CryptoError] {
+    return answer(c_sha512_hex(message));
+}
+
+/// HMAC-SHA512 over the message bytes, as 128 lowercase hex characters. The
+/// key may be any non-empty byte string, as RFC 4231's vectors require.
+pub fn hmac_sha512_hex(string key, string message) -> Result[string, CryptoError] {
+    if c_valid_any_hex(key) == 0 {
+        return Err(CryptoError.InvalidInput);
+    }
+    return answer(c_hmac_sha512_hex(key, message));
+}
+
+/// HKDF-SHA512 expanding `ikm` with `salt` and `info` to `length` bytes.
+pub fn hkdf_sha512_hex(string ikm, string salt, string info, int length) -> Result[string, CryptoError] {
+    if length <= 0 || length > 256 {
+        return Err(CryptoError.OutOfRange);
+    }
+    return answer(c_hkdf_sha512_hex(ikm, salt, info, length));
+}
+
+/// Derive a 128-character secret and a 64-character public key from a 32-byte
+/// seed. The returned hex is the 96-byte secret followed by the public key.
+pub fn ed25519_key_pair_hex(string seed) -> Result[string, CryptoError] {
+    if c_valid_hex(seed, 32) == 0 {
+        return Err(CryptoError.InvalidInput);
+    }
+    return answer(c_ed25519_key_pair_hex(seed));
+}
+
+/// Sign a message with a 64-byte Ed25519 secret key, as 128 hex characters.
+pub fn ed25519_sign_hex(string secret, string message) -> Result[string, CryptoError] {
+    if c_valid_hex(secret, 64) == 0 {
+        return Err(CryptoError.InvalidInput);
+    }
+    return answer(c_ed25519_sign_hex(secret, message));
+}
+
+/// Verify an Ed25519 signature; malformed hex is an error, a bad signature is
+/// `Ok(false)`.
+pub fn ed25519_check(string signature, string public_key, string message) -> Result[bool, CryptoError] {
+    if c_valid_hex(signature, 64) == 0 || c_valid_hex(public_key, 32) == 0 {
+        return Err(CryptoError.InvalidInput);
+    }
+    return Ok(c_ed25519_check_hex(signature, public_key, message) == 1);
+}
+
+/// Derive an X25519 public key from a 32-byte secret.
+pub fn x25519_public_hex(string secret) -> Result[string, CryptoError] {
+    if c_valid_hex(secret, 32) == 0 {
+        return Err(CryptoError.InvalidInput);
+    }
+    return answer(c_x25519_public_hex(secret));
+}
+
+/// Compute an X25519 shared secret from a 32-byte secret and a peer's public
+/// key. Both parties must run their own `crypto_wipe`-equivalent discipline;
+/// the hex string this returns is a fresh owned value.
+pub fn x25519_shared_hex(string secret, string public_key) -> Result[string, CryptoError] {
+    if c_valid_hex(secret, 32) == 0 || c_valid_hex(public_key, 32) == 0 {
+        return Err(CryptoError.InvalidInput);
+    }
+    return answer(c_x25519_shared_hex(secret, public_key));
+}
+
+/// Encrypt with ChaCha20-Poly1305. The answer is a 16-byte tag followed by the
+/// ciphertext, all hex, with `ad` authenticated but not encrypted.
+pub fn aead_lock_hex(string key, string nonce, string ad, string message) -> Result[string, CryptoError] {
+    if c_valid_hex(key, 32) == 0 || c_valid_hex(nonce, 24) == 0 {
+        return Err(CryptoError.InvalidInput);
+    }
+    return answer(c_aead_lock_hex(key, nonce, ad, message));
+}
+
+/// Decrypt a ChaCha20-Poly1305 value. A changed tag answers
+/// `AuthenticationFailed`; the plaintext is never returned on that path.
+pub fn aead_unlock_hex(string key, string nonce, string ad, string combined) -> Result[string, CryptoError] {
+    if c_valid_hex(key, 32) == 0 || c_valid_hex(nonce, 24) == 0 {
+        return Err(CryptoError.InvalidInput);
+    }
+    if c_aead_unlock_ok(key, nonce, ad, combined) == 0 {
+        return Err(CryptoError.AuthenticationFailed);
+    }
+    return answer(c_aead_unlock_hex(key, nonce, ad, combined));
+}
+
+/// Compare two 16-byte hex tags with the library's constant-time primitive.
+pub fn verify16_hex(string left, string right) -> Result[bool, CryptoError] {
+    if c_valid_hex(left, 16) == 0 || c_valid_hex(right, 16) == 0 {
+        return Err(CryptoError.InvalidInput);
+    }
+    return Ok(c_verify16_hex(left, right) == 1);
+}
