@@ -21,6 +21,7 @@
 #define YASHY_NET_THREAD_LOCAL __thread
 #endif
 static YASHY_NET_THREAD_LOCAL int yashy_net_error = 0;
+static void yashy_net_note_fd(int64_t fd, unsigned char cause);
 
 #include <errno.h>
 #include <limits.h>
@@ -200,7 +201,9 @@ int64_t yashy_tcp_listen(const char *host, int64_t port) {
         }
         freeaddrinfo(addresses);
         yashy_net_error = 0;
-        return yashy_socket_to_i64(handle);
+        int64_t listen_fd = yashy_socket_to_i64(handle);
+        yashy_net_note_fd(listen_fd, 0);
+        return listen_fd;
     }
     freeaddrinfo(addresses);
     return -1;
@@ -215,7 +218,9 @@ int64_t yashy_tcp_accept(int64_t listener) {
         yashy_net_socket accepted = accept(listener_socket, NULL, NULL);
         if (accepted != yashy_invalid_socket()) {
             yashy_net_error = 0;
-            return yashy_socket_to_i64(accepted);
+            int64_t accepted_fd = yashy_socket_to_i64(accepted);
+            yashy_net_note_fd(accepted_fd, 0);
+            return accepted_fd;
         }
         int os_error = yashy_net_os_error();
 #if defined(_WIN32)
@@ -248,7 +253,9 @@ int64_t yashy_tcp_connect(const char *host, int64_t port) {
         if (connect(handle, address->ai_addr, address->ai_addrlen) == 0) {
             freeaddrinfo(addresses);
             yashy_net_error = 0;
-            return yashy_socket_to_i64(handle);
+            int64_t connected_fd = yashy_socket_to_i64(handle);
+            yashy_net_note_fd(connected_fd, 0);
+            return connected_fd;
         }
         yashy_net_note_last_error();
         yashy_close_socket(handle);
@@ -265,6 +272,21 @@ static struct {
     int64_t fd;
     int64_t at_ms;
 } yashy_net_deadlines[YASHY_NET_DEADLINES];
+
+/* Per-descriptor lifetime state. A cancelled or closed handle keeps its
+ * cause so a later read reports Cancelled or Closed instead of a generic
+ * socket failure. Descriptors are small on every supported platform; the
+ * array is a fixed size so no allocation happens on the socket path. */
+#define YASHY_NET_FD_STATE 4096
+static unsigned char yashy_net_fd_state[YASHY_NET_FD_STATE]; /* 4 cancelled, 8 closed */
+
+static void yashy_net_note_fd(int64_t fd, unsigned char cause) {
+    if (fd >= 0 && fd < YASHY_NET_FD_STATE) yashy_net_fd_state[fd] = cause;
+}
+
+static int yashy_net_fd_cause(int64_t fd) {
+    return fd >= 0 && fd < YASHY_NET_FD_STATE ? yashy_net_fd_state[fd] : 0;
+}
 
 static int yashy_net_expired(int64_t fd) {
     for (int i = 0; i < YASHY_NET_DEADLINES; i++) {
@@ -293,8 +315,14 @@ int64_t yashy_net_set_deadline(int64_t fd, int64_t at_ms) {
 
 int64_t yashy_tcp_read(int64_t fd, uint8_t *buf, int64_t len) {
     yashy_net_socket socket = yashy_socket_from_i64(fd);
+    int cause = yashy_net_fd_cause(fd);
+    if (cause != 0) {
+        yashy_net_error = cause;
+        return -1;
+    }
     if (socket == yashy_invalid_socket() || len < 0 || len > INT_MAX ||
         (len > 0 && buf == NULL)) {
+        yashy_net_error = 7;
         return -1;
     }
     if (len == 0) {
@@ -367,8 +395,14 @@ yashy_str *yashy_tcp_read_str(int64_t fd, int64_t max) {
 int64_t yashy_tcp_write(int64_t fd, const uint8_t *buf, int64_t len) {
     yashy_net_socket socket = yashy_socket_from_i64(fd);
     int64_t offset = 0;
+    int cause = yashy_net_fd_cause(fd);
+    if (cause != 0) {
+        yashy_net_error = cause;
+        return -1;
+    }
     if (socket == yashy_invalid_socket() || len < 0 || len > INT_MAX ||
         (len > 0 && buf == NULL)) {
+        yashy_net_error = 7;
         return -1;
     }
     if (yashy_net_expired(fd)) {
@@ -405,6 +439,13 @@ int64_t yashy_tcp_write(int64_t fd, const uint8_t *buf, int64_t len) {
 
 void yashy_tcp_close(int64_t fd) {
     yashy_net_socket socket = yashy_socket_from_i64(fd);
+    yashy_net_note_fd(fd, 8); /* Closed */
+    yashy_close_socket(socket);
+}
+
+void yashy_tcp_cancel(int64_t fd) {
+    yashy_net_socket socket = yashy_socket_from_i64(fd);
+    yashy_net_note_fd(fd, 4); /* Cancelled */
     yashy_close_socket(socket);
 }
 
@@ -452,7 +493,9 @@ int64_t yashy_udp_open(const char *host, int64_t port, int passive) {
         }
         freeaddrinfo(addresses);
         yashy_net_error = 0;
-        return yashy_socket_to_i64(handle);
+        int64_t udp_fd = yashy_socket_to_i64(handle);
+        yashy_net_note_fd(udp_fd, 0);
+        return udp_fd;
     }
     freeaddrinfo(addresses);
     return -1;
@@ -460,6 +503,11 @@ int64_t yashy_udp_open(const char *host, int64_t port, int passive) {
 
 int64_t yashy_udp_send(int64_t fd, const uint8_t *buf, int64_t len) {
     yashy_net_socket socket = yashy_socket_from_i64(fd);
+    int cause = yashy_net_fd_cause(fd);
+    if (cause != 0) {
+        yashy_net_error = cause;
+        return -1;
+    }
     if (socket == yashy_invalid_socket() || len < 0 || len > INT_MAX ||
         (len > 0 && buf == NULL)) {
         yashy_net_error = 7;
@@ -478,6 +526,11 @@ int64_t yashy_udp_send(int64_t fd, const uint8_t *buf, int64_t len) {
 yashy_str *yashy_udp_recv_str(int64_t fd, int64_t max) {
     yashy_net_socket socket = yashy_socket_from_i64(fd);
     uint8_t error = 2;
+    int cause = yashy_net_fd_cause(fd);
+    if (cause != 0) {
+        yashy_net_error = cause;
+        return yashy_str_from_bytes(&error, 1);
+    }
     if (socket == yashy_invalid_socket() || max < 0 || max > INT_MAX) {
         yashy_net_error = 7;
         return yashy_str_from_bytes(&error, 1);

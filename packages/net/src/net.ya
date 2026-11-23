@@ -21,6 +21,7 @@ extern "C" {
     unsafe fn yashy_tcp_set_timeout(i64 fd, i64 millis) -> i64;
     unsafe fn yashy_net_last_error() -> int;
     unsafe fn yashy_net_set_deadline(i64 fd, i64 at_ms) -> i64;
+    unsafe fn yashy_tcp_cancel(i64 fd) -> void;
 }
 
 pub struct Listener {
@@ -44,6 +45,8 @@ pub enum NetError {
     Dns,
     /// The local address was already in use.
     AddressInUse,
+    /// The socket was already closed.
+    Closed,
     /// A cause the runtime does not classify more finely.
     Other,
     /// Kept for callers of the original one-variant spelling.
@@ -59,6 +62,7 @@ pub fn net_describe(NetError error) -> string {
         case Cancelled { "operation cancelled" }
         case Dns { "name resolution failed" }
         case AddressInUse { "address already in use" }
+        case Closed { "socket already closed" }
         case Other { "socket failure" }
         case Failure { "socket failure" }
     };
@@ -81,6 +85,7 @@ pub fn take_error() -> NetError {
         case 5 { NetError.Dns }
         case 6 { NetError.AddressInUse }
         case 7 { NetError.Other }
+        case 8 { NetError.Closed }
         default { NetError.Failure }
     };
 }
@@ -156,6 +161,13 @@ pub unsafe fn net_set_timeout(Socket peer, int millis) -> Result[int, NetError] 
 
 pub unsafe fn net_close_listener(Listener listener) {
     yashy_tcp_close(listener.fd);
+}
+
+/// Cancel work on a socket and close it. A later read answers
+/// `Err(Cancelled)`, a cause distinct from `Timeout` and `Closed`.
+pub unsafe fn net_cancel(Socket peer) -> Result[int, NetError] {
+    yashy_tcp_cancel(peer.fd);
+    return Err(NetError.Cancelled);
 }
 
 /// Close a raw socket handle held by a sibling network module.

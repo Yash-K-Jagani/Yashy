@@ -63,19 +63,25 @@ explicit, and every operation has a deadline.
   refused/reset/timeout/cancelled/DNS/address-in-use causes from a thread-local
   runtime status. Still owed in this step: a multi-record A/AAAA fixture and
   the `cfg`-selected Unix-socket/named-pipe API.
-- [ ] **Step 2: A deadline on every blocking call.** Timeouts are absolute
+- [x] **Step 2: A deadline on every blocking call.** Timeouts are absolute
   instants, not per-read resets, so a slow peer cannot extend a request
   forever. Cancellation closes the socket and reports `Cancelled`, distinct
   from `Timeout` and from `Closed`.
   *Current:* `net_set_deadline(fd, unix_ms)` stores an absolute instant in a
   bounded runtime table and refuses a read or write begun after it with the
   `Timeout` cause. The older per-call `SO_*TIMEO` spelling remains for callers
-  that want a reset-per-operation timeout. Cancellation and the `Closed` cause
-  are still owed.
-- [ ] **Step 3: Errors are values with a cause.** `net.Error` distinguishes
+  that want a reset-per-operation timeout. `net_cancel` closes the socket and
+  answers `Err(Cancelled)`; a later use of a closed descriptor is named as
+  `Closed` by the runtime's per-descriptor state.
+- [x] **Step 3: Errors are values with a cause.** `net.Error` distinguishes
   refused, reset, timeout, cancelled, DNS failure and address-in-use; each maps
   to one message and one line in the docs. No errno number leaks as the only
   explanation.
+  *Current:* `NetError` has all six causes plus `Closed` and a legacy
+  `Failure` variant. The runtime maps OS errors to one of seven stable codes,
+  `net_describe` renders each as a sentence, and the package test pins
+  `Timeout` from an expired deadline and `Cancelled` from `net_cancel`. A
+  Windows-specific errno mapping check is still owed on a Windows runner.
 - [ ] **Step 4: Commit.**
 
 ### Task 2: TLS

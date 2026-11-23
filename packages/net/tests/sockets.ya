@@ -12,6 +12,7 @@ fn error_name(NetError error) -> string {
         case Cancelled { "cancelled" }
         case Dns { "dns" }
         case AddressInUse { "in-use" }
+        case Closed { "closed" }
         case Other { "other" }
         case Failure { "failure" }
     };
@@ -131,6 +132,31 @@ fn expired_deadline() -> string {
     };
 }
 
+fn cancelled_socket() -> string {
+    const listener_result = net.net_listen("127.0.0.1", 19184);
+    const listener = switch listener_result {
+        case Ok(value) { value }
+        case Err(error) { panic("net: " + error_name(error)) }
+    };
+    const client_result = net.net_connect("127.0.0.1", 19184);
+    const client = switch client_result {
+        case Ok(value) { value }
+        case Err(error) { panic("net: " + error_name(error)) }
+    };
+    const server_result = net.net_accept(listener);
+    const server = switch server_result {
+        case Ok(value) { value }
+        case Err(error) { panic("net: " + error_name(error)) }
+    };
+    const cancelled = net.net_cancel(client);
+    net.net_close(server);
+    net.net_close_listener(listener);
+    return switch cancelled {
+        case Ok(_) { "unexpected-success" }
+        case Err(error) { error_name(error) }
+    };
+}
+
 fn main() {
     print("tcp ${tcp_echo()}");
     print("udp ${udp_roundtrip()}");
@@ -139,5 +165,6 @@ fn main() {
         case Err(error) { panic("net: " + error_name(error)) }
     }
     print("deadline ${expired_deadline()}");
+    print("cancel ${cancelled_socket()}");
 }
 
