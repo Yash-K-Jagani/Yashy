@@ -209,6 +209,31 @@ with no row behind it cannot be corrected, only deleted.
 | No false positives | the phase 1b loop | no `FALSE POSITIVE` line |
 | No regression | `cargo test --workspace` | green on Windows and Linux |
 
+### Phase 5 (2026-11-15) — core data and text
+
+| Gate | Command | Passes when |
+|---|---|---|
+| Stdlib coverage | `cargo test -p yashy-driver --test stdlib_coverage` | every public function has a doc comment and one program |
+| Determinism and leaks | `cargo test -p yashy-driver --test e2e stdlib_programs_are_deterministic_and_release_everything` | two runs byte-identical, leak report zero for every stdlib program |
+| Crypto KATs | the `stdlib/crypto.ya` golden plus `cargo test -p yashy-driver --test crypto_timing` | published hash/signature/key-agreement vectors, AEAD tamper, and a bounded tag-timing ratio |
+| Native pins | `cargo test -p yashy-driver --test native_pins` and `yashyc sbom --json` | the native lockfile and SBOM match the exact compiled bytes |
+| No sentinels | `cargo test -p yashy-driver --test stdlib_coverage` | fallible functions answer `Result`/`Option` |
+| No regression | `cargo test --workspace --no-fail-fast` | all targets green |
+
+**Dated exception (2026-11-23).** The independent security review named by
+Task 6 Step 2 cannot be performed from this checkout. `packages/crypto/SECURITY.md`
+records a self-review, the pin evidence and the open items. Owner: release
+security reviewer. The row closes when a reviewer outside the implementing
+agent signs off on the pinned versions, the shim's buffer handling and the
+gzip framing. This is carried forward as an explicit post-implementation
+follow-up, not claimed as complete.
+
+| Gate | Reason | Owner | Closes when |
+|---|---|---|---|
+| Independent crypto security review | No independent reviewer or signing workflow is available in this checkout; self-review is recorded in `packages/crypto/SECURITY.md` | release security reviewer | an external sign-off names the pinned versions and the shim |
+| Method spellings on raw slices (`xs.zip`, `xs.rev`) | The checker has no user-defined method resolution for slices; adding it changes method lookup for every type, so the free-function and cursor spellings stay the shipped surface | language owner | a slice receiver resolves to the existing cursor constructors without changing other receivers |
+| 10k-element set timing assertion | The typed `Set` uses an insertion-ordered linear-scan array, so an expected-constant-time assertion would be false today | collections owner | lookup moves to a hashed index while insertion order is preserved |
+
 ### Phase 6 — modules and unicode
 
 | Gate | Command | Passes when |

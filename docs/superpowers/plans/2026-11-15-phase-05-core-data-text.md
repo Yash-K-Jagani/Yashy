@@ -370,7 +370,10 @@ is a capability rather than an ambient read.
   hidden `rand()` call. The vendored crypto and compression libraries take caller-supplied keys and
   nonces and call no random source of their own, so the capability is still the
   only entropy path after their addition.
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.** The crypto slices landed in `420cbdb`, `c64775e`,
+  `e1ed1d6` and `33f0753`. The independent security review, raw-slice method
+  spellings and the constant-time set assertion are recorded as dated
+  exceptions in `docs/gates.md` rather than claimed as complete.
 
 ### Task 7: Time, zones and observability
 
@@ -445,7 +448,10 @@ is a capability rather than an ambient read.
   `Chain[T]` is now a cursor too: `chain_of(left, right)` implements `Iterator`,
   and `stdlib/iter_adapters.ya` pins a two-slice chain and an empty-first-slice
   chain. Still owed here: `xs.zip(ys)` / `xs.rev()` method
-  spellings on a raw slice and a 10,000-element timing assertion.
+  spellings on a raw slice and a 10,000-element timing assertion. The typed
+  `Set` is an insertion-ordered linear-scan array, so the timing assertion
+  would currently be false; both rows are dated exceptions in `docs/gates.md`
+  with owners and closing conditions.
   *Map methods:* `Map[K, V]` now has `contains_key`, `get_or`, `update` and
   `iter`, and `MapIter[K, V]` implements `Iterator`. The coverage program pins
   a get-or insert, an update and an insertion-order walk. The cursor yields a
