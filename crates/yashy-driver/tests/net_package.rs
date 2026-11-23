@@ -39,7 +39,11 @@ fn net_package_sockets_udp_dns_and_deadline() {
         String::from_utf8_lossy(&run.stderr)
     );
     let stdout = String::from_utf8_lossy(&run.stdout);
-    for line in ["tcp 5", "udp 8", "dns true", "deadline timeout", "cancel cancelled"] {
+    let mut expected = vec!["tcp 5", "udp 8", "dns true", "deadline timeout", "cancel cancelled"];
+    if cfg!(unix) {
+        expected.push("unix 5");
+    }
+    for line in expected {
         assert!(stdout.contains(line), "missing {line} in:\n{stdout}");
     }
     assert!(

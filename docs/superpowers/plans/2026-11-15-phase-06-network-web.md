@@ -61,8 +61,9 @@ explicit, and every operation has a deadline.
   datagram round-trip, a DNS lookup of `localhost`, and an already-expired
   absolute deadline answered as `Err(Timeout)`. The typed `NetError` now names
   refused/reset/timeout/cancelled/DNS/address-in-use causes from a thread-local
-  runtime status. Still owed in this step: a multi-record A/AAAA fixture and
-  the `cfg`-selected Unix-socket/named-pipe API.
+  runtime status. A `cfg(unix)` Unix-domain socket API now has a loopback
+  round-trip in the same program. Still owed in this step: a multi-record
+  A/AAAA fixture and the Windows named-pipe half of the `cfg`-selected API.
 - [x] **Step 2: A deadline on every blocking call.** Timeouts are absolute
   instants, not per-read resets, so a slow peer cannot extend a request
   forever. Cancellation closes the socket and reports `Cancelled`, distinct

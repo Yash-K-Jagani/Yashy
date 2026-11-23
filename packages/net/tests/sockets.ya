@@ -3,6 +3,7 @@
 import net;
 import udp;
 import dns;
+import unix;
 
 fn error_name(NetError error) -> string {
     return switch error {
@@ -157,6 +158,42 @@ fn cancelled_socket() -> string {
     };
 }
 
+cfg(unix) fn unix_roundtrip() -> int {
+    const path = "/tmp/yashy-unix-socket-test.sock";
+    const listener_result = unix.unix_listen(path);
+    const listener = switch listener_result {
+        case Ok(value) { value }
+        case Err(error) { panic("net: " + error_name(error)) }
+    };
+    const client_result = unix.unix_connect(path);
+    const client = switch client_result {
+        case Ok(value) { value }
+        case Err(error) { panic("net: " + error_name(error)) }
+    };
+    const sent_result = unix.unix_send(client, "local");
+    const sent = switch sent_result {
+        case Ok(value) { value }
+        case Err(error) { panic("net: " + error_name(error)) }
+    };
+    assert(sent == 5);
+    const server_result = unix.unix_accept(listener);
+    const server = switch server_result {
+        case Ok(value) { value }
+        case Err(error) { panic("net: " + error_name(error)) }
+    };
+    const got_result = unix.unix_recv(server);
+    const got = switch got_result {
+        case Ok(value) { value }
+        case Err(error) { panic("net: " + error_name(error)) }
+    };
+    const text = message(got);
+    assert(text == "local");
+    unix.unix_close(server);
+    unix.unix_close(client);
+    unix.unix_close_listener(listener);
+    return text.len();
+}
+
 fn main() {
     print("tcp ${tcp_echo()}");
     print("udp ${udp_roundtrip()}");
@@ -166,5 +203,8 @@ fn main() {
     }
     print("deadline ${expired_deadline()}");
     print("cancel ${cancelled_socket()}");
+    cfg(unix) {
+        print("unix ${unix_roundtrip()}");
+    }
 }
 

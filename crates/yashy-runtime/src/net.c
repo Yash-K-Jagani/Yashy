@@ -42,6 +42,9 @@ static void yashy_net_note_fd(int64_t fd, unsigned char cause);
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <pthread.h>
+#if !defined(_WIN32)
+#include <sys/un.h>
+#endif
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/types.h>
@@ -282,6 +285,13 @@ static unsigned char yashy_net_fd_state[YASHY_NET_FD_STATE]; /* 4 cancelled, 8 c
 
 static void yashy_net_note_fd(int64_t fd, unsigned char cause) {
     if (fd >= 0 && fd < YASHY_NET_FD_STATE) yashy_net_fd_state[fd] = cause;
+    if (cause == 0) {
+        /* A descriptor number can be reused; its old deadline must not
+         * follow the new socket. */
+        for (int i = 0; i < YASHY_NET_DEADLINES; i++) {
+            if (yashy_net_deadlines[i].fd == fd) yashy_net_deadlines[i].at_ms = 0;
+        }
+    }
 }
 
 static int yashy_net_fd_cause(int64_t fd) {
@@ -448,6 +458,83 @@ void yashy_tcp_cancel(int64_t fd) {
     yashy_net_note_fd(fd, 4); /* Cancelled */
     yashy_close_socket(socket);
 }
+
+/* ---- Unix-domain sockets ------------------------------------------------ */
+
+#if !defined(_WIN32)
+int64_t yashy_unix_listen(const char *path) {
+    if (path == NULL || path[0] == '\0' || strlen(path) >= sizeof(((struct sockaddr_un *)0)->sun_path)) {
+        yashy_net_error = 7;
+        return -1;
+    }
+    int handle = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (handle < 0) {
+        yashy_net_note_last_error();
+        return -1;
+    }
+    struct sockaddr_un address;
+    memset(&address, 0, sizeof(address));
+    address.sun_family = AF_UNIX;
+    strcpy(address.sun_path, path);
+    (void)unlink(path); /* a stale path must not block a fresh listener */
+    if (bind(handle, (struct sockaddr *)&address, sizeof(address)) != 0 ||
+        listen(handle, 128) != 0) {
+        yashy_net_note_last_error();
+        close(handle);
+        return -1;
+    }
+    yashy_net_error = 0;
+    yashy_net_note_fd(handle, 0);
+    return (int64_t)handle;
+}
+
+int64_t yashy_unix_accept(int64_t listener) {
+    int fd = (int)listener;
+    if (listener < 0) {
+        yashy_net_error = 7;
+        return -1;
+    }
+    for (;;) {
+        int accepted = accept(fd, NULL, NULL);
+        if (accepted >= 0) {
+            yashy_net_error = 0;
+            yashy_net_note_fd(accepted, 0);
+            return (int64_t)accepted;
+        }
+        if (errno == EINTR) continue;
+        yashy_net_note_last_error();
+        return -1;
+    }
+}
+
+int64_t yashy_unix_connect(const char *path) {
+    if (path == NULL || path[0] == '\0' || strlen(path) >= sizeof(((struct sockaddr_un *)0)->sun_path)) {
+        yashy_net_error = 7;
+        return -1;
+    }
+    int handle = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (handle < 0) {
+        yashy_net_note_last_error();
+        return -1;
+    }
+    struct sockaddr_un address;
+    memset(&address, 0, sizeof(address));
+    address.sun_family = AF_UNIX;
+    strcpy(address.sun_path, path);
+    if (connect(handle, (struct sockaddr *)&address, sizeof(address)) != 0) {
+        yashy_net_note_last_error();
+        close(handle);
+        return -1;
+    }
+    yashy_net_error = 0;
+    yashy_net_note_fd(handle, 0);
+    return (int64_t)handle;
+}
+#else
+int64_t yashy_unix_listen(const char *path) { (void)path; yashy_net_error = 7; return -1; }
+int64_t yashy_unix_accept(int64_t listener) { (void)listener; yashy_net_error = 7; return -1; }
+int64_t yashy_unix_connect(const char *path) { (void)path; yashy_net_error = 7; return -1; }
+#endif
 
 /* ---- UDP ---------------------------------------------------------------- */
 

@@ -170,6 +170,32 @@ pub unsafe fn net_cancel(Socket peer) -> Result[int, NetError] {
     return Err(NetError.Cancelled);
 }
 
+/// Write through a raw descriptor held by a sibling network module.
+pub unsafe fn net_write_fd(int fd, string data) -> Result[int, NetError] {
+    const sent = yashy_tcp_write(fd, data, data.len());
+    if sent < 0 {
+        return Err(take_error());
+    }
+    return Ok(sent);
+}
+
+/// Read through a raw descriptor held by a sibling network module.
+pub unsafe fn net_read_fd(int fd) -> Result[Option[string], NetError] {
+    const encoded = yashy_tcp_read_str(fd, 4096);
+    if encoded.len() == 0 {
+        return Err(take_error());
+    }
+    const status = encoded.byte_at(0).to_int();
+    if status == 0 {
+        const Option[string] nothing = None;
+        return Ok(nothing);
+    }
+    if status != 1 {
+        return Err(take_error());
+    }
+    return Ok(Some(encoded.slice(1, encoded.len())));
+}
+
 /// Close a raw socket handle held by a sibling network module.
 pub unsafe fn net_close_fd(int fd) {
     yashy_tcp_close(fd);

@@ -1,0 +1,71 @@
+// Unix-domain sockets, selected by the build target.
+//
+// The runtime exposes the POSIX implementation and a stub that reports an
+// error elsewhere, so the API has one spelling on every platform. Only the
+// `cfg(unix)` functions are usable; on Windows the same API would need the
+// named-pipe implementation recorded as still owed in the phase plan.
+import net;
+
+extern "C" {
+    unsafe fn yashy_unix_listen(*const u8 path) -> i64;
+    unsafe fn yashy_unix_accept(i64 listener) -> i64;
+    unsafe fn yashy_unix_connect(*const u8 path) -> i64;
+}
+
+/** A listening Unix socket at `path`. */
+pub struct UnixListener {
+    fd: int,
+}
+
+/** A connected Unix socket. */
+pub struct UnixStream {
+    fd: int,
+}
+
+/** Bind and listen at a filesystem path. */
+cfg(unix) pub unsafe fn unix_listen(string path) -> Result[UnixListener, NetError] {
+    const fd = yashy_unix_listen(path);
+    if fd < 0 {
+        return Err(net.take_error());
+    }
+    return Ok(UnixListener { fd: fd });
+}
+
+/** Accept one connection on a Unix listener. */
+cfg(unix) pub unsafe fn unix_accept(UnixListener listener) -> Result[UnixStream, NetError] {
+    const fd = yashy_unix_accept(listener.fd);
+    if fd < 0 {
+        return Err(net.take_error());
+    }
+    return Ok(UnixStream { fd: fd });
+}
+
+/** Connect to a Unix socket path. */
+cfg(unix) pub unsafe fn unix_connect(string path) -> Result[UnixStream, NetError] {
+    const fd = yashy_unix_connect(path);
+    if fd < 0 {
+        return Err(net.take_error());
+    }
+    return Ok(UnixStream { fd: fd });
+}
+
+/** Send bytes on a connected Unix stream. */
+cfg(unix) pub unsafe fn unix_send(UnixStream peer, string data) -> Result[int, NetError] {
+    return net.net_write_fd(peer.fd, data);
+}
+
+/** Receive bytes from a connected Unix stream. */
+cfg(unix) pub unsafe fn unix_recv(UnixStream peer) -> Result[Option[string], NetError] {
+    return net.net_read_fd(peer.fd);
+}
+
+/** Release a stream handle. */
+cfg(unix) pub unsafe fn unix_close(UnixStream peer) {
+    net.net_close_fd(peer.fd);
+}
+
+/** Release a listener handle. */
+cfg(unix) pub unsafe fn unix_close_listener(UnixListener listener) {
+    net.net_close_fd(listener.fd);
+}
+

@@ -534,6 +534,9 @@ int yashy_zone_offset(const yashy_str *name, int64_t at_unix,
 int yashy_net_last_error(void);
 void yashy_tcp_cancel(int64_t fd);
 int64_t yashy_net_set_deadline(int64_t fd, int64_t at_unix_ms);
+int64_t yashy_unix_listen(const char *path);
+int64_t yashy_unix_accept(int64_t listener);
+int64_t yashy_unix_connect(const char *path);
 int64_t yashy_udp_open(const char *host, int64_t port, int passive);
 int64_t yashy_udp_send(int64_t fd, const uint8_t *buf, int64_t len);
 yashy_str *yashy_udp_recv_str(int64_t fd, int64_t max);
