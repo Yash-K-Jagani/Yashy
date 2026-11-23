@@ -347,20 +347,34 @@ is a capability rather than an ambient read.
   `stdlib/iter_adapters.ya` prints a deterministic line per adapter, including
   a `rev`-twice round-trip, and pins the exact bytes in its golden; the e2e
   harness confirms two-run byte equality and zero leaks. `zip` and `chain`
-  return a `PairSeq[A,B]` struct (a tuple cannot own a slice). The method
-  spellings (`xs.enumerate()`) and `for i, x` over an adapter are still owed:
-  `for i, x` is slice-only, a generic struct cannot implement `Iterator[T]`,
-  and a slice cannot hold a tuple — all compiler changes. Those halves of
-  Step 1 and Steps 2–3 stay open.
+  return a `PairSeq[A,B]` struct (a tuple cannot own a slice).
+  *Update:* generic `impl` blocks (`a7ca38d`) removed the compiler gap.
+  `iter_adapters.ya` now has cursor structs `Enumerate[T]`, `Take[T]`,
+  `Skip[T]`, `Rev[T]`, `Zip[A, B]`, `Chunks` and `Windows`, each with a public
+  `Iterator::next`, and `stdlib/iter_adapters.ya` drives every one with `for`,
+  including `for (index, value)` and `for (left, right)`. `Vec[T].enumerate()`
+  gives the method spelling on a typed vector, and `stdlib/collections.ya`
+  pins it. The free callback adapters stay for callers that want them.
+  Still owed here: `chain` as a cursor, `xs.zip(ys)` / `xs.rev()` method
+  spellings on a raw slice, and a 10,000-element timing assertion.
 - [ ] **Step 2: An adapter adds no HIR.** `enumerate`, `zip`, `chunks`,
   `windows`, `take`, `skip`, `rev` and `chain` are ordinary generic structs
   implementing the compiler-known `Iterator[T]` protocol; `for` over one lowers
   to the existing loop. A tuple binding in the head is the Phase 4 tuple
   pattern, and a sequence shorter than the adapter needs ends cleanly.
+  *Current:* the seven cursor structs above implement `Iterator` and lower to
+  the existing `for` loop; no adapter-specific HIR was added. `for` already
+  accepts a tuple pattern over an iterator whose element is a tuple, pinned by
+  the coverage program. `chain` remains a callback free function.
 - [ ] **Step 3: `zip` is total and ordered.** It stops at the shorter input, is
   eager only when the caller asks for an array, and never allocates on the
   per-item path. `enumerate` starts at 0 and never yields a negative index; a
   reversed range yields nothing rather than counting down.
+  *Current:* `Zip[A, B]` stores the shorter length at construction and `next`
+  stops there, so it never reads past either slice. `Enumerate[T]` starts at 0
+  and stops at the stored length. A cursor holds only slice headers and int
+  fields; `next` allocates nothing. `Rev[T]` starts at the length and yields
+  nothing once the cursor reaches zero.
 - [x] **Step 4: One conversion matrix, no sentinels.** Every fallible
   conversion returns `Option` or `Result`; every lossy numeric conversion is
   spelled with `round`, `floor`, `ceil` or `trunc`, and `as` stays the

@@ -285,6 +285,18 @@ fn set_remove[T]([]T items, T value) -> []T
 fn vec_new[T]() -> Vec[T]
 ```
 
+### `Chunks`
+
+```yashy
+struct Chunks
+```
+
+### `Windows`
+
+```yashy
+struct Windows
+```
+
 ## `convert`
 
 ### `ConvertError`
@@ -727,6 +739,18 @@ being spelled out in every implementor.
 
 ## `iter_adapters`
 
+### `Chunks.Iterator.next`
+
+```yashy
+fn next(*mut Chunks self) -> Option[(int, int)]
+```
+
+### `Windows.Iterator.next`
+
+```yashy
+fn next(*mut Windows self) -> Option[(int, int)]
+```
+
 ### `chain`
 
 ```yashy
@@ -747,6 +771,12 @@ consecutive elements. `start` is included and `end` excluded; a trailing
 partial window is still visited, so every element is covered exactly once.
 A non-positive `size` is an assertion failure rather than an infinite loop.
 
+### `chunks_of`
+
+```yashy
+fn chunks_of(int len, int size) -> Chunks
+```
+
 ### `enumerate`
 
 ```yashy
@@ -756,6 +786,12 @@ fn enumerate[T]([]T items, fn(int, T) -> void visit) -> []T
 Call `visit(index, value)` for every element of `items`, starting at 0.
 The index is never negative. Returns `items` so the caller keeps ownership.
 
+### `enumerate_of`
+
+```yashy
+fn enumerate_of[T]([]T values) -> Enumerate[T]
+```
+
 ### `rev`
 
 ```yashy
@@ -763,6 +799,12 @@ fn rev[T]([]T items, fn(T) -> void visit) -> []T
 ```
 
 Call `visit(value)` for every element from last to first.
+
+### `rev_of`
+
+```yashy
+fn rev_of[T]([]T values) -> Rev[T]
+```
 
 ### `skip`
 
@@ -773,6 +815,12 @@ fn skip[T]([]T items, int count, fn(T) -> void visit) -> []T
 Call `visit(value)` for every element after the first `count`. A non-positive
 `count` visits all elements; a `count` past the end visits nothing.
 
+### `skip_of`
+
+```yashy
+fn skip_of[T]([]T values, int count) -> Skip[T]
+```
+
 ### `take`
 
 ```yashy
@@ -781,6 +829,12 @@ fn take[T]([]T items, int count, fn(T) -> void visit) -> []T
 
 Call `visit(value)` for the first `count` elements, or all of them when
 `count` is larger. A non-positive `count` visits nothing.
+
+### `take_of`
+
+```yashy
+fn take_of[T]([]T values, int count) -> Take[T]
+```
 
 ### `windows`
 
@@ -793,6 +847,12 @@ elements, left to right. `start` is included and `end` excluded. A `size`
 larger than the sequence visits nothing; a non-positive `size` is an
 assertion failure.
 
+### `windows_of`
+
+```yashy
+fn windows_of(int len, int size) -> Windows
+```
+
 ### `zip`
 
 ```yashy
@@ -801,6 +861,24 @@ fn zip[A, B]([]A left, []B right, fn(A, B) -> void visit) -> PairSeq[A, B]
 
 Call `visit(left, right)` for the paired elements of `left` and `right`,
 stopping at the shorter input and never reading past either. Returns both.
+
+### `zip_of`
+
+```yashy
+fn zip_of[A, B]([]A left, []B right) -> Zip[A, B]
+```
+
+### `Chunks`
+
+```yashy
+struct Chunks
+```
+
+### `Windows`
+
+```yashy
+struct Windows
+```
 
 ## `json_scan`
 

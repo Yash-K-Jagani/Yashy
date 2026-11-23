@@ -29,6 +29,14 @@ fn typed_collections() {
     print("vec ${length} ${got} ${last} ${v.len()}");
     v.free();
 
+    let indexed = Vec { items: []int { 5, 6 } };
+    let cursor = indexed.enumerate();
+    for (index, item) in cursor {
+        print("enumerated ${index} ${item}");
+    }
+    const indexed_items = indexed.items;
+    indexed_items.free();
+
     let s = Set { items: []string {} };
     s.insert("alpha");
     s.insert("beta");

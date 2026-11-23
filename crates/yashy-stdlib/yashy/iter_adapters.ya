@@ -1,3 +1,5 @@
+import iter;
+
 // Iteration adapters as plain generic functions (Phase 5 Task 8).
 //
 // Each adapter walks a sequence and calls a visitor in a defined order. The
@@ -144,4 +146,218 @@ pub fn chain[A]([]A left, []A right, fn(A) -> void visit) -> PairSeq[A, A] {
         i = i + 1;
     }
     return PairSeq { left: left, right: right };
+}
+
+// --- Adapters as iterator types ---------------------------------------------
+//
+// The functions above walk a slice and call a visitor. The structs below are
+// cursors over the same slices and implement the compiler-known `Iterator`
+// protocol, so `for` can drive them without a callback. Each cursor borrows its
+// slice; the caller still owns and frees it. A length is stored at construction
+// because a method may not call `len` on a field access directly.
+
+/** Pair an indexed element with its index, without inventing a default. */
+fn pair_index[T](int index, Option[T] value) -> Option[(int, T)] {
+    const Option[(int, T)] missing = None;
+    return switch value {
+        case Some(element) { Some((index, element)) }
+        case None { missing }
+    };
+}
+
+/** Pair two optional elements, stopping at the shorter sequence. */
+fn pair_both[A, B](Option[A] left, Option[B] right) -> Option[(A, B)] {
+    const Option[(A, B)] missing = None;
+    return switch left {
+        case Some(a) {
+            switch right {
+                case Some(b) { Some((a, b)) }
+                case None { missing }
+            }
+        }
+        case None { missing }
+    };
+}
+
+/** An iterator over a slice that yields `(index, element)` from zero. */
+pub struct Enumerate[T] {
+    pub values: []T,
+    at: int,
+    len: int,
+}
+
+/** Wrap `values` in an iterator that yields `(index, element)` from zero. */
+pub fn enumerate_of[T]([]T values) -> Enumerate[T] {
+    return Enumerate { values: values, at: 0, len: values.len() };
+}
+
+impl Iterator for Enumerate[T] {
+    /// The next element, or `None` when the cursor is exhausted.
+    pub fn next(self: *mut Self) -> Option[(int, T)] {
+        const at = self[0].at;
+        if at >= self[0].len {
+            return None;
+        }
+        self[0].at = at + 1;
+        return pair_index(at, self[0].values[at]);
+    }
+}
+
+/** An iterator over the first `count` elements of a slice. */
+pub struct Take[T] {
+    pub values: []T,
+    at: int,
+    len: int,
+}
+
+/** Wrap the first `count` elements of `values` in an iterator. */
+pub fn take_of[T]([]T values, int count) -> Take[T] {
+    let len = count;
+    if len > values.len() { len = values.len(); }
+    if len < 0 { len = 0; }
+    return Take { values: values, at: 0, len: len };
+}
+
+impl Iterator for Take[T] {
+    /// The next element, or `None` when the cursor is exhausted.
+    pub fn next(self: *mut Self) -> Option[T] {
+        const at = self[0].at;
+        if at >= self[0].len {
+            return None;
+        }
+        self[0].at = at + 1;
+        return self[0].values[at];
+    }
+}
+
+/** An iterator that skips the first `count` elements of a slice. */
+pub struct Skip[T] {
+    pub values: []T,
+    at: int,
+    len: int,
+}
+
+/** Wrap `values` in an iterator that skips its first `count` elements. */
+pub fn skip_of[T]([]T values, int count) -> Skip[T] {
+    let at = count;
+    if at < 0 { at = 0; }
+    return Skip { values: values, at: at, len: values.len() };
+}
+
+impl Iterator for Skip[T] {
+    /// The next element, or `None` when the cursor is exhausted.
+    pub fn next(self: *mut Self) -> Option[T] {
+        const len = self[0].len;
+        const at = self[0].at;
+        if at >= len {
+            return None;
+        }
+        self[0].at = at + 1;
+        return self[0].values[at];
+    }
+}
+
+/** An iterator over a slice from the last element back to the first. */
+pub struct Rev[T] {
+    pub values: []T,
+    at: int,
+}
+
+/** Wrap `values` in an iterator that walks it backwards. */
+pub fn rev_of[T]([]T values) -> Rev[T] {
+    return Rev { values: values, at: values.len() };
+}
+
+impl Iterator for Rev[T] {
+    /// The next element, or `None` when the cursor is exhausted.
+    pub fn next(self: *mut Self) -> Option[T] {
+        let at = self[0].at;
+        if at <= 0 {
+            return None;
+        }
+        at = at - 1;
+        self[0].at = at;
+        return self[0].values[at];
+    }
+}
+
+/** An iterator over pairs from two slices, stopping at the shorter one. */
+pub struct Zip[A, B] {
+    pub left: []A,
+    pub right: []B,
+    at: int,
+    len: int,
+}
+
+/** Wrap two slices in an iterator of pairs, stopping at the shorter one. */
+pub fn zip_of[A, B]([]A left, []B right) -> Zip[A, B] {
+    let len = left.len();
+    if right.len() < len { len = right.len(); }
+    return Zip { left: left, right: right, at: 0, len: len };
+}
+
+impl Iterator for Zip[A, B] {
+    /// The next element, or `None` when the cursor is exhausted.
+    pub fn next(self: *mut Self) -> Option[(A, B)] {
+        const at = self[0].at;
+        if at >= self[0].len {
+            return None;
+        }
+        self[0].at = at + 1;
+        return pair_both(self[0].left[at], self[0].right[at]);
+    }
+}
+
+/** An iterator over non-overlapping `(start, end)` ranges of a slice. */
+pub struct Chunks {
+    len: int,
+    size: int,
+    at: int,
+}
+
+/** Describe the chunks of `len` elements in consecutive windows of `size`. */
+pub fn chunks_of(int len, int size) -> Chunks {
+    assert(size > 0);
+    return Chunks { len: len, size: size, at: 0 };
+}
+
+impl Iterator for Chunks {
+    /// The next element, or `None` when the cursor is exhausted.
+    pub fn next(self: *mut Self) -> Option[(int, int)] {
+        const at = self[0].at;
+        if at >= self[0].len {
+            return None;
+        }
+        let end = at + self[0].size;
+        if end > self[0].len { end = self[0].len; }
+        self[0].at = end;
+        return Some((at, end));
+    }
+}
+
+/** An iterator over sliding `(start, end)` windows of a slice. */
+pub struct Windows {
+    len: int,
+    size: int,
+    at: int,
+}
+
+/** Describe the sliding windows of `size` over a slice of `len` elements. */
+pub fn windows_of(int len, int size) -> Windows {
+    assert(size > 0);
+    let at = 0;
+    if len < size { at = len + 1; }
+    return Windows { len: len, size: size, at: at };
+}
+
+impl Iterator for Windows {
+    /// The next element, or `None` when the cursor is exhausted.
+    pub fn next(self: *mut Self) -> Option[(int, int)] {
+        const at = self[0].at;
+        if at + self[0].size > self[0].len {
+            return None;
+        }
+        self[0].at = at + 1;
+        return Some((at, at + self[0].size));
+    }
 }

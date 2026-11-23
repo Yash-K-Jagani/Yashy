@@ -1,5 +1,57 @@
 import iter_adapters;
 
+/// An adapter is a cursor implementing `Iterator`, so `for` drives it and a
+/// tuple pattern binds a pair element without copying the underlying slice.
+fn iterator_types() {
+    // A cursor owns the array header it was built from, so each adapter gets
+    // its own array and the header is released through the cursor afterwards.
+    let indexed = enumerate_of([]int { 10, 20, 30 });
+    for (index, value) in indexed {
+        print("i${index}:${value}");
+    }
+    const indexed_items = indexed.values;
+    indexed_items.free();
+
+    let taken = take_of([]int { 10, 20, 30 }, 2);
+    for value in taken {
+        print("k${value}");
+    }
+    const taken_items = taken.values;
+    taken_items.free();
+
+    let skipped = skip_of([]int { 10, 20, 30 }, 1);
+    for value in skipped {
+        print("p${value}");
+    }
+    const skipped_items = skipped.values;
+    skipped_items.free();
+
+    let reversed = rev_of([]int { 10, 20, 30 });
+    for value in reversed {
+        print("q${value}");
+    }
+    const reversed_items = reversed.values;
+    reversed_items.free();
+
+    let pairs = zip_of([]int { 1, 2, 3 }, []int { 7, 8 });
+    for (left, right) in pairs {
+        print("z${left}:${right}");
+    }
+    const pair_left = pairs.left;
+    const pair_right = pairs.right;
+    pair_left.free();
+    pair_right.free();
+
+    let ranges = chunks_of(3, 2);
+    for (start, end) in ranges {
+        print("c${start}-${end}");
+    }
+    let slides = windows_of(3, 2);
+    for (start, end) in slides {
+        print("w${start}-${end}");
+    }
+}
+
 // Each adapter walks a slice and calls a visitor in a defined order. Printing
 // a line per adapter makes the golden a behavioural proof: a wrong order, a
 // missed element or an out-of-range read fails the pinned bytes. The round-trip
@@ -31,4 +83,6 @@ fn main() {
     let hds = pair2.right;
     hcs.free();
     hds.free();
+
+    iterator_types();
 }

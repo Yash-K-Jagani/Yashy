@@ -19,6 +19,8 @@
 // struct does not own (tutorial 04). So `step.items` names the same array the
 // binding names, and the binding is what frees it.
 
+import iter_adapters;
+
 /** The collection and the element a pop or a peek found, if any. */
 pub struct QPop[T] {
     pub items: []T,
@@ -357,6 +359,11 @@ impl Vec[T] {
         const value = items.pop();
         self[0].items = items;
         return value;
+    }
+
+    /// Wrap the elements in an iterator that yields `(index, element)`.
+    pub fn enumerate(self) -> Enumerate[T] {
+        return enumerate_of(self.items);
     }
 
     /// Release the backing array. The vector must not be used afterwards.
