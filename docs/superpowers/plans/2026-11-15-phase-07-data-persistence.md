@@ -235,7 +235,8 @@ used that way.
   answers `DbCode.Busy` on exhaustion, release, drain and both human and JSON
   snapshots. Acquire timeout, idle timeout, health check and an exit leak
   report need runtime hooks and are carried forward.
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.** `66ccaa8` shipped the migration ledger, pool JSON
+  snapshot, harness and the CLI/runtime hook exceptions.
 
 ### Task 7: The CRUD example and the load test
 
