@@ -344,7 +344,15 @@ accesses are supported; the six-file split is then mechanical.
 | Interface | `cargo test -p yashy-driver --test db_interface` | fake driver, typed rows, null as `Option`, transactions and pool, zero leaks |
 | SQLite | `cargo test -p yashy-driver --test sqlite` | CRUD, bound parameters, unique violation, injection-shaped value, zero leaks |
 | Redis | `cargo test -p yashy-driver --test redis` | GET/SET/DEL/EXPIRE, MULTI/EXEC, pub/sub, reconnect, zero leaks |
-| Query and codecs | `cargo test -p yashy-driver --test db_codes` | three filters, IN, ORDER BY, LIMIT, injection corpus, versioned round-trips, zero leaks |
+| Query and codecs | `cargo test -p yashy-driver --test db_codes` | three filters, IN, ORDER BY, LIMIT, injection corpus, versioned round-trips, checksummed migrations, bounded pool, zero leaks |
+
+**Dated exceptions (2026-11-24): migration CLI and pool hooks.** `migrate.ya`
+keeps a checksummed ledger in memory for a caller to persist; it does not read
+`migrations/*.sql` from disk, record a timestamp in a database metadata table,
+or expose a `yashyc task db.migrate` verb. The bounded pool has no acquire
+timeout, idle timeout, health check or exit-time leak report. Owner: db
+maintainer with the runtime owner. Closes when each named hook exists with a
+pinned program.
 
 **Dated exception (2026-11-24): compiler derives for codecs.** The `Encode`
 and `Decode` derives from Phase 4 and a typed `CodecError` are not wired to the

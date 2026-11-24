@@ -209,18 +209,32 @@ used that way.
 - Modify: `crates/yashy-driver/src/main.rs` (`yashyc task db.migrate` uses the Phase 2 task runner)
 - Test: `packages/db/tests/migrate/`, `packages/db/tests/pool/`
 
-- [ ] **Step 1: Write the failing test.** Apply three migrations, roll one
+- [x] **Step 1: Write the failing test.** Apply three migrations, roll one
   back, re-apply, and detect an edited migration by checksum. Assert a failed
   migration leaves the schema unchanged where the driver supports transactional
   DDL, and reports exactly where it stopped where it does not.
-- [ ] **Step 2: Migrations are files with a checksum.** `migrations/0001_init.sql`
+  *Current:* `crates/yashy-driver/tests/programs/db_migrate.ya` applies three
+  migrations, rolls one back, re-applies it, and pins that an edited migration
+  is refused by both `apply` and `rollback`. The harness reports zero leaks.
+  Transactional-DDL schema rollback needs a real driver, which is the Task 2/3
+  exceptions.
+- [x] **Step 2: Migrations are files with a checksum.** `migrations/0001_init.sql`
   is applied once, recorded with its hash and a timestamp in a metadata table;
   an edited applied migration is a hard error. `up` is required; `down` is
   optional and documented as such.
-- [ ] **Step 3: A pool is bounded and honest.** Max size, acquire timeout,
+  *Current:* `migrate.ya` computes a SHA-256 hex checksum from the migration SQL,
+  keeps a ledger of `name=checksum` lines, applies each migration once and
+  refuses an edited one. `down` is optional: rollback of an unknown name is a
+  no-op. File loading, timestamps and the `yashyc task db.migrate` verb are
+  carried forward.
+- [x] **Step 3: A pool is bounded and honest.** Max size, acquire timeout,
   idle timeout, health check and a `--json` snapshot (open, idle, waiting).
   A leaked connection is reported at exit; a pool exhaustion is a typed error,
   not a hang.
+  *Current:* the pool in `db.ya` has a max size, a non-blocking acquire that
+  answers `DbCode.Busy` on exhaustion, release, drain and both human and JSON
+  snapshots. Acquire timeout, idle timeout, health check and an exit leak
+  report need runtime hooks and are carried forward.
 - [ ] **Step 4: Commit.**
 
 ### Task 7: The CRUD example and the load test

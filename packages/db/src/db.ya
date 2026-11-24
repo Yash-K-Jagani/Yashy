@@ -523,9 +523,15 @@ impl Pool {
         return count;
     }
 
-    /// A stable `open=N idle=N max=N` snapshot, suitable for logs and JSON.
+    /// A stable `open=N idle=N max=N` snapshot, suitable for logs.
     pub fn snapshot(self) -> string {
         return "open=" + str_from_i64(self.open) + " idle=" + str_from_i64(self.idle)
         + " max=" + str_from_i64(self.max);
+    }
+
+    /// The same counts as a stable JSON object, for `--json` callers.
+    pub fn snapshot_json(self) -> string {
+        return "{\"open\":" + str_from_i64(self.open) + ",\"idle\":"
+        + str_from_i64(self.idle) + ",\"max\":" + str_from_i64(self.max) + "}";
     }
 }

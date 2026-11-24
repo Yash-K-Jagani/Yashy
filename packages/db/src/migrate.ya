@@ -1,0 +1,162 @@
+// Checksummed migrations (phase 7, Task 6).
+//
+// The ledger is a string of `name=checksum` lines, one per applied migration.
+// A checksum is SHA-256 of the migration's SQL, hex encoded. Editing an
+// applied migration changes its checksum and is a hard error; a missing
+// migration is applied once. `down` is optional by construction.
+
+import hash;
+
+import string;
+
+import text;
+
+/// A named migration and the checksum of its SQL.
+pub struct Migration {
+    name: string,
+    sql: string,
+    checksum: string,
+}
+
+fn digest(string sql) -> string {
+    const bytes = string.to_bytes(sql);
+    const sum = hash.sha256(bytes);
+    const hex = text.hex_encode(sum);
+    return hex;
+}
+
+/// Build a migration, computing its checksum from the SQL bytes.
+pub fn migration(string name, string sql) -> Migration {
+    return Migration {
+        name: name, sql: sql, checksum: digest(sql)
+    };
+}
+
+/// The applied-migration ledger.
+pub struct Ledger {
+    records: string,
+}
+
+/// An empty ledger for a fresh database.
+pub fn empty() -> Ledger {
+    return Ledger {
+        records: ""
+    };
+}
+
+fn record_name(string line) -> string {
+    const at = line.index_of("=");
+    const mark = switch at {
+        case Some(value) {
+            value
+        }
+        case None {
+            -1
+        }
+    };
+    if mark < 1 {
+        return "";
+    }
+    return line.slice(0, mark);
+}
+
+fn record_sum(string line) -> string {
+    const at = line.index_of("=");
+    const mark = switch at {
+        case Some(value) {
+            value
+        }
+        case None {
+            -1
+        }
+    };
+    if mark < 1 {
+        return "";
+    }
+    return line.slice(mark + 1, line.len());
+}
+
+fn find_record(Ledger ledger, string name) -> string {
+    const records = ledger.records;
+    const lines = records.split("\n");
+    let found = "";
+    for line in lines {
+        if record_name(line) == name {
+            found = line;
+        }
+    }
+    lines.free();
+    return found;
+}
+
+/// Whether a migration with this name has been applied.
+pub fn applied(Ledger ledger, string name) -> bool {
+    const found = find_record(ledger, name);
+    return found.len() > 0;
+}
+
+/// Apply a migration. An applied migration with a different checksum is a hard
+/// error; an unchanged one is a no-op; a new one is recorded once.
+pub fn apply(Ledger ledger, Migration item) -> Result[Ledger, string] {
+    const previous = find_record(ledger, item.name);
+    if previous.len() > 0 {
+        if record_sum(previous) != item.checksum {
+            return Err("migrate: applied migration " + item.name + " was edited");
+        }
+        return Ok(ledger);
+    }
+    let records = ledger.records;
+    if records.len() > 0 {
+        records = records + "\n";
+    }
+    records = records + item.name + "=" + item.checksum;
+    return Ok(Ledger {
+        records: records
+    }
+    );
+}
+
+/// Roll a migration back, removing its record. Rolling back an unapplied name
+/// is a no-op; a name whose checksum changed still refuses to be touched.
+pub fn rollback(Ledger ledger, Migration item) -> Result[Ledger, string] {
+    const previous = find_record(ledger, item.name);
+    if previous.len() == 0 {
+        return Ok(ledger);
+    }
+    if record_sum(previous) != item.checksum {
+        return Err("migrate: applied migration " + item.name + " was edited");
+    }
+    const records = ledger.records;
+    const lines = records.split("\n");
+    let kept = "";
+    for line in lines {
+        if record_name(line) != item.name {
+            if kept.len() > 0 {
+                kept = kept + "\n";
+            }
+            kept = kept + line;
+        }
+    }
+    lines.free();
+    return Ok(Ledger {
+        records: kept
+    }
+    );
+}
+
+/// The number of applied migrations.
+pub fn count(Ledger ledger) -> int {
+    const records = ledger.records;
+    if records.len() == 0 {
+        return 0;
+    }
+    const lines = records.split("\n");
+    const total = lines.len();
+    lines.free();
+    return total;
+}
+
+/// A stable JSON snapshot for logs and the CLI.
+pub fn to_json(Ledger ledger) -> string {
+    return "{\"applied\":" + str_from_i64(count(ledger)) + "}";
+}

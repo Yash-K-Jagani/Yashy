@@ -76,3 +76,14 @@ fn codec_program_round_trips_every_field() {
         "codec-ok",
     );
 }
+
+#[test]
+fn migration_and_pool_program_reports_checksums_and_counts() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    build_and_run(
+        &root,
+        "crates/yashy-driver/tests/programs/db_migrate.ya",
+        "db-migrate",
+        "migrate-ok",
+    );
+}

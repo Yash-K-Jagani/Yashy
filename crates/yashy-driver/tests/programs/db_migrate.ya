@@ -1,0 +1,69 @@
+// Checksummed migrations and a bounded pool snapshot.
+
+import migrate;
+
+import db;
+
+fn main() {
+    const first = migrate.migration("0001_init", "CREATE TABLE item (id INTEGER PRIMARY KEY);");
+    const second = migrate.migration("0002_name", "ALTER TABLE item ADD COLUMN name TEXT;");
+    const third = migrate.migration("0003_index", "CREATE INDEX item_name ON item(name);");
+
+    let ledger = migrate.empty();
+    assert(migrate.count(ledger) == 0);
+    if let Ok(next) = migrate.apply(ledger, first) {
+        ledger = next;
+    } else {
+        panic("migrate: first apply");
+    }
+    if let Ok(next) = migrate.apply(ledger, second) {
+        ledger = next;
+    } else {
+        panic("migrate: second apply");
+    }
+    if let Ok(next) = migrate.apply(ledger, third) {
+        ledger = next;
+    } else {
+        panic("migrate: third apply");
+    }
+    assert(migrate.count(ledger) == 3);
+    assert(migrate.applied(ledger, "0002_name"));
+    assert(migrate.to_json(ledger) == "{\"applied\":3}");
+
+    // Re-applying an unchanged migration is a no-op.
+    if let Ok(next) = migrate.apply(ledger, second) {
+        ledger = next;
+    } else {
+        panic("migrate: reapply");
+    }
+    assert(migrate.count(ledger) == 3);
+
+    // Editing an applied migration is refused.
+    const edited = migrate.migration("0002_name", "ALTER TABLE item ADD COLUMN other TEXT;");
+    assert(migrate.apply(ledger, edited) matches Err(_));
+    assert(migrate.rollback(ledger, edited) matches Err(_));
+
+    if let Ok(next) = migrate.rollback(ledger, second) {
+        ledger = next;
+    } else {
+        panic("migrate: rollback");
+    }
+    assert(migrate.count(ledger) == 2);
+    assert(!migrate.applied(ledger, "0002_name"));
+    if let Ok(next) = migrate.apply(ledger, second) {
+        ledger = next;
+    } else {
+        panic("migrate: re-apply");
+    }
+    assert(migrate.count(ledger) == 3);
+
+    let p = db.bounded(10);
+    p.acquire();
+    p.acquire();
+    assert(p.snapshot() == "open=2 idle=0 max=10");
+    assert(p.snapshot_json() == "{\"open\":2,\"idle\":0,\"max\":10}");
+    p.release();
+    assert(p.drain() == 1);
+
+    print("migrate-ok");
+}
