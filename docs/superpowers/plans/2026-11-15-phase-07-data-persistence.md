@@ -102,7 +102,8 @@ used that way.
   and mapping results into the shared `db.Value` model are separate rows in
   `docs/gates.md`; the checker cannot name a cross-module type inside a generic
   argument.
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.** `eabf2c6` shipped the pinned amalgamation, the shim,
+  the Yashy API, the CRUD harness and the four carried-forward rows.
 
 ### Task 3: PostgreSQL and MySQL
 
