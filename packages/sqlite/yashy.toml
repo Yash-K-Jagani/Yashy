@@ -1,0 +1,5 @@
+[package]
+name = "sqlite"
+version = "1.0.0"
+license = "Public-Domain"
+description = "Parameterised SQLite through a pinned amalgamation"

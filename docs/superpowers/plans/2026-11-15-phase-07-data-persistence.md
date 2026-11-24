@@ -81,14 +81,27 @@ used that way.
 - Create: `packages/sqlite/` (wraps a pinned SQLite amalgamation)
 - Test: `packages/sqlite/tests/`, `crates/yashy-driver/tests/programs/sqlite/`
 
-- [ ] **Step 1: Write the failing test.** Open a file and an in-memory database;
+- [x] **Step 1: Write the failing test.** Open a file and an in-memory database;
   create, insert, select, update, delete; a prepared statement reused with
   different parameters; a constraint violation returns a typed error with the
   constraint name; a busy database respects the busy timeout.
-- [ ] **Step 2: Prepared by default.** Every parameterised query is a prepared
+  *Current:* `packages/sqlite/tests/crud.ya` and
+  `crates/yashy-driver/tests/sqlite.rs` pin create/insert/select/update/delete
+  on an in-memory database, bound text/int/NULL parameters, a unique violation
+  that names the constraint in its error, an injection-shaped value that stays
+  data, and a zero leak report. A file-backed database and a contended busy
+  timeout need a second process and are carried forward.
+- [x] **Step 2: Prepared by default.** Every parameterised query is a prepared
   statement; a statement is cached per connection; a query with an interpolated
   string is impossible through the API. WAL mode is opt-in with a documented
   trade-off.
+  *Current:* the only parameterised path is `prepare` + `bind_*` + `step`; no
+  API concatenates a value into SQL. SQLite 3.54.1 is vendored by exact hash in
+  `packages/sqlite/VENDOR.md` and `NATIVE.lock`.
+  *Carried forward (2026-11-24):* per-connection statement caching, WAL mode,
+  and mapping results into the shared `db.Value` model are separate rows in
+  `docs/gates.md`; the checker cannot name a cross-module type inside a generic
+  argument.
 - [ ] **Step 3: Commit.**
 
 ### Task 3: PostgreSQL and MySQL

@@ -1,0 +1,148 @@
+// SQLite through a pinned amalgamation (phase 7, Task 2).
+//
+// The only C written for this package is a thin shim that moves bytes between
+// Yashy strings and the SQLite C API; the SQL engine itself is the vendored,
+// pinned sqlite3.c. A program never sees a raw pointer: it gets an integer
+// handle and strings, and every failure is a status plus a message.
+
+extern "C" link "../native/yashy_sqlite_shim.c" {
+    unsafe fn c_open(string path) -> int link_name "yashy_sqlite_open";
+    unsafe fn c_close(int db) link_name "yashy_sqlite_close";
+    unsafe fn c_exec(int db, string sql) -> int link_name "yashy_sqlite_exec";
+    unsafe fn c_prepare(int db, string sql) -> int link_name "yashy_sqlite_prepare";
+    unsafe fn c_bind_text(int stmt, int index, string value) -> int link_name "yashy_sqlite_bind_text";
+    unsafe fn c_bind_int(int stmt, int index, int value) -> int link_name "yashy_sqlite_bind_int";
+    unsafe fn c_bind_null(int stmt, int index) -> int link_name "yashy_sqlite_bind_null";
+    unsafe fn c_step(int stmt) -> int link_name "yashy_sqlite_step";
+    unsafe fn c_column_count(int stmt) -> int link_name "yashy_sqlite_column_count";
+    unsafe fn c_column_type(int stmt, int column) -> int link_name "yashy_sqlite_column_type";
+    unsafe fn c_column_text(int stmt, int column) -> string link_name "yashy_sqlite_column_text";
+    unsafe fn c_column_int(int stmt, int column) -> int link_name "yashy_sqlite_column_int";
+    unsafe fn c_finalize(int stmt) link_name "yashy_sqlite_finalize";
+    unsafe fn c_error_message() -> string link_name "yashy_sqlite_error_message";
+    unsafe fn c_busy_timeout(int db, int millis) link_name "yashy_sqlite_busy_timeout";
+    unsafe fn c_changes(int db) -> int link_name "yashy_sqlite_changes";
+    unsafe fn c_last_insert_rowid(int db) -> int link_name "yashy_sqlite_last_insert_rowid";
+    unsafe fn c_libversion() -> string link_name "yashy_sqlite_libversion";
+}
+
+// sqlite3.c is compiled and linked as one more C input. The declaration gives
+// the link clause a symbol; the shim turns its C string into a Yashy string.
+extern "C" link "../native/sqlite3.c" {
+    unsafe fn sqlite3_sourceid() -> int;
+}
+
+/// The SQLite library version, as reported by the amalgamation itself.
+pub fn version() -> string {
+    return c_libversion();
+}
+
+/// Open a database by path; `":memory:"` is an in-memory database. A failure
+/// is an error message, never a null handle.
+pub fn open(string path) -> Result[int, string] {
+    const int handle = c_open(path);
+    if handle == 0 {
+        return Err(c_error_message());
+    }
+    return Ok(handle);
+}
+
+/// Close a database. Handles are integers, so no library pointer survives.
+pub fn close(int db) {
+    c_close(db);
+}
+
+/// Execute a statement that returns no rows.
+pub fn exec(int db, string sql) -> Result[int, string] {
+    if c_exec(db, sql) != 0 {
+        return Err(c_error_message());
+    }
+    return Ok(c_changes(db));
+}
+
+/// Set how long a busy database is waited on before a failure.
+pub fn busy_timeout(int db, int millis) {
+    c_busy_timeout(db, millis);
+}
+
+/// A prepared statement: the SQL is compiled once and bound parameters are
+/// values, never text spliced into the statement.
+pub struct Statement {
+    id: int,
+    db: int,
+}
+
+/// Prepare a statement.
+pub fn prepare(int db, string sql) -> Result[Statement, string] {
+    const int id = c_prepare(db, sql);
+    if id == 0 {
+        return Err(c_error_message());
+    }
+    return Ok(Statement {
+        id: id, db: db
+    }
+    );
+}
+
+/// Bind a text parameter, one-based like SQLite.
+pub fn bind_text(Statement statement, int index, string value) -> Result[int, string] {
+    if c_bind_text(statement.id, index, value) != 0 {
+        return Err(c_error_message());
+    }
+    return Ok(index);
+}
+
+/// Bind an integer parameter, one-based like SQLite.
+pub fn bind_int(Statement statement, int index, int value) -> Result[int, string] {
+    if c_bind_int(statement.id, index, value) != 0 {
+        return Err(c_error_message());
+    }
+    return Ok(index);
+}
+
+/// Bind an explicit NULL, so a missing value is never a sentinel.
+pub fn bind_null(Statement statement, int index) -> Result[int, string] {
+    if c_bind_null(statement.id, index) != 0 {
+        return Err(c_error_message());
+    }
+    return Ok(index);
+}
+
+/// Advance the statement: `true` for a row, `false` when done.
+pub fn step(Statement statement) -> Result[bool, string] {
+    const int status = c_step(statement.id);
+    if status < 0 {
+        return Err(c_error_message());
+    }
+    return Ok(status == 1);
+}
+
+/// The number of columns in the current row.
+pub fn column_count(Statement statement) -> int {
+    return c_column_count(statement.id);
+}
+
+/// The type tag of one column: 1 int, 2 float, 3 text, 4 blob, 5 null.
+pub fn column_type(Statement statement, int column) -> int {
+    return c_column_type(statement.id, column);
+}
+
+/// One column as text. Null is the empty string and `column_type` says so.
+pub fn column_text(Statement statement, int column) -> string {
+    return c_column_text(statement.id, column);
+}
+
+/// One column as an integer.
+pub fn column_int(Statement statement, int column) -> int {
+    return c_column_int(statement.id, column);
+}
+
+/// Finalize a statement, releasing its prepared state.
+pub fn finalize(Statement statement) {
+    c_finalize(statement.id);
+}
+
+/// The row id of the most recent insert on a connection.
+pub fn last_insert_rowid(int db) -> int {
+    return c_last_insert_rowid(db);
+}

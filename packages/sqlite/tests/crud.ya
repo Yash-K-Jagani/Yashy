@@ -1,0 +1,96 @@
+// SQLite CRUD through the pinned amalgamation.
+// Runs entirely in memory, so no fixture file or Docker is needed.
+
+import sqlite;
+
+fn main() {
+    const library_version = sqlite.version();
+    assert(library_version.starts_with("3."));
+    const opened = sqlite.open(":memory:");
+    let int db = 0;
+    if let Ok(handle) = opened {
+        db = handle;
+    } else {
+        panic("sqlite: could not open the in-memory database");
+    }
+    sqlite.busy_timeout(db, 1000);
+
+    assert(sqlite.exec(db, "CREATE TABLE item (id INTEGER PRIMARY KEY, name TEXT UNIQUE, count INTEGER)").matches (Ok(_)));
+    assert(sqlite.exec(db, "INSERT INTO item (name, count) VALUES ('tea', 3)").matches (Ok(_)));
+    assert(sqlite.exec(db, "INSERT INTO item (name, count) VALUES ('coffee', 5)").matches (Ok(_)));
+
+    const insertion = sqlite.prepare(db, "INSERT INTO item (name, count) VALUES (?, ?)");
+    if let Ok(stmt) = insertion {
+        assert(sqlite.bind_text(stmt, 1, "juice").matches (Ok(_)));
+        assert(sqlite.bind_int(stmt, 2, 7).matches (Ok(_)));
+        assert(sqlite.step(stmt) matches Ok(_));
+        sqlite.finalize(stmt);
+    } else {
+        panic("sqlite: could not prepare an insert");
+    }
+    assert(sqlite.last_insert_rowid(db) == 3);
+
+    const lookup = sqlite.prepare(db, "SELECT name, count FROM item WHERE name = ?");
+    if let Ok(stmt) = lookup {
+        assert(sqlite.bind_text(stmt, 1, "tea").matches (Ok(_)));
+        const first = sqlite.step(stmt);
+        assert(first matches Ok(true));
+        assert(sqlite.column_count(stmt) == 2);
+        const name = sqlite.column_text(stmt, 0);
+        assert(name == "tea");
+        assert(sqlite.column_int(stmt, 1) == 3);
+        const rest = sqlite.step(stmt);
+        assert(rest matches Ok(false));
+        sqlite.finalize(stmt);
+    } else {
+        panic("sqlite: could not prepare a select");
+    }
+
+    const update = sqlite.prepare(db, "UPDATE item SET count = ? WHERE name = ?");
+    if let Ok(stmt) = update {
+        assert(sqlite.bind_int(stmt, 1, 9).matches (Ok(_)));
+        assert(sqlite.bind_text(stmt, 2, "tea").matches (Ok(_)));
+        assert(sqlite.step(stmt) matches Ok(_));
+        sqlite.finalize(stmt);
+    } else {
+        panic("sqlite: could not prepare an update");
+    }
+
+    const deletion = sqlite.exec(db, "DELETE FROM item WHERE name = 'coffee'");
+    assert(deletion matches Ok(1));
+
+    // A value that looks like SQL stays data: no second row is inserted and
+    // the only match is the literal name.
+    const injection = sqlite.prepare(db, "SELECT count FROM item WHERE name = ?");
+    if let Ok(stmt) = injection {
+        assert(sqlite.bind_text(stmt, 1, "tea' OR '1'='1").matches (Ok(_)));
+        assert(sqlite.step(stmt) matches Ok(false));
+        sqlite.finalize(stmt);
+    } else {
+        panic("sqlite: could not prepare the injection probe");
+    }
+
+    // A unique violation is a typed error with the constraint in the message.
+    const duplicate = sqlite.exec(db, "INSERT INTO item (name, count) VALUES ('tea', 1)");
+    switch duplicate {
+        case Err(message) {
+            assert(message.contains("UNIQUE"));
+        }
+        case Ok(_) {
+            panic("sqlite: the unique constraint was not enforced");
+        }
+    }
+
+    const count = sqlite.prepare(db, "SELECT count FROM item WHERE name = ?");
+    if let Ok(stmt) = count {
+        assert(sqlite.bind_text(stmt, 1, "tea").matches (Ok(_)));
+        assert(sqlite.step(stmt) matches Ok(true));
+        assert(sqlite.column_int(stmt, 0) == 9);
+        sqlite.finalize(stmt);
+    } else {
+        panic("sqlite: could not prepare the final select");
+    }
+
+    sqlite.close(db);
+    print("sqlite-ok");
+}

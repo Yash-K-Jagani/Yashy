@@ -342,6 +342,17 @@ accesses are supported; the six-file split is then mechanical.
 | Gate | Command | Passes when |
 |---|---|---|
 | Interface | `cargo test -p yashy-driver --test db_interface` | fake driver, typed rows, null as `Option`, transactions and pool, zero leaks |
+| SQLite | `cargo test -p yashy-driver --test sqlite` | CRUD, bound parameters, unique violation, injection-shaped value, zero leaks |
+
+**Dated exceptions (2026-11-24): SQLite.** The vendored amalgamation is pinned
+and the in-memory CRUD matrix is green. Four rows remain owned:
+
+| Row | Reason | Owner | Closes when |
+|---|---|---|---|
+| File-backed and busy-timeout fixture | the harness uses `:memory:`; contention needs a second process holding a lock | db package maintainer | a file fixture opens two handles and the second respects the busy timeout |
+| Per-connection statement cache | each `prepare` compiles a fresh statement; no cache keyed by SQL exists | db package maintainer | the connection owns a bounded SQL→statement cache and a test reuses one prepared statement with different bindings |
+| WAL mode opt-in | no pragma API is exposed | db package maintainer | a documented `journal_mode` option selects WAL and a test verifies the mode |
+| Shared `db.Value` results | the checker cannot resolve `db.Value` inside a generic argument from another module, and `Row` fields stay private across modules | language owner with the db maintainer | the qualified-type gap in the one-module exception closes, then sqlite maps its column tags into `db.Value` |
 
 ### Phase 7 — patterns and named arguments
 
