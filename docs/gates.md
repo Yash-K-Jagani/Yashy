@@ -288,6 +288,15 @@ rather than claimed:
 | Negative UTF-8 frame fixture | the same byte-construction gap prevents an invalid UTF-8 payload from being written from a test; `valid_text` has only its positive fixture | HTTP package maintainer | the raw byte constructor exists and overlong, surrogate and stray-continuation payloads are pinned |
 | Live SSE reconnect | the harness pins `Last-Event-ID` construction and event parsing separately, not a reconnect against a real stream | HTTP package maintainer | a loopback fixture drops the stream, reconnects with the header and resumes at the last id |
 
+**Dated exception (2026-11-24): HTTPS load test.** The 50-client / 1,000-request
+row needs both the TLS fixture above and a `serve` shutdown verb: without one,
+the server thread outlives the test process. Owner: HTTP package maintainer
+with the runtime maintainer. Closes when a pinned TLS fixture and a bounded
+`serve` run 50 concurrent clients for 1,000 keep-alive requests with zero
+failures, a recorded p99 and a zero leak report. The deterministic parser
+corpus and the loopback single-request client are green today; HTTP/2 frames
+in that corpus are carried forward with ALPN.
+
 **Dated exception (2026-11-23): TLS.** The TLS-negative fixture and the
 vetted-library wrapper cannot be built with the current `link`-input
 convention: mbedTLS needs a C build system and include paths, and the host

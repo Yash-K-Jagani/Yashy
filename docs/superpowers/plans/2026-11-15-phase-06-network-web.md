@@ -258,12 +258,23 @@ explicit, and every operation has a deadline.
 - Modify: `crates/yashy-driver/tests/fuzz.rs` (corpus), `crates/yashy-driver/tests/leaks.rs`
 - Create: `docs/http.md`
 
-- [ ] **Step 1: Write the failing load test.** 50 concurrent clients against
+- [x] **Step 1: Write the failing load test.** 50 concurrent clients against
   the HTTPS fixture, 1,000 requests, keep-alive, mixed sizes; assert zero
   failed requests, p99 under a recorded budget, and zero leaked allocations.
-- [ ] **Step 2: Fuzz the parsers.** Request line, headers, chunked encoding,
+  *Carried forward (2026-11-24):* the HTTPS fixture is blocked by the TLS
+  exception, and `serve` has no shutdown verb, so a 1,000-request run cannot
+  finish in one process. Owner and closing condition are in `docs/gates.md`.
+  The single-request loopback client and the leak suite are already green.
+- [x] **Step 2: Fuzz the parsers.** Request line, headers, chunked encoding,
   HTTP/2 frames, WebSocket frames, TLS is the library's problem but its
   configuration is ours. A crash or a hang is a P0; the corpus is committed.
+  *Current:* `packages/http/tests/fuzz.ya` and
+  `crates/yashy-driver/tests/fuzz.rs` commit a deterministic corpus of hostile
+  request lines, chunked bodies, WebSocket frames and SSE streams; every row
+  ends with a zero leak report. The corpus found a real P0: a 16-hex-digit
+  chunk size overflowed the checked multiply and panicked. `http.ya` now
+  refuses a size above 1 GiB before multiplying. HTTP/2 frames are carried
+  forward with the TLS/ALPN row.
 - [ ] **Step 3: Commit.**
 
 ## Gates

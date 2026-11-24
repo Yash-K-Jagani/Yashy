@@ -1,0 +1,116 @@
+// A bounded, deterministic corpus of hostile wire input for the HTTP parsers.
+// Every row must either answer a typed error or a safe value; a crash, a hang
+// or an unbounded allocation is a failure. The corpus is committed so a CI
+// run repeats the same bytes.
+
+import http;
+
+import router;
+
+import sse;
+
+import ws;
+
+fn request_name(Result[Request, HttpError] parsed) -> string {
+    return switch parsed {
+        case Ok(request) {
+            request.target
+        }
+        case Err(_) {
+            "error"
+        }
+    };
+}
+
+fn frame_name(Result[Frame, WsError] parsed) -> string {
+    return switch parsed {
+        case Ok(frame) {
+            frame.payload
+        }
+        case Err(error) {
+            switch error {
+                case Malformed {
+                    "malformed"
+                }
+                case TooBig {
+                    "too-big"
+                }
+                case Unsupported {
+                    "unsupported"
+                }
+            }
+        }
+    };
+}
+
+fn chunked_name(Chunked decoded) -> string {
+    if !decoded.valid {
+        return "invalid";
+    }
+    if !decoded.complete {
+        return "partial";
+    }
+    return decoded.body;
+}
+
+fn main() {
+    let requests = []string {
+        "", "\r\n", "GET\r\n\r\n", "GET /\r\n\r\n",
+        "GET / HTTP/9.9\r\n\r\n", "BAD / HTTP/1.1\r\nX: y\r\n\r\n",
+        "GET / HTTP/1.1\r\nNoColon\r\n\r\n",
+        "GET / HTTP/1.1\r\nContent-Length: nope\r\n\r\n",
+        "GET / HTTP/1.1\r\nContent-Length: 99999999999\r\n\r\n",
+        "GET /%00?x=%FF HTTP/1.1\r\nHost: a\r\n\r\n",
+        "GET / HTTP/1.1\r\n" + "X: y\r\n" + "Z: w\r\n\r\n",
+    };
+    for raw in requests {
+        const answer = http.parse_request(raw);
+        const target = request_name(answer);
+        assert(target.len() >= 0);
+    }
+    requests.free();
+
+    // A maximum-width hex length used to overflow the checked multiply and
+    // panic in the parser. It now answers an invalid chunk, not a fault.
+    const huge = http.decode_chunked("FFFFFFFFFFFFFFFF\r\n");
+    assert(!huge.valid);
+
+    let chunks = []string {
+        "", "0\r\n\r\n", "z\r\nhi\r\n0\r\n\r\n", "-1\r\n\r\n",
+        "1\r\na\r\n", "1\r\na\r\n0\r\n\r\n", "FFFFFFFFFFFFFFFF\r\n",
+        "1\r\nab\r\n0\r\n\r\n", "1\n\na\r\n0\r\n\r\n",
+    };
+    for raw in chunks {
+        const decoded = http.decode_chunked(raw);
+        const text = chunked_name(decoded);
+        assert(text.len() >= 0);
+    }
+    chunks.free();
+
+    let frames = []string {
+        "", "a", "\r", "\r\n", "\r\nabcdefghij", "\t", "\r\n\r\n",
+    };
+    for raw in frames {
+        const text = frame_name(ws.decode_limited(raw, 64, 64));
+        assert(text.len() >= 0);
+    }
+    frames.free();
+    assert(frame_name(ws.decode_limited("a\r\n", 2, 2)) == "too-big");
+    assert(frame_name(ws.decode_limited("\r\n", 2, 1)) == "malformed");
+
+    let streams = []string {
+        "", "\n", "data:\n\n", "id: 1\nevent: x\ndata: y\n\n",
+        ": comment\r\nid: 7\r\ndata: a\r\ndata: b\r\n\r\nnext",
+        "unknown: field\ndata no colon\n\n",
+    };
+    for raw in streams {
+        const event = sse.parse(raw);
+        const rest = event.rest;
+        assert(rest.len() >= 0);
+    }
+    streams.free();
+
+    assert(router.path_matches("/:id/x", "/7/x"));
+    assert(!router.path_matches("/:id/x", "/7/y/z"));
+    print("fuzz-ok");
+}

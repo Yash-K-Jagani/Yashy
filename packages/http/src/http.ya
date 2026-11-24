@@ -217,6 +217,11 @@ fn parse_chunk_size(string text) -> int {
         if digit < 0 {
             return -1;
         }
+        // A hostile length must be refused, not multiplied past i64. A chunk
+        // above 1 GiB is already far beyond the server's 10 MiB body cap.
+        if size > 67108863 {
+            return -1;
+        }
         size = size * 16 + digit;
         index = index + 1;
     }
