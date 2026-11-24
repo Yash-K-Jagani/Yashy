@@ -247,7 +247,9 @@ explicit, and every operation has a deadline.
   echoes its code. The negative UTF-8 fixture and high-bit bytes need a raw
   byte-string constructor that Yashy does not have yet, so those rows are
   carried forward.
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.** `fd54ed5` shipped the framing and SSE modules, their
+  socket-free harness test and the four carried-forward rows in
+  `docs/gates.md`.
 
 ### Task 6: Fuzz, load and leak gates
 
