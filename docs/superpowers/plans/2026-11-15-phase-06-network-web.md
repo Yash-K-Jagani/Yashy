@@ -275,7 +275,8 @@ explicit, and every operation has a deadline.
   chunk size overflowed the checked multiply and panicked. `http.ya` now
   refuses a size above 1 GiB before multiplying. HTTP/2 frames are carried
   forward with the TLS/ALPN row.
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.** `4eee387` shipped the corpus, the chunk-size overflow
+  fix, `docs/http.md` and the carried-forward load-test row.
 
 ## Gates
 
