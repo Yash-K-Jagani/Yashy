@@ -18,9 +18,9 @@ pub enum LimitKind {
 
 /// A breach: the cap, the observed value and the limit that was exceeded.
 pub struct LimitError {
-    kind: LimitKind,
-    limit: int,
-    observed: int,
+    pub kind: LimitKind,
+    pub limit: int,
+    pub observed: int,
 }
 
 /// All the caps for one request.
@@ -51,12 +51,12 @@ pub fn strict() -> Limits {
 /// unbounded value; a production caller should refuse one with this check.
 pub fn bounded(Limits limits) -> bool {
     return limits.max_header_bytes > 0
-        && limits.max_body_bytes > 0
-        && limits.max_redirects >= 0
-        && limits.connect_deadline_ms > 0
-        && limits.read_deadline_ms > 0
-        && limits.write_deadline_ms > 0
-        && limits.total_deadline_ms > 0;
+    && limits.max_body_bytes > 0
+    && limits.max_redirects >= 0
+    && limits.connect_deadline_ms > 0
+    && limits.read_deadline_ms > 0
+    && limits.write_deadline_ms > 0
+    && limits.total_deadline_ms > 0;
 }
 
 /// Check one observed value against one cap. A non-positive cap is unbounded
@@ -64,41 +64,72 @@ pub fn bounded(Limits limits) -> bool {
 pub fn check(Limits limits, LimitKind kind, int observed) -> Option[LimitError] {
     const cap = value(limits, kind);
     if cap > 0 && observed > cap {
-        return Some(LimitError { kind: kind, limit: cap, observed: observed });
+        return Some(LimitError {
+            kind: kind, limit: cap, observed: observed
+        }
+        );
     }
     return None;
 }
 
 /// The configured value of one limit.
 pub fn value(Limits limits, LimitKind kind) -> int {
-    switch kind {
-        case LimitKind.HeaderBytes { return limits.max_header_bytes; }
-        case LimitKind.BodyBytes { return limits.max_body_bytes; }
-        case LimitKind.Redirects { return limits.max_redirects; }
-        case LimitKind.ConnectDeadline { return limits.connect_deadline_ms; }
-        case LimitKind.ReadDeadline { return limits.read_deadline_ms; }
-        case LimitKind.WriteDeadline { return limits.write_deadline_ms; }
-        case LimitKind.TotalDeadline { return limits.total_deadline_ms; }
+    return switch kind {
+        case LimitKind.HeaderBytes {
+            limits.max_header_bytes
+        }
+        case LimitKind.BodyBytes {
+            limits.max_body_bytes
+        }
+        case LimitKind.Redirects {
+            limits.max_redirects
+        }
+        case LimitKind.ConnectDeadline {
+            limits.connect_deadline_ms
+        }
+        case LimitKind.ReadDeadline {
+            limits.read_deadline_ms
+        }
+        case LimitKind.WriteDeadline {
+            limits.write_deadline_ms
+        }
+        case LimitKind.TotalDeadline {
+            limits.total_deadline_ms
+        }
     };
 }
 
 /// A stable name for a limit, for logs and JSON reports.
 pub fn name(LimitKind kind) -> string {
-    switch kind {
-        case LimitKind.HeaderBytes { return "max_header_bytes"; }
-        case LimitKind.BodyBytes { return "max_body_bytes"; }
-        case LimitKind.Redirects { return "max_redirects"; }
-        case LimitKind.ConnectDeadline { return "connect_deadline_ms"; }
-        case LimitKind.ReadDeadline { return "read_deadline_ms"; }
-        case LimitKind.WriteDeadline { return "write_deadline_ms"; }
-        case LimitKind.TotalDeadline { return "total_deadline_ms"; }
+    return switch kind {
+        case LimitKind.HeaderBytes {
+            "max_header_bytes"
+        }
+        case LimitKind.BodyBytes {
+            "max_body_bytes"
+        }
+        case LimitKind.Redirects {
+            "max_redirects"
+        }
+        case LimitKind.ConnectDeadline {
+            "connect_deadline_ms"
+        }
+        case LimitKind.ReadDeadline {
+            "read_deadline_ms"
+        }
+        case LimitKind.WriteDeadline {
+            "write_deadline_ms"
+        }
+        case LimitKind.TotalDeadline {
+            "total_deadline_ms"
+        }
     };
 }
 
 /// Render a breach with the limit, the cap and the observed value.
 pub fn describe(LimitError error) -> string {
     return name(error.kind) + " exceeded: " + str_from_i64(error.observed)
-        + " > " + str_from_i64(error.limit);
+    + " > " + str_from_i64(error.limit);
 }
 
 /// Check a header block before parsing it. `check` with `HeaderBytes` is the

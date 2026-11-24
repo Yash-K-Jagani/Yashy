@@ -11,29 +11,38 @@ fn padded(int count) -> string {
     return text;
 }
 
+fn named_breach(LimitError error) -> bool {
+    const text = limits.describe(error);
+    return limits.name(error.kind) == "max_header_bytes"
+    && text.contains("9000 > 8192")
+    && error.observed == 9000
+    && error.limit == 8192;
+}
+
 fn main() {
     const config = limits.strict();
     assert(limits.bounded(config));
     assert(limits.headers(config, "Host: example.test\r\n") matches None);
     assert(limits.body(config, 1048576) matches None);
-    assert(limits.check(config, limits.LimitKind.Redirects, 3) matches None);
+    assert(limits.check(config, LimitKind.Redirects, 3) matches None);
 
     const big_headers = limits.headers(config, padded(9000));
-    switch big_headers {
-        case Some(error) {
-            assert(limits.name(error.kind) == "max_header_bytes");
-            assert(limits.describe(error).contains("9000 > 8192"));
-            assert(error.observed == 9000);
-            assert(error.limit == 8192);
+    assert(big_headers matches Some(_));
+    const error = switch big_headers {
+        case Some(value) {
+            value
         }
-        case None { assert(false); }
-    }
+        case None {
+            panic("limits: a 9000-byte header block must breach an 8192 cap")
+        }
+    };
+    assert(named_breach(error));
     assert(limits.body(config, 2000000) matches Some(_));
-    assert(limits.check(config, limits.LimitKind.Redirects, 4) matches Some(_));
-    assert(limits.check(config, limits.LimitKind.ConnectDeadline, 5001) matches Some(_));
-    assert(limits.check(config, limits.LimitKind.ReadDeadline, 30001) matches Some(_));
-    assert(limits.check(config, limits.LimitKind.WriteDeadline, 30001) matches Some(_));
-    assert(limits.check(config, limits.LimitKind.TotalDeadline, 60001) matches Some(_));
+    assert(limits.check(config, LimitKind.Redirects, 4) matches Some(_));
+    assert(limits.check(config, LimitKind.ConnectDeadline, 5001) matches Some(_));
+    assert(limits.check(config, LimitKind.ReadDeadline, 30001) matches Some(_));
+    assert(limits.check(config, LimitKind.WriteDeadline, 30001) matches Some(_));
+    assert(limits.check(config, LimitKind.TotalDeadline, 60001) matches Some(_));
 
     const loose = limits.Limits {
         max_header_bytes: 0,

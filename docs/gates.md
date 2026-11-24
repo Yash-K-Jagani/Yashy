@@ -241,11 +241,16 @@ follow-up, not claimed as complete.
 | Sockets and deadlines | `cargo test -p yashy-driver --test net_package` and `-p yashy-runtime --test net` | loopback TCP/UDP/Unix echo, typed causes, expired deadline and cancellation, zero leaks |
 | No regression | `cargo test --workspace --no-fail-fast` | all targets green |
 
-**Dated exception (2026-11-23): HTTP client.** The loopback GET/POST and
-chunked framing test passes, but the client retains three string headers over
-two requests, and the redirect-loop/gzip/body-limit/deadline/pool rows are not
-yet fixtures. Owner: HTTP package maintainer. Closes when the client leak is
-zero and every named row has a pinned program.
+**Resolved (2026-11-24): HTTP client leak.** The leak was in the compiler, not
+the package: `?` on an aggregate payload and an early `return` from `if let`
+each skipped a release. Both are fixed with regression programs in
+`crates/yashy-driver/tests/leaks.rs`, and the loopback GET/POST/limited test
+now reports zero live allocations. `post` also releases the header array moved
+into it, and its test program no longer relies on the caller freeing it.
+
+**Dated exception (2026-11-24): HTTP client fixtures.** The redirect-loop,
+gzip, oversized-body, deadline and pool-reuse rows are not yet fixtures. Owner:
+HTTP package maintainer. Closes when every named row has a pinned program.
 
 **Dated exception (2026-11-23): TLS.** The TLS-negative fixture and the
 vetted-library wrapper cannot be built with the current `link`-input

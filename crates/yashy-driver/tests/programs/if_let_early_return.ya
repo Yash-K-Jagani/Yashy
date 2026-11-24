@@ -1,0 +1,38 @@
+// An `if let` subject is released on every path out, including the `return`
+// inside the then branch. Before the fix only the merge point released it, so
+// an early return left the subject's string live.
+fn source() -> Result[Option[string], int] {
+    const text = "hi" + "!";
+    const Option[string] some = Some(text);
+    return Ok(some);
+}
+
+fn read_or() -> Result[Option[string], int] {
+    if let Ok(value) = source() {
+        return Ok(value);
+    }
+    return Err(1);
+}
+
+fn show(Result[Option[string], int] answer) -> string {
+    return switch answer {
+        case Ok(value) {
+            switch value {
+                case Some(text) {
+                    text
+                }
+                case None {
+                    "none"
+                }
+            }
+        }
+        case Err(_) {
+            "err"
+        }
+    };
+}
+
+fn main() {
+    print(show(read_or()));
+    print(show(read_or()));
+}

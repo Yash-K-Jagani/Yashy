@@ -305,6 +305,44 @@ fn a_result_of_structs_keeps_every_string_alive() {
 }
 
 #[test]
+fn a_failing_question_mark_releases_every_enclosing_scope() {
+    // `try_scope_release.ya` binds a struct of strings and then propagates a
+    // failure with `?`. The early exit leaves the block, so the binding's
+    // string must be released on the way out; a bare `ret` leaked it.
+    let output = build_and_run("try_scope_release");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout, "-7\n", "the failure code is printed:\n{stdout}");
+    assert_no_leaks("try_scope_release", &output);
+}
+
+#[test]
+fn a_failing_question_mark_releases_an_aggregate_payload() {
+    // `try_payload_release.ya` propagates an `Option[string]` through `?`,
+    // then returns the inner string. The early exit used to retain a second
+    // reference to it that nothing released, one per call.
+    let output = build_and_run("try_payload_release");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
+        stdout, "ab\nab\n",
+        "both reads must return the payload:\n{stdout}"
+    );
+    assert_no_leaks("try_payload_release", &output);
+}
+
+#[test]
+fn an_if_let_early_return_releases_the_subject() {
+    // `if_let_early_return.ya` returns from inside `if let`, skipping the
+    // merge point where the subject used to be released.
+    let output = build_and_run("if_let_early_return");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
+        stdout, "hi!\nhi!\n",
+        "both reads must return the payload:\n{stdout}"
+    );
+    assert_no_leaks("if_let_early_return", &output);
+}
+
+#[test]
 fn a_string_slice_releases_every_element() {
     // `string_slices_heap.ya` pushes one hundred freshly built strings. The
     // slice owns a reference to each, so `free_slice` must release all hundred

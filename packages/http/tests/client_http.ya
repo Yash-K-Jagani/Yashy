@@ -4,16 +4,24 @@ import client;
 
 fn show(Result[Response, HttpError] answer) -> string {
     return switch answer {
-        case Ok(response) { "${response.status}:${response.body}" }
-        case Err(_) { "error" }
+        case Ok(response) {
+            "${response.status}:${response.body}"
+        }
+        case Err(_) {
+            "error"
+        }
     };
 }
 
 fn main() {
     const arguments = args();
     const port = switch arguments[0] {
-        case Some(value) { value }
-        case None { "0" }
+        case Some(value) {
+            value
+        }
+        case None {
+            "0"
+        }
     };
     defer {
         arguments.free();
@@ -22,5 +30,14 @@ fn main() {
     let headers = []string {};
     headers.push("Content-Type: text/plain");
     print("post ${show(client.post("http://127.0.0.1:${port}/echo", "posted", headers))}");
+    const caps = Limits {
+        max_header_bytes: 8192,
+        max_body_bytes: 1048576,
+        max_redirects: 3,
+        connect_deadline_ms: 5000,
+        read_deadline_ms: 30000,
+        write_deadline_ms: 30000,
+        total_deadline_ms: 60000,
+    };
+    print("limited ${show(client.get_limited("http://127.0.0.1:${port}/hello", caps))}");
 }
-

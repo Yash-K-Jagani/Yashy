@@ -13,7 +13,7 @@ fn fixture() -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind the HTTP fixture");
     let port = listener.local_addr().expect("fixture address").port();
     std::thread::spawn(move || {
-        for chunked in [false, true] {
+        for chunked in [false, true, false] {
             let (mut stream, _) = listener.accept().expect("accept a client");
             let mut buffer = [0u8; 8192];
             let mut request = Vec::new();
@@ -35,6 +35,50 @@ fn fixture() -> u16 {
         }
     });
     port
+}
+
+#[test]
+fn http_limits_program_reports_every_named_breach() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let paths = format!(
+        "{}:{}:{}",
+        root.join("crates/yashy-stdlib/yashy").display(),
+        root.join("packages/net/src").display(),
+        root.join("packages/http/src").display()
+    );
+    let dir = common::work_dir("http-limits");
+    let binary = dir.join(format!("limits{}", std::env::consts::EXE_SUFFIX));
+    let build = Command::new(common::yashyc())
+        .arg("build")
+        .arg(root.join("packages/http/tests/limits_test.ya"))
+        .arg("-o")
+        .arg(&binary)
+        .env("YASHY_PATH", &paths)
+        .current_dir(&root)
+        .output()
+        .expect("the compiler must run");
+    assert!(
+        build.status.success(),
+        "building the limits test failed:\n{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let run = Command::new(&binary)
+        .env("YASHY_LEAK_REPORT", "1")
+        .output()
+        .expect("the limits test must run");
+    assert!(
+        run.status.success(),
+        "the limits test exited with {:?}:\n{}",
+        run.status.code(),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert_eq!(stdout, "limits-ok\n", "unexpected limits output: {stdout}");
+    assert!(
+        String::from_utf8_lossy(&run.stderr).contains("yashy: leak report: 0 live allocations"),
+        "the limits test leaked:\n{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
 }
 
 #[test]
@@ -76,9 +120,18 @@ fn http_client_get_and_post_against_loopback() {
     );
     let stdout = String::from_utf8_lossy(&run.stdout);
     assert!(stdout.contains("get 200:hello"), "unexpected GET: {stdout}");
-    assert!(stdout.contains("post 200:posted"), "unexpected POST: {stdout}");
-    // The client currently retains three string headers across the two
-    // requests; that is recorded as an owned follow-up rather than hidden here.
-    let _ = run.stderr;
+    assert!(
+        stdout.contains("post 200:posted"),
+        "unexpected POST: {stdout}"
+    );
+    assert!(
+        stdout.contains("limited 200:hello"),
+        "unexpected limited GET: {stdout}"
+    );
+    assert!(
+        String::from_utf8_lossy(&run.stderr).contains("yashy: leak report: 0 live allocations"),
+        "the HTTP client test leaked:\n{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
 }
 

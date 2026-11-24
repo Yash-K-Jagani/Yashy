@@ -10,6 +10,8 @@ import http;
 
 import net;
 
+import limits;
+
 struct Url {
     host: string,
     port: int,
@@ -349,9 +351,56 @@ pub fn get(string url) -> Result[Response, HttpError] {
     return request("GET", url, "", "");
 }
 
+/// Perform a GET and then refuse a response that exceeds the caller's header
+/// or body caps. The caps are arguments rather than hidden constants. The
+/// check is post-buffering today, so a caller that needs a hard allocation
+/// bound still has to use `limits.check` on its own reader; that is recorded
+/// as a follow-up rather than implied by this spelling.
+fn limited_response(Response response, Limits caps) -> Result[Response, HttpError] {
+    const headers = response.headers;
+    const body = response.body;
+    if headers.len() > caps.max_header_bytes {
+        return Err(HttpError.Failure);
+    }
+    if body.len() > caps.max_body_bytes {
+        return Err(HttpError.Failure);
+    }
+    return Ok(response);
+}
+
+fn failed_response(HttpError error) -> Result[Response, HttpError] {
+    return Err(error);
+}
+
+pub fn get_limited(string url, Limits caps) -> Result[Response, HttpError] {
+    const answer = get(url);
+    return switch answer {
+        case Ok(response) {
+            limited_response(response, caps)
+        }
+        case Err(error) {
+            failed_response(error)
+        }
+    };
+}
+
 pub fn post(string url, string body, []string headers) -> Result[Response, HttpError] {
     let text = "";
-    for header in headers {
+    let index = 0;
+    let bad = false;
+    // An index loop rather than `for header in headers`: the array is moved
+    // into this function, so it has to be freed before returning, and a `for`
+    // borrow would still be live at that point.
+    while index < headers.len() {
+        const entry = headers[index];
+        const header = switch entry {
+            case Some(value) {
+                value
+            }
+            case None {
+                ""
+            }
+        };
         const colon = header.index_of(":");
         const at = switch colon {
             case Some(found) {
@@ -362,9 +411,17 @@ pub fn post(string url, string body, []string headers) -> Result[Response, HttpE
             }
         };
         if at < 0 {
-            return Err(HttpError.Failure);
+            bad = true;
+        } else {
+            text = text + header.trim() + "\r\n";
         }
-        text = text + header.trim() + "\r\n";
+        index = index + 1;
+    }
+    // The caller cannot free it: the checker considers the array moved into
+    // this function. Leaving it live leaks one allocation per `post` call.
+    headers.free();
+    if bad {
+        return Err(HttpError.Failure);
     }
     return request("POST", url, body, text);
 }

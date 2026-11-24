@@ -135,10 +135,12 @@ explicit, and every operation has a deadline.
   larger than the limit; a request that exceeds its deadline; two requests that
   reuse one connection.
   *Current:* `crates/yashy-driver/tests/http_client.rs` runs a real loopback
-  fixture and pins GET with `Content-Length` and POST with a chunked response.
-  Redirect-loop, gzip, oversized-body, deadline and pool-reuse rows are still
-  owed; the client currently retains three string headers over two requests,
-  recorded as an owned leak follow-up rather than hidden.
+  fixture and pins GET with `Content-Length`, POST with a chunked response and
+  a capped GET, all with zero live allocations. The three leaks came from the
+  compiler: `?` on an aggregate payload and an early `return` from `if let`
+  each skipped a release, and `post` now frees the header array moved into it.
+  Both compiler fixes have regression programs in `leaks.rs`. Redirect-loop,
+  gzip, oversized-body, deadline and pool-reuse rows are still owed.
 - [ ] **Step 2: HTTP/1.1 and HTTP/2 share one API.** ALPN selects the version;
   the request/response types do not change. A response body is a stream or a
   buffered value, chosen explicitly; a stream that is dropped closes the
@@ -153,9 +155,14 @@ explicit, and every operation has a deadline.
   connect/read/write/total deadlines. `check` returns a `LimitError` naming
   the limit, its cap and the observed value; `describe` renders it and
   `bounded` reports unbounded (non-positive) caps. The package test pins a
-  header breach and a body breach. Applying these caps inside the client and
-  server read loops still needs the pipeline work, so the step stays open.
-- [ ] **Step 4: Commit.**
+  header breach and a body breach. `client.get_limited` now takes a `Limits`
+  value and refuses an oversized response, but checks it *after* buffering;
+  applying the caps inside the client and server read loops still needs the
+  pipeline work, so the step stays open.
+- [x] **Step 4: Commit.** `2509f3f` shipped the loopback client (GET,
+  chunked POST and capped GET), the two compiler ownership fixes behind the
+  zero-leak result, the limits program rename and their regression tests.
+  HTTP/2/ALPN and hard pre-buffering caps remain dated exceptions.
 
 ### Task 4: The HTTP server and framework
 

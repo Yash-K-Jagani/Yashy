@@ -1,0 +1,37 @@
+// A `?` on an aggregate payload must hand its reference to the caller. Before
+// the fix, `const chunk = read()?` retained a second reference that nothing
+// released: one live string per successful `?`.
+fn read() -> Result[Option[string], int] {
+    const text = "a" + "b";
+    const Option[string] some = Some(text);
+    return Ok(some);
+}
+
+fn receive() -> Result[string, int] {
+    const chunk = read()?;
+    return Ok(switch chunk {
+        case Some(text) {
+            text
+        }
+        case None {
+            "none"
+        }
+    }
+    );
+}
+
+fn show(Result[string, int] answer) -> string {
+    return switch answer {
+        case Ok(text) {
+            text
+        }
+        case Err(_) {
+            "err"
+        }
+    };
+}
+
+fn main() {
+    print(show(receive()));
+    print(show(receive()));
+}

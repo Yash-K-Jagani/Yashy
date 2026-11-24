@@ -2258,9 +2258,18 @@ fn gen_call(
                     ctx.push_str_retain_into(&retained, &payload.value);
                     retained
                 }
-            } else if matches!(payload.ty, TypeKind::Struct(_)) && !payload.value.is_empty() {
-                if copied_payload {
-                    retain_struct_fields(ctx, &payload.value, &payload.ty);
+            } else if owns_string_refs(ctx, &payload.ty) && !payload.value.is_empty() {
+                // Any payload that owns references -- `Option[string]`,
+                // `Result[string, E]` or a struct of strings -- is a value:
+                // a fresh temporary's reference is taken over, and a copy of
+                // a binding retains field-by-field. The struct-only case
+                // missed a nested `Some(text)` because the payload's type was
+                // `Option[string]`, not `Struct`, so the binding's release
+                // freed the string the `Ok` still pointed at.
+                if ctx.is_owned(&payload.value) {
+                    ctx.forget_owned(&payload.value);
+                } else if copied_payload {
+                    retain_refs(ctx, &payload.value, &payload.ty);
                 }
                 payload.value.clone()
             } else {
@@ -2756,6 +2765,43 @@ fn field_slot_for_try(ctx: &mut FnCtx<'_>, poll: &AsyncPoll, index: i32) -> Stri
     slot
 }
 
+/// Leave the function from a `?` failure without leaking the scopes it skips.
+///
+/// A `?` is an early return: it leaves every enclosing block, so it owes the
+/// same cleanup a `return` does -- run the pending defers, release the arenas,
+/// and release each scope's owned locals. Emitting a bare `ret` here leaked
+/// every `string` and array binding in those scopes (a refused connection
+/// leaked the parsed URL, and any `Result[string, E]` propagated out of a
+/// function with a live binding leaked it).
+///
+/// `retain` is set when the failure value was a copy of a binding rather than
+/// a fresh temporary: the binding still owns its own reference, so the one
+/// handed to the caller needs its own retain before the scope release runs.
+fn emit_try_exit(ctx: &mut FnCtx<'_>, value: &str, retain: bool) {
+    let mut early = value.to_string();
+    if retain {
+        let ret_type = ctx.ret_type.clone();
+        early = retain_payload(ctx, &early, &ret_type);
+    }
+    crate::stmt_gen::run_all_scopes_defers(ctx);
+    ctx.release_all_arenas();
+    ctx.release_all_ref_scopes();
+    if let Some(poll) = ctx.async_poll.clone() {
+        // Inside an async poll the function returns the task frame, not the
+        // function's own result: the early answer goes into the frame's
+        // result slot and the resume word marks the task done.
+        let result = field_slot_for_try(ctx, &poll, poll.result_index);
+        let repr = repr_type(&ctx.ret_type);
+        ctx.push(format!("store {repr} {early}, ptr {result}"));
+        let resume = field_slot_for_try(ctx, &poll, 0);
+        ctx.push(format!("store i32 -1, ptr {resume}"));
+        ctx.push(format!("ret i8* {}", poll.frame_slot));
+    } else {
+        let repr = repr_type(&ctx.ret_type);
+        ctx.push(format!("ret {repr} {early}"));
+    }
+}
+
 /// Lower `expr?`: test the Result tag, propagate on `Err`, unwrap on `Ok`.
 ///
 /// The `Err` path returns the whole Result value out of the enclosing
@@ -2763,11 +2809,14 @@ fn field_slot_for_try(ctx: &mut FnCtx<'_>, poll: &AsyncPoll, index: i32) -> Stri
 /// The type checker does not yet enforce that, so a mismatch lowers to
 /// `unreachable` plus a comment instead of a malformed `ret`.
 ///
-/// The `Err` path does **not** run pending `defer` bodies (Task 12 limitation,
-/// recorded in the ledger): expressions have no access to the statement
-/// scope's defer list.
+/// The `Err` path goes through [`emit_try_exit`]: it is an early return, so it
+/// runs the pending defers and releases the scopes it skips.
 fn gen_try(ctx: &mut FnCtx<'_>, expr: &HirExpr, result_ty: &TypeKind) -> GenValue {
     let value = gen_expr(ctx, expr);
+    // A copy of a binding keeps the binding's own reference, so the failure
+    // handed back needs a retain before `emit_try_exit` releases that scope;
+    // a fresh temporary's reference is transferred instead.
+    let retain_early = !ctx.is_owned(&value.value);
     let subject_repr = repr_type(&value.ty);
     let ret_repr = repr_type(&ctx.ret_type);
     // `Some` is tag 1 and `Ok` is tag 0, so the success tag depends on which
@@ -2797,17 +2846,9 @@ fn gen_try(ctx: &mut FnCtx<'_>, expr: &HirExpr, result_ty: &TypeKind) -> GenValu
 
     ctx.push(format!("{err_label}:"));
     if ctx.async_poll.is_some() {
-        let poll = ctx.async_poll.clone().expect("async poll is present");
-        // Inside an async poll the function returns the task frame, not the
-        // function's own result: the early answer goes into the frame's
-        // result slot and the resume word marks the task done.
-        let result = field_slot_for_try(ctx, &poll, poll.result_index);
-        ctx.push(format!("store {} {}, ptr {result}", ret_repr, value.value));
-        let resume = field_slot_for_try(ctx, &poll, 0);
-        ctx.push(format!("store i32 -1, ptr {resume}"));
-        ctx.push(format!("ret i8* {}", poll.frame_slot));
+        emit_try_exit(ctx, &value.value, retain_early);
     } else if ret_repr == subject_repr && ret_repr != "void" {
-        ctx.push(format!("ret {ret_repr} {}", value.value));
+        emit_try_exit(ctx, &value.value, retain_early);
     } else if let TypeKind::Result(_, err) = &value.ty {
         // The function returns a `Result` with the same error type but a
         // different `Ok` payload: `Result[int, E]` propagated out of a
@@ -2863,7 +2904,7 @@ fn gen_try(ctx: &mut FnCtx<'_>, expr: &HirExpr, result_ty: &TypeKind) -> GenValu
                 built = next;
             }
         }
-        ctx.push(format!("ret {ret_repr} {built}"));
+        emit_try_exit(ctx, &built, retain_early);
     } else if matches!(value.ty, TypeKind::Option(_)) {
         // `None` carries no payload, so its tag is the whole value: the
         // `Option` shapes may differ for the same reason the `Result` ones
@@ -2896,7 +2937,7 @@ fn gen_try(ctx: &mut FnCtx<'_>, expr: &HirExpr, result_ty: &TypeKind) -> GenValu
                 built = next;
             }
         }
-        ctx.push(format!("ret {ret_repr} {built}"));
+        emit_try_exit(ctx, &built, retain_early);
     } else {
         ctx.push("; `?` in a function whose return type cannot carry the failure".to_string());
         ctx.push("unreachable".to_string());
@@ -2924,12 +2965,16 @@ fn gen_try(ctx: &mut FnCtx<'_>, expr: &HirExpr, result_ty: &TypeKind) -> GenValu
         } else {
             payload
         }
-    } else if matches!(result_ty, TypeKind::Struct(_)) {
+    } else if owns_string_refs(ctx, result_ty) {
+        // An `Option[string]`, a `Result[.., string]` or a struct of strings
+        // is just as much a value the caller now owns as a bare `string` or a
+        // struct was. A copy of a binding keeps its own reference, so this
+        // payload needs one of its own.
         if matches!(
             expr,
             HirExpr::Ident(..) | HirExpr::FieldAccess { .. } | HirExpr::Index { .. }
         ) {
-            retain_struct_fields(ctx, &payload, result_ty);
+            retain_refs(ctx, &payload, result_ty);
         }
         payload
     } else {
@@ -2937,14 +2982,12 @@ fn gen_try(ctx: &mut FnCtx<'_>, expr: &HirExpr, result_ty: &TypeKind) -> GenValu
     };
     if matches!(result_ty, TypeKind::Str) {
         ctx.mark_owned(&payload_value, RefKind::Str);
-    } else if matches!(result_ty, TypeKind::Struct(_)) {
+    } else if owns_string_refs(ctx, result_ty) {
         // The payload is the caller's now, so a consumer that discards or
-        // passes it on releases it rather than retaining again.
-        ctx.mark_owned_typed(
-            &payload_value,
-            RefKind::StructFields,
-            Some(result_ty.clone()),
-        );
+        // passes it on releases it rather than retaining again. Without this,
+        // `const chunk = read()?` retained a second reference that nothing
+        // released: one live string per successful `?` of an aggregate.
+        ctx.mark_owned_typed(&payload_value, RefKind::Payload, Some(result_ty.clone()));
     }
     ctx.push(format!("br label %{cont_label}"));
     ctx.push(format!("{cont_label}:"));

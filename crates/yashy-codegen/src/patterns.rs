@@ -695,7 +695,31 @@ pub fn gen_if_let(
     then_block: &HirBlock,
     else_block: Option<&HirBlock>,
 ) -> Flow {
-    let subject = gen_expr(ctx, subject_expr);
+    let mut subject = gen_expr(ctx, subject_expr);
+    // A subject built just for this `if let` owns the references in its
+    // payload. Releasing it at the merge point is not enough: a `return`,
+    // `?`, `break` or `continue` in either branch leaves before the merge and
+    // used to leak that reference. Keep the subject in a slot tracked by the
+    // enclosing ref scope, which every one of those exits releases. A copy of
+    // a binding owns nothing itself, so it gets its own reference here.
+    let subject_owns_refs = !subject.value.is_empty()
+        && (matches!(subject.ty, TypeKind::Str | TypeKind::Func(_, _))
+            || owns_string_refs(ctx, &subject.ty));
+    if subject_owns_refs {
+        let repr = repr_type(&subject.ty);
+        let slot = ctx.alloc_slot();
+        ctx.push_alloca(format!("{slot} = alloca {repr}"));
+        if ctx.is_owned(&subject.value) {
+            ctx.forget_owned(&subject.value);
+        } else {
+            retain_field(ctx, &subject.value, &subject.ty);
+        }
+        ctx.push(format!("store {repr} {}, ptr {slot}", subject.value));
+        track_field(ctx, &slot, &subject.ty);
+        let held = ctx.tmp();
+        ctx.push(format!("{held} = load {repr}, ptr {slot}"));
+        subject.value = held;
+    }
     let then_label = ctx.alloc_label_base() + "_then";
     let else_label = ctx.alloc_label_base() + "_else";
     let merge_label = ctx.alloc_label_base() + "_merge";
@@ -751,9 +775,9 @@ pub fn gen_if_let(
             }
         }
     }
-    if ctx.is_owned(&subject.value) {
-        ctx.release_owned(&subject.value);
-    }
+    // The subject is held by the enclosing ref scope now, so no release is
+    // needed at the merge: scope exit covers both this path and every early
+    // exit from either branch.
     Flow::Fallthrough
 }
 

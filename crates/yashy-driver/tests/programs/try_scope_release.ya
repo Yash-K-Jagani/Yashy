@@ -1,0 +1,31 @@
+// A `?` that fails leaves every enclosing scope, so the scopes' owned
+// bindings must come back. Before the fix, the early `ret` skipped the scope
+// release and `held` leaked one string.
+struct Holder {
+    text: string,
+}
+
+fn fail() -> Result[int, int] {
+    return Err(7);
+}
+
+fn run() -> Result[int, int] {
+    const held = Holder {
+        text: "held" + "-value"
+    };
+    const name = held.text;
+    fail()?;
+    return Ok(name.len());
+}
+
+fn main() {
+    const answer = run();
+    switch answer {
+        case Ok(value) {
+            print(value);
+        }
+        case Err(code) {
+            print(0 - code);
+        }
+    }
+}
