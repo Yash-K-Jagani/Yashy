@@ -1,0 +1,216 @@
+// The RESP parser and client against a loopback fixture.
+// Usage: client <port>
+
+import resp;
+
+import client as redis;
+
+fn text_of(Option[string] value) -> string {
+    return switch value {
+        case Some(text) {
+            text
+        }
+        case None {
+            "nil"
+        }
+    };
+}
+
+fn main() {
+    // Canned replies exercise every tag without a socket.
+    const simple = resp.parse("+OK\r\n");
+    assert(simple.complete && resp.text(simple.reply) == "OK");
+    resp.free_reply(simple.reply);
+    const integer = resp.parse(":42\r\n");
+    assert(resp.number(integer.reply) == 42);
+    resp.free_reply(integer.reply);
+    const bulk = resp.parse("$3\r\nabc\r\n");
+    assert(resp.text(bulk.reply) == "abc");
+    resp.free_reply(bulk.reply);
+    const nil = resp.parse("$-1\r\n");
+    assert(resp.kind(nil.reply) == resp.nil_tag());
+    resp.free_reply(nil.reply);
+    const array = resp.parse("*2\r\n$3\r\none\r\n$3\r\ntwo\r\n");
+    assert(resp.item_count(array.reply) == 2);
+    assert(resp.item(array.reply, 1) == "two");
+    resp.free_reply(array.reply);
+    const bad = resp.parse("?nope\r\n");
+    const bad_reason = bad.error;
+    assert(bad_reason.len() > 0);
+    resp.free_reply(bad.reply);
+
+    const arguments = args();
+    const port = switch arguments[0] {
+        case Some(value) {
+            value
+        }
+        case None {
+            "0"
+        }
+    };
+    defer {
+        arguments.free();
+    }
+
+    const parsed_port = port.parse_i64();
+    const number = switch parsed_port {
+        case Some(n) {
+            n
+        }
+        case None {
+            0
+        }
+    };
+    const opened = redis.connect("127.0.0.1", number);
+    let Client session = switch opened {
+        case Ok(value) {
+            value
+        }
+        case Err(_) {
+            panic("redis: connect failed")
+        }
+    };
+
+    assert(switch redis.set(session, "tea", "3") {
+        case Ok(true) {
+            true
+        }
+        case _ {
+            false
+        }
+    }
+    );
+    const tea = redis.get(session, "tea");
+    const tea_text = switch tea {
+        case Ok(value) {
+            text_of(value)
+        }
+        case Err(_) {
+            "error"
+        }
+    };
+    assert(tea_text == "3");
+
+    // A value containing RESP syntax is data, not a command.
+    assert(switch redis.set(session, "key", "a\r\n$1\r\nx") {
+        case Ok(_) {
+            true
+        }
+        case Err(_) {
+            false
+        }
+    }
+    );
+    const stored = redis.get(session, "key");
+    const stored_text = switch stored {
+        case Ok(value) {
+            text_of(value)
+        }
+        case Err(_) {
+            "error"
+        }
+    };
+    assert(stored_text == "a\r\n$1\r\nx");
+    assert(switch redis.del(session, "key") {
+        case Ok(1) {
+            true
+        }
+        case _ {
+            false
+        }
+    }
+    );
+    assert(switch redis.expire(session, "tea", 60) {
+        case Ok(true) {
+            true
+        }
+        case _ {
+            false
+        }
+    }
+    );
+
+    let parts = []string {
+        "MULTI"
+    };
+    const multi = redis.run(session, parts);
+    assert(switch multi {
+        case Ok(reply) {
+            resp.text(reply) == "OK"
+        }
+        case Err(_) {
+            false
+        }
+    }
+    );
+    if let Ok(reply) = multi {
+        resp.free_reply(reply);
+    }
+
+    parts = []string {
+        "EXEC"
+    };
+    const executed = redis.run(session, parts);
+    assert(switch executed {
+        case Ok(reply) {
+            resp.item_count(reply) == 2
+        }
+        case Err(_) {
+            false
+        }
+    }
+    );
+    if let Ok(reply) = executed {
+        resp.free_reply(reply);
+    }
+
+    const published = redis.publish(session, "room", "hi");
+    assert(switch published {
+        case Ok(count) {
+            count == 1
+        }
+        case Err(_) {
+            false
+        }
+    }
+    );
+    const subscribed = redis.subscribe_once(session, "room");
+    assert(switch subscribed {
+        case Ok(channel) {
+            channel == "room"
+        }
+        case Err(_) {
+            false
+        }
+    }
+    );
+
+    const reopened = redis.reconnect(session, "127.0.0.1", number);
+    let Client again = switch reopened {
+        case Ok(value) {
+            value
+        }
+        case Err(_) {
+            panic("redis: reconnect failed")
+        }
+    };
+    const ping = []string {
+        "PING"
+    };
+    const pong = redis.run(again, ping);
+    assert(switch pong {
+        case Ok(reply) {
+            resp.text(reply) == "PONG"
+        }
+        case Err(_) {
+            false
+        }
+    }
+    );
+    if let Ok(reply) = pong {
+        resp.free_reply(reply);
+    }
+
+    redis.close(again);
+    print("redis-ok");
+}

@@ -343,6 +343,13 @@ accesses are supported; the six-file split is then mechanical.
 |---|---|---|
 | Interface | `cargo test -p yashy-driver --test db_interface` | fake driver, typed rows, null as `Option`, transactions and pool, zero leaks |
 | SQLite | `cargo test -p yashy-driver --test sqlite` | CRUD, bound parameters, unique violation, injection-shaped value, zero leaks |
+| Redis | `cargo test -p yashy-driver --test redis` | GET/SET/DEL/EXPIRE, MULTI/EXEC, pub/sub, reconnect, zero leaks |
+
+**Dated exceptions (2026-11-24): Redis.** The loopback client is green. Three
+rows remain owned: a multi-command pipeline request, a committed RESP fuzz
+corpus, and the full RESP3 type set (`Verbatim`, `BigNumber`, `Map`, `Set`,
+attributes and pushes are not decoded; simple/bulk/integer/null/array are).
+Owner: db package maintainer. Closes when each named row has a pinned program.
 
 **Dated exceptions (2026-11-24): SQLite.** The vendored amalgamation is pinned
 and the in-memory CRUD matrix is green. Four rows remain owned:

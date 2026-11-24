@@ -1,0 +1,272 @@
+// A RESP client over the `net` package (phase 7, Task 4).
+//
+// The client keeps its own read buffer, so a reply split across TCP packets is
+// assembled before it is parsed. Every reply owns an array; callers free it
+// with `resp.free_reply`. A malformed reply ends with a typed error, never a
+// hang: reads have a deadline.
+
+import net;
+
+import resp;
+
+pub struct Client {
+    peer: Socket,
+    pending: string,
+}
+
+/// Connect to a RESP server with a read deadline.
+pub fn connect(string host, int port) -> Result[Client, string] {
+    const opened = net.net_connect(host, port);
+    if let Ok(peer) = opened {
+        net.net_set_deadline(peer, now() + 5000);
+        return Ok(Client {
+            peer: peer, pending: ""
+        }
+        );
+    }
+    return Err("redis: connect failed");
+}
+
+fn send_all(Socket peer, string text) -> bool {
+    let sent = 0;
+    while sent < text.len() {
+        const chunk = net.net_write(peer, text.slice(sent, text.len()));
+        const wrote = switch chunk {
+            case Ok(count) {
+                count
+            }
+            case Err(_) {
+                -1
+            }
+        };
+        if wrote <= 0 {
+            return false;
+        }
+        sent = sent + wrote;
+    }
+    return true;
+}
+
+/// Read until one complete reply is available and return it.
+pub fn run(Client client, []string parts) -> Result[Reply, string] {
+    let string buffer = "";
+    const wire = resp.command(parts);
+    if !send_all(client.peer, wire) {
+        return Err("redis: write failed");
+    }
+    while true {
+        const pending = buffer;
+        const parsed = resp.parse(pending);
+        const why_early = parsed.error;
+        if parsed.complete && why_early.len() == 0 {
+            buffer = pending.slice(parsed.consumed, pending.len());
+            return Ok(parsed.reply);
+        }
+        resp.free_reply(parsed.reply);
+        if why_early.len() > 0 {
+            return Err("redis: " + why_early);
+        }
+        const chunk = net.net_read(client.peer);
+        const text = switch chunk {
+            case Ok(value) {
+                switch value {
+                    case Some(data) {
+                        data
+                    }
+                    case None {
+                        ""
+                    }
+                }
+            }
+            case Err(_) {
+                ""
+            }
+        };
+        if text.len() == 0 {
+            return Err("redis: connection closed");
+        }
+        buffer = buffer + text;
+    }
+    return Err("redis: unreachable");
+}
+
+fn as_text_reply(Reply reply) -> Option[string] {
+    if resp.kind(reply) == resp.nil_tag() {
+        resp.free_reply(reply);
+        const Option[string] absent = None;
+        return absent;
+    }
+    const value = resp.text(reply);
+    resp.free_reply(reply);
+    return Some(value);
+}
+
+fn as_ok_reply(Reply reply) -> bool {
+    const ok = resp.text(reply) == "OK";
+    resp.free_reply(reply);
+    return ok;
+}
+
+fn as_int_reply(Reply reply) -> int {
+    const count = resp.number(reply);
+    resp.free_reply(reply);
+    return count;
+}
+
+fn as_changed_reply(Reply reply) -> bool {
+    const changed = resp.number(reply) > 0;
+    resp.free_reply(reply);
+    return changed;
+}
+
+fn ok_text(Option[string] value) -> Result[Option[string], string] {
+    return Ok(value);
+}
+
+fn err_text(string error) -> Result[Option[string], string] {
+    return Err(error);
+}
+
+fn ok_bool(bool value) -> Result[bool, string] {
+    return Ok(value);
+}
+
+fn err_bool(string error) -> Result[bool, string] {
+    return Err(error);
+}
+
+fn ok_int(int value) -> Result[int, string] {
+    return Ok(value);
+}
+
+fn err_int(string error) -> Result[int, string] {
+    return Err(error);
+}
+
+/// One bulk reply as text; a nil reply is `None`, never an empty sentinel.
+pub fn get(Client client, string key) -> Result[Option[string], string] {
+    let parts = []string {
+        "GET", key
+    };
+    const answer = run(client, parts);
+    return switch answer {
+        case Ok(reply) {
+            ok_text(as_text_reply(reply))
+        }
+        case Err(error) {
+            err_text(error)
+        }
+    };
+}
+
+/// SET a key. The reply's ok status is checked, then freed.
+pub fn set(Client client, string key, string value) -> Result[bool, string] {
+    let parts = []string {
+        "SET", key, value
+    };
+    const answer = run(client, parts);
+    return switch answer {
+        case Ok(reply) {
+            ok_bool(as_ok_reply(reply))
+        }
+        case Err(error) {
+            err_bool(error)
+        }
+    };
+}
+
+/// DEL one key; the integer reply is the number removed.
+pub fn del(Client client, string key) -> Result[int, string] {
+    let parts = []string {
+        "DEL", key
+    };
+    const answer = run(client, parts);
+    return switch answer {
+        case Ok(reply) {
+            ok_int(as_int_reply(reply))
+        }
+        case Err(error) {
+            err_int(error)
+        }
+    };
+}
+
+/// EXPIRE a key in whole seconds.
+pub fn expire(Client client, string key, int seconds) -> Result[bool, string] {
+    let parts = []string {
+        "EXPIRE", key, str_from_i64(seconds)
+    };
+    const answer = run(client, parts);
+    return switch answer {
+        case Ok(reply) {
+            ok_bool(as_changed_reply(reply))
+        }
+        case Err(error) {
+            err_bool(error)
+        }
+    };
+}
+
+/// PUBLISH a message. A typed error means the server refused it.
+pub fn publish(Client client, string channel, string message) -> Result[int, string] {
+    let parts = []string {
+        "PUBLISH", channel, message
+    };
+    const answer = run(client, parts);
+    return switch answer {
+        case Ok(reply) {
+            ok_int(as_int_reply(reply))
+        }
+        case Err(error) {
+            err_int(error)
+        }
+    };
+}
+
+fn text_reply(Reply reply) -> string {
+    const value = resp.text(reply);
+    resp.free_reply(reply);
+    return value;
+}
+
+fn err_text2(string error) -> Result[string, string] {
+    return Err(error);
+}
+
+fn ok_text2(string value) -> Result[string, string] {
+    return Ok(value);
+}
+
+fn channel_of(Reply reply) -> string {
+    const channel = resp.item(reply, 1);
+    resp.free_reply(reply);
+    return channel;
+}
+
+/// SUBSCRIBE and read the acknowledgement. A real subscriber loop would keep
+/// reading on the same socket; this one-reply form keeps the API bounded.
+pub fn subscribe_once(Client client, string channel) -> Result[string, string] {
+    let parts = []string {
+        "SUBSCRIBE", channel
+    };
+    const answer = run(client, parts);
+    return switch answer {
+        case Ok(reply) {
+            ok_text2(channel_of(reply))
+        }
+        case Err(error) {
+            err_text2(error)
+        }
+    };
+}
+
+/// Close the connection. A later command on the same client fails.
+pub fn close(Client client) {
+    net.net_close(client.peer);
+}
+
+/// Open a fresh connection with the same host and port.
+pub fn reconnect(Client client, string host, int port) -> Result[Client, string] {
+    close(client);
+    return connect(host, port);
+}

@@ -1,0 +1,5 @@
+[package]
+name = "redis"
+version = "1.0.0"
+license = "MIT"
+description = "RESP client with typed replies and bounded parsing"

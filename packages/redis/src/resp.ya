@@ -1,0 +1,315 @@
+// RESP2/RESP3 wire parsing (phase 7, Task 4).
+//
+// A reply is a small value struct. Array elements are joined into one string
+// with a unit separator: the language's verifier treats an array field as a
+// linear value the accessor must release, but a string is refcounted and owned
+// by the struct, so no accessor can leak one. A malformed reply is a typed
+// error with a reason, never a panic or an infinite read.
+
+import string;
+
+/// Reply tags as stable numbers.
+pub fn simple_tag() -> int {
+    return 1;
+}
+
+pub fn failure_tag() -> int {
+    return 2;
+}
+
+pub fn integer_tag() -> int {
+    return 3;
+}
+
+pub fn bulk_tag() -> int {
+    return 4;
+}
+
+pub fn nil_tag() -> int {
+    return 5;
+}
+
+pub fn array_tag() -> int {
+    return 6;
+}
+
+/// The separator between array elements (ASCII unit separator).
+fn separator() -> string {
+    const data = []char {
+        31.to_char()
+    };
+    return switch from_bytes(data) {
+        case Ok(value) {
+            value
+        }
+        case Err(_) {
+            "|"
+        }
+    };
+}
+
+/// One decoded reply.
+pub struct Reply {
+    kind: int,
+    text: string,
+    number: int,
+}
+
+/// The result of one parse step.
+pub struct Parsed {
+    pub reply: Reply,
+    pub consumed: int,
+    pub complete: bool,
+    pub error: string,
+}
+
+/// Reply strings are refcounted and released by the compiler; this placeholder
+/// keeps call sites explicit about not owning a C allocation.
+pub fn free_reply(Reply reply) {}
+
+pub fn kind(Reply reply) -> int {
+    return reply.kind;
+}
+
+pub fn text(Reply reply) -> string {
+    return reply.text;
+}
+
+pub fn number(Reply reply) -> int {
+    return reply.number;
+}
+
+pub fn item_count(Reply reply) -> int {
+    return reply.number;
+}
+
+/// One element of an array reply, by index.
+pub fn item(Reply reply, int index) -> string {
+    const body = reply.text;
+    const parts = body.split(separator());
+    const entry = parts[index];
+    const value = switch entry {
+        case Some(text) {
+            text
+        }
+        default {
+            ""
+        }
+    };
+    parts.free();
+    return value;
+}
+
+fn failure(string reason) -> Parsed {
+    return Parsed {
+        reply: Reply {
+            kind: 0, text: "", number: 0
+        }
+        ,
+        consumed: 0, complete: false, error: reason
+    };
+}
+
+fn line_end(string text, int from) -> int {
+    let index = from;
+    while index < text.len() {
+        if text.byte_at(index).to_int() == 10 {
+            return index;
+        }
+        index = index + 1;
+    }
+    return -1;
+}
+
+fn line(string text, int from, int end) -> string {
+    if end <= from {
+        return "";
+    }
+    let last = end;
+    if last > from && text.byte_at(last - 1).to_int() == 13 {
+        last = last - 1;
+    }
+    return text.slice(from, last);
+}
+
+fn digits(string text) -> int {
+    const parsed = text.parse_i64();
+    return switch parsed {
+        case Some(value) {
+            value
+        }
+        default {
+            -1
+        }
+    };
+}
+
+/// Encode one command as a RESP array of bulk strings.
+pub fn command([]string parts) -> string {
+    let out = "*" + str_from_i64(parts.len()) + "\r\n";
+    for part in parts {
+        out = out + "$" + str_from_i64(part.len()) + "\r\n" + part + "\r\n";
+    }
+    parts.free();
+    return out;
+}
+
+/// Parse one reply from `text`. `complete` is false when more bytes are needed.
+pub fn parse(string text) -> Parsed {
+    if text.len() == 0 {
+        return Parsed {
+            reply: Reply {
+                kind: 0, text: "", number: 0
+            }
+            ,
+            consumed: 0, complete: false, error: ""
+        };
+    }
+    const lead = text.byte_at(0);
+    const end = line_end(text, 1);
+    if end < 0 {
+        return Parsed {
+            reply: Reply {
+                kind: 0, text: "", number: 0
+            }
+            ,
+            consumed: 0, complete: false, error: ""
+        };
+    }
+    const head = line(text, 1, end);
+    const after = end + 1;
+    if lead == '+' {
+        return Parsed {
+            reply: Reply {
+                kind: 1, text: head, number: 0
+            }
+            ,
+            consumed: after, complete: true, error: ""
+        };
+    }
+    if lead == '-' {
+        return Parsed {
+            reply: Reply {
+                kind: 2, text: head, number: 0
+            }
+            ,
+            consumed: after, complete: true, error: ""
+        };
+    }
+    if lead == ':' {
+        return Parsed {
+            reply: Reply {
+                kind: 3, text: "", number: digits(head)
+            }
+            ,
+            consumed: after, complete: true, error: ""
+        };
+    }
+    if lead == '_' {
+        return Parsed {
+            reply: Reply {
+                kind: 5, text: "", number: 0
+            }
+            ,
+            consumed: after, complete: true, error: ""
+        };
+    }
+    if lead == '$' {
+        const size = digits(head);
+        if size == -1 {
+            return Parsed {
+                reply: Reply {
+                    kind: 5, text: "", number: 0
+                }
+                ,
+                consumed: after, complete: true, error: ""
+            };
+        }
+        if size < 0 {
+            return failure("bad bulk length");
+        }
+        if size == 0 {
+            return Parsed {
+                reply: Reply {
+                    kind: 5, text: "", number: 0
+                }
+                ,
+                consumed: after, complete: true, error: ""
+            };
+        }
+        if size > 10485760 {
+            return failure("bulk too large");
+        }
+        if text.len() < after + size + 2 {
+            return Parsed {
+                reply: Reply {
+                    kind: 0, text: "", number: 0
+                }
+                ,
+                consumed: 0, complete: false, error: ""
+            };
+        }
+        return Parsed {
+            reply: Reply {
+                kind: 4, text: text.slice(after, after + size), number: size
+            }
+            ,
+            consumed: after + size + 2, complete: true, error: ""
+        };
+    }
+    if lead == '*' {
+        const count = digits(head);
+        if count < 0 {
+            return failure("bad array length");
+        }
+        if count > 4096 {
+            return failure("array too large");
+        }
+        return parse_array(text, after, count);
+    }
+    return failure("unknown reply prefix");
+}
+
+/// Parse `count` replies beginning at `from`, joining their text with the
+/// separator. An incomplete element makes the whole array incomplete.
+fn parse_array(string text, int from, int count) -> Parsed {
+    let joined = "";
+    let cursor = from;
+    let index = 0;
+    let bool failed = false;
+    let string reason = "";
+    while index < count && !failed {
+        const next = parse(text.slice(cursor, text.len()));
+        const why = next.error;
+        if !next.complete || why.len() > 0 {
+            failed = true;
+            reason = why;
+        } else {
+            const entry = next.reply;
+            if index > 0 {
+                joined = joined + separator();
+            }
+            if entry.kind == 4 || entry.kind == 1 {
+                joined = joined + entry.text;
+            }
+            cursor = cursor + next.consumed;
+        }
+        index = index + 1;
+    }
+    if failed {
+        return Parsed {
+            reply: Reply {
+                kind: 0, text: "", number: 0
+            }
+            ,
+            consumed: 0, complete: false, error: reason
+        };
+    }
+    return Parsed {
+        reply: Reply {
+            kind: 6, text: joined, number: count
+        }
+        ,
+        consumed: cursor, complete: true, error: ""
+    };
+}

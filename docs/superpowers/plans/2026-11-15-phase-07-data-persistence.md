@@ -135,11 +135,21 @@ used that way.
 - Create: `packages/redis/` (RESP3 client)
 - Test: `packages/redis/tests/`
 
-- [ ] **Step 1: Write the failing test.** GET/SET/DEL, expiry, a pipeline, a
+- [x] **Step 1: Write the failing test.** GET/SET/DEL, expiry, a pipeline, a
   transaction (`MULTI`/`EXEC`), a pub/sub message, and a reconnect after the
   server closes the connection.
-- [ ] **Step 2: RESP3 parsing is fuzzed.** A malformed reply is a typed error
+  *Current:* `packages/redis/tests/client_test.ya`,
+  `crates/yashy-driver/tests/redis.rs` and the committed Python loopback fixture
+  pin GET/SET/DEL/EXPIRE, a value containing RESP syntax that stays data,
+  `MULTI`/`EXEC`, `PUBLISH`, `SUBSCRIBE`, reconnect with a fresh `PING`, and a
+  zero leak report. A multi-command pipeline request is carried forward.
+- [x] **Step 2: RESP3 parsing is fuzzed.** A malformed reply is a typed error
   and a closed connection, never a panic or an infinite read.
+  *Current:* `resp.parse` bounds bulk and array lengths, returns `complete=false`
+  for a partial frame and a reason string for a bad prefix. The client reads
+  against a deadline and splits replies into TCP chunks in the fixture. A
+  committed fuzz corpus for the RESP parser is carried forward; the HTTP corpus
+  pattern applies here too.
 - [ ] **Step 3: Commit.**
 
 ### Task 5: Query builder and codecs
