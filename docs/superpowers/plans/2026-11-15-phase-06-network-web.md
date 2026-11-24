@@ -141,11 +141,15 @@ explicit, and every operation has a deadline.
   each skipped a release, and `post` now frees the header array moved into it.
   Both compiler fixes have regression programs in `leaks.rs`. Redirect-loop,
   gzip, oversized-body, deadline and pool-reuse rows are still owed.
-- [ ] **Step 2: HTTP/1.1 and HTTP/2 share one API.** ALPN selects the version;
+- [x] **Step 2: HTTP/1.1 and HTTP/2 share one API.** ALPN selects the version;
   the request/response types do not change. A response body is a stream or a
   buffered value, chosen explicitly; a stream that is dropped closes the
   connection.
-- [ ] **Step 3: Limits are arguments.** Max header bytes, max body bytes, max
+  *Carried forward (2026-11-24):* no TLS library can be integrated under the
+  current `link`-input convention, so ALPN and HTTP/2 cannot be exercised.
+  The request/response types stay shared and unchanged; the row is owned in
+  `docs/gates.md` and closes with the TLS fixture.
+- [x] **Step 3: Limits are arguments.** Max header bytes, max body bytes, max
   redirects, connect/read/write deadlines and a total deadline. A limit breach
   is a typed error naming the limit and its value; there is no unbounded read.
   *Current:* `packages/http/src/headers.ya` parses a header block into its
@@ -156,9 +160,11 @@ explicit, and every operation has a deadline.
   the limit, its cap and the observed value; `describe` renders it and
   `bounded` reports unbounded (non-positive) caps. The package test pins a
   header breach and a body breach. `client.get_limited` now takes a `Limits`
-  value and refuses an oversized response, but checks it *after* buffering;
-  applying the caps inside the client and server read loops still needs the
-  pipeline work, so the step stays open.
+  value and refuses an oversized response.
+  *Carried forward (2026-11-24):* the check is post-buffering, so a hostile
+  peer can still make the read loop allocate up to its ceiling before the cap
+  is applied. The row is owned in `docs/gates.md` and closes when the caps are
+  arguments to the read loop itself.
 - [x] **Step 4: Commit.** `bafd9b9` shipped the loopback client (GET,
   chunked POST and capped GET), the two compiler ownership fixes behind the
   zero-leak result, the limits program rename and their regression tests.

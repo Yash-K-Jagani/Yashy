@@ -252,6 +252,20 @@ into it, and its test program no longer relies on the caller freeing it.
 gzip, oversized-body, deadline and pool-reuse rows are not yet fixtures. Owner:
 HTTP package maintainer. Closes when every named row has a pinned program.
 
+**Dated exception (2026-11-24): HTTP/2 and ALPN.** Version negotiation needs
+the TLS exception above: there is no pinned TLS library the current native-link
+convention can build, so a shared HTTP/1.1+HTTP/2 API cannot be exercised end
+to end. Owner: TLS/runtime maintainer with the HTTP package maintainer. Closes
+when ALPN selects `h2` against a local fixture and the request/response types
+are unchanged.
+
+**Dated exception (2026-11-24): hard pre-buffering caps.** `get_limited`
+checks header and body caps after the response has been buffered, so a hostile
+peer can still make the client allocate up to the read-loop ceiling before the
+cap is applied. Owner: HTTP package maintainer. Closes when caps are arguments
+to the read loop itself and an oversized header or body is refused while the
+bytes are still arriving.
+
 **Dated exception (2026-11-23): TLS.** The TLS-negative fixture and the
 vetted-library wrapper cannot be built with the current `link`-input
 convention: mbedTLS needs a C build system and include paths, and the host
