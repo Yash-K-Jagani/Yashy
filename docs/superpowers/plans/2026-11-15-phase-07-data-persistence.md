@@ -261,7 +261,8 @@ used that way.
   *Carried forward (2026-11-24):* the tutorial chapter and the `docs/packages.md`
   link are not written yet. The example's own source comments and README serve
   as its documentation today; this row is owned in `docs/gates.md`.
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.** `5aaa60d` shipped the example, its README, the load
+  worker and the two carried-forward rows.
 
 ## Gates
 
