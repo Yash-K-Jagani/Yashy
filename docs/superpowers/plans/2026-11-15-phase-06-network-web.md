@@ -159,7 +159,7 @@ explicit, and every operation has a deadline.
   value and refuses an oversized response, but checks it *after* buffering;
   applying the caps inside the client and server read loops still needs the
   pipeline work, so the step stays open.
-- [x] **Step 4: Commit.** `2509f3f` shipped the loopback client (GET,
+- [x] **Step 4: Commit.** `bafd9b9` shipped the loopback client (GET,
   chunked POST and capped GET), the two compiler ownership fixes behind the
   zero-leak result, the limits program rename and their regression tests.
   HTTP/2/ALPN and hard pre-buffering caps remain dated exceptions.
