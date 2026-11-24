@@ -1,0 +1,92 @@
+// WebSocket frames and SSE reconnection, exercised without a socket.
+
+import ws;
+
+import sse;
+
+fn error_name(WsError error) -> string {
+    return switch error {
+        case Malformed {
+            "malformed"
+        }
+        case TooBig {
+            "too-big"
+        }
+        case Unsupported {
+            "unsupported"
+        }
+    };
+}
+
+fn frame_text(Result[string, WsError] built) -> string {
+    return switch built {
+        case Ok(raw) {
+            raw
+        }
+        case Err(error) {
+            error_name(error)
+        }
+    };
+}
+
+fn payload_of(Result[Frame, WsError] parsed) -> string {
+    return switch parsed {
+        case Ok(frame) {
+            frame.payload
+        }
+        case Err(error) {
+            error_name(error)
+        }
+    };
+}
+
+fn opcode_of(Result[Frame, WsError] parsed) -> int {
+    return switch parsed {
+        case Ok(frame) {
+            frame.opcode
+        }
+        case Err(_) {
+            -1
+        }
+    };
+}
+
+fn decoded_name(Result[Frame, WsError] parsed) -> string {
+    return switch parsed {
+        case Ok(frame) {
+            frame.payload
+        }
+        case Err(error) {
+            error_name(error)
+        }
+    };
+}
+
+fn main() {
+    const text = frame_text(ws.encode(false, 1, "hello"));
+    assert(payload_of(ws.decode(text)) == "hello");
+    assert(opcode_of(ws.decode(text)) == 1);
+
+    const binary = frame_text(ws.encode(false, 2, "bytes"));
+    assert(opcode_of(ws.decode(binary)) == 2);
+
+    const ping = frame_text(ws.pong("p"));
+    assert(opcode_of(ws.decode(ping)) == 10);
+    assert(payload_of(ws.decode(ping)) == "p");
+
+    const close = frame_text(ws.close_frame(775));
+    assert(ws.close_code(payload_of(ws.decode(close))) == 775);
+    assert(opcode_of(ws.decode(close)) == 8);
+
+    assert(ws.join("hel", "lo") == "hello");
+    assert(ws.valid_text("héllo"));
+    assert(decoded_name(ws.decode("a")) == "malformed");
+
+    const first = sse.parse("id: 7\nevent: tick\ndata: one\ndata: two\n\nnext: 1\n");
+    assert(first.id == "7");
+    assert(first.name == "tick");
+    assert(first.data == "one\ntwo\n");
+    assert(first.rest == "next: 1\n");
+    assert(sse.resume_header("7") == "Last-Event-ID: 7\r\n");
+    print("streams-ok");
+}

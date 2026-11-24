@@ -1,0 +1,65 @@
+// Server-sent events (phase 6, Task 5).
+//
+// An event stream is plain text split by blank lines. `parse` consumes one
+// event and returns the bytes after it, so a reader can keep its own cursor
+// and reconnect with `resume_header` after a break.
+
+pub struct Event {
+    pub id: string,
+    pub name: string,
+    pub data: string,
+    pub rest: string,
+}
+
+fn field_value(string line, string prefix) -> string {
+    const text = line.slice(prefix.len(), line.len());
+    return text.trim();
+}
+
+/// Parse the first event in `text`. A comment or an unknown field is
+/// ignored; multiple `data` lines are joined with `\n` in order.
+pub fn parse(string text) -> Event {
+    let lines = text.lines();
+    let string id = "";
+    let string name = "";
+    let string data = "";
+    let int consumed = 0;
+    let int index = 0;
+    while index < lines.len() {
+        const entry = lines[index];
+        const line = switch entry {
+            case Some(value) {
+                value
+            }
+            case None {
+                ""
+            }
+        };
+        consumed = consumed + line.len() + 1;
+        if line.is_empty() {
+            index = index + 1;
+            break;
+        }
+        if line.starts_with("data:") {
+            data = data + field_value(line, "data:") + "\n";
+        } else if line.starts_with("id:") {
+            id = field_value(line, "id:");
+        } else if line.starts_with("event:") {
+            name = field_value(line, "event:");
+        }
+        index = index + 1;
+    }
+    lines.free();
+    return Event {
+        id: id,
+        name: name,
+        data: data,
+        rest: text.slice(consumed, text.len()),
+    };
+}
+
+/// The header a client sends to continue after `id`. An empty id produces a
+/// header with an empty value: reconnection without a last id is explicit.
+pub fn resume_header(string id) -> string {
+    return "Last-Event-ID: " + id + "\r\n";
+}

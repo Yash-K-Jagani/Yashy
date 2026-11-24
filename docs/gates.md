@@ -277,6 +277,17 @@ test. Four rows cannot be met from this checkout:
 | Graceful shutdown with two signals | no signal API in the stdlib or runtime | runtime owner | a signal registration verb exists and `serve` drains in-flight requests under a deadline |
 | Field read off a call temporary | `handler(request).status` leaves the response's strings live; binding the response first does not. The framework test binds responses to avoid it | codegen owner | a leak test pins a field read on a call result and the temporary's owned references are released |
 
+**Dated exceptions (2026-11-24): WebSocket and SSE.** The framing and SSE
+modules ship with a zero-leak socket-free harness test. Four rows remain owned
+rather than claimed:
+
+| Row | Reason | Owner | Closes when |
+|---|---|---|---|
+| HTTP handshake | the magic `Sec-WebSocket-Accept` needs SHA-1 with a base64 digest; the stdlib has SHA-512/SHA-3 but no SHA-1 | HTTP package maintainer | the digest is computed by a pinned primitive and an upgrade fixture pins accept and rejection |
+| High-bit bytes in an encoded frame | `string.from_bytes` validates UTF-8, so Yashy code cannot build a FIN-set header or a close code whose second byte is ≥ 128; decoding raw bytes from a socket is unaffected | language/runtime owner | a raw byte-string constructor exists and a loopback fixture round-trips masked, FIN-set and high-byte close frames |
+| Negative UTF-8 frame fixture | the same byte-construction gap prevents an invalid UTF-8 payload from being written from a test; `valid_text` has only its positive fixture | HTTP package maintainer | the raw byte constructor exists and overlong, surrogate and stray-continuation payloads are pinned |
+| Live SSE reconnect | the harness pins `Last-Event-ID` construction and event parsing separately, not a reconnect against a real stream | HTTP package maintainer | a loopback fixture drops the stream, reconnects with the header and resumes at the last id |
+
 **Dated exception (2026-11-23): TLS.** The TLS-negative fixture and the
 vetted-library wrapper cannot be built with the current `link`-input
 convention: mbedTLS needs a C build system and include paths, and the host

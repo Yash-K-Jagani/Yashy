@@ -229,13 +229,24 @@ explicit, and every operation has a deadline.
 - Create: `packages/http/src/ws.ya`, `packages/http/src/sse.ya`
 - Test: `packages/http/tests/ws/`, `packages/http/tests/sse/`
 
-- [ ] **Step 1: Write the failing test.** A WebSocket handshake, a text frame,
+- [x] **Step 1: Write the failing test.** A WebSocket handshake, a text frame,
   a binary frame, a ping/pong, a close handshake, and a fragmented message; an
   SSE stream that reconnects with `Last-Event-ID`.
-- [ ] **Step 2: Frames are parsed with limits.** Max frame size, max message
+  *Current:* `packages/http/tests/streams.ya` and
+  `crates/yashy-driver/tests/http_streams.rs` pin text/binary frames, pong,
+  close-code echo, fragmentation, SSE field parsing and the `Last-Event-ID`
+  header with zero live allocations. The socket handshake and a live reconnect
+  are carried forward in `docs/gates.md`.
+- [x] **Step 2: Frames are parsed with limits.** Max frame size, max message
   size, UTF-8 validation for text frames, and a close code that is echoed
   correctly. A malformed frame closes with the protocol error code, never
   panics.
+  *Current:* `ws.decode_limited` enforces frame and message limits and returns
+  `Malformed`/`TooBig`/`Unsupported` instead of panicking; `valid_text` checks
+  UTF-8 lead, continuation, overlong and surrogate rules. A `close_frame`
+  echoes its code. The negative UTF-8 fixture and high-bit bytes need a raw
+  byte-string constructor that Yashy does not have yet, so those rows are
+  carried forward.
 - [ ] **Step 3: Commit.**
 
 ### Task 6: Fuzz, load and leak gates

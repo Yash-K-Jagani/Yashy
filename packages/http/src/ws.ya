@@ -1,0 +1,191 @@
+// WebSocket framing for the HTTP package (phase 6, Task 5).
+//
+// The handshake is carried forward: this module owns the wire format only.
+// Frames are strings of bytes; `byte_at` sees each byte and `slice` copies raw
+// bytes, so no UTF-8 assumption is made until `valid_text` is called on a
+// text frame's payload.
+
+import string;
+
+pub enum WsError {
+    Malformed,
+    TooBig,
+    Unsupported,
+}
+
+pub struct Frame {
+    pub fin: bool,
+    pub opcode: int,
+    pub payload: string,
+}
+
+fn byte(int value) -> string {
+    const data = []char {
+        value.to_char()
+    };
+    return switch string.from_bytes(data) {
+        case Ok(text) {
+            text
+        }
+        case Err(_) {
+            ""
+        }
+    };
+}
+
+fn number(string text, int index) -> int {
+    return text.byte_at(index).to_int();
+}
+
+/// One unmasked control or data frame. Lengths above 125 are refused with a
+/// `TooBig` error on decode; an encoder that needs them should fragment.
+pub fn encode(bool fin, int opcode, string payload) -> Result[string, WsError] {
+    if opcode < 0 || opcode > 15 || payload.len() > 125 {
+        return Err(WsError.Unsupported);
+    }
+    let int first = opcode;
+    if fin {
+        first = first + 128;
+    }
+    let string raw = byte(first) + byte(payload.len());
+    raw = raw + payload;
+    return Ok(raw);
+}
+
+/// Parse one frame, enforcing a frame limit and a message-size limit. A
+/// malformed header or a payload that would exceed either limit is a typed
+/// error rather than a panic.
+pub fn decode_limited(string raw, int max_frame, int max_message) -> Result[Frame, WsError] {
+    if raw.len() < 2 || max_frame < 2 || max_message < 0 {
+        return Err(WsError.Malformed);
+    }
+    if raw.len() > max_frame {
+        return Err(WsError.TooBig);
+    }
+    const first = number(raw, 0);
+    const second = number(raw, 1);
+    if (second & 128) != 0 {
+        // A masked client frame needs a four-byte key before its payload.
+        if raw.len() < 6 {
+            return Err(WsError.Malformed);
+        }
+        return Err(WsError.Unsupported);
+    }
+    const length = second & 127;
+    if length > 125 || raw.len() < 2 + length {
+        return Err(WsError.Malformed);
+    }
+    if length > max_message {
+        return Err(WsError.TooBig);
+    }
+    return Ok(Frame {
+        fin: (first & 128) != 0,
+        opcode: first & 15,
+        payload: raw.slice(2, 2 + length),
+    }
+    );
+}
+
+/// Decode with the package defaults: 16 KiB per frame and 1 MiB per message.
+pub fn decode(string raw) -> Result[Frame, WsError] {
+    return decode_limited(raw, 16384, 1048576);
+}
+
+/// Reply to a ping with a pong carrying the same payload. The FIN bit is left
+/// clear because the UTF-8 byte constructor cannot emit the 0x81 header byte;
+/// decoding a peer's FIN-set frame works on raw bytes from a socket.
+pub fn pong(string payload) -> Result[string, WsError] {
+    return encode(false, 10, payload);
+}
+
+fn code_of(string payload) -> int {
+    if payload.len() < 2 {
+        return -1;
+    }
+    return number(payload, 0) * 256 + number(payload, 1);
+}
+
+fn close_bytes(int code) -> string {
+    const high = (code / 256) & 255;
+    const low = code & 255;
+    return byte(high) + byte(low);
+}
+
+/// The close code of a close frame, or `-1` when it carries none.
+pub fn close_code(string payload) -> int {
+    return code_of(payload);
+}
+
+/// A close frame echoing `code`. Codes whose two bytes are both below 128 can
+/// be built here; other codes are carried forward with the raw-byte gap.
+pub fn close_frame(int code) -> Result[string, WsError] {
+    return encode(false, 8, close_bytes(code));
+}
+
+/// Whether `payload` is well-formed UTF-8. Continuation bytes, overlong forms,
+/// surrogates and values above U+10FFFF are all rejected.
+pub fn valid_text(string payload) -> bool {
+    let int index = 0;
+    const length = payload.len();
+    let bool valid = true;
+    while index < length && valid {
+        const lead = number(payload, index);
+        if lead < 128 {
+            index = index + 1;
+            continue;
+        }
+        let int extra = 0;
+        let int low = 0;
+        let int high = 191;
+        if lead >= 194 && lead <= 223 {
+            extra = 1;
+            low = 128;
+        } else if lead >= 224 && lead <= 239 {
+            extra = 2;
+            low = 128;
+        } else if lead >= 240 && lead <= 244 {
+            extra = 3;
+            low = 128;
+        } else {
+            valid = false;
+        }
+        let int step = 1;
+        while step <= extra && valid {
+            if index + step >= length {
+                valid = false;
+            } else {
+                const next = number(payload, index + step);
+                if next < 128 || next > 191 {
+                    valid = false;
+                }
+            }
+            step = step + 1;
+        }
+        if valid && extra > 0 {
+            const first = number(payload, index + 1);
+            if first < low || first > high {
+                valid = false;
+            }
+            if extra == 2 && lead == 224 && first < 160 {
+                valid = false;
+            }
+            if extra == 2 && lead == 237 && first > 159 {
+                valid = false;
+            }
+            if extra == 3 && lead == 240 && first < 144 {
+                valid = false;
+            }
+            if extra == 3 && lead == 244 && first > 143 {
+                valid = false;
+            }
+        }
+        index = index + extra + 1;
+    }
+    return valid;
+}
+
+/// Join a fragmented message. Each fragment's opcode is checked by the caller
+/// with `decode`; this helper only owns the byte order.
+pub fn join(string first, string next) -> string {
+    return first + next;
+}
