@@ -1,0 +1,300 @@
+// Deterministic, versioned value codecs (phase 7, Task 5).
+//
+// The wire form is a byte string whose first byte is a version. A decoder
+// refuses an unknown version, so a future format cannot be misread as this
+// one. Fields are written in declaration order with explicit lengths; there
+// is no padding, no locale and no map iteration order.
+
+import string;
+
+/// The current wire version.
+pub fn version() -> int {
+    return 1;
+}
+
+fn one_byte(int value) -> string {
+    const data = []char {
+        value.to_char()
+    };
+    return switch from_bytes(data) {
+        case Ok(text) {
+            text
+        }
+        case Err(_) {
+            ""
+        }
+    };
+}
+
+/// The version byte, as a one-byte string.
+fn header() -> string {
+    return one_byte(1);
+}
+
+fn check_version(string wire) -> Result[int, string] {
+    if wire.len() < 1 {
+        return Err("codec: empty input");
+    }
+    const first = wire.byte_at(0).to_int();
+    if first != 1 {
+        return Err("codec: unknown version");
+    }
+    return Ok(1);
+}
+
+/// An integer as a decimal field: `<length>:<digits>`.
+pub fn encode_int(int value) -> string {
+    const digits_text = str_from_i64(value);
+    return header() + str_from_i64(digits_text.len()) + ":" + digits_text;
+}
+
+/// Decode an integer field, refusing a bad length or a non-digit body.
+pub fn decode_int(string wire) -> Result[int, string] {
+    const checked = check_version(wire);
+    if let Err(error) = checked {
+        return Err(error);
+    }
+    const colon = wire.index_of(":");
+    const at = switch colon {
+        case Some(value) {
+            value
+        }
+        case None {
+            -1
+        }
+    };
+    if at != 2 {
+        return Err("codec: bad int header");
+    }
+    const size_text = wire.slice(1, at);
+    const size = switch size_text.parse_i64() {
+        case Some(value) {
+            value
+        }
+        case None {
+            -1
+        }
+    };
+    if size <= 0 || wire.len() != at + 1 + size {
+        return Err("codec: bad int length");
+    }
+    const digits_text = wire.slice(at + 1, wire.len());
+    const parsed = digits_text.parse_i64();
+    if let Some(number) = parsed {
+        return Ok(number);
+    }
+    return Err("codec: not an integer");
+}
+
+/// A text field: `<byte-length>:<bytes>`.
+pub fn encode_text(string value) -> string {
+    return header() + str_from_i64(value.len()) + ":" + value;
+}
+
+/// Decode a text field.
+pub fn decode_text(string wire) -> Result[string, string] {
+    const checked = check_version(wire);
+    if let Err(error) = checked {
+        return Err(error);
+    }
+    const colon = wire.index_of(":");
+    const at = switch colon {
+        case Some(value) {
+            value
+        }
+        case None {
+            -1
+        }
+    };
+    if at < 2 {
+        return Err("codec: bad text header");
+    }
+    const size_text = wire.slice(1, at);
+    const size = switch size_text.parse_i64() {
+        case Some(value) {
+            value
+        }
+        case None {
+            -1
+        }
+    };
+    if size < 0 || wire.len() != at + 1 + size {
+        return Err("codec: bad text length");
+    }
+    return Ok(wire.slice(at + 1, wire.len()));
+}
+
+/// Encode an optional text: a `0` for None, a `1` and a text field for Some.
+fn text_without_header(string encoded) -> string {
+    return encoded.slice(1, encoded.len());
+}
+
+pub fn encode_option_text(Option[string] value) -> string {
+    return switch value {
+        case Some(text) {
+            header() + "1" + text_without_header(encode_text(text))
+        }
+        case None {
+            header() + "0"
+        }
+    };
+}
+
+fn ok_some(string value) -> Result[Option[string], string] {
+    return Ok(Some(value));
+}
+
+fn err_option(string error) -> Result[Option[string], string] {
+    return Err(error);
+}
+
+/// Decode an optional text.
+pub fn decode_option_text(string wire) -> Result[Option[string], string] {
+    const checked = check_version(wire);
+    if let Err(error) = checked {
+        return Err(error);
+    }
+    if wire.len() == 2 && wire.byte_at(1).to_int() == 48 {
+        const Option[string] absent = None;
+        return Ok(absent);
+    }
+    if wire.len() < 3 || wire.byte_at(1).to_int() != 49 {
+        return Err("codec: bad option tag");
+    }
+    const payload = header() + wire.slice(2, wire.len());
+    return switch decode_text(payload) {
+        case Ok(value) {
+            ok_some(value)
+        }
+        case Err(error) {
+            err_option(error)
+        }
+    };
+}
+
+/// A product with a fixed field order: id, name, active.
+pub struct User {
+    pub id: int,
+    pub name: string,
+    pub active: bool,
+}
+
+/// Encode in declaration order.
+pub fn encode_user(User user) -> string {
+    const flag = switch user.active {
+        case true {
+            "1"
+        }
+        default {
+            "0"
+        }
+    };
+    const id_field = text_without_header(encode_int(user.id));
+    const name_field = text_without_header(encode_text(user.name));
+    return header() + "U" + id_field + name_field + flag;
+}
+
+/// Decode in declaration order. A trailing byte is an unknown field and is
+/// refused unless `allow_unknown` is set at the call site.
+pub fn decode_user(string wire, bool allow_unknown) -> Result[User, string] {
+    const checked = check_version(wire);
+    if let Err(error) = checked {
+        return Err(error);
+    }
+    if wire.len() < 3 || wire.byte_at(1).to_int() != 85 {
+        return Err("codec: not a User");
+    }
+    const first_colon = wire.index_of(":");
+    const colon = switch first_colon {
+        case Some(value) {
+            value
+        }
+        case None {
+            -1
+        }
+    };
+    if colon < 3 {
+        return Err("codec: bad int header");
+    }
+    const size_text = wire.slice(2, colon);
+    const size = switch size_text.parse_i64() {
+        case Some(value) {
+            value
+        }
+        case None {
+            -1
+        }
+    };
+    if size <= 0 {
+        return Err("codec: bad int length");
+    }
+    const id_end = colon + 1 + size;
+    if id_end >= wire.len() {
+        return Err("codec: missing name");
+    }
+    const id_field = wire.slice(2, id_end);
+    const parsed_id = decode_int(header() + id_field);
+    if let Err(error) = parsed_id {
+        return Err(error);
+    }
+    const id = switch parsed_id {
+        case Ok(value) {
+            value
+        }
+        case Err(_) {
+            0
+        }
+    };
+
+    const rest = wire.slice(id_end, wire.len());
+    const name_colon = rest.index_of(":");
+    const at = switch name_colon {
+        case Some(value) {
+            value
+        }
+        case None {
+            -1
+        }
+    };
+    if at < 1 {
+        return Err("codec: bad text header");
+    }
+    const name_size_text = rest.slice(0, at);
+    const name_size = switch name_size_text.parse_i64() {
+        case Some(value) {
+            value
+        }
+        case None {
+            -1
+        }
+    };
+    if name_size < 0 {
+        return Err("codec: bad text length");
+    }
+    const name_end = at + 1 + name_size;
+    const name_end_abs = id_end + name_end;
+    if name_end_abs >= wire.len() {
+        return Err("codec: missing active byte");
+    }
+    const name_field = rest.slice(0, name_end);
+    const parsed_name = decode_text(header() + name_field);
+    if let Err(error) = parsed_name {
+        return Err(error);
+    }
+    const name = switch parsed_name {
+        case Ok(value) {
+            value
+        }
+        case Err(_) {
+            ""
+        }
+    };
+    if name_end_abs + 1 < wire.len() && !allow_unknown {
+        return Err("codec: unknown field");
+    }
+    const active = wire.byte_at(name_end_abs).to_int() == 49;
+    return Ok(User {
+        id: id, name: name, active: active
+    }
+    );
+}

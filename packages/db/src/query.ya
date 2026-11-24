@@ -40,26 +40,34 @@ pub fn columns(string comma_separated) -> Option[Columns] {
     const parts = comma_separated.split(",");
     let result = "";
     let index = 0;
-    while index < parts.len() {
+    let bool valid = true;
+    while index < parts.len() && valid {
         const part = switch parts[index] {
-            case Some(value) { value.trim() }
-            case None { "" }
+            case Some(value) {
+                value.trim()
+            }
+            case None {
+                ""
+            }
         };
         if !identifier(part) {
-            parts.free();
-            return None;
+            valid = false;
+        } else {
+            if index > 0 {
+                result = result + ", ";
+            }
+            result = result + part;
         }
-        if index > 0 {
-            result = result + ", ";
-        }
-        result = result + part;
         index = index + 1;
     }
     parts.free();
-    if result.len() == 0 {
+    if !valid || result.len() == 0 {
         return None;
     }
-    return Some(Columns { text: result });
+    return Some(Columns {
+        text: result
+    }
+    );
 }
 
 /// The closed set of directions a dynamic `ORDER BY` can ask for.
@@ -80,7 +88,10 @@ pub fn table(string name) -> Option[Table] {
     if !identifier(name) {
         return None;
     }
-    return Some(Table { name: name });
+    return Some(Table {
+        name: name
+    }
+    );
 }
 
 /// Validate a column name, or `None` when it is not a bare identifier.
@@ -88,12 +99,17 @@ pub fn column(string name) -> Option[Column] {
     if !identifier(name) {
         return None;
     }
-    return Some(Column { name: name });
+    return Some(Column {
+        name: name
+    }
+    );
 }
 
 /// Make a sort request from a validated column and a closed direction.
 pub fn sort(Column by, Order direction) -> Sort {
-    return Sort { column: by, direction: direction };
+    return Sort {
+        column: by, direction: direction
+    };
 }
 
 /// The shared identifier grammar. A bare name starts with a letter and then
@@ -137,12 +153,16 @@ pub fn build(string sql, []string params) -> Result[Query, DbError] {
     if placeholders != params.len() {
         return Err(DbError.Arity(placeholders, params.len()));
     }
-    return Ok(Query { sql: sql, params: params });
+    return Ok(Query {
+        sql: sql, params: params
+    }
+    );
 }
 
 /// The SQL text. Placeholders stay in it; execution binds the parameters.
 pub fn sql(Query query) -> string {
-    return query.sql.slice(0, query.sql.len());
+    const sql = query.sql;
+    return sql.slice(0, sql.len());
 }
 
 /// The bound values, in placeholder order.
@@ -156,16 +176,17 @@ pub fn params(Query query) -> []string {
 /// belong in `params` and stay bound. Pass `""` for no `WHERE` clause. An empty
 /// column list or an unvalidated identifier is refused.
 pub fn select(
-    Table from,
-    Columns selected,
-    string where_sql,
-    []string params,
-    Option[Sort] ordering,
+Table from,
+Columns selected,
+string where_sql,
+[]string params,
+Option[Sort] ordering,
 ) -> Result[Query, DbError] {
-    if selected.text.len() == 0 {
+    const selected_text = selected.text;
+    if selected_text.len() == 0 {
         return Err(DbError.Empty);
     }
-    let mut sql = "SELECT " + selected.text + " FROM " + from.name;
+    let sql = "SELECT " + selected_text + " FROM " + from.name;
     if where_sql.len() > 0 {
         sql = sql + " WHERE " + where_sql;
     }
@@ -173,18 +194,125 @@ pub fn select(
     return build(sql, params);
 }
 
+fn direction_word(Order direction) -> string {
+    return switch direction {
+        case Order.Asc {
+            " ASC"
+        }
+        case Order.Desc {
+            " DESC"
+        }
+    };
+}
+
+fn sort_clause(Sort request) -> string {
+    const word = direction_word(request.direction);
+    const column = request.column;
+    return " ORDER BY " + column.name + word;
+}
+
 /// The dynamic tail of a `SELECT`, built only from a closed enum.
 fn order_clause(Option[Sort] ordering) -> string {
-    switch ordering {
+    return switch ordering {
         case Some(request) {
-            const direction = switch request.direction {
-                case Order.Asc { " ASC" }
-                case Order.Desc { " DESC" }
-            };
-            return " ORDER BY " + request.column.name + direction;
+            sort_clause(request)
         }
-        case None { return ""; }
+        case None {
+            ""
+        }
     };
+}
+
+/// One predicate. Its SQL is built only from a validated column name and a
+/// closed operator; the values stay in the bound parameter list.
+pub struct Expr {
+    text: string,
+}
+
+/// `column = ?`
+pub fn eq(Column column) -> Expr {
+    return Expr {
+        text: column.name + " = ?"
+    };
+}
+
+/// `column > ?`
+pub fn gt(Column column) -> Expr {
+    return Expr {
+        text: column.name + " > ?"
+    };
+}
+
+/// `column IN (?, ?, ...)`, with one placeholder per element.
+pub fn in_list(Column column, int count) -> Expr {
+    if count < 1 || count > 64 {
+        return Expr {
+            text: "invalid IN list"
+        };
+    }
+    let slots = "";
+    let index = 0;
+    while index < count {
+        if index > 0 {
+            slots = slots + ", ";
+        }
+        slots = slots + "?";
+        index = index + 1;
+    }
+    return Expr {
+        text: column.name + " IN (" + slots + ")"
+    };
+}
+
+/// An ordered set of predicates, joined with ` AND `.
+pub struct Filters {
+    text: string,
+}
+
+/// No predicates.
+pub fn no_filters() -> Filters {
+    return Filters {
+        text: ""
+    };
+}
+
+/// Add one predicate.
+pub fn add_filter(Filters filters, Expr predicate) -> Filters {
+    const prior = filters.text;
+    if prior.len() == 0 {
+        return Filters {
+            text: predicate.text
+        };
+    }
+    return Filters {
+        text: prior + " AND " + predicate.text
+    };
+}
+
+/// A full SELECT: validated identifiers, `?` placeholders, one bound value per
+/// placeholder, an optional closed-enum ordering and an optional row limit.
+pub fn select_where(
+Table from,
+Columns selected,
+Filters filters,
+Option[Sort] ordering,
+int row_limit,
+[]string params,
+) -> Result[Query, DbError] {
+    const chosen = selected.text;
+    if chosen.len() == 0 {
+        return Err(DbError.Empty);
+    }
+    let sql = "SELECT " + chosen + " FROM " + from.name;
+    const where_sql = filters.text;
+    if where_sql.len() > 0 {
+        sql = sql + " WHERE " + where_sql;
+    }
+    sql = sql + order_clause(ordering);
+    if row_limit > 0 {
+        sql = sql + " LIMIT " + str_from_i64(row_limit);
+    }
+    return build(sql, params);
 }
 
 /// Count a byte in a string.

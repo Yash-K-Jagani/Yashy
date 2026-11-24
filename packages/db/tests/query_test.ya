@@ -1,0 +1,73 @@
+// Parameter-bound SQL fragments and an injection corpus.
+import query;
+
+fn main() {
+    let values = []string {};
+    values.push("O'Brien; DROP TABLE users;--");
+    const built = query.build("SELECT name FROM users WHERE id = ?", move values);
+    if let Ok(q) = built {
+        assert(query.sql(q) == "SELECT name FROM users WHERE id = ?");
+        const bound_values = query.params(q);
+        assert(bound_values.len() == 1);
+        assert(bound_values[0] matches Some("O'Brien; DROP TABLE users;--"));
+        bound_values.free();
+    } else {
+        panic("query: the bound select must build");
+    }
+    const empty = []string {};
+    assert(query.build("SELECT 1", move empty) matches Ok(_));
+    const extra = []string {};
+    extra.push("x");
+    const matched = query.build("SELECT ?", move extra);
+    if let Ok(q2) = matched {
+        const used = query.params(q2);
+        used.free();
+    } else {
+        panic("query: one placeholder and one value must build");
+    }
+
+    const attacks = []string {
+        "users; DROP TABLE x", "users'--", "users/*", "users\"",
+        "users.name", "users name", "1users", "",
+    };
+    let index = 0;
+    while index < attacks.len() {
+        const candidate = switch attacks[index] {
+            case Some(value) {
+                value
+            }
+            case None {
+                ""
+            }
+        };
+        assert(query.table(candidate) matches None);
+        assert(query.column(candidate) matches None);
+        assert(query.columns(candidate) matches None);
+        index = index + 1;
+    }
+    attacks.free();
+
+    const from = query.table("users");
+    if let Some(t) = from {
+        const names = query.columns("id, name");
+        if let Some(list) = names {
+            const sort_col = query.column("name");
+            if let Some(sc) = sort_col {
+                const bound_params = []string {};
+                const sorted = query.select(t, list, "", move bound_params, Some(query.sort(sc, Order.Desc)));
+                if let Ok(built3) = sorted {
+                    assert(query.sql(built3) == "SELECT id, name FROM users ORDER BY name DESC");
+                } else {
+                    panic("query: the sorted select must build");
+                }
+            } else {
+                panic("query: the sort column must be valid");
+            }
+        } else {
+            panic("query: the column list must be valid");
+        }
+    } else {
+        panic("query: the table must be valid");
+    }
+    print("query-ok");
+}

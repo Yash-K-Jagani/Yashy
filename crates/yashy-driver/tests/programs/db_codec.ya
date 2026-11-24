@@ -1,0 +1,73 @@
+// Deterministic, versioned codecs for every column type and Option.
+
+import codec;
+
+import string;
+
+fn text_of(Result[int, string] answer) -> string {
+    return switch answer {
+        case Ok(value) {
+            str_from_i64(value)
+        }
+        case Err(error) {
+            error
+        }
+    };
+}
+
+fn main() {
+    assert(codec.version() == 1);
+    assert(text_of(codec.decode_int(codec.encode_int(42))) == "42");
+    assert(text_of(codec.decode_int(codec.encode_int(0 - 7))) == "-7");
+
+    const encoded = codec.encode_text("hello");
+    const decoded = codec.decode_text(encoded);
+    if let Ok(value) = decoded {
+        assert(value == "hello");
+    } else {
+        panic("codec: text round-trip");
+    }
+
+    const Option[string] nothing = None;
+    const absent = codec.decode_option_text(codec.encode_option_text(nothing));
+    assert(absent matches Ok(None));
+    const present = codec.decode_option_text(codec.encode_option_text(Some("tea")));
+    if let Ok(value) = present {
+        assert(value matches Some("tea"));
+    } else {
+        panic("codec: option round-trip");
+    }
+
+    const person = codec.User {
+        id: 7, name: "Ada", active: true
+    };
+    const wire = codec.encode_user(person);
+    const first = codec.encode_user(codec.User {
+        id: 7, name: "Ada", active: true
+    }
+    );
+    assert(wire == first);
+    const restored = codec.decode_user(wire, false);
+    if let Ok(value) = restored {
+        assert(value.id == 7);
+        assert(value.name == "Ada");
+        assert(value.active);
+    } else {
+        panic("codec: user round-trip");
+    }
+
+    const data = []char {
+        9.to_char()
+    };
+    const bad = switch from_bytes(data) {
+        case Ok(value) {
+            value
+        }
+        case Err(_) {
+            "?"
+        }
+    };
+    const corrupt = codec.decode_int(bad + "1:1");
+    assert(corrupt matches Err(_));
+    print("codec-ok");
+}

@@ -1,0 +1,57 @@
+// A full query: three filters, an IN list, ORDER BY and LIMIT. Values are
+// bound separately; no string reaches the SQL as an identifier.
+
+import query;
+
+fn main() {
+    const table = query.table("products");
+    if let Some(t) = table {
+        const cols = query.columns("id, name, price");
+        if let Some(list) = cols {
+            const c_id = query.column("id");
+            const c_name = query.column("name");
+            const c_price = query.column("price");
+            if let Some(id) = c_id {
+                if let Some(name) = c_name {
+                    if let Some(price) = c_price {
+                        let filters = query.no_filters();
+                        filters = query.add_filter(filters, query.eq(id));
+                        filters = query.add_filter(filters, query.in_list(name, 2));
+                        filters = query.add_filter(filters, query.gt(price));
+                        const sort_col = query.column("name");
+                        if let Some(sc) = sort_col {
+                            let bound_values = []string {
+                                "1", "tea", "coffee", "4"
+                            };
+                            const built = query.select_where(
+                            t, list, filters, Some(query.sort(sc, Order.Asc)), 10, move bound_values
+                            );
+                            if let Ok(q) = built {
+                                const expected = "SELECT id, name, price FROM products WHERE id = ? AND name IN (?, ?) AND price > ? ORDER BY name ASC LIMIT 10";
+                                assert(query.sql(q) == expected);
+                                const used_values = query.params(q);
+                                assert(used_values.len() == 4);
+                                used_values.free();
+                            } else {
+                                panic("query: the full select must build");
+                            }
+                        } else {
+                            panic("query: the sort column must be valid");
+                        }
+                    } else {
+                        panic("query: the price column must be valid");
+                    }
+                } else {
+                    panic("query: the name column must be valid");
+                }
+            } else {
+                panic("query: the id column must be valid");
+            }
+        } else {
+            panic("query: the column list must be valid");
+        }
+    } else {
+        panic("query: the table must be valid");
+    }
+    print("query-full-ok");
+}

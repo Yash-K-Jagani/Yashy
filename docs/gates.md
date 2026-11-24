@@ -344,6 +344,14 @@ accesses are supported; the six-file split is then mechanical.
 | Interface | `cargo test -p yashy-driver --test db_interface` | fake driver, typed rows, null as `Option`, transactions and pool, zero leaks |
 | SQLite | `cargo test -p yashy-driver --test sqlite` | CRUD, bound parameters, unique violation, injection-shaped value, zero leaks |
 | Redis | `cargo test -p yashy-driver --test redis` | GET/SET/DEL/EXPIRE, MULTI/EXEC, pub/sub, reconnect, zero leaks |
+| Query and codecs | `cargo test -p yashy-driver --test db_codes` | three filters, IN, ORDER BY, LIMIT, injection corpus, versioned round-trips, zero leaks |
+
+**Dated exception (2026-11-24): compiler derives for codecs.** The `Encode`
+and `Decode` derives from Phase 4 and a typed `CodecError` are not wired to the
+`codec.ya` functions; the package uses explicit encode/decode functions with
+string reasons. Owner: language owner with the db maintainer. Closes when a
+derive generates calls into the codec and a typed error names the field that
+failed.
 
 **Dated exceptions (2026-11-24): Redis.** The loopback client is green. Three
 rows remain owned: a multi-command pipeline request, a committed RESP fuzz

@@ -165,11 +165,18 @@ used that way.
 - `Encode { fn encode(self, *mut Encoder) -> Result[void, CodecError] }`
 - `Decode { fn decode(*mut Decoder) -> Result[Self, CodecError] }`
 
-- [ ] **Step 1: Write the failing test.** Build a query with three filters,
+- [x] **Step 1: Write the failing test.** Build a query with three filters,
   an `IN` list, an `ORDER BY` and a `LIMIT`; assert the SQL has placeholders and
   the values are separate. Attempt to pass a string as an identifier and assert
   it is refused. Round-trip a struct through `Encode`/`Decode` for every column
   type, including `Option`.
+  *Current:* `crates/yashy-driver/tests/programs/db_query_full.ya` pins three
+  filters, a two-element `IN`, `ORDER BY` and `LIMIT` with four separate bound
+  values. The renamed `packages/db/tests/query_test.ya` pins the injection
+  corpus. `db_codec.ya` round-trips int, text, `Option[string]` and a four-field
+  record in declaration order, and refuses an unknown version. Both harnesses
+  report zero leaks. The `Encode`/`Decode` derives and a typed `CodecError`
+  are carried forward: the codecs are explicit functions, not compiler derives.
 - [ ] **Step 2: Values never become SQL.** The builder has no `raw` escape
   hatch in safe code; an identifier is a `Table`/`Column` value, not a string;
   a dynamic `ORDER BY` is a closed enum. The injection corpus is a test file,
@@ -184,11 +191,16 @@ used that way.
   caller-written placeholder `WHERE`. The package test carries an injection
   corpus of refused names and pins the generated SQL. A real driver is still
   owed, so the step stays open.
-- [ ] **Step 3: Codecs are deterministic and versioned.** The wire form has a
+- [x] **Step 3: Codecs are deterministic and versioned.** The wire form has a
   version byte; a decoder rejects an unknown version; a struct field order is
   declaration order; an unknown field in a map-like codec is an error unless the
   codec opts into forward compatibility.
-- [ ] **Step 4: Commit.**
+  *Current:* `packages/db/src/codec.ya` writes a version byte and length-prefixed
+  fields in declaration order; the record decoder refuses trailing bytes unless
+  `allow_unknown` is set. The map-like codec and compiler derives are carried
+  forward.
+- [x] **Step 4: Commit.** `7fbb45a` covered the client; the query/codec slice is
+  committed with this task's harness and gate rows.
 
 ### Task 6: Migrations and pooling
 
