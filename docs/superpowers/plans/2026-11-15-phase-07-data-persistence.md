@@ -264,6 +264,11 @@ used that way.
 - [x] **Step 3: Commit.** `5aaa60d` shipped the example, its README, the load
   worker and the two carried-forward rows.
 
+**Phase 7 closes on 2026-11-24** with the carried-forward rows above as owned
+post-implementation follow-ups, not blocking work in this plan. Tasks 1, 2, 4,
+5, 6 and 7 landed code; Task 3 (PostgreSQL/MySQL) is carried forward in full.
+Every open row has a date, owner and closing condition in `docs/gates.md`.
+
 ## Gates
 
 | Gate | Command | Passes when |

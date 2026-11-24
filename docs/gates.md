@@ -413,6 +413,13 @@ rows on both operating systems.
 | No false positives | the phase 1b loop | no `FALSE POSITIVE` line |
 | No regression | `cargo test --workspace` | green on Windows and Linux |
 
+**Phase 7 closed (2026-11-24).** The `db` interface, SQLite, Redis, query
+builder, codecs, migrations, pool and shop example are landed with green
+zero-leak harnesses. The carried-forward rows are PostgreSQL/MySQL, TLS/ALPN,
+the 50-client load, compiler codec derives, migration/CLI and pool hooks, the
+shop tutorial chapter, and the rows specific to SQLite and Redis. Each has a
+date, owner and closing condition above; none blocks the phase.
+
 ### Phase 8 — traits, OOP, iterators
 
 | Gate | Command | Passes when |
