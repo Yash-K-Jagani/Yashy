@@ -72,7 +72,8 @@ used that way.
   files in the plan: the checker does not resolve qualified type names inside
   generic arguments, and a method call on a field access is rejected. The
   reason and owner are recorded in `docs/gates.md`.
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.** `c964c7a` shipped the value model, typed rows, the
+  fake driver harness, transactions, the pool and the one-module exception.
 
 ### Task 2: SQLite
 
