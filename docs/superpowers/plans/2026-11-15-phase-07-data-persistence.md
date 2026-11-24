@@ -199,8 +199,8 @@ used that way.
   fields in declaration order; the record decoder refuses trailing bytes unless
   `allow_unknown` is set. The map-like codec and compiler derives are carried
   forward.
-- [x] **Step 4: Commit.** `7fbb45a` covered the client; the query/codec slice is
-  committed with this task's harness and gate rows.
+- [x] **Step 4: Commit.** `8f28dc8` shipped the full builder, the codecs, the
+  renamed query test, two harnesses and the derive exception.
 
 ### Task 6: Migrations and pooling
 
