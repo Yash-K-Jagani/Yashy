@@ -53,12 +53,25 @@ used that way.
 - `Row { fn get[T](self, name: string) -> Result[T, db.Error] }`
 - `Connection { fn query(self: *mut Connection, sql: string, params: []Value) -> Result[[]Row, db.Error]; fn execute(...) -> Result[int, db.Error] }`
 
-- [ ] **Step 1: Write the failing test.** A fake driver implements the
+- [x] **Step 1: Write the failing test.** A fake driver implements the
   interface; a query returns rows; a missing column is an error, a null column
   is `Option`; a type mismatch names the column and the expected type.
-- [ ] **Step 2: One value model, four drivers.** Null is `Option`, never a
+  *Current:* `packages/db/tests/interface.ya` and
+  `crates/yashy-driver/tests/db_interface.rs` pin a fake driver's query and
+  execute, a missing column, a null column, all six value tags, a transaction
+  with savepoints and a bounded pool, with zero live allocations.
+- [x] **Step 2: One value model, four drivers.** Null is `Option`, never a
   sentinel; bytes and text are distinct; a driver maps its own types into the
   model and back. No driver leaks a library handle into the public API.
+  *Current:* `Value` is a copyable struct with distinct text/bytes tags and an
+  `is_null` tag; `Row.get` turns a null cell into `None`. `Connection` carries
+  only integers, and a `Driver` trait with receiver methods dispatches
+  statically.
+  *Carried forward (2026-11-24):* the four real drivers are separate tasks
+  below. The interface also lives in one `db.ya` module rather than the six
+  files in the plan: the checker does not resolve qualified type names inside
+  generic arguments, and a method call on a field access is rejected. The
+  reason and owner are recorded in `docs/gates.md`.
 - [ ] **Step 3: Commit.**
 
 ### Task 2: SQLite

@@ -1,0 +1,531 @@
+// The `db` interface (phase 7, Task 1): one module by language necessity.
+//
+// Yashy does not resolve a qualified type name such as `row.Row` inside a
+// generic argument (`Result[row.Row, Error]`), and a method cannot be called
+// on a field access (`row.names.len()`). Keeping the interface's small types in
+// one module avoids both. A `Driver` is a requirement set with receiver
+// methods and static dispatch; there is no trait object and no vtable.
+
+// ---------------------------------------------------------------- errors
+
+/// The stable cause of a database failure.
+pub enum DbCode {
+    ConnectFailed,
+    QueryFailed,
+    Constraint,
+    Busy,
+    Closed,
+    MissingColumn,
+    TypeMismatch,
+    NullForNonNull,
+    Arity,
+}
+
+/// A database failure: a stable code and a detail naming a column, an
+/// expected type or a driver message.
+pub struct DbError {
+    code: DbCode,
+    detail: string,
+}
+
+/// A connection failure.
+pub fn connect_failed(string detail) -> DbError {
+    return DbError {
+        code: DbCode.ConnectFailed, detail: detail
+    };
+}
+
+/// A query failure.
+pub fn query_failed(string detail) -> DbError {
+    return DbError {
+        code: DbCode.QueryFailed, detail: detail
+    };
+}
+
+/// A constraint violation; `detail` names the constraint.
+pub fn constraint(string detail) -> DbError {
+    return DbError {
+        code: DbCode.Constraint, detail: detail
+    };
+}
+
+/// A busy database that respected its timeout.
+pub fn busy(string detail) -> DbError {
+    return DbError {
+        code: DbCode.Busy, detail: detail
+    };
+}
+
+/// Use of a closed connection.
+pub fn closed() -> DbError {
+    return DbError {
+        code: DbCode.Closed, detail: "connection is closed"
+    };
+}
+
+/// A missing column; `detail` is the column name.
+pub fn missing_column(string name) -> DbError {
+    return DbError {
+        code: DbCode.MissingColumn, detail: name
+    };
+}
+
+/// A type mismatch; `detail` is `column: expected`.
+pub fn type_mismatch(string detail) -> DbError {
+    return DbError {
+        code: DbCode.TypeMismatch, detail: detail
+    };
+}
+
+/// A null where a non-null value was requested.
+pub fn null_for_non_null(string name) -> DbError {
+    return DbError {
+        code: DbCode.NullForNonNull, detail: name
+    };
+}
+
+/// A parameter-count mismatch.
+pub fn arity() -> DbError {
+    return DbError {
+        code: DbCode.Arity, detail: "parameter count mismatch"
+    };
+}
+
+/// The stable code, for a `switch` in a caller.
+pub fn error_code(DbError error) -> DbCode {
+    return error.code;
+}
+
+/// The detail, for logs and diagnostics.
+pub fn detail(DbError error) -> string {
+    return error.detail;
+}
+
+fn code_name(DbCode code) -> string {
+    return switch code {
+        case DbCode.ConnectFailed {
+            "connect failed"
+        }
+        case DbCode.QueryFailed {
+            "query failed"
+        }
+        case DbCode.Constraint {
+            "constraint violation"
+        }
+        case DbCode.Busy {
+            "database busy"
+        }
+        case DbCode.Closed {
+            "connection closed"
+        }
+        case DbCode.MissingColumn {
+            "missing column"
+        }
+        case DbCode.TypeMismatch {
+            "type mismatch"
+        }
+        case DbCode.NullForNonNull {
+            "null for non-null"
+        }
+        case DbCode.Arity {
+            "arity mismatch"
+        }
+    };
+}
+
+/// The human rendering: a stable phrase and the detail.
+pub fn describe(DbError error) -> string {
+    return code_name(error.code) + ": " + error.detail;
+}
+
+// ---------------------------------------------------------------- values
+
+/// A typed database value. Only the slot named by `kind` is active; the
+/// others hold a safe zero. `Null` becomes `Option` in `get`, never a sentinel.
+pub struct Value {
+    kind: int,
+    number: int,
+    real: float,
+    text: string,
+    flag: bool,
+}
+
+pub fn null() -> Value {
+    return Value {
+        kind: 0, number: 0, real: 0.0, text: "", flag: false
+    };
+}
+
+pub fn int_value(int number) -> Value {
+    return Value {
+        kind: 1, number: number, real: 0.0, text: "", flag: false
+    };
+}
+
+pub fn float_value(float real) -> Value {
+    return Value {
+        kind: 2, number: 0, real: real, text: "", flag: false
+    };
+}
+
+pub fn text(string value) -> Value {
+    return Value {
+        kind: 3, number: 0, real: 0.0, text: value, flag: false
+    };
+}
+
+/// A byte-string value, distinct from text.
+pub fn bytes(string value) -> Value {
+    return Value {
+        kind: 4, number: 0, real: 0.0, text: value, flag: false
+    };
+}
+
+pub fn bool_value(bool flag) -> Value {
+    return Value {
+        kind: 5, number: 0, real: 0.0, text: "", flag: flag
+    };
+}
+
+pub fn is_null(Value value) -> bool {
+    return value.kind == 0;
+}
+
+pub fn as_int(Value value) -> Result[int, string] {
+    if value.kind != 1 {
+        return Err("expected int");
+    }
+    return Ok(value.number);
+}
+
+pub fn as_float(Value value) -> Result[float, string] {
+    if value.kind != 2 {
+        return Err("expected float");
+    }
+    return Ok(value.real);
+}
+
+pub fn as_text(Value value) -> Result[string, string] {
+    if value.kind != 3 {
+        return Err("expected text");
+    }
+    return Ok(value.text);
+}
+
+pub fn as_bytes(Value value) -> Result[string, string] {
+    if value.kind != 4 {
+        return Err("expected bytes");
+    }
+    return Ok(value.text);
+}
+
+pub fn as_bool(Value value) -> Result[bool, string] {
+    if value.kind != 5 {
+        return Err("expected bool");
+    }
+    return Ok(value.flag);
+}
+
+/// A stable tag name: `null`, `int`, `float`, `text`, `bytes`, `bool`.
+pub fn value_name(Value value) -> string {
+    const kind = value.kind;
+    return switch kind {
+        case 0 {
+            "null"
+        }
+        case 1 {
+            "int"
+        }
+        case 2 {
+            "float"
+        }
+        case 3 {
+            "text"
+        }
+        case 4 {
+            "bytes"
+        }
+        case 5 {
+            "bool"
+        }
+        default {
+            "unknown"
+        }
+    };
+}
+
+// ------------------------------------------------------------------ rows
+
+/// A row kept as parallel arrays. The caller owns every array and must call
+/// `free_row` once. Only the array matching a column's tag is meaningful.
+pub struct Row {
+    names: []string,
+    kinds: []int,
+    numbers: []int,
+    reals: []float,
+    texts: []string,
+    flags: []bool,
+}
+
+fn element_int([]int values, int index) -> int {
+    const entry = values[index];
+    return switch entry {
+        case Some(number) {
+            number
+        }
+        default {
+            0
+        }
+    };
+}
+
+fn element_float([]float values, int index) -> float {
+    const entry = values[index];
+    return switch entry {
+        case Some(number) {
+            number
+        }
+        default {
+            0.0
+        }
+    };
+}
+
+fn element_text([]string values, int index) -> string {
+    const entry = values[index];
+    return switch entry {
+        case Some(value) {
+            value
+        }
+        default {
+            ""
+        }
+    };
+}
+
+fn element_bool([]bool values, int index) -> bool {
+    const entry = values[index];
+    return switch entry {
+        case Some(flag) {
+            flag
+        }
+        default {
+            false
+        }
+    };
+}
+
+fn column_slot([]string names, string wanted) -> int {
+    let index = 0;
+    while index < names.len() {
+        const found = element_text(names, index);
+        if found == wanted {
+            return index;
+        }
+        index = index + 1;
+    }
+    return -1;
+}
+
+/// Look up a column. A missing column is an error naming it; a null cell
+/// answers `Ok(None)`; every other cell answers `Ok(Some(value))`.
+pub fn get(Row row, string name) -> Result[Option[Value], DbError] {
+    const names = row.names;
+    const at = column_slot(names, name);
+    if at < 0 {
+        return Err(missing_column(name));
+    }
+    const tag = element_int(row.kinds, at);
+    if tag == 0 {
+        const Option[Value] absent = None;
+        return Ok(absent);
+    }
+    let Value cell = null();
+    if tag == 1 {
+        cell = int_value(element_int(row.numbers, at));
+    } else if tag == 2 {
+        cell = float_value(element_float(row.reals, at));
+    } else if tag == 3 {
+        cell = text(element_text(row.texts, at));
+    } else if tag == 4 {
+        cell = bytes(element_text(row.texts, at));
+    } else {
+        cell = bool_value(element_bool(row.flags, at));
+    }
+    return Ok(Some(cell));
+}
+
+/// The number of columns.
+pub fn column_count(Row row) -> int {
+    const names = row.names;
+    return names.len();
+}
+
+/// Release every array the row owns. Call exactly once per returned row.
+pub fn free_row(Row row) {
+    const names = row.names;
+    const kinds = row.kinds;
+    const numbers = row.numbers;
+    const reals = row.reals;
+    const texts = row.texts;
+    const flags = row.flags;
+    names.free();
+    kinds.free();
+    numbers.free();
+    reals.free();
+    texts.free();
+    flags.free();
+}
+
+/// Build a row from parallel arrays. The caller owns the arrays and must call
+/// `free_row` once; a driver uses this constructor so `Row` fields stay private.
+pub fn make_row(
+[]string names,
+[]int kinds,
+[]int numbers,
+[]float reals,
+[]string texts,
+[]bool flags,
+) -> Row {
+    return Row {
+        names: names, kinds: kinds, numbers: numbers,
+        reals: reals, texts: texts, flags: flags
+    };
+}
+
+// ------------------------------------------------------------ connections
+
+/// The requirement every driver implements.
+pub trait Driver {
+    /// Run a parameterised query. The row's arrays are owned by the caller.
+    fn query(self: *mut Self, string sql, []string params) -> Result[Row, DbError];
+    /// Run a statement, returning the affected row count.
+    fn execute(self: *mut Self, string sql, []string params) -> Result[int, DbError];
+}
+
+/// A driver-neutral connection handle: integers only, no library handle.
+pub struct Connection {
+    handle: int,
+    driver: int,
+    open: bool,
+}
+
+pub fn connection(int handle, int driver) -> Connection {
+    return Connection {
+        handle: handle, driver: driver, open: true
+    };
+}
+
+impl Connection {
+    /// Whether the connection is still open.
+    pub fn is_open(self) -> bool {
+        return self.open;
+    }
+
+    /// Close the connection.
+    pub fn close(self: *mut Connection) {
+        self[0].open = false;
+    }
+}
+
+// ------------------------------------------------------------ transactions
+
+/// A transaction id and savepoint depth.
+pub struct Transaction {
+    id: int,
+    depth: int,
+    open: bool,
+}
+
+pub fn begin(int id) -> Transaction {
+    return Transaction {
+        id: id, depth: 0, open: true
+    };
+}
+
+impl Transaction {
+    /// The current savepoint depth.
+    pub fn depth(self) -> int {
+        return self.depth;
+    }
+
+    /// Whether the transaction is open.
+    pub fn tx_open(self) -> bool {
+        return self.open;
+    }
+
+    /// Create a savepoint and return its id.
+    pub fn savepoint(self: *mut Transaction) -> int {
+        self[0].depth = self[0].depth + 1;
+        return self[0].depth;
+    }
+
+    /// Roll back to a savepoint, discarding everything after it.
+    pub fn rollback_to(self: *mut Transaction, int target) -> int {
+        if target < 1 || target > self[0].depth {
+            return self[0].depth;
+        }
+        self[0].depth = target - 1;
+        return self[0].depth;
+    }
+
+    /// Commit, closing the transaction.
+    pub fn commit(self: *mut Transaction) {
+        self[0].open = false;
+    }
+
+    /// Roll back the whole transaction, closing it.
+    pub fn rollback(self: *mut Transaction) {
+        self[0].open = false;
+        self[0].depth = 0;
+    }
+}
+
+// ------------------------------------------------------------------- pool
+
+/// A bounded pool of connection ids. Exhaustion is a typed error, not a hang.
+pub struct Pool {
+    max: int,
+    open: int,
+    idle: int,
+    next: int,
+}
+
+pub fn bounded(int max) -> Pool {
+    return Pool {
+        max: max, open: 0, idle: 0, next: 0
+    };
+}
+
+impl Pool {
+    /// Acquire a connection id, or `Busy` when the pool is exhausted.
+    pub fn acquire(self: *mut Pool) -> Result[int, DbError] {
+        if self[0].open >= self[0].max {
+            return Err(busy("pool exhausted"));
+        }
+        self[0].next = self[0].next + 1;
+        self[0].open = self[0].open + 1;
+        return Ok(self[0].next);
+    }
+
+    /// Return a connection to the idle set.
+    pub fn release(self: *mut Pool) {
+        if self[0].open > 0 {
+            self[0].open = self[0].open - 1;
+            self[0].idle = self[0].idle + 1;
+        }
+    }
+
+    /// Close every idle connection; live ones are the caller's responsibility.
+    pub fn drain(self: *mut Pool) -> int {
+        const count = self[0].idle;
+        self[0].idle = 0;
+        return count;
+    }
+
+    /// A stable `open=N idle=N max=N` snapshot, suitable for logs and JSON.
+    pub fn snapshot(self) -> string {
+        return "open=" + str_from_i64(self.open) + " idle=" + str_from_i64(self.idle)
+        + " max=" + str_from_i64(self.max);
+    }
+}

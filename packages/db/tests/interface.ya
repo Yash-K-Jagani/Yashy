@@ -1,0 +1,190 @@
+// The db interface: one value model, typed rows, a fake driver and a bounded
+// pool. No real database is involved, so the test runs on every host.
+
+import db;
+
+// A fake driver holds a small in-memory table. It implements the `Driver`
+// requirement with receiver methods, so dispatch is static.
+struct Fake {
+    calls: int,
+}
+
+impl Driver for Fake {
+    fn query(self: *mut Fake, string sql, []string params) -> Result[Row, DbError] {
+        self[0].calls = self[0].calls + 1;
+        if sql.len() == 0 {
+            return Err(query_failed("empty sql"));
+        }
+        if params.len() != 1 {
+            return Err(arity());
+        }
+        let names = []string {
+            "id", "name", "nick", "score", "active"
+        };
+        let kinds = []int {
+            1, 3, 0, 2, 5
+        };
+        let numbers = []int {
+            7, 0, 0, 0, 0
+        };
+        let reals = []float {
+            0.0, 0.0, 0.0, 4.5, 0.0
+        };
+        let texts = []string {
+            "", "tea", "", "", ""
+        };
+        let flags = []bool {
+            false, false, false, false, true
+        };
+        return Ok(make_row(names, kinds, numbers, reals, texts, flags));
+    }
+
+    fn execute(self: *mut Fake, string sql, []string params) -> Result[int, DbError] {
+        self[0].calls = self[0].calls + 1;
+        if sql.len() == 0 {
+            return Err(query_failed("empty sql"));
+        }
+        return Ok(1);
+    }
+}
+
+fn cell_name(Result[Option[Value], DbError] answer) -> string {
+    return switch answer {
+        case Ok(cell) {
+            switch cell {
+                case Some(entry) {
+                    value_name(entry)
+                }
+                case None {
+                    "null"
+                }
+            }
+        }
+        case Err(failure) {
+            detail(failure)
+        }
+    };
+}
+
+fn int_from(Value entry) -> int {
+    const parsed = as_int(entry);
+    return switch parsed {
+        case Ok(number) {
+            number
+        }
+        case Err(_) {
+            -1
+        }
+    };
+}
+
+fn cell_int(Result[Option[Value], DbError] answer) -> int {
+    return switch answer {
+        case Ok(cell) {
+            switch cell {
+                case Some(entry) {
+                    int_from(entry)
+                }
+                case None {
+                    -1
+                }
+            }
+        }
+        case Err(_) {
+            -1
+        }
+    };
+}
+
+fn is_busy(DbError error) -> bool {
+    return switch error_code(error) {
+        case DbCode.Busy {
+            true
+        }
+        default {
+            false
+        }
+    };
+}
+
+fn main() {
+    let fake = Fake {
+        calls: 0
+    };
+    let params = []string {
+        "7"
+    };
+    const answer = fake.query("SELECT * FROM items WHERE id = ?", params);
+    params.free();
+    if let Ok(found) = answer {
+        assert(column_count(found) == 5);
+        assert(cell_int(get(found, "id")) == 7);
+        assert(cell_name(get(found, "name")) == "text");
+        assert(cell_name(get(found, "nick")) == "null");
+        assert(cell_name(get(found, "missing")) == "missing");
+        free_row(found);
+    } else {
+        panic("the fake driver refused its own query");
+    }
+    assert(fake.calls == 1);
+
+    let again = Fake {
+        calls: 0
+    };
+    let second = []string {
+        "1"
+    };
+    const written = again.execute("UPDATE items SET name = ?", second);
+    second.free();
+    assert(again.calls == 1);
+    assert(switch written {
+        case Ok(count) {
+            count
+        }
+        case Err(_) {
+            -1
+        }
+    }
+    == 1);
+
+    let c = connection(1, 1);
+    assert(c.is_open());
+    c.close();
+    assert(!c.is_open());
+
+    let t = begin(9);
+    t.savepoint();
+    const second_sp = t.savepoint();
+    assert(second_sp == 2);
+    assert(t.rollback_to(second_sp) == 1);
+    t.commit();
+    assert(!t.tx_open());
+
+    let p = bounded(2);
+    const a = p.acquire();
+    p.acquire();
+    const exhausted = p.acquire();
+    assert(switch a {
+        case Ok(id) {
+            id
+        }
+        case Err(_) {
+            -1
+        }
+    }
+    == 1);
+    assert(switch exhausted {
+        case Err(e) {
+            is_busy(e)
+        }
+        case Ok(_) {
+            false
+        }
+    }
+    );
+    p.release();
+    assert(p.snapshot() == "open=1 idle=1 max=2");
+    assert(p.drain() == 1);
+
+    print("db-interface-ok");
+}

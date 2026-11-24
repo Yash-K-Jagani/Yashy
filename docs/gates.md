@@ -328,6 +328,21 @@ half. Every row has a date, owner and closing condition; none blocks the phase.
 | Verifier coverage | the zero-false-positive loop | no new false positive on strings |
 | No regression | `cargo test --workspace` | green on Windows and Linux |
 
+### Phase 7 — data persistence (the 2.0 plan)
+
+**Dated exception (2026-11-24): one-module `db` interface.** The plan asks for
+six modules (`conn`, `row`, `value`, `error`, `pool`, `tx`). Yashy does not
+resolve a qualified type name such as `row.Row` inside a generic argument, and
+a method cannot be called on a field access (`row.names.len()`), so a fake
+driver in another module cannot construct or read a row. The interface is one
+`packages/db/src/db.ya` module instead. Owner: language owner. Closes when
+cross-module qualified types in generic arguments and method calls on field
+accesses are supported; the six-file split is then mechanical.
+
+| Gate | Command | Passes when |
+|---|---|---|
+| Interface | `cargo test -p yashy-driver --test db_interface` | fake driver, typed rows, null as `Option`, transactions and pool, zero leaks |
+
 ### Phase 7 — patterns and named arguments
 
 | Gate | Command | Passes when |
