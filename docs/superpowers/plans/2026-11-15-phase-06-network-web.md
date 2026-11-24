@@ -280,16 +280,20 @@ explicit, and every operation has a deadline.
 
 ## Gates
 
-| Gate | Command | Passes when |
-|---|---|---|
-| HTTPS service | `cargo test -p yashy-driver --test programs -- http` | a real TLS request/response succeeds against a test CA |
-| 50 clients | `packages/http/tests/load` | 50 concurrent clients, 1,000 requests, zero failures, p99 under budget |
-| Fuzz | `cargo test -p yashy-driver --test fuzz -- http` | no crash, hang or unbounded allocation |
-| Leaks | `cargo test -p yashy-driver --test leaks` | zero |
-| Limits | `packages/http/tests/server` | every limit has a test; a trickle client is closed at the deadline |
-| TLS negative | `packages/tls/tests` | expired, wrong-host, revoked and untrusted each fail with a distinct code |
-| No regression | `cargo test --workspace` | green on Windows and Linux |
-| No P0 | `docs/triage.md` | no P0 |
+| Gate | Command | Passes when | State (2026-11-24) |
+|---|---|---|---|
+| HTTPS service | `cargo test -p yashy-driver --test programs -- http` | a real TLS request/response succeeds against a test CA | carried forward — no vetted TLS library |
+| 50 clients | `packages/http/tests/load` | 50 concurrent clients, 1,000 requests, zero failures, p99 under budget | carried forward — TLS fixture and `serve` shutdown |
+| Fuzz | `cargo test -p yashy-driver --test fuzz -- http` | no crash, hang or unbounded allocation | green — committed corpus, zero leaks |
+| Leaks | `cargo test -p yashy-driver --test leaks` | zero | green — 19 tests |
+| Limits | `packages/http/tests/server` | every limit has a test; a trickle client is closed at the deadline | carried forward — configurable caps |
+| TLS negative | `packages/tls/tests` | expired, wrong-host, revoked and untrusted each fail with a distinct code | carried forward — TLS exception |
+| No regression | `cargo test --workspace` | green on Windows and Linux | 267 suites green; two host-speed timing rows also fail on unmodified HEAD |
+| No P0 | `docs/triage.md` | no P0 | the one P0 the corpus found (chunk-size overflow) was fixed in `4eee387`; no P0 left open by this phase |
+
+Every carried-forward row above has a date, owner and closing condition in
+`docs/gates.md`. Phase 6 closes on **2026-11-24** with those rows as
+post-implementation follow-ups, not as blocking work in this plan.
 
 ## Demo
 

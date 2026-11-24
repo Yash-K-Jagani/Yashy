@@ -310,6 +310,13 @@ Windows runner and a controlled resolver fixture respectively. Owner: net
 package maintainer. Each closes when the named platform test runs in CI and
 pins at least two resolved addresses.
 
+**Phase 6 closed (2026-11-24).** Tasks 1-6 are landed with the exceptions
+above carried forward as owned follow-ups: TLS and ALPN/HTTP/2, the HTTPS load
+test, hard pre-buffering caps, configurable slowloris limits, signal shutdown,
+the WebSocket handshake and raw high-bit bytes, the negative UTF-8 fixture,
+live SSE reconnect, the multi-record DNS fixture and the Windows named-pipe
+half. Every row has a date, owner and closing condition; none blocks the phase.
+
 ### Phase 6 — modules and unicode
 
 | Gate | Command | Passes when |
