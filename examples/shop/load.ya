@@ -1,0 +1,42 @@
+// One load worker: send `count` GETs to the shop service.
+// Usage: load <port> <count>
+
+import client;
+
+fn main() {
+    const arguments = args();
+    let string port = "0";
+    let string rounds = "1";
+    let index = 0;
+    for argument in arguments {
+        if index == 0 {
+            port = argument;
+        }
+        if index == 1 {
+            rounds = argument;
+        }
+        index = index + 1;
+    }
+    arguments.free();
+    const parsed_rounds = rounds.parse_i64();
+    let int total = 0;
+    let int ok = 0;
+    while total < switch parsed_rounds {
+        case Some(value) {
+            value
+        }
+        case None {
+            0
+        }
+    }
+    {
+        const answer = client.get("http://127.0.0.1:" + port + "/products");
+        if let Ok(response) = answer {
+            if response.status == 200 {
+                ok = ok + 1;
+            }
+        }
+        total = total + 1;
+    }
+    print(str_from_i64(ok) + "/" + str_from_i64(total));
+}

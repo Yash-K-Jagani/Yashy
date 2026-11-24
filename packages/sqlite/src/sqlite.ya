@@ -118,7 +118,7 @@ pub fn step(Statement statement) -> Result[bool, string] {
 }
 
 /// The number of columns in the current row.
-pub fn column_count(Statement statement) -> int {
+pub fn columns(Statement statement) -> int {
     return c_column_count(statement.id);
 }
 

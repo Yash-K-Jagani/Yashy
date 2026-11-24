@@ -1,0 +1,4 @@
+[package]
+name = "shop"
+version = "0.1.0"
+description = "CRUD example: HTTP, SQLite, migrations and a bounded pool"

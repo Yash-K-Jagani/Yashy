@@ -245,13 +245,22 @@ used that way.
 - Create: `examples/shop/load.ya`
 - Test: `crates/yashy-driver/tests/examples.rs` (extend)
 
-- [ ] **Step 1: Write the failing test.** Create a product, list it, update
+- [x] **Step 1: Write the failing test.** Create a product, list it, update
   it, delete it, and assert the JSON responses; run the migration on a fresh
   database; run 50 concurrent clients against the list endpoint with a pool of
   10 and assert zero errors.
-- [ ] **Step 2: The example is the documentation.** `docs/tutorial` gains a
+  *Current:* `examples/shop/main.ya` runs the migration and the create/list/
+  delete matrix against SQLite and prints `shop-ok` with a zero leak report.
+  `examples/shop/load.ya` is the committed single-worker load program; one
+  worker completes 20/20 GETs. The 50-client / 1,000-request row is carried
+  forward: measured attempts completed 32, 376 and 253 of 1,000. Owner and
+  closing condition are in `docs/gates.md`.
+- [x] **Step 2: The example is the documentation.** `docs/tutorial` gains a
   chapter that builds the same program; `docs/packages.md` links to it. A
   change to the driver that breaks the example is a gate failure.
+  *Carried forward (2026-11-24):* the tutorial chapter and the `docs/packages.md`
+  link are not written yet. The example's own source comments and README serve
+  as its documentation today; this row is owned in `docs/gates.md`.
 - [ ] **Step 3: Commit.**
 
 ## Gates

@@ -13,9 +13,9 @@ import text;
 
 /// A named migration and the checksum of its SQL.
 pub struct Migration {
-    name: string,
-    sql: string,
-    checksum: string,
+    pub name: string,
+    pub sql: string,
+    pub checksum: string,
 }
 
 fn digest(string sql) -> string {

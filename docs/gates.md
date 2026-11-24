@@ -345,6 +345,21 @@ accesses are supported; the six-file split is then mechanical.
 | SQLite | `cargo test -p yashy-driver --test sqlite` | CRUD, bound parameters, unique violation, injection-shaped value, zero leaks |
 | Redis | `cargo test -p yashy-driver --test redis` | GET/SET/DEL/EXPIRE, MULTI/EXEC, pub/sub, reconnect, zero leaks |
 | Query and codecs | `cargo test -p yashy-driver --test db_codes` | three filters, IN, ORDER BY, LIMIT, injection corpus, versioned round-trips, checksummed migrations, bounded pool, zero leaks |
+| Shop example | `cargo test -p yashy-driver --test examples` + the shop smoke | migration, create/list/delete and JSON, zero leaks |
+
+**Dated exception (2026-11-24): tutorial chapter for the shop example.** The
+example ships with source comments and a README; the executable tutorial
+chapter and the `docs/packages.md` link are not written. Owner: docs owner.
+Closes when a chapter builds the same program and `docs/tutorial/run.sh` passes.
+
+**Dated exception (2026-11-24): 50-client shop load.** The shop example and a
+single-worker load program are committed; the smoke reports zero leaks and one
+worker completes 20/20 GETs. The 50-client / 1,000-request row does not pass:
+three runs completed 32, 376 and 253 of 1,000 requests against the current
+`serve` (one thread per accepted connection, joined in batches). Owner: HTTP
+server maintainer with the db maintainer. Closes when a bounded pool and a
+bounded worker set serve 1,000 keep-alive requests from 50 clients with zero
+errors and a recorded p99.
 
 **Dated exceptions (2026-11-24): migration CLI and pool hooks.** `migrate.ya`
 keeps a checksummed ledger in memory for a caller to persist; it does not read

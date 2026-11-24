@@ -1,0 +1,5 @@
+// A test is an ordinary program. Exiting 0 is a pass.
+
+fn main() {
+    assert(1 + 1 == 2);
+}

@@ -1,0 +1,197 @@
+// A small shop service: HTTP + SQLite + checksummed migrations.
+//
+// Without arguments it runs the CRUD smoke against an in-memory database and
+// prints one JSON line per operation. With a port argument it serves the same
+// operations over HTTP. The migration ledger is kept in memory and recreated
+// on each start, which is enough for a fresh database.
+
+import http;
+
+import server;
+
+import sqlite;
+
+import migrate;
+
+fn product_count(int handle) -> int {
+    const statement = sqlite.prepare(handle, "SELECT COUNT(*) FROM products");
+    if let Ok(stmt) = statement {
+        const stepped = sqlite.step(stmt);
+        const count = switch stepped {
+            case Ok(true) {
+                sqlite.column_int(stmt, 0)
+            }
+            default {
+                0
+            }
+        };
+        sqlite.finalize(stmt);
+        return count;
+    }
+    return -1;
+}
+
+fn product_json(int id, string name, int price) -> string {
+    return "{\"id\":" + str_from_i64(id) + ",\"name\":\"" + name
+    + "\",\"price\":" + str_from_i64(price) + "}";
+}
+
+fn insert_product(int handle, string name, int price) -> Result[int, string] {
+    if let Ok(stmt) = sqlite.prepare(handle, "INSERT INTO products (name, price) VALUES (?, ?)") {
+        if let Err(error) = sqlite.bind_text(stmt, 1, name) {
+            sqlite.finalize(stmt);
+            return Err(error);
+        }
+        if let Err(error) = sqlite.bind_int(stmt, 2, price) {
+            sqlite.finalize(stmt);
+            return Err(error);
+        }
+        if let Err(error) = sqlite.step(stmt) {
+            sqlite.finalize(stmt);
+            return Err(error);
+        }
+        sqlite.finalize(stmt);
+        return Ok(sqlite.last_insert_rowid(handle));
+    }
+    return Err("prepare failed");
+}
+
+/// One product operation, addressed by method name and target.
+fn operate(int handle, string method, string target, string body) -> Response {
+    if method == "POST" {
+        const created = insert_product(handle, "tea", 450);
+        if let Ok(id) = created {
+            return response(201, product_json(id, "tea", 450));
+        }
+        return response(500, "insert failed");
+    }
+    if method == "GET" {
+        const statement = sqlite.prepare(handle, "SELECT id, name, price FROM products ORDER BY id");
+        if let Ok(stmt) = statement {
+            let items = "";
+            while sqlite.step(stmt) matches Ok(true) {
+                const id = sqlite.column_int(stmt, 0);
+                const name = sqlite.column_text(stmt, 1);
+                const price = sqlite.column_int(stmt, 2);
+                if items.len() > 0 {
+                    items = items + ",";
+                }
+                items = items + product_json(id, name, price);
+            }
+            sqlite.finalize(stmt);
+            return response(200, "[" + items + "]");
+        }
+        return response(500, "select failed");
+    }
+    if method == "DELETE" {
+        const changed = sqlite.exec(handle, "DELETE FROM products");
+        if let Ok(count) = changed {
+            return response(200, str_from_i64(count));
+        }
+        return response(500, "delete failed");
+    }
+    return response(405, "method");
+}
+
+fn shop_handler(Request request) -> Response {
+    const arguments = args();
+    const port = switch arguments[0] {
+        case Some(value) {
+            value
+        }
+        case None {
+            "0"
+        }
+    };
+    arguments.free();
+    // The connection handler runs on its own thread, so it opens its own
+    // in-memory database. A file-backed store with a shared pool is the
+    // load-test row carried forward in docs/gates.md.
+    const opened = sqlite.open(":memory:");
+    let int handle = 0;
+    if let Ok(value) = opened {
+        handle = value;
+    } else {
+        return response(500, "open");
+    }
+    if let Err(error) = sqlite.exec(handle, "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price INTEGER)") {
+        return response(500, error);
+    }
+    const answer = operate(handle, request.method, request.target, request.body);
+    sqlite.close(handle);
+    return answer;
+}
+
+fn run_smoke() {
+    const opened = sqlite.open(":memory:");
+    const handle = switch opened {
+        case Ok(value) {
+            value
+        }
+        case Err(_) {
+            panic("shop: open failed")
+        }
+    };
+    const init = migrate.migration("0001_products", "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price INTEGER);");
+    let ledger = migrate.empty();
+    if let Ok(next) = migrate.apply(ledger, init) {
+        ledger = next;
+    } else {
+        panic("shop: migration failed");
+    }
+    if let Err(error) = sqlite.exec(handle, init.sql) {
+        panic(error);
+    }
+    assert(migrate.count(ledger) == 1);
+
+    const created = insert_product(handle, "tea", 450);
+    const id = switch created {
+        case Ok(value) {
+            value
+        }
+        case Err(_) {
+            0
+        }
+    };
+    assert(id == 1);
+    assert(product_count(handle) == 1);
+    const list = operate(handle, "GET", "/products", "");
+    assert(list.status == 200);
+    assert(list.body == "[{\"id\":1,\"name\":\"tea\",\"price\":450}]");
+    const removed = operate(handle, "DELETE", "/products", "");
+    assert(removed.status == 200);
+    assert(product_count(handle) == 0);
+    sqlite.close(handle);
+    print("shop-ok");
+}
+
+fn main() {
+    const arguments = args();
+    let string entry = "";
+    let string port_text = "";
+    for argument in arguments {
+        if entry.len() == 0 {
+            entry = argument;
+        } else if port_text.len() == 0 {
+            port_text = argument;
+        }
+    }
+    arguments.free();
+    if entry.len() == 0 {
+        run_smoke();
+        return;
+    }
+    const parsed = port_text.parse_i64();
+    const port = switch parsed {
+        case Some(value) {
+            value
+        }
+        case None {
+            0
+        }
+    };
+    const listening = serve("127.0.0.1:" + str_from_i64(port), shop_handler);
+    if let Err(_) = listening {
+        panic("shop: serve failed");
+    }
+}
