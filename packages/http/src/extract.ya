@@ -1,0 +1,147 @@
+// Request extractors for the HTTP server (phase 6, Task 4).
+//
+// An extractor is an ordinary function from `Request` to a typed value; it is
+// called by the handler, so there is no trait state and no runtime dispatch.
+
+import http;
+
+import json_value;
+
+import router;
+
+/// A query parameter, decoded only far enough to separate `name=value`.
+pub fn query(Request request, string name) -> Option[string] {
+    const raw = router.query_of(request.target);
+    if raw.is_empty() {
+        return None;
+    }
+    const pairs = raw.split("&");
+    let Option[string] found = None;
+    let index = 0;
+    while index < pairs.len() {
+        const entry = pairs[index];
+        const pair = switch entry {
+            case Some(value) {
+                value
+            }
+            case None {
+                ""
+            }
+        };
+        const mark = pair.index_of("=");
+        const at = switch mark {
+            case Some(value) {
+                value
+            }
+            case None {
+                -1
+            }
+        };
+        if at > 0 && pair.slice(0, at) == name {
+            found = Some(pair.slice(at + 1, pair.len()));
+        }
+        index = index + 1;
+    }
+    pairs.free();
+    return found;
+}
+
+fn json_text(JsonDoc doc, string key) -> string {
+    const at = json_value.get_doc(doc, 0, key);
+    return switch at {
+        case Some(node) {
+            switch json_value.value(doc, node) {
+                case Some(value) {
+                    value
+                }
+                case None {
+                    ""
+                }
+            }
+        }
+        case None {
+            ""
+        }
+    };
+}
+
+fn json_number(JsonDoc doc, string key) -> int {
+    const at = json_value.get_doc(doc, 0, key);
+    return switch at {
+        case Some(node) {
+            switch json_value.int_value(doc, node) {
+                case Some(value) {
+                    value
+                }
+                case None {
+                    -1
+                }
+            }
+        }
+        case None {
+            -1
+        }
+    };
+}
+
+fn take_text(JsonDoc doc, string key) -> string {
+    const text = json_text(doc, key);
+    json_value.free_doc(doc);
+    return text;
+}
+
+fn take_number(JsonDoc doc, string key) -> int {
+    const number = json_number(doc, key);
+    json_value.free_doc(doc);
+    return number;
+}
+
+fn optional_text(JsonDoc doc, string key) -> Option[string] {
+    const text = take_text(doc, key);
+    if text.is_empty() {
+        return None;
+    }
+    return Some(text);
+}
+
+fn optional_number(JsonDoc doc, string key) -> Option[int] {
+    const value = take_number(doc, key);
+    if value < 0 {
+        return None;
+    }
+    return Some(value);
+}
+
+fn no_text() -> Option[string] {
+    return None;
+}
+
+fn no_number() -> Option[int] {
+    return None;
+}
+
+/// A string field from a JSON body. A malformed body or missing key answers
+/// `None`; an empty string is the value the parser found.
+pub fn json_string(Request request, string key) -> Option[string] {
+    return switch json_value.parse_doc(request.body) {
+        case Ok(doc) {
+            optional_text(doc, key)
+        }
+        case Err(_) {
+            no_text()
+        }
+    };
+}
+
+/// An integer field from a JSON body. A negative or missing value answers
+/// `None`, so callers that accept negative numbers must guard the key first.
+pub fn json_int(Request request, string key) -> Option[int] {
+    return switch json_value.parse_doc(request.body) {
+        case Ok(doc) {
+            optional_number(doc, key)
+        }
+        case Err(_) {
+            no_number()
+        }
+    };
+}

@@ -266,6 +266,17 @@ cap is applied. Owner: HTTP package maintainer. Closes when caps are arguments
 to the read loop itself and an oversized header or body is refused while the
 bytes are still arriving.
 
+**Dated exceptions (2026-11-24): server framework.** The framework ships path,
+query and JSON extractors plus middleware combinators and a zero-leak harness
+test. Four rows cannot be met from this checkout:
+
+| Row | Reason | Owner | Closes when |
+|---|---|---|---|
+| 500 from a handler panic | Yashy has no exceptions; `panic` ends the process, so a connection boundary cannot catch it | language owner | a catchable handler fault exists without adding exceptions to the language |
+| Configurable slowloris caps | `server.ya` has named defaults (10 s header, 30 s idle, 10 MiB body, 128 workers) but they are not per-server arguments, and the header-count/per-connection-request caps are absent | HTTP package maintainer | a `ServerConfig` value threads all of them into `serve`, and a trickle fixture pins the deadline |
+| Graceful shutdown with two signals | no signal API in the stdlib or runtime | runtime owner | a signal registration verb exists and `serve` drains in-flight requests under a deadline |
+| Field read off a call temporary | `handler(request).status` leaves the response's strings live; binding the response first does not. The framework test binds responses to avoid it | codegen owner | a leak test pins a field read on a call result and the temporary's owned references are released |
+
 **Dated exception (2026-11-23): TLS.** The TLS-negative fixture and the
 vetted-library wrapper cannot be built with the current `link`-input
 convention: mbedTLS needs a C build system and include paths, and the host

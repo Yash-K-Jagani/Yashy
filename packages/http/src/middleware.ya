@@ -1,0 +1,66 @@
+// Middleware combinators for the HTTP server (phase 6, Task 4).
+//
+// Middleware wraps a handler: it is a function that takes one and returns a
+// new one with the same signature. Composition is a call chain, so dispatch
+// stays static and the request/response types never change.
+
+import http;
+
+/// Add one header to every response of `next`.
+pub fn with_header(
+fn (Request) -> Response next,
+string name,
+string value,
+) -> fn (Request) -> Response {
+    return |Request request| -> Response {
+        const answer = next(request);
+        return Response {
+            status: answer.status,
+            headers: answer.headers + name + ": " + value + "\r\n",
+            body: answer.body,
+            final_url: answer.final_url,
+        };
+    };
+}
+
+/// Require a request header to have an exact value. Other requests get
+/// `denied` and the inner handler is not called.
+pub fn require_header(
+fn (Request) -> Response next,
+string name,
+string expected,
+int denied,
+) -> fn (Request) -> Response {
+    return |Request request| -> Response {
+        const given = header_value(request.headers, name);
+        const allowed = switch given {
+            case Some(text) {
+                text == expected
+            }
+            case None {
+                false
+            }
+        };
+        if !allowed {
+            return response(denied, "forbidden");
+        }
+        return next(request);
+    };
+}
+
+/// Set a status for a handler that returned no usable one.
+pub fn normalize_status(fn (Request) -> Response next) -> fn (Request) -> Response {
+    return |Request request| -> Response {
+        const answer = next(request);
+        let int status = answer.status;
+        if status < 100 || status > 999 {
+            status = 500;
+        }
+        return Response {
+            status: status,
+            headers: answer.headers,
+            body: answer.body,
+            final_url: answer.final_url,
+        };
+    };
+}

@@ -1,0 +1,93 @@
+// The HTTP server framework: routing, extractors and middleware, exercised
+// without a socket so the harness only needs the compiler and the packages.
+
+import http;
+
+import extract;
+
+import middleware;
+
+import router;
+
+fn option_text(Option[string] value) -> string {
+    return switch value {
+        case Some(text) {
+            text
+        }
+        case None {
+            "none"
+        }
+    };
+}
+
+fn show_answer(Response answer) -> string {
+    return "${answer.status}:${answer.body}:${option_text(header_value(answer.headers, "X-Frame"))}";
+}
+
+fn option_int_text(Option[int] value) -> string {
+    return switch value {
+        case Some(number) {
+            str_from_i64(number)
+        }
+        case None {
+            "none"
+        }
+    };
+}
+
+fn users(Request request) -> Response {
+    const path = router.path_of(request.target);
+    if !router.path_matches("/users/:id", path) {
+        return response(404, "not found");
+    }
+    if request.method != "GET" {
+        return response(405, "method");
+    }
+    const id = router.param("/users/:id", path, "id");
+    return response(200, option_text(id));
+}
+
+fn main() {
+    const request = Request {
+        method: "GET",
+        target: "/users/7?verbose=1",
+        version: "HTTP/1.1",
+        headers: "Authorization: Bearer t\r\n",
+        body: "{\"name\":\"Ada\",\"n\":42}",
+    };
+    assert(router.path_matches("/users/:id", "/users/7"));
+    assert(!router.path_matches("/users/:id", "/users/7/extra"));
+    assert(option_text(router.param("/users/:id", "/users/7", "id")) == "7");
+    assert(option_text(extract.query(request, "verbose")) == "1");
+    assert(option_text(extract.query(request, "missing")) == "none");
+    assert(option_text(extract.json_string(request, "name")) == "Ada");
+    assert(option_int_text(extract.json_int(request, "n")) == "42");
+
+    const guarded = middleware.require_header(
+    middleware.with_header(users, "X-Frame", "count"),
+    "Authorization", "Bearer t", 401
+    );
+    const handler = middleware.normalize_status(guarded);
+    const accepted = handler(request);
+    assert(show_answer(accepted) == "200:7:count");
+
+    const stranger = Request {
+        method: "GET", target: "/users/7", version: "HTTP/1.1",
+        headers: "", body: "",
+    };
+    const rejected = handler(stranger);
+    assert(rejected.status == 401);
+    const posting = Request {
+        method: "POST", target: "/users/7", version: "HTTP/1.1",
+        headers: "Authorization: Bearer t\r\n", body: "",
+    };
+    const wrong_method = handler(posting);
+    assert(wrong_method.status == 405);
+    const missing = Request {
+        method: "GET", target: "/other", version: "HTTP/1.1",
+        headers: "Authorization: Bearer t\r\n", body: "",
+    };
+    const not_found = handler(missing);
+    assert(not_found.status == 404);
+    print("framework-ok");
+}

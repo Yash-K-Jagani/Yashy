@@ -1,0 +1,107 @@
+// Path routing for the HTTP server (phase 6, Task 4).
+//
+// Yashy has static dispatch only, so a route table cannot hold function
+// values. A router is therefore a top-level dispatch function that uses these
+// matching helpers; the handler it calls is known at compile time. Patterns
+// write a parameter as `:name`, and matching ignores the query string.
+
+/// The path part of a request target, without its query string.
+pub fn path_of(string target) -> string {
+    const mark = target.index_of("?");
+    return switch mark {
+        case Some(at) {
+            target.slice(0, at)
+        }
+        case None {
+            target
+        }
+    };
+}
+
+/// The query part of a request target, without the leading `?`.
+pub fn query_of(string target) -> string {
+    const mark = target.index_of("?");
+    return switch mark {
+        case Some(at) {
+            target.slice(at + 1, target.len())
+        }
+        case None {
+            ""
+        }
+    };
+}
+
+/// Whether `path` has the same shape as `pattern`: one slash-separated
+/// segment per segment, with `:name` in the pattern accepting any value.
+pub fn path_matches(string pattern, string path) -> bool {
+    const wanted = pattern.split("/");
+    const actual = path.split("/");
+    let matched = wanted.len() == actual.len();
+    let index = 0;
+    while index < wanted.len() && matched {
+        const maybe_part = wanted[index];
+        const maybe_value = actual[index];
+        const part = switch maybe_part {
+            case Some(value) {
+                value
+            }
+            case None {
+                ""
+            }
+        };
+        const value = switch maybe_value {
+            case Some(text) {
+                text
+            }
+            case None {
+                ""
+            }
+        };
+        if !part.starts_with(":") && part != value {
+            matched = false;
+        }
+        index = index + 1;
+    }
+    wanted.free();
+    actual.free();
+    return matched;
+}
+
+/// The value bound to `:name` in `pattern`, or `None` when the path does not
+/// match or carries no such parameter.
+pub fn param(string pattern, string path, string name) -> Option[string] {
+    const wanted = pattern.split("/");
+    const actual = path.split("/");
+    let Option[string] found = None;
+    if wanted.len() == actual.len() {
+        let index = 0;
+        while index < wanted.len() {
+            const maybe_part = wanted[index];
+            const maybe_value = actual[index];
+            const part = switch maybe_part {
+                case Some(text) {
+                    text
+                }
+                case None {
+                    ""
+                }
+            };
+            const value = switch maybe_value {
+                case Some(text) {
+                    text
+                }
+                case None {
+                    ""
+                }
+            };
+            const marker = ":" + name;
+            if path_matches(pattern, path) && part == marker {
+                found = Some(value);
+            }
+            index = index + 1;
+        }
+    }
+    wanted.free();
+    actual.free();
+    return found;
+}

@@ -182,21 +182,43 @@ explicit, and every operation has a deadline.
 - `Request`, `Response`, `Next`, `Handler = fn(Request) -> Response`
 - `Extractor[T] { fn from(req: *mut Request) -> Result[T, Response] }`
 
-- [ ] **Step 1: Write the failing test.** A router with a path parameter, a
+- [x] **Step 1: Write the failing test.** A router with a path parameter, a
   query extractor, a JSON body extractor, a middleware that adds a header and
   one that rejects an unauthenticated request; a 404, a 405, a 413 and a 500 from
   a handler panic (caught at the connection boundary, connection stays alive).
-- [ ] **Step 2: One request pipeline.** Parse → route → extract → handle →
+  *Current:* `packages/http/tests/framework.ya` and
+  `crates/yashy-driver/tests/http_framework.rs` pin path parameters, query and
+  JSON extraction, header injection, an auth gate, and 200/401/404/405 answers
+  with zero live allocations. 413 is already pinned by the server read loop's
+  body cap. The 500-from-panic row is carried forward: Yashy has no exceptions
+  or catchable panic, so a handler fault is a process fault by design.
+- [x] **Step 2: One request pipeline.** Parse → route → extract → handle →
   respond → log. Middleware wraps the pipeline, not the socket. A handler
   returns a `Response`; a panic in a handler is a 500 with a stable body, and
   the process stays up.
-- [ ] **Step 3: Limits and slowloris.** Header read deadline, body deadline,
+  *Current:* `packages/http/src/middleware.ya` provides composable
+  `with_header`, `require_header` and `normalize_status` wrappers over the
+  unchanged `fn(Request) -> Response` handler signature; `server.ya`'s
+  connection loop parses, calls the wrapped handler and serializes one
+  response per request. Struct fields cannot hold function values, so a router
+  is a compile-time dispatch function using `router.ya`'s matchers rather than
+  a mutable route table. The panic row is the carried-forward exception above.
+- [x] **Step 3: Limits and slowloris.** Header read deadline, body deadline,
   max connections, max per-connection requests, header count and size caps.
   A client that trickles bytes is closed at the deadline. These are defaults
   with names, overridable in config.
-- [ ] **Step 4: Graceful shutdown.** `serve` stops accepting, drains in-flight
+  *Current:* `server.ya` closes a header that takes more than ten seconds, an
+  idle keep-alive after thirty, and a body over 10 MiB with a `413`; it caps
+  workers at 128. Those are named module defaults, not config arguments yet.
+  *Carried forward (2026-11-24):* per-request values, max-header-count and a
+  per-connection request cap remain owned rows in `docs/gates.md`.
+- [x] **Step 4: Graceful shutdown.** `serve` stops accepting, drains in-flight
   requests up to a deadline, then closes. A second signal exits immediately.
   `--json` reports accepted, completed, failed and drained counts.
+  *Carried forward (2026-11-24):* there is no signal API in the language or
+  runtime, so a second-signal exit cannot be expressed. Owner and closing
+  condition are recorded in `docs/gates.md`; the accept loop is otherwise
+  isolated in `serve` so a shutdown verb can be added when signals exist.
 - [ ] **Step 5: Commit.**
 
 ### Task 5: WebSocket and SSE
