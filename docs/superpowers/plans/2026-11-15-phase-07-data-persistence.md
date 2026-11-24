@@ -150,7 +150,8 @@ used that way.
   against a deadline and splits replies into TCP chunks in the fixture. A
   committed fuzz corpus for the RESP parser is carried forward; the HTTP corpus
   pattern applies here too.
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.** `7fbb45a` shipped the RESP parser, client, loopback
+  fixture and the three carried-forward rows.
 
 ### Task 5: Query builder and codecs
 
