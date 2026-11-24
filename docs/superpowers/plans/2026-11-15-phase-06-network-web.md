@@ -219,7 +219,9 @@ explicit, and every operation has a deadline.
   runtime, so a second-signal exit cannot be expressed. Owner and closing
   condition are recorded in `docs/gates.md`; the accept loop is otherwise
   isolated in `serve` so a shutdown verb can be added when signals exist.
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.** `34dc008` shipped the framework modules, the
+  socket-free harness test and the four carried-forward rows in
+  `docs/gates.md`.
 
 ### Task 5: WebSocket and SSE
 
