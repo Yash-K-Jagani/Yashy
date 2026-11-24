@@ -354,6 +354,15 @@ and the in-memory CRUD matrix is green. Four rows remain owned:
 | WAL mode opt-in | no pragma API is exposed | db package maintainer | a documented `journal_mode` option selects WAL and a test verifies the mode |
 | Shared `db.Value` results | the checker cannot resolve `db.Value` inside a generic argument from another module, and `Row` fields stay private across modules | language owner with the db maintainer | the qualified-type gap in the one-module exception closes, then sqlite maps its column tags into `db.Value` |
 
+**Dated exception (2026-11-24): PostgreSQL and MySQL (Task 3).** Neither host
+has libpq or MariaDB development headers, and the `link` convention cannot
+build a multi-header C library or find a system library that is not installed.
+A wire-protocol client written in Yashy would be a homegrown driver, which the
+plan forbids. Owner: db/runtime maintainer. Closes when native dependencies
+can carry include paths and a pinned libpq/MariaDB connector builds, with
+Docker fixtures for the CRUD, unique/serialization/deadlock and TLS-negative
+rows on both operating systems.
+
 ### Phase 7 — patterns and named arguments
 
 | Gate | Command | Passes when |

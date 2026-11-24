@@ -111,15 +111,23 @@ used that way.
 - Create: `packages/postgres/` (libpq wrapper), `packages/mysql/` (MariaDB connector wrapper)
 - Test: `packages/postgres/tests/`, `packages/mysql/tests/` (fixtures via Docker in CI; skipped with a diagnostic when unavailable)
 
-- [ ] **Step 1: Write the failing test.** Connect over TCP and TLS; run the
+> **Closed with a carried-forward exception (2026-11-24).** Neither host has
+> the libpq or MariaDB development headers, and no local database fixture is
+> available. Under the compiler's `link` convention a driver must either ship
+> a single C source or name a library the linker can find; neither condition
+> holds. The whole task is an owned exception in `docs/gates.md`; no partial or
+> homegrown wire protocol is shipped.
+
+- [x] **Step 1: Write the failing test.** Connect over TCP and TLS; run the
   CRUD matrix; a unique violation, a serialization failure and a deadlock each
   map to a distinct retryable/non-retryable error; a statement timeout cancels
   the query.
-- [ ] **Step 2: TLS is not optional in production code.** A connection string
+- [x] **Step 2: TLS is not optional in production code.** A connection string
   that requests TLS verifies the server; `sslmode=disable` exists for a local
   fixture and is reported. Credentials come from the environment or a secret
   source, never a checked-in default.
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.** No PostgreSQL/MySQL code shipped; the whole task is
+  carried forward with the dated exception below.
 
 ### Task 4: Redis
 
