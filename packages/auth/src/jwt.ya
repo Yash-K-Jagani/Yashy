@@ -1,0 +1,156 @@
+// A small JWT implementation: HS512, with the claims checked on every verify.
+//
+// The token is `header.payload.signature`, each part base64url encoded. The
+// signature is HMAC-SHA512 over the first two parts. A verify rejects `alg:
+// none`, a swapped signing key, a bad signature, an expired `exp`, a future
+// `nbf` and a wrong audience before it returns the claims.
+
+import crypto;
+
+import text;
+
+import string;
+
+import json_value;
+
+fn b64(string value) -> string {
+    const bytes = string.to_bytes(value);
+    return text.base64url_encode(bytes);
+}
+
+fn unb64(string encoded) -> Option[string] {
+    if let Ok(bytes) = text.base64url_decode(encoded) {
+        if let Ok(value) = string.from_bytes(bytes) {
+            return Some(value);
+        }
+    }
+    return None;
+}
+
+fn jwt_signature(string key, string signing_input) -> string {
+    if let Ok(derived) = crypto.sha512_hex(key) {
+        if let Ok(value) = crypto.hmac_sha512_hex(derived, signing_input) {
+            return value;
+        }
+    }
+    return "";
+}
+
+fn next_dot(string value, int from) -> int {
+    const rest = value.slice(from, value.len());
+    if let Some(at) = rest.index_of(".") {
+        return from + at;
+    }
+    return -1;
+}
+
+fn jwt_eq(string left, string right) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    let int difference = 0;
+    let index = 0;
+    while index < left.len() {
+        difference = difference | (left.byte_at(index).to_int() ^ right.byte_at(index).to_int());
+        index = index + 1;
+    }
+    return difference == 0;
+}
+
+/// Issue a token for a JSON object of claims. `iat`, `nbf`, `exp` and `aud`
+/// are added here so a caller cannot forget them.
+pub fn issue(string key, string claims, string audience, int now, int lifetime) -> string {
+    const header = b64("{\"alg\":\"HS512\",\"typ\":\"JWT\"}");
+    const prefix = claims.slice(0, claims.len() - 1);
+    const body = prefix + ",\"aud\":\"" + audience + "\",\"iat\":" + str_from_i64(now)
+    + ",\"nbf\":" + str_from_i64(now) + ",\"exp\":"
+    + str_from_i64(now + lifetime) + "}";
+    const payload = b64(body);
+    const signing_input = header + "." + payload;
+    const digest = jwt_signature(key, signing_input);
+    const raw = text.hex_decode(digest);
+    if let Ok(signature_bytes) = raw {
+        return signing_input + "." + text.base64url_encode(signature_bytes);
+    }
+    return signing_input + "." + b64(digest);
+}
+
+/// Verify a token and return its claims JSON, or `None` for every failure.
+pub fn verify(string key, string token, string audience, int now) -> Option[string] {
+    const first = token.index_of(".");
+    if let Some(a) = first {
+        const second = next_dot(token, a + 1);
+        if second >= 0 {
+            const b = second;
+            const header_part = token.slice(0, a);
+            const payload_part = token.slice(a + 1, b);
+            const presented = token.slice(b + 1, token.len());
+            if let Some(header) = unb64(header_part) {
+                if !header.contains("\"alg\":\"HS512\"") {
+                    return None;
+                }
+                if header.contains("none") {
+                    return None;
+                }
+                const signing_input = token.slice(0, b);
+                const digest = jwt_signature(key, signing_input);
+                const expected_raw = text.hex_decode(digest);
+                if let Ok(expected_bytes) = expected_raw {
+                    const expected = text.base64url_encode(expected_bytes);
+                    if !jwt_eq(presented, expected) {
+                        return None;
+                    }
+                    if let Some(claims) = unb64(payload_part) {
+                        if valid_claims(claims, audience, now) {
+                            return Some(claims);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return None;
+}
+
+fn valid_claims(string claims, string audience, int now) -> bool {
+    if let Ok(doc) = json_value.parse_doc(claims) {
+        const aud = json_value.get_doc(doc, 0, "aud");
+        const exp = json_value.get_doc(doc, 0, "exp");
+        const nbf = json_value.get_doc(doc, 0, "nbf");
+        let ok = true;
+        if let Some(audience_node) = aud {
+            if let Some(value) = json_value.value(doc, audience_node) {
+                if value != audience {
+                    ok = false;
+                }
+            }
+        } else {
+            ok = false;
+        }
+        if let Some(exp_node) = exp {
+            if let Some(expires) = json_value.int_value(doc, exp_node) {
+                if expires <= now {
+                    ok = false;
+                }
+            } else {
+                ok = false;
+            }
+        } else {
+            ok = false;
+        }
+        if let Some(nbf_node) = nbf {
+            if let Some(start) = json_value.int_value(doc, nbf_node) {
+                if start > now {
+                    ok = false;
+                }
+            } else {
+                ok = false;
+            }
+        } else {
+            ok = false;
+        }
+        json_value.free_doc(doc);
+        return ok;
+    }
+    return false;
+}

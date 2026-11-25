@@ -1,0 +1,155 @@
+// An in-memory session store.
+//
+// The store is passed in; there is no ambient global. It is suitable for one
+// process only — a multi-process deployment uses the Redis-backed store,
+// which is a separate constructor and is not part of this module. Entries are
+// a linear `[]string`, so `free` is explicit and expiry is checked on every
+// read rather than by a background task.
+
+pub struct Store {
+    entries: []string,
+}
+
+/// A single-process store. There is deliberately no default production store.
+pub fn memory() -> Store {
+    return Store {
+        entries: []string {}
+    };
+}
+
+fn store_field(string line, int wanted) -> string {
+    const parts = line.split("|");
+    const value = switch parts[wanted] {
+        case Some(part) {
+            part
+        }
+        case None {
+            ""
+        }
+    };
+    const owned = value.slice(0, value.len());
+    parts.free();
+    return owned;
+}
+
+fn store_entry(string id, string value, int now) -> string {
+    return id + "|" + str_from_i64(now) + "|" + value;
+}
+
+fn store_issued(string line) -> int {
+    const text = store_field(line, 1);
+    const parsed = text.parse_i64();
+    return switch parsed {
+        case Some(value) {
+            value
+        }
+        case None {
+            0
+        }
+    };
+}
+
+fn store_stored([]string entries, string id, string value, int now) -> []string {
+    let out = []string {};
+    let replaced = false;
+    let index = 0;
+    while index < entries.len() {
+        const slot = entries[index];
+        const line = switch slot {
+            case Some(value) {
+                value
+            }
+            case None {
+                ""
+            }
+        };
+        if store_field(line, 0) == id {
+            if !replaced {
+                out.push(store_entry(id, value, now));
+                replaced = true;
+            }
+        } else {
+            out.push(line);
+        }
+        index = index + 1;
+    }
+    if !replaced {
+        out.push(store_entry(id, value, now));
+    }
+    entries.free();
+    return out;
+}
+
+fn store_filtered([]string entries, string id) -> []string {
+    let out = []string {};
+    let index = 0;
+    while index < entries.len() {
+        const slot = entries[index];
+        const line = switch slot {
+            case Some(value) {
+                value
+            }
+            case None {
+                ""
+            }
+        };
+        if store_field(line, 0) != id {
+            out.push(line);
+        }
+        index = index + 1;
+    }
+    entries.free();
+    return out;
+}
+
+impl Store {
+    /// Store or refresh a session id's value.
+    pub fn put(self: *mut Store, string id, string value, int now) {
+        const entries = self[0].entries;
+        const updated = store_stored(entries, id, value, now);
+        self[0].entries = move updated;
+    }
+
+    /// Read a live session, or `None` when it is absent or expired.
+    pub fn get(self: *mut Store, string id, int lifetime, int now) -> Option[string] {
+        const entries = self[0].entries;
+        let Option[string] result = None;
+        let index = 0;
+        while index < entries.len() {
+            const slot = entries[index];
+            const line = switch slot {
+                case Some(value) {
+                    value
+                }
+                case None {
+                    ""
+                }
+            };
+            if store_field(line, 0) == id {
+                if now - store_issued(line) < lifetime {
+                    const value = store_field(line, 2);
+                    result = Some(value.slice(0, value.len()));
+                }
+                break;
+            }
+            index = index + 1;
+        }
+        self[0].entries = move entries;
+        return result;
+    }
+
+    /// Forget one session id.
+    pub fn remove(self: *mut Store, string id) {
+        const entries = self[0].entries;
+        const updated = store_filtered(entries, id);
+        self[0].entries = move updated;
+    }
+
+    /// Release every entry.
+    pub fn free(self: *mut Store) {
+        const entries = self[0].entries;
+        entries.free();
+        const empty_list = []string {};
+        self[0].entries = move empty_list;
+    }
+}

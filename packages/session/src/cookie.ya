@@ -1,0 +1,50 @@
+// Cookie helpers with safe defaults.
+//
+// A cookie is always `HttpOnly; Secure; SameSite=Lax; Path=/`. `Max-Age` is
+// present only when the caller supplies it; a session cookie without one ends
+// with the browser session. Reading a cookie is a separate, explicit parse.
+
+/// Render a Set-Cookie value.
+pub fn set(string name, string value, int max_age) -> string {
+    if max_age > 0 {
+        return name + "=" + value + "; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age="
+        + str_from_i64(max_age);
+    }
+    return name + "=" + value + "; HttpOnly; Secure; SameSite=Lax; Path=/";
+}
+
+fn next_field(string header, int from) -> int {
+    const rest = header.slice(from, header.len());
+    if let Some(at) = rest.index_of(";") {
+        return from + at;
+    }
+    return -1;
+}
+
+/// Read one cookie from a `Cookie` header value, or `None` when absent.
+pub fn read(string header, string name) -> Option[string] {
+    let start = 0;
+    while start <= header.len() {
+        let end = next_field(header, start);
+        if end < 0 {
+            end = header.len();
+        }
+        const field_text = header.slice(start, end);
+        const trimmed = field_text.trim();
+        const at = trimmed.index_of("=");
+        if let Some(equal) = at {
+            const raw_key = trimmed.slice(0, equal);
+            const key = raw_key.trim();
+            if key == name {
+                const raw_value = trimmed.slice(equal + 1, trimmed.len());
+                const value = raw_value.trim();
+                return Some(value.slice(0, value.len()));
+            }
+        }
+        if end == header.len() {
+            return None;
+        }
+        start = end + 1;
+    }
+    return None;
+}

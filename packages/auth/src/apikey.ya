@@ -1,0 +1,63 @@
+// API keys: an id and a digest, never the raw secret.
+//
+// A presented key is HMAC-SHA512 over its id, compared in constant time to
+// the stored digest. The raw key is shown once at issue time and is not a
+// field of anything that can be logged.
+
+import crypto;
+
+pub struct Key {
+    pub id: string,
+    pub digest: string,
+}
+
+fn apikey_digest(string key, string id) -> string {
+    if let Ok(derived) = crypto.sha512_hex(key) {
+        if let Ok(value) = crypto.hmac_sha512_hex(derived, id) {
+            return value;
+        }
+    }
+    return "";
+}
+
+/// Issue a key for an id. The caller keeps the returned text; only `Key`
+/// belongs in a store.
+pub fn issue_key(string key, string id) -> string {
+    return id + "." + apikey_digest(key, id);
+}
+
+/// The record to store for a raw key, or `None` when its shape is wrong.
+pub fn stored(string raw) -> Option[Key] {
+    const at = raw.index_of(".");
+    if let Some(split) = at {
+        if split > 0 && split + 1 < raw.len() {
+            const id = raw.slice(0, split);
+            return Some(Key {
+                id: id, digest: raw.slice(split + 1, raw.len())
+            }
+            );
+        }
+    }
+    return None;
+}
+
+/// Check a presented key against a stored record in constant time.
+pub fn check(Key record, string raw) -> bool {
+    if let Some(candidate) = stored(raw) {
+        return same(record.digest, candidate.digest);
+    }
+    return false;
+}
+
+fn same(string left, string right) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    let int difference = 0;
+    let index = 0;
+    while index < left.len() {
+        difference = difference | (left.byte_at(index).to_int() ^ right.byte_at(index).to_int());
+        index = index + 1;
+    }
+    return difference == 0;
+}

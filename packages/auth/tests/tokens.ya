@@ -1,0 +1,46 @@
+// JWT, API keys, cookies and an expiring session store.
+import jwt;
+
+import apikey;
+
+import cookie;
+
+import store;
+
+fn main() {
+    const token = jwt.issue("secret", "{\"sub\":\"u1\"}", "api", 100, 100);
+    if let Some(claims) = jwt.verify("secret", token, "api", 150) {
+        assert(claims.contains("u1"));
+    } else {
+        assert(false);
+    }
+    assert(jwt.verify("secret", token, "api", 250) matches None);
+    assert(jwt.verify("secret", token, "other", 150) matches None);
+    const forged = token.slice(0, token.len() - 1) + "x";
+    assert(jwt.verify("secret", forged, "api", 150) matches None);
+
+    const raw_key = apikey.issue_key("key", "client-1");
+    if let Some(record) = apikey.stored(raw_key) {
+        assert(apikey.check(record, raw_key));
+        assert(!apikey.check(record, raw_key + "x"));
+    } else {
+        assert(false);
+    }
+
+    const header = cookie.set("sid", "abc", 60);
+    assert(header.contains("HttpOnly"));
+    assert(header.contains("Secure"));
+    assert(header.contains("SameSite=Lax"));
+    assert(header.contains("Max-Age=60"));
+    assert(cookie.read("a=1; sid=abc; b=2", "sid") matches Some("abc"));
+    assert(cookie.read("a=1", "sid") matches None);
+
+    let sessions = store.memory();
+    sessions.put("s1", "user=7", 100);
+    assert(sessions.get("s1", 50, 120) matches Some("user=7"));
+    assert(sessions.get("s1", 50, 200) matches None);
+    sessions.remove("s1");
+    assert(sessions.get("s1", 50, 120) matches None);
+    sessions.free();
+    print("auth-tokens-ok");
+}

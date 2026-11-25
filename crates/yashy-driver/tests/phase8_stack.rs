@@ -145,6 +145,18 @@ fn cli_required_option_is_a_usage_error() {
 }
 
 #[test]
+fn auth_tokens_program_is_checked() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    run(
+        &root,
+        "packages/auth/tests/tokens.ya",
+        "p8-auth-tokens",
+        "auth-tokens-ok",
+        &["auth", "session"],
+    );
+}
+
+#[test]
 fn service_packages_program_is_checked() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     run(

@@ -617,13 +617,15 @@ claimed green here.
   CSPRNG salt and a sha512 digest; the digest is documented as a commitment,
   not a password KDF. Closes when an Argon2id primitive lands in the pinned
   crypto package and `password.hash` is switched to it with the same test.
-- **JWT and API-key verification** — owner: compiler/core. No JOSE primitive
-  validates `alg`, `exp`, `nbf` and `aud` here. Closes when a verifier exists
-  and rejects `alg: none` and a swapped key in `packages/auth/tests/`.
-- **Session cookie/store and expiry** — owner: compiler/core. Signed tokens
-  and CSRF are shipped; a cookie helper that always sets `HttpOnly; Secure;
-  SameSite=Lax`, an expiring session store and its Redis counterpart are not.
-  Closes with a cookie test and a store test that covers expiry.
+- **JWT and API-key verification** — **closed 2026-11-25.** `packages/auth/src/jwt.ya`
+  verifies HS512, `alg`, `exp`, `nbf` and `aud` and rejects `alg: none` and a
+  swapped key; `apikey.ya` stores only a digest and compares in constant time.
+  `packages/auth/tests/tokens.ya` pins both with zero live allocations.
+- **Session cookie and in-memory expiry** — **closed 2026-11-25.**
+  `packages/session/src/cookie.ya` always emits `HttpOnly; Secure;
+  SameSite=Lax; Path=/`, and `store.ya` provides a passed-in in-memory store
+  with expiry on read. The Redis-backed store is still carried forward: it
+  closes when a fixture test runs a session against the Redis client.
 - **SMTP STARTTLS against a local fixture** — owner: compiler/core. The mail
   package builds a MIME message and requires an explicit relay
   (`packages/mail/src/message.ya`); no default `localhost:25` send exists.

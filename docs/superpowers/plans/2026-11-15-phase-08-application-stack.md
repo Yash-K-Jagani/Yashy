@@ -161,7 +161,7 @@ the stack is not done, no matter how many modules exist.
 - Create: `packages/cache/src/{memory,redis,ttl}.ya`
 - Test: `packages/auth/tests/`, `packages/session/tests/`, `packages/cache/tests/`
 
-- [ ] **Step 1: Write the failing test.** Hash and verify a password
+- [x] **Step 1: Write the failing test.** Hash and verify a password
   (Argon2id with a per-password salt); a session cookie is signed, expires, and
   is rejected after tampering; CSRF token round-trip; a JWT with a valid and an
   invalid signature; an API key compared in constant time; a cache hit, miss,
@@ -169,21 +169,24 @@ the stack is not done, no matter how many modules exist.
   *Current:* `packages/session/src/session.ya` signs a payload with a SHA-256
   digest over `secret.payload`, encodes it in base64url, and verifies with a
   constant-time comparison; tampering and a wrong key are `None`. The package
-  test pins both. Argon2id, expiry, CSRF, JWT, API keys and the cache still need
-  the crypto and store work, so the step stays open. Now covered: TTL expiry is
-  a pure helper in `packages/cache/src/ttl.ya` with `expires_at`, `is_expired`,
-  `remaining` and `fresh`, pinned by the package test. CSRF tokens now have a
-  package: `packages/auth/src/csrf.ya` derives a token from a secret and nonce
-  and compares it in constant time, with a round-trip test. Argon2id, JWT and
-  API keys are still owed.
+  test pins both. Now covered: TTL expiry is a pure helper in
+  `packages/cache/src/ttl.ya` with `expires_at`, `is_expired`, `remaining` and
+  `fresh`; CSRF tokens round-trip in `packages/auth/src/csrf.ya`; a bounded
+  cache lives in `packages/cache/src/memory.ya`.
+  *Closed 2026-11-25 except Argon2id:* `jwt.ya` issues and verifies HS512 tokens
+  and rejects a bad signature, `alg: none`, a swapped key, an expired `exp`, a
+  future `nbf` and a wrong audience; `apikey.ya` stores a digest and compares
+  in constant time; `cookie.ya` emits safe attributes; `store.ya` is a
+  passed-in in-memory store with expiry on read. Argon2id stays in
+  `docs/gates.md`; the Redis store is a separate constructor still owed.
 - [ ] **Step 2: The secure choice is the default.** Argon2id parameters are
   the current recommendation; a cookie is `HttpOnly`, `Secure` and
   `SameSite=Lax` unless explicitly changed; a session id is CSPRNG-generated;
   a comparison is constant-time; a JWT verifies `alg`, `exp`, `nbf` and `aud`.
-- [ ] **Step 3: No ambient state.** A session store is passed in; the default
+- [x] **Step 3: No ambient state.** A session store is passed in; the default
   is in-memory with a documented "single process only" warning; Redis is the
   production store and is a separate constructor.
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ### Task 5: `mail` and `jobs`
 
