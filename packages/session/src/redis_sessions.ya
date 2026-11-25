@@ -1,0 +1,59 @@
+// Redis-backed session store.
+//
+// This is the production constructor; it is separate from the in-memory store
+// so a program must name Redis deliberately. Each operation takes the store
+// and hands it back, because a session connection is a linear value.
+
+import client;
+
+pub struct RedisStore {
+    conn: Client,
+}
+
+/// Connect to a Redis server. No default address is assumed.
+pub fn redis_connect(string host, int port) -> Result[RedisStore, string] {
+    if let Ok(connection) = client.connect(host, port) {
+        return Ok(RedisStore {
+            conn: connection
+        }
+        );
+    }
+    return Err("cannot connect to redis");
+}
+
+fn session_key(string id) -> string {
+    return "session:" + id;
+}
+
+/// Store a session value with a lifetime in seconds.
+pub fn redis_put(RedisStore store, string id, string value, int lifetime) -> Result[RedisStore, string] {
+    const key = session_key(id);
+    if let Ok(_) = client.set(store.conn, key, value) {
+        if lifetime > 0 {
+            if let Ok(_) = client.expire(store.conn, key, lifetime) {
+                return Ok(store);
+            }
+        } else {
+            return Ok(store);
+        }
+    }
+    return Err("redis set failed");
+}
+
+/// Read a session. A missing or expired key is `None`.
+pub fn redis_get(RedisStore store, string id) -> Result[Option[string], string] {
+    return client.get(store.conn, session_key(id));
+}
+
+/// Forget one session.
+pub fn redis_remove(RedisStore store, string id) -> Result[RedisStore, string] {
+    if let Ok(_) = client.del(store.conn, session_key(id)) {
+        return Ok(store);
+    }
+    return Err("redis delete failed");
+}
+
+/// Close the connection.
+pub fn redis_close(RedisStore store) {
+    client.close(store.conn);
+}

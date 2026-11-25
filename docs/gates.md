@@ -624,8 +624,12 @@ claimed green here.
 - **Session cookie and in-memory expiry** — **closed 2026-11-25.**
   `packages/session/src/cookie.ya` always emits `HttpOnly; Secure;
   SameSite=Lax; Path=/`, and `store.ya` provides a passed-in in-memory store
-  with expiry on read. The Redis-backed store is still carried forward: it
-  closes when a fixture test runs a session against the Redis client.
+  with expiry on read.
+- **Redis-backed session store** — **closed 2026-11-26.**
+  `packages/session/src/redis_sessions.ya` provides a separate production
+  constructor over the Redis client; `packages/session/tests/redis_session.ya`
+  and `crates/yashy-driver/tests/redis_session.rs` exercise put/get/remove
+  against the local RESP fixture with zero live allocations.
 - **SMTP STARTTLS against a local fixture** — owner: compiler/core. The mail
   package builds a MIME message and requires an explicit relay
   (`packages/mail/src/message.ya`); no default `localhost:25` send exists.

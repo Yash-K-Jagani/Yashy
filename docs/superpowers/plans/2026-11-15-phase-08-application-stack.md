@@ -43,8 +43,8 @@ post-release follow-ups, not open blockers; the phase closes with them
 carried forward. Implementation commit: `a5b1ba8`. All ten tasks were then closed one by one
 through `4b0dd98`; each slice has its own commit and harness evidence. The
 remaining post-release rows in `docs/gates.md` are Argon2id, SMTP STARTTLS,
-the two-OS load row, the Redis session store, and full CBOR/COSE attestation
-plus an OTLP transport. Signal-driven shutdown was closed on 2026-11-26. Every checkbox in this plan is
+the two-OS load row and full CBOR/COSE attestation plus an OTLP transport.
+Signal-driven shutdown and the Redis session store were closed on 2026-11-26. Every checkbox in this plan is
 now `[x]`; where a row was closed as a dated exception, the closing note on
 that step names the exact condition recorded in `docs/gates.md`.
 

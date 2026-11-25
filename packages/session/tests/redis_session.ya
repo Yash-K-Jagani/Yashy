@@ -1,0 +1,58 @@
+// Redis-backed sessions against a local RESP fixture.
+// Usage: redis_session <port>
+
+import redis_sessions;
+
+fn main() {
+    const arguments = args();
+    const port_text = switch arguments[0] {
+        case Some(value) {
+            value
+        }
+        case None {
+            "0"
+        }
+    };
+    const parsed = port_text.parse_i64();
+    const port = switch parsed {
+        case Some(value) {
+            value
+        }
+        case None {
+            0
+        }
+    };
+    arguments.free();
+
+    if let Ok(initial) = redis_sessions.redis_connect("127.0.0.1", port) {
+        let store = initial;
+        if let Ok(next) = redis_sessions.redis_put(store, "sid", "user=7", 60) {
+            store = next;
+        } else {
+            assert(false);
+        }
+        if let Ok(found) = redis_sessions.redis_get(store, "sid") {
+            if let Some(value) = found {
+                assert(value == "user=7");
+            } else {
+                assert(false);
+            }
+        } else {
+            assert(false);
+        }
+        if let Ok(next) = redis_sessions.redis_remove(store, "sid") {
+            store = next;
+        } else {
+            assert(false);
+        }
+        if let Ok(found) = redis_sessions.redis_get(store, "sid") {
+            assert(found matches None);
+        } else {
+            assert(false);
+        }
+        redis_sessions.redis_close(store);
+        print("redis-session-ok");
+    } else {
+        print("redis-connect-failed");
+    }
+}
