@@ -633,13 +633,12 @@ claimed green here.
   untested. Message building, templated subject/body and one-shot scheduling
   are covered by `packages/mail/tests/compose.ya`. Closes when a fixture test
   sends a message over STARTTLS.
-- **Graceful shutdown and in-flight drain in the service skeleton** — owner:
-  compiler/core. `/health`, `/ready` and `/metrics` are pure helpers in
-  `packages/http/src/health.ya`; the drain contract is in
-  `packages/http/src/lifecycle.ya` and its test is
-  `packages/http/tests/lifecycle_test.ya`. Signal-driven shutdown is not
-  wired. Closes when a service exits zero only after in-flight requests drain
-  on SIGINT and SIGTERM.
+- **Graceful shutdown and in-flight drain in the service skeleton** —
+  **closed 2026-11-26.** `packages/http/src/signal.ya` bridges SIGINT/SIGTERM
+  into a pollable flag through `packages/http/native/shutdown_shim.c`;
+  `lifecycle.ya` drains in-flight work and stops. `packages/http/tests/shutdown.ya`
+  and the Unix `phase8_stack` test send SIGTERM to a running service and assert
+  it prints `shutdown-ok` and exits 0.
 - **Three production-shaped examples** (`api-service`, `cli-tool`, `web-app`)
   with their own tests, security review and two-OS load test — owner:
   compiler/core. All three examples now build, pass `yashyc test` in the

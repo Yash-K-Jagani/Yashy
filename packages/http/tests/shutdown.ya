@@ -1,0 +1,27 @@
+// A service drains once SIGTERM arrives.
+import signal;
+import lifecycle;
+import time;
+
+fn main() {
+    let service = lifecycle.begin();
+    assert(signal.install());
+    assert(service.arrive());
+    service.complete();
+
+    const start = time.monotonic_ns();
+    while !signal.requested() {
+        const now = time.monotonic_ns();
+        if now - start > 5000000000 {
+            break;
+        }
+    }
+    if signal.requested() {
+        const phase = service.drain(0);
+        assert(phase == "draining");
+        assert(service.settle(1) == "stopped");
+        print("shutdown-ok");
+    } else {
+        print("shutdown-timeout");
+    }
+}

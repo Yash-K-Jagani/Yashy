@@ -1,0 +1,20 @@
+// Signal-driven shutdown for a service.
+//
+// The C shim records SIGINT/SIGTERM in a flag. A service polls `requested`
+// at a safe point and calls its lifecycle's drain, so in-flight work finishes
+// before the process exits. No runtime call is made from the signal handler.
+
+extern "C" link "../native/shutdown_shim.c" {
+    unsafe fn c_install() -> int link_name "yashy_shutdown_install";
+    unsafe fn c_pending() -> int link_name "yashy_shutdown_pending";
+}
+
+/// Install the handlers. Call once, before accepting work.
+pub fn install() -> bool {
+    return c_install() == 1;
+}
+
+/// Whether SIGINT or SIGTERM arrived since installation.
+pub fn requested() -> bool {
+    return c_pending() == 1;
+}

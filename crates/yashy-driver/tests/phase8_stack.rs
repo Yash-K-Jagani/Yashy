@@ -222,6 +222,47 @@ fn browser_auth_and_otel_program_is_checked() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn service_signal_shutdown_program_is_checked() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut paths = root.join("crates/yashy-stdlib/yashy").display().to_string();
+    paths.push_str(path_separator());
+    paths.push_str(&root.join("packages/http/src").display().to_string());
+    let dir = common::work_dir("p8-signal");
+    let binary = dir.join(format!("shutdown{}", std::env::consts::EXE_SUFFIX));
+    let build = Command::new(common::yashyc())
+        .arg("build")
+        .arg(root.join("packages/http/tests/shutdown.ya"))
+        .arg("-o")
+        .arg(&binary)
+        .env("YASHY_PATH", &paths)
+        .current_dir(&root)
+        .output()
+        .expect("the compiler must run");
+    assert!(build.status.success(), "{}", String::from_utf8_lossy(&build.stderr));
+    let child = Command::new(&binary)
+        .env("YASHY_LEAK_REPORT", "1")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("the service must start");
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    let _ = Command::new("kill")
+        .arg("-TERM")
+        .arg(child.id().to_string())
+        .status();
+    let output = child.wait_with_output().expect("the service must exit");
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "shutdown-ok");
+}
+
+#[cfg(not(unix))]
+#[test]
+fn service_signal_shutdown_program_is_checked() {
+    // The C shim installs the handlers on both OSes; the signal-delivery test
+    // uses `kill -TERM` and is therefore Unix-only.
+}
+
 #[test]
 fn service_packages_program_is_checked() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
