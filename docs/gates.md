@@ -729,10 +729,11 @@ claimed green here.
 
 ## Phase 10 — carried forward (2026-11-26)
 
-- **Atomic width and verifier effect** — owner: compiler/core. `AtomicI64` with
-  explicit orderings is implemented and tested; `AtomicU64`, `AtomicBool`,
-  `AtomicPtr[T]` and recording the ordering in the verifier effect remain.
-  Closes when each width has a harness and the effect is visible to Phase 11B.
+- **Atomic verifier effect and generic `AtomicPtr[T]`** — owner: compiler/core.
+  `AtomicI64`, `AtomicU64`, `AtomicBool` and an opaque `AtomicPtr` handle now
+  have explicit orderings and a concurrent harness. What remains is recording
+  the ordering in the verifier effect for Phase 11B and a generic pointer type
+  (the language has no phantom type parameter). Closes when both exist.
 
 ## Running the runner
 

@@ -91,3 +91,132 @@ impl AtomicI64 {
         return c_compare_exchange(self.id, expected, desired, code(success), code(failure));
     }
 }
+
+/// Atomic unsigned 64-bit value. Yashy's `int` carries the bit pattern; the
+/// operations never interpret the sign.
+pub struct AtomicU64 {
+    id: int,
+}
+
+pub fn atomic_u64(int initial) -> AtomicU64 {
+    return AtomicU64 {
+        id: c_new(initial)
+    };
+}
+
+impl AtomicU64 {
+    pub fn load(self, Ordering ordering) -> int {
+        if ordering matches Ordering.Release || ordering matches Ordering.AcqRel {
+            eprint("AcqRel/Release is not a load ordering");
+            exit(2);
+        }
+        return c_load(self.id, code(ordering));
+    }
+
+    pub fn store(self, int value, Ordering ordering) {
+        if ordering matches Ordering.Acquire || ordering matches Ordering.AcqRel {
+            eprint("AcqRel/Acquire is not a store ordering");
+            exit(2);
+        }
+        c_store(self.id, value, code(ordering));
+    }
+
+    pub fn fetch_add(self, int value, Ordering ordering) -> int {
+        return c_fetch_add(self.id, value, code(ordering));
+    }
+
+    pub fn compare_exchange(self, int expected, int desired, Ordering success, Ordering failure) -> int {
+        if success matches Ordering.Release || success matches Ordering.Acquire {
+            eprint("bad compare_exchange success ordering");
+            exit(2);
+        }
+        if failure matches Ordering.Release || failure matches Ordering.AcqRel {
+            eprint("bad compare_exchange failure ordering");
+            exit(2);
+        }
+        return c_compare_exchange(self.id, expected, desired, code(success), code(failure));
+    }
+}
+
+/// Atomic boolean. Stored as 0 or 1 in an atomic slot.
+pub struct AtomicBool {
+    id: int,
+}
+
+pub fn atomic_bool(bool initial) -> AtomicBool {
+    const value = switch initial {
+        case true {
+            1
+        }
+        default {
+            0
+        }
+    };
+    return AtomicBool {
+        id: c_new(value)
+    };
+}
+
+impl AtomicBool {
+    pub fn load(self, Ordering ordering) -> bool {
+        return c_load(self.id, code(ordering)) != 0;
+    }
+
+    pub fn store(self, bool value, Ordering ordering) {
+        const number = switch value {
+            case true {
+                1
+            }
+            default {
+                0
+            }
+        };
+        c_store(self.id, number, code(ordering));
+    }
+
+    pub fn compare_exchange(self, bool expected, bool desired, Ordering success, Ordering failure) -> bool {
+        const want = switch expected {
+            case true {
+                1
+            }
+            default {
+                0
+            }
+        };
+        const next = switch desired {
+            case true {
+                1
+            }
+            default {
+                0
+            }
+        };
+        return c_compare_exchange(self.id, want, next, code(success), code(failure)) != 0;
+    }
+}
+
+/// An atomic opaque handle. A generic `AtomicPtr[T]` needs a phantom type
+/// parameter, which the language does not have; the handle is an int slot.
+pub struct AtomicPtr {
+    id: int,
+}
+
+pub fn atomic_ptr(int initial) -> AtomicPtr {
+    return AtomicPtr {
+        id: c_new(initial)
+    };
+}
+
+impl AtomicPtr {
+    pub fn load(self, Ordering ordering) -> int {
+        return c_load(self.id, code(ordering));
+    }
+
+    pub fn store(self, int value, Ordering ordering) {
+        c_store(self.id, value, code(ordering));
+    }
+
+    pub fn compare_exchange(self, int expected, int desired, Ordering success, Ordering failure) -> int {
+        return c_compare_exchange(self.id, expected, desired, code(success), code(failure));
+    }
+}

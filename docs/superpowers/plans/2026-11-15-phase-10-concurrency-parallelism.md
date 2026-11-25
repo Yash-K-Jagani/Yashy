@@ -65,8 +65,9 @@ the AI phase's reproducible agent runs.
   *Closed 2026-11-26 with exceptions:* `atomic.ya` provides `AtomicI64` with
   load/store/fetch_add/compare_exchange and explicit orderings; the
   `atomic_test` program proves a two-thread relaxed counter, release/acquire
-  publication and CAS. `AtomicU64`, `AtomicBool`, `AtomicPtr[T]` and the
-  verifier effect are carried forward in `docs/gates.md`.
+  publication and CAS. `AtomicU64`, `AtomicBool` and an opaque `AtomicPtr`
+  handle were added on 2026-11-26; only the verifier effect and a generic
+  pointer parameter remain in `docs/gates.md`.
 - [x] **Step 2: The ordering is in the type system's sight.** Every atomic
   operation names its ordering; there is no default and no implicit `SeqCst`.
   `AcqRel` on a load or a store is a diagnostic. The verifier records the

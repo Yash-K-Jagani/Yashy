@@ -25,5 +25,19 @@ fn main() {
     const observed = published.compare_exchange(42, 7, Ordering.AcqRel, Ordering.Relaxed);
     assert(observed == 42);
     assert(published.load(Ordering.SeqCst) == 7);
+    let wide = atomic_u64(7);
+    assert(wide.fetch_add(5, Ordering.SeqCst) == 7);
+    assert(wide.load(Ordering.SeqCst) == 12);
+
+    let flag = atomic_bool(false);
+    assert(!flag.load(Ordering.SeqCst));
+    flag.store(true, Ordering.Release);
+    assert(flag.load(Ordering.Acquire));
+    assert(flag.compare_exchange(true, false, Ordering.AcqRel, Ordering.Relaxed));
+
+    let pointer = atomic_ptr(99);
+    assert(pointer.load(Ordering.SeqCst) == 99);
+    pointer.store(123, Ordering.Release);
+    assert(pointer.load(Ordering.Acquire) == 123);
     print("atomic-ok");
 }
