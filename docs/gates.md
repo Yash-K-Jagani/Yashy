@@ -729,6 +729,12 @@ claimed green here.
 
 ## Phase 10 — carried forward (2026-11-26)
 
+- **Lock guard typestate and lock-order diagnostics** — owner: compiler/core.
+  `RwLock`, `Condvar`, `Barrier` and `Once` are implemented with generation-based
+  waits and tested under threads. `Locked[T]`, static lock-order checking and
+  the `Condvar` predicate lint remain; closes when those are diagnostics rather
+  than documentation.
+
 - **Atomic verifier effect and generic `AtomicPtr[T]`** — owner: compiler/core.
   `AtomicI64`, `AtomicU64`, `AtomicBool` and an opaque `AtomicPtr` handle now
   have explicit orderings and a concurrent harness. What remains is recording

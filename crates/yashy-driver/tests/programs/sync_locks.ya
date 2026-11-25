@@ -1,0 +1,57 @@
+// RwLock, Condvar, Once and Barrier under contention.
+import sync;
+
+import atomic;
+
+fn initializer(AtomicI64 counter) {
+    counter.fetch_add(1, Ordering.SeqCst);
+}
+
+fn once_worker(Once gate, AtomicI64 counter) {
+    if gate.enter() {
+        counter.fetch_add(1, Ordering.SeqCst);
+    }
+}
+
+fn barrier_worker(Barrier gate) {
+    const generation = gate.wait();
+    assert(generation >= 1);
+}
+
+fn wait_worker(Condvar changed) {
+    const observed = changed.generation();
+    if observed < 1 {
+        changed.wait(observed);
+    }
+    assert(changed.generation() >= 1);
+}
+
+fn main() {
+    let lock = sync.rwlock();
+    lock.read();
+    lock.unlock();
+    lock.write();
+    lock.unlock();
+
+    let changed = sync.condvar();
+    let waiter = thread_spawn(wait_worker, changed);
+    changed.signal();
+    thread_join(waiter);
+
+    let gate = sync.once();
+    let counter = atomic.atomic_i64(0);
+    let first = thread_spawn(once_worker, gate, counter);
+    let second = thread_spawn(once_worker, gate, counter);
+    thread_join(first);
+    thread_join(second);
+    assert(counter.load(Ordering.SeqCst) == 1);
+
+    let reached = sync.barrier(3);
+    let a = thread_spawn(barrier_worker, reached);
+    let b = thread_spawn(barrier_worker, reached);
+    const main_generation = reached.wait();
+    assert(main_generation == 1);
+    thread_join(a);
+    thread_join(b);
+    print("locks-ok");
+}

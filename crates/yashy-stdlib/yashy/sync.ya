@@ -1,0 +1,117 @@
+// Synchronization primitives with explicit handle values.
+//
+// The C shim owns the OS objects; a Yashy value is only an integer handle.
+// A condition variable exposes its generation: a caller waits on an observed
+// generation inside a predicate loop, so a signal before the wait cannot be
+// missed by a sequence that has already read the predicate.
+
+import atomic;
+
+extern "C" link "../native/sync_shim.c" {
+    unsafe fn c_rwlock_new() -> int link_name "yashy_rwlock_new";
+    unsafe fn c_rwlock_rdlock(int id) link_name "yashy_rwlock_rdlock";
+    unsafe fn c_rwlock_wrlock(int id) link_name "yashy_rwlock_wrlock";
+    unsafe fn c_rwlock_unlock(int id) link_name "yashy_rwlock_unlock";
+    unsafe fn c_cond_new() -> int link_name "yashy_cond_new";
+    unsafe fn c_cond_generation(int id) -> int link_name "yashy_cond_generation";
+    unsafe fn c_cond_wait(int id, int observed) link_name "yashy_cond_wait";
+    unsafe fn c_cond_signal(int id) link_name "yashy_cond_signal";
+    unsafe fn c_barrier_new(int parties) -> int link_name "yashy_barrier_new";
+    unsafe fn c_barrier_wait(int id) -> int link_name "yashy_barrier_wait";
+}
+
+pub struct RwLock {
+    id: int,
+}
+
+pub fn rwlock() -> RwLock {
+    return RwLock {
+        id: c_rwlock_new()
+    };
+}
+
+impl RwLock {
+    pub fn read(self) {
+        c_rwlock_rdlock(self.id);
+    }
+
+    pub fn write(self) {
+        c_rwlock_wrlock(self.id);
+    }
+
+    pub fn unlock(self) {
+        c_rwlock_unlock(self.id);
+    }
+}
+
+pub struct Condvar {
+    id: int,
+}
+
+pub fn condvar() -> Condvar {
+    return Condvar {
+        id: c_cond_new()
+    };
+}
+
+impl Condvar {
+    pub fn generation(self) -> int {
+        return c_cond_generation(self.id);
+    }
+
+    pub fn wait(self, int observed) {
+        c_cond_wait(self.id, observed);
+    }
+
+    pub fn signal(self) {
+        c_cond_signal(self.id);
+    }
+}
+
+pub struct Barrier {
+    id: int,
+}
+
+pub fn barrier(int parties) -> Barrier {
+    return Barrier {
+        id: c_barrier_new(parties)
+    };
+}
+
+impl Barrier {
+    pub fn wait(self) -> int {
+        return c_barrier_wait(self.id);
+    }
+}
+
+/// One-time initialization. The state is an atomic, so exactly one caller
+/// runs the initializer and the others wait for its release store.
+pub struct Once {
+    state: AtomicI64,
+}
+
+pub fn once() -> Once {
+    return Once {
+        state: atomic_i64(0)
+    };
+}
+
+impl Once {
+    /// Return true for exactly one caller, which owns the initialization.
+    pub fn enter(self) -> bool {
+        const state_slot = self.state;
+        const state = state_slot.load(Ordering.SeqCst);
+        if state == 2 {
+            return false;
+        }
+        if state == 0 {
+            const observed = state_slot.compare_exchange(0, 1, Ordering.AcqRel, Ordering.Relaxed);
+            if observed == 0 {
+                state_slot.store(2, Ordering.Release);
+                return true;
+            }
+        }
+        while state_slot.load(Ordering.Acquire) != 2 {}
+        return false;
+    }
+}

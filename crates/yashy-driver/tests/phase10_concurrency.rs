@@ -27,6 +27,17 @@ fn run(root: &Path, source: &str, name: &str, expected: &str) {
 }
 
 #[test]
+fn locks_program_is_checked() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    run(
+        &root,
+        "crates/yashy-driver/tests/programs/sync_locks.ya",
+        "p10-locks",
+        "locks-ok",
+    );
+}
+
+#[test]
 fn atomic_program_is_checked() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     run(

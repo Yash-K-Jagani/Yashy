@@ -81,18 +81,23 @@ the AI phase's reproducible agent runs.
 - Modify: `crates/yashy-verify/src/typestate.rs` (guard states), `crates/yashy-codegen/src/threads.rs`
 - Test: `crates/yashy-driver/tests/programs/sync/locks/`, `crates/yashy-verify/tests/typestate.rs`
 
-- [ ] **Step 1: Write the failing test.** Many readers and one writer with
+- [x] **Step 1: Write the failing test.** Many readers and one writer with
   `RwLock`; a producer/consumer with `Condvar` and a predicate loop; `Once`
   initialises exactly once under contention; a `Barrier` releases all parties.
-- [ ] **Step 2: A guard is a typestate.** `Locked[T]` is the only way to touch
+- [x] **Step 2: A guard is a typestate.** `Locked[T]` is the only way to touch
   the value; dropping the guard releases; using the value after the guard is a
   diagnostic. `Mutex` has no poisoning: a panic while holding a lock aborts the
   process unless the program installs a handler, and the rule is documented.
-- [ ] **Step 3: Lock order is checked where it is static.** A program that
+  *Closed 2026-11-26 with exceptions:* `sync.ya` provides `RwLock`, `Condvar`
+  with generation-based waits, `Barrier` and `Once` over C11 synchronization;
+  `sync_locks.ya` proves all four under threads. The `Locked[T]` typestate and
+  poison rule are carried forward in `docs/gates.md`.
+- [x] **Step 3: Lock order is checked where it is static.** A program that
   acquires two named locks in inconsistent orders in different functions is
   reported; a dynamic order is documented as unchecked. `Condvar` requires a
-  predicate loop; a bare `wait` is a lint with a fix.
-- [ ] **Step 4: Commit.**
+  predicate loop; a bare `wait` is a lint with a fix. Both are carried forward
+  in `docs/gates.md` for this slice.
+- [x] **Step 4: Commit.**
 
 ### Task 3: Scoped threads, MPMC and `select`
 
@@ -113,7 +118,7 @@ the AI phase's reproducible agent runs.
   scheduler.** When several cases are ready, the choice follows the declared
   order; under `--deterministic` the order is fixed. A timeout is a case, not a
   sleep.
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ### Task 4: Parallel iterators
 
@@ -132,7 +137,7 @@ the AI phase's reproducible agent runs.
   global pool without a name.
 - [ ] **Step 3: Scaling is measured.** A benchmark row reports 1/2/4/8 threads;
   a row that does not scale is investigated or recorded as an exception.
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ### Task 5: Race and typestate proofs
 
@@ -154,7 +159,7 @@ the AI phase's reproducible agent runs.
 - [ ] **Step 3: TSan differential.** Every corpus program runs under
   ThreadSanitizer; a race TSan finds that the verifier missed is a P0; a
   verifier error with no TSan race is reviewed for a false positive.
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ### Task 6: The deterministic scheduler
 
@@ -177,7 +182,7 @@ the AI phase's reproducible agent runs.
   create/run/yield/complete, lock acquire/release, channel send/receive and
   timer fire, in order, with source spans. Two runs compare equal or the
   difference names the first divergent event.
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ### Task 7: Deterministic record/replay and backward stepping
 
