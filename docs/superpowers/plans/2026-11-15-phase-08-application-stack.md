@@ -40,7 +40,7 @@ OIDC/PKCE, WebAuthn, STARTTLS delivery and OTLP export — plus `yashyc dev`,
 `yashyc openapi`/`client`, the signed graceful-restart loop and the three
 full examples are recorded as dated exceptions in `docs/gates.md`. They are
 post-release follow-ups, not open blockers; the phase closes with them
-carried forward.
+carried forward. Implementation commit: `a5b1ba8`.
 
 ## Why this phase
 
