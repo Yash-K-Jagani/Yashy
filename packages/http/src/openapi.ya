@@ -1,0 +1,88 @@
+// An OpenAPI 3.1 document generated from one route declaration per line.
+//
+// A route line is `METHOD|/path|requestType|responseType|errorType|auth`, so
+// the path, body, response and auth requirement are declared once. The
+// generated document is the input to `yashyc client`; there is no separate
+// hand-maintained specification to drift.
+
+fn oas_quote(string text) -> string {
+    return "\"" + text + "\"";
+}
+
+fn route_field(string line, int wanted) -> string {
+    let current = 0;
+    let start = 0;
+    let index = 0;
+    while index <= line.len() {
+        if index == line.len() || line.byte_at(index) == '|' {
+            if current == wanted {
+                return line.slice(start, index);
+            }
+            current = current + 1;
+            start = index + 1;
+        }
+        index = index + 1;
+    }
+    return "";
+}
+
+/// Generate the document. A route with no response type is a diagnostic in
+/// the caller rather than an empty schema here.
+pub fn document(string title, string routes) -> string {
+    const lines = routes.split("\n");
+    let parts = []string {};
+    for line in lines {
+        if line.len() == 0 {
+            continue;
+        }
+        const raw_method = route_field(line, 0);
+        const method = raw_method.to_lower();
+        const path = route_field(line, 1);
+        const response = route_field(line, 3);
+        if response.len() == 0 {
+            continue;
+        }
+        const body = route_field(line, 2);
+        let operation = "\"responses\":{\"200\":{\"description\":\"ok\"";
+        const error = route_field(line, 4);
+        if error.len() > 0 {
+            operation = operation + "},\"default\":{\"description\":\"problem\"";
+        }
+        operation = operation + "}}";
+        if body.len() > 0 {
+            operation = "\"requestBody\":{\"content\":{\"application/json\":{}}}," + operation;
+        }
+        const auth = route_field(line, 5);
+        if auth.len() > 0 {
+            operation = "\"security\":[{" + oas_quote(auth) + ":[]}]," + operation;
+        }
+        parts.push(oas_quote(path) + ":{" + oas_quote(method) + ":{" + operation + "}}");
+    }
+    lines.free();
+    let joined = "";
+    for part in parts {
+        if joined.len() > 0 {
+            joined = joined + ",";
+        }
+        joined = joined + part;
+    }
+    parts.free();
+    return "{\"openapi\":\"3.1.0\",\"info\":{\"title\":" + oas_quote(title)
+    + ",\"version\":\"1.0.0\"},\"paths\":{" + joined + "}}";
+}
+
+/// A route with a missing response type cannot be emitted.
+pub fn complete(string routes) -> bool {
+    const lines = routes.split("\n");
+    let ok = true;
+    for line in lines {
+        if line.len() > 0 {
+            const response = route_field(line, 3);
+            if response.len() == 0 {
+                ok = false;
+            }
+        }
+    }
+    lines.free();
+    return ok;
+}

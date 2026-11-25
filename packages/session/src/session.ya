@@ -7,11 +7,13 @@
 // Nothing here encrypts: a session payload is visible to its holder by design.
 
 import hash;
+
 import text;
+
 import string;
 
 /// Compare two strings without an early exit on the first difference.
-pub fn constant_time_eq(string left, string right) -> bool {
+pub fn session_eq(string left, string right) -> bool {
     let different = 0;
     let shorter = left.len();
     if right.len() < shorter {
@@ -27,42 +29,32 @@ pub fn constant_time_eq(string left, string right) -> bool {
 }
 
 /// The digest hex text for a secret and payload.
-fn digest(string secret, string payload) -> string {
+fn session_digest(string secret, string payload) -> string {
     const bytes = string.to_bytes(secret + "." + payload);
     const sum = hash.sha256(bytes);
     const hex = text.hex_encode(sum);
-    sum.free();
-    bytes.free();
     return hex;
 }
 
 /// Sign a payload, producing `payload.signature`.
 pub fn sign(string secret, string payload) -> string {
-    const signature = text.base64url_encode(string.to_bytes(digest(secret, payload)));
+    const signature = text.base64url_encode(string.to_bytes(session_digest(secret, payload)));
     return text.base64url_encode(string.to_bytes(payload)) + "." + signature;
 }
 
 /// Verify a token, returning its payload when the signature checks out.
 pub fn verify(string secret, string token) -> Option[string] {
-    const dot = token.index_of(".");
-    const at = switch dot {
-        case Some(index) { index }
-        case None { return None; }
-    };
-    const encoded_payload = token.slice(0, at);
-    const presented = token.slice(at + 1, token.len());
-    const payload_bytes = switch text.base64url_decode(encoded_payload) {
-        case Ok(bytes) { bytes }
-        case Err(_) { return None; }
-    };
-    const payload = string.from_bytes(payload_bytes);
-    const restored = switch payload {
-        Ok(text_value) { text_value }
-        Err(_) { return None; }
-    };
-    const expected = text.base64url_encode(string.to_bytes(digest(secret, restored)));
-    if !constant_time_eq(presented, expected) {
-        return None;
+    if let Some(at) = token.index_of(".") {
+        const encoded_payload = token.slice(0, at);
+        const presented = token.slice(at + 1, token.len());
+        if let Ok(bytes) = text.base64url_decode(encoded_payload) {
+            if let Ok(restored) = string.from_bytes(bytes) {
+                const expected = text.base64url_encode(string.to_bytes(session_digest(secret, restored)));
+                if session_eq(presented, expected) {
+                    return Some(restored);
+                }
+            }
+        }
     }
-    return Some(restored);
+    return None;
 }

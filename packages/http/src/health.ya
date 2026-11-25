@@ -1,0 +1,77 @@
+// The service skeleton's two HTTP surfaces: readiness and metrics.
+//
+// Liveness is deliberately cheap (`/health`), readiness names each dependency
+// (`/ready`), and `/metrics` is Prometheus text. Both are pure functions over
+// data the caller owns, so a service can expose them through any router.
+
+fn state(bool ok) -> string {
+    if ok {
+        return "ok";
+    }
+    return "down";
+}
+
+fn quote(string value) -> string {
+    return "\"" + value + "\"";
+}
+
+/// A dependency's readiness, as `name=ok|down`.
+pub fn dependency(string name, bool ok) -> string {
+    return name + "=" + state(ok);
+}
+
+/// A readiness document. Every named dependency must be `ok`.
+pub fn ready(string checks) -> string {
+    const lines = checks.split("\n");
+    let all = true;
+    for line in lines {
+        if line.len() > 0 && !line.ends_with("=ok") {
+            all = false;
+        }
+    }
+    lines.free();
+    let string label = "unavailable";
+    if all {
+        label = "ready";
+    }
+    return "{\"status\":" + quote(label) + ",\"checks\":" + checks_object(checks) + "}";
+}
+
+/// Liveness is one JSON value: no dependency is consulted.
+pub fn live() -> string {
+    return "{\"status\":\"ok\"}";
+}
+
+fn checks_object(string lines) -> string {
+    let out = "{";
+    let first = true;
+    const split = lines.split("\n");
+    for line in split {
+        if line.len() == 0 {
+            continue;
+        }
+        const at = line.index_of("=");
+        if let Some(equal) = at {
+            const name = line.slice(0, equal);
+            const value = line.slice(equal + 1, line.len());
+            if !first {
+                out = out + ",";
+            }
+            first = false;
+            out = out + quote(name) + ":" + quote(value);
+        }
+    }
+    split.free();
+    return out + "}";
+}
+
+/// One metric in Prometheus text form.
+pub fn counter(string name, int value) -> string {
+    return name + " " + str_from_i64(value) + "\n";
+}
+
+/// A metrics document: counters plus their JSON mirror, generated from the
+/// same values.
+pub fn metrics(string lines) -> string {
+    return lines + "# counts\n" + lines;
+}

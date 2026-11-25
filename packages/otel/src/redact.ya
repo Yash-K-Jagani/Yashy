@@ -1,0 +1,52 @@
+// Export-side redaction and one trace id per request.
+//
+// Every exporter calls `redact` on its payload before it leaves the process.
+// The set of secrets is passed in: there is no ambient registry, and a value
+// can never be exported by forgetting to mark it private at the call site.
+
+/// Replace every occurrence of each secret with `[redacted]`.
+pub fn redact(string payload, string secrets) -> string {
+    let out = payload;
+    const lines = secrets.split("\n");
+    for secret in lines {
+        if secret.len() > 0 {
+            out = out.replace(secret, "[redacted]");
+        }
+    }
+    lines.free();
+    return out;
+}
+
+/// Whether a value still contains a secret that must not be exported.
+pub fn clean(string payload, string secrets) -> bool {
+    const lines = secrets.split("\n");
+    let safe = true;
+    for secret in lines {
+        if secret.len() > 0 && payload.contains(secret) {
+            safe = false;
+        }
+    }
+    lines.free();
+    return safe;
+}
+
+/// A short trace id derived from a request id. Deterministic so a request,
+/// its jobs and its queries carry the same id; no ambient counter.
+pub fn trace_id(string request_id) -> string {
+    const bytes = string.to_bytes(request_id);
+    const sum = hash.sha256(bytes);
+    const hex = text.hex_encode(sum);
+    return hex.slice(0, 16);
+}
+
+/// The attributes of one exported event, redacted as a unit.
+pub fn event(string trace, string name, string attributes, string secrets) -> string {
+    return "{\"trace\":\"" + trace + "\",\"name\":\"" + name + "\",\"attributes\":"
+    + redact(attributes, secrets) + "}";
+}
+
+import hash;
+
+import text;
+
+import string;

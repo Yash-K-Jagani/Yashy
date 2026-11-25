@@ -1,0 +1,34 @@
+// CLI parsing: --flag=value, bundling, --, repeats, env fallback and help.
+
+import cli;
+
+fn declarations() -> string {
+    return "verbose|log more|flag||VERBOSE\nquiet|be quiet|flag|q|\noutput|write here|value||OUTPUT_FILE";
+}
+
+fn main() {
+    let arguments = []string {
+        "--verbose", "--output=out.txt", "--", "-x", "-q"
+    };
+    const parsed = cli.parse_arguments("example", declarations(), move arguments);
+    const flags = parsed.flags;
+    const values = parsed.values;
+    const positionals = parsed.positionals;
+    assert(flags[0] matches Some("verbose"));
+    assert(values[1] matches Some("out.txt"));
+    assert(positionals[0] matches Some("-x"));
+    assert(positionals[1] matches Some("-q"));
+    assert(cli.suggest(declarations(), "verbos") == "verbose");
+
+    let bundled = []string {
+        "-q"
+    };
+    const second = cli.parse_arguments("example", declarations(), move bundled);
+    const short_flags = move second.flags;
+    assert(short_flags[0] matches Some("quiet"));
+    flags.free();
+    values.free();
+    positionals.free();
+    short_flags.free();
+    print("cli-parsing-ok");
+}

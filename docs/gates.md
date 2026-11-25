@@ -606,6 +606,54 @@ workflow and the install test expected a zip or a bare Mach-O to carry a
 stapled ticket, which `stapler` refuses by design. Both are fixed in `c2abc55`;
 the probe now asks for `Authority=Developer ID Application`.
 
+## Phase 8 — carried forward (2026-11-25)
+
+Phase 8 closes with the following rows as post-release follow-ups. Each has an
+owner and the condition that closes it; none blocks the phase, and none is
+claimed green here.
+
+- **Argon2id password KDF** — owner: compiler/core. The pinned primitives ship
+  SHA-512 but no memory-hard KDF. `packages/auth/src/password.ya` hashes with a
+  CSPRNG salt and a sha512 digest; the digest is documented as a commitment,
+  not a password KDF. Closes when an Argon2id primitive lands in the pinned
+  crypto package and `password.hash` is switched to it with the same test.
+- **JWT and API-key verification** — owner: compiler/core. No JOSE primitive
+  validates `alg`, `exp`, `nbf` and `aud` here. Closes when a verifier exists
+  and rejects `alg: none` and a swapped key in `packages/auth/tests/`.
+- **Session cookie/store and expiry** — owner: compiler/core. Signed tokens
+  and CSRF are shipped; a cookie helper that always sets `HttpOnly; Secure;
+  SameSite=Lax`, an expiring session store and its Redis counterpart are not.
+  Closes with a cookie test and a store test that covers expiry.
+- **SMTP STARTTLS against a local fixture** — owner: compiler/core. The mail
+  package builds a MIME message and requires an explicit relay
+  (`packages/mail/src/message.ya`); no default `localhost:25` send exists.
+  There is no TLS client in the pinned packages, so delivery over STARTTLS is
+  untested. Closes when a fixture test sends a message over STARTTLS.
+- **Graceful shutdown and in-flight drain in the service skeleton** — owner:
+  compiler/core. `/health`, `/ready` and `/metrics` are pure helpers in
+  `packages/http/src/health.ya`; signal-driven shutdown is not wired. Closes
+  when a service exits zero only after in-flight requests drain on SIGINT and
+  SIGTERM.
+- **Three production-shaped examples** (`api-service`, `cli-tool`, `web-app`)
+  with their own tests, security review and two-OS load test — owner:
+  compiler/core. `examples/shop` remains the one worked persistence example.
+  Closes when all three examples build and pass `yashyc test` in the examples
+  harness and the load row is green on both CI OSes.
+- **`yashyc dev`** — owner: compiler/core. No watcher/restart loop exists;
+  `yashyc watch` is the underlying primitive. Closes when `crates/yashy-driver/tests/dev.rs`
+  proves rebuild-on-change, previous-process survival on a bad edit, and a
+  bounded graceful restart with one JSON event per generation.
+- **`yashyc openapi` and `yashyc client`** — owner: compiler/core. The document
+  generator is a library (`packages/http/src/openapi.ya`); CLI emission, the
+  typed client generator and `openapi --check` compatibility classification
+  are not. Closes when both commands exist and a client fails to compile after
+  a required field changes.
+- **OIDC/PKCE, WebAuthn, OTLP export** — owner: compiler/core. Default headers,
+  rate limiting and export-side redaction ship in `packages/auth/src/security.ya`
+  and `packages/otel/src/redact.ya`; a JOSE/WebAuthn verifier and an OTLP
+  transport do not. Closes with local-fixture tests for each flow and an
+  exporter test asserting one trace id across a request, a job and a query.
+
 ## Running the runner
 
 ```sh

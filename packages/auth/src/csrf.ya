@@ -5,11 +5,13 @@
 // forge a token without the secret. Comparison is constant-time.
 
 import hash;
+
 import text;
+
 import string;
 
 /// Compare two strings without an early exit on the first difference.
-pub fn constant_time_eq(string left, string right) -> bool {
+pub fn csrf_eq(string left, string right) -> bool {
     let different = 0;
     let shorter = left.len();
     if right.len() < shorter {
@@ -29,12 +31,10 @@ pub fn token(string secret, string nonce) -> string {
     const bytes = string.to_bytes(secret + "." + nonce);
     const sum = hash.sha256(bytes);
     const hex = text.hex_encode(sum);
-    sum.free();
-    bytes.free();
     return text.base64url_encode(string.to_bytes(hex));
 }
 
 /// Whether a presented token matches the one for this secret and nonce.
 pub fn valid(string secret, string nonce, string presented) -> bool {
-    return constant_time_eq(presented, token(secret, nonce));
+    return csrf_eq(presented, token(secret, nonce));
 }

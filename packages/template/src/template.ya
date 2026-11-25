@@ -17,7 +17,8 @@ pub fn escape_html(string text) -> string {
 
 /// Escape a quoted attribute value, including apostrophes.
 pub fn escape_attr(string text) -> string {
-    return escape_html(text).replace("'", "&#39;");
+    const escaped = escape_html(text);
+    return escaped.replace("'", "&#39;");
 }
 
 /// Percent-encode the characters that change a URL component.
@@ -42,11 +43,11 @@ fn find_from(string text, string needle, int start) -> int {
     if start >= text.len() || needle.len() == 0 {
         return 0 - 1;
     }
-    const at = text.slice(start, text.len()).index_of(needle);
-    switch at {
-        case Some(index) { return start + index; }
-        case None { return 0 - 1; }
+    const rest = text.slice(start, text.len());
+    if let Some(index) = rest.index_of(needle) {
+        return start + index;
     }
+    return 0 - 1;
 }
 
 /// Read a variable. A missing name is the empty string, never a sentinel.
@@ -54,17 +55,12 @@ pub fn lookup(string variables, string name) -> string {
     const lines = variables.split("\n");
     let found = "";
     for line in lines {
-        const at = line.index_of("=");
-        switch at {
-            case Some(split) {
-                if line.slice(0, split) == name {
-                    const value = line.slice(split + 1, line.len());
-                    found = value.slice(0, value.len());
-                    break;
-                }
-            }
-            case None {
-                const absent = 0;
+        if let Some(split) = line.index_of("=") {
+            const key = line.slice(0, split);
+            if key == name {
+                const value = line.slice(split + 1, line.len());
+                found = value.slice(0, value.len());
+                break;
             }
         }
     }

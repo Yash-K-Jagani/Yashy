@@ -18,46 +18,47 @@ pub struct Headers {
 
 /// Parse a block of `Name: value` lines separated by CRLF or LF.
 pub fn parse(string text) -> Result[Headers, HttpError] {
+    const normalised = text.replace("\r\n", "\n");
+    const blocks = normalised.split("\n");
     let lines = []string {};
-    const blocks = text.replace("\r\n", "\n").split("\n");
+    let bad = false;
     let number = 1;
     for block in blocks {
         if block.len() > 0 {
-            const at = block.index_of(":");
-            switch at {
-                case Some(colon) {
-                    if colon == 0 {
-                        lines.free();
-                        return Err(HttpError.Malformed(number));
-                    }
+            if let Some(colon) = block.index_of(":") {
+                if colon == 0 {
+                    bad = true;
+                } else {
                     lines.push(block.slice(0, block.len()));
                 }
-                case None {
-                    lines.free();
-                    return Err(HttpError.Malformed(number));
-                }
+            } else {
+                bad = true;
             }
         }
         number = number + 1;
     }
     blocks.free();
-    return Ok(Headers { lines: lines });
+    if bad {
+        lines.free();
+        return Err(HttpError.Malformed(number));
+    }
+    return Ok(Headers {
+        lines: lines
+    }
+    );
 }
 
 /// The first value for `name`, case-insensitively.
 pub fn get(Headers headers, string name) -> Option[string] {
     const wanted = name.to_lower();
-    for line in headers.lines {
-        const at = line.index_of(":");
-        switch at {
-            case Some(colon) {
-                if line.slice(0, colon).trim().to_lower() == wanted {
-                    const value = line.slice(colon + 1, line.len()).trim();
-                    return Some(value.slice(0, value.len()));
-                }
-            }
-            case None {
-                const absent = 0;
+    const stored = move headers.lines;
+    for line in stored {
+        if let Some(colon) = line.index_of(":") {
+            const raw = line.slice(0, colon);
+            const trimmed = raw.trim();
+            if trimmed.to_lower() == wanted {
+                const value = line.slice(colon + 1, line.len()).trim();
+                return Some(value.slice(0, value.len()));
             }
         }
     }
@@ -65,14 +66,15 @@ pub fn get(Headers headers, string name) -> Option[string] {
 }
 
 /// The `Content-Type` value, when the block has one.
-pub fn content_type(Headers headers) -> Option[string> {
+pub fn content_type(Headers headers) -> Option[string] {
     return get(headers, "content-type");
 }
 
 /// The original block, with one CRLF-terminated line per field.
 pub fn to_string(Headers headers) -> string {
     let text = "";
-    for line in headers.lines {
+    const stored = move headers.lines;
+    for line in stored {
         text = text + line + "\r\n";
     }
     return text;

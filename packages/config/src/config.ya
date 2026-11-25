@@ -14,18 +14,14 @@ pub fn value_in(string layer, string name) -> Option[string] {
     let found = "";
     let present = false;
     for line in lines {
-        const at = line.index_of("=");
-        switch at {
-            case Some(equal) {
-                if line.slice(0, equal).trim() == name {
-                    const value = line.slice(equal + 1, line.len()).trim();
-                    found = value.slice(0, value.len());
-                    present = true;
-                    break;
-                }
-            }
-            case None {
-                const skipped = 0;
+        if let Some(equal) = line.index_of("=") {
+            const raw_key = line.slice(0, equal);
+            const key = raw_key.trim();
+            if key == name && !present {
+                const raw_value = line.slice(equal + 1, line.len());
+                const value = raw_value.trim();
+                found = value.slice(0, value.len());
+                present = true;
             }
         }
     }
@@ -38,26 +34,20 @@ pub fn value_in(string layer, string name) -> Option[string] {
 
 /// Resolve one value through CLI, environment, file and default.
 pub fn resolve(
-    string cli,
-    string environment_prefix,
-    string file,
-    string defaults,
-    string name,
+string cli,
+string environment_prefix,
+string file,
+string defaults,
+string name,
 ) -> Option[string] {
-    const from_cli = value_in(cli, name);
-    switch from_cli {
-        case Some(value) { return Some(value); }
-        case None {}
+    if let Some(value) = value_in(cli, name) {
+        return Some(value);
     }
-    const variable = getenv(environment_prefix + name.to_upper());
-    switch variable {
-        case Some(value) { return Some(value); }
-        case None {}
+    if let Some(value) = getenv(environment_prefix + name.to_upper()) {
+        return Some(value);
     }
-    const from_file = value_in(file, name);
-    switch from_file {
-        case Some(value) { return Some(value); }
-        case None {}
+    if let Some(value) = value_in(file, name) {
+        return Some(value);
     }
     return value_in(defaults, name);
 }
@@ -73,7 +63,9 @@ pub struct Secret {
 
 /// Wrap a value as a secret.
 pub fn secret(string value) -> Secret {
-    return Secret { hidden: value };
+    return Secret {
+        hidden: value
+    };
 }
 
 /// Read the underlying value. The call site is the proof that the code needs
@@ -84,32 +76,39 @@ pub fn reveal(Secret value) -> string {
 
 /// The only rendering of a secret: the name and a fixed mask.
 pub fn show_secret(string name, Secret value) -> string {
-    const ignored = reveal(value);
     return name + "=***";
 }
 
 /// Resolve a name whose value is secret, wrapping it before it leaves the
 /// layer walk. Callers that only log the result cannot leak it.
 pub fn resolve_secret(
-    string cli,
-    string environment_prefix,
-    string file,
-    string defaults,
-    string name,
+string cli,
+string environment_prefix,
+string file,
+string defaults,
+string name,
 ) -> Option[Secret] {
     const found = resolve(cli, environment_prefix, file, defaults, name);
     return switch found {
-        case Some(value) { Some(secret(value)) }
-        case None { None }
+        case Some(value) {
+            Some(secret(value))
+        }
+        case None {
+            no_secret()
+        }
     };
+}
+
+fn no_secret() -> Option[Secret] {
+    return None;
 }
 
 /// Whether a name marks a secret value.
 pub fn is_secret(string name) -> bool {
     const lowered = name.to_lower();
     return lowered.ends_with("token")
-        || lowered.ends_with("password")
-        || lowered.ends_with("secret");
+    || lowered.ends_with("password")
+    || lowered.ends_with("secret");
 }
 
 /// Replace a secret's bytes before a value is printed or logged.
@@ -128,19 +127,17 @@ pub fn describe(string layer) -> string {
         if line.len() == 0 {
             continue;
         }
-        const at = line.index_of("=");
-        switch at {
-            case Some(equal) {
-                const name = line.slice(0, equal).trim();
-                let visible = line.slice(equal + 1, line.len()).trim();
-                if is_secret(name) {
-                    visible = "***";
-                }
-                out = out + name + "=" + visible + "\n";
+        if let Some(equal) = line.index_of("=") {
+            const raw_name = line.slice(0, equal);
+            const name = raw_name.trim();
+            const raw_visible = line.slice(equal + 1, line.len());
+            let string visible = raw_visible.trim();
+            if is_secret(name) {
+                visible = "***";
             }
-            case None {
-                out = out + line + "\n";
-            }
+            out = out + name + "=" + visible + "\n";
+        } else {
+            out = out + line + "\n";
         }
     }
     lines.free();

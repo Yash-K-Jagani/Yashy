@@ -1,0 +1,38 @@
+// Layer precedence and structural secret redaction.
+import config;
+
+fn main() {
+    const cli_layer = "port=8080\n";
+    const file_layer = "port=1234\nhost=db.local\n";
+    const defaults = "port=3000\nhost=localhost\n";
+    const found = config.resolve(cli_layer, "", file_layer, defaults, "port");
+    const port = switch found {
+        case Some(value) {
+            value
+        }
+        case None {
+            ""
+        }
+    };
+    assert(port == "8080");
+    const host = config.resolve(cli_layer, "", file_layer, defaults, "host");
+    assert(host matches Some("db.local"));
+    const fallback = config.resolve("", "", "", defaults, "port");
+    assert(fallback matches Some("3000"));
+    const missing = config.resolve("", "", "", "", "absent");
+    assert(missing matches None);
+
+    const token = config.secret("s3cr3t");
+    const shown = config.show_secret("api_token", token);
+    assert(shown.contains("***"));
+    assert(!shown.contains("s3cr3t"));
+    assert(config.is_secret("api_token"));
+    assert(config.is_secret("db_password"));
+    assert(!config.is_secret("port"));
+
+    const described = config.describe("api_token=s3cr3t\nport=8080\n");
+    assert(described.contains("api_token=***"));
+    assert(described.contains("port=8080"));
+    assert(!described.contains("s3cr3t"));
+    print("config-layers-ok");
+}

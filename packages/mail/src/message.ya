@@ -1,0 +1,63 @@
+// Email messages and an explicit relay capability.
+//
+// There is no default relay and no implicit `localhost:25` send: constructing
+// a `Relay` is the only way to name one. STARTTLS delivery against a local
+// fixture is carried forward (no TLS client exists in this checkout's pinned
+// packages); the message side is complete and testable on its own.
+
+/// An explicit SMTP relay. A production build must name one; a test build may
+/// name only a local fixture.
+pub struct Relay {
+    pub host: string,
+    pub port: int,
+    pub starttls: bool,
+}
+
+/// Build a relay from configuration. An empty host is not a relay.
+pub fn relay(string host, int port, bool starttls) -> Option[Relay] {
+    if host.len() == 0 || port <= 0 {
+        return None;
+    }
+    return Some(Relay {
+        host: host, port: port, starttls: starttls
+    }
+    );
+}
+
+/// Whether a relay is configured for production use.
+pub fn production(Relay target) -> bool {
+    const host = target.host;
+    return target.starttls && !host.contains("fixture");
+}
+
+fn validate_address(string address) -> bool {
+    const at = address.index_of("@");
+    if let Some(split) = at {
+        if split > 0 && split + 1 < address.len() {
+            return true;
+        }
+    }
+    return false;
+}
+
+/// A minimal RFC 5322 message with a UTF-8 text part and an optional HTML
+/// part. Headers come from named arguments, never from raw concatenation by
+/// the caller, so a newline in an address cannot inject a header.
+pub fn build(string from, string to, string subject, string text, string html) -> Option[string] {
+    if !validate_address(from) || !validate_address(to) {
+        return None;
+    }
+    if text.len() == 0 && html.len() == 0 {
+        return None;
+    }
+    let out = "From: " + from + "\r\nTo: " + to + "\r\nSubject: " + subject + "\r\n";
+    if html.len() == 0 {
+        return Some(out + "Content-Type: text/plain; charset=utf-8\r\n\r\n" + text);
+    }
+    const boundary = "yashy-message-boundary";
+    const head = out + "Content-Type: multipart/alternative; boundary=\"" + boundary + "\"\r\n\r\n";
+    const part = "--" + boundary + "\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n" + text
+    + "\r\n--" + boundary + "\r\nContent-Type: text/html; charset=utf-8\r\n\r\n" + html
+    + "\r\n--" + boundary + "--\r\n";
+    return Some(head + part);
+}

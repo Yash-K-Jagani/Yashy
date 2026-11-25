@@ -1,0 +1,74 @@
+// Phase 8 services: mail messages, job queue, readiness, OpenAPI, security
+// headers, rate limiting and redacted traces.
+import message;
+
+import queue;
+
+import health;
+
+import openapi;
+
+import security;
+
+import redact;
+
+fn main() {
+    const relay = message.relay("smtp.fixture", 2525, true);
+    if let Some(target) = relay {
+        assert(!message.production(target));
+    }
+    const mail = message.build("a@example.com", "b@example.com", "hello", "body", "<p>body</p>");
+    if let Some(mime) = mail {
+        assert(mime.contains("multipart/alternative"));
+        assert(mime.contains("<p>body</p>"));
+    } else {
+        assert(false);
+    }
+    assert(message.build("bad", "b@example.com", "x", "y", "") matches None);
+
+    let jobs = queue.empty();
+    jobs = queue.add(jobs, "job-1", "idem-1");
+    jobs = queue.add(jobs, "job-1", "idem-1");
+    assert(jobs.len() == 1);
+    jobs = queue.record(jobs, "job-1", false, "down");
+    jobs = queue.record(jobs, "job-1", false, "down");
+    assert(jobs.len() == 1);
+    jobs = queue.dead_letter(jobs, "job-1", "down");
+    jobs = queue.replay(jobs, "job-1");
+    assert(jobs.len() == 1);
+    jobs.free();
+
+    assert(health.live() == "{\"status\":\"ok\"}");
+    const checks = health.dependency("db", true) + "\n" + health.dependency("cache", true);
+    const ready = health.ready(checks);
+    assert(ready.contains("\"status\":\"ready\""));
+    const metric = health.counter("requests_total", 7);
+    assert(metric.contains("requests_total 7"));
+
+    const routes = "GET|/items||Item|Problem|token\nPOST|/items|NewItem|Item|Problem|token\n";
+    assert(openapi.complete(routes));
+    const spec = openapi.document("Example", routes);
+    assert(spec.contains("\"openapi\":\"3.1.0\""));
+    assert(spec.contains("\"/items\""));
+    assert(spec.contains("\"security\":[{\"token\":[]}]"));
+
+    const guard = security.defaults();
+    assert(guard.contains("Strict-Transport-Security"));
+    assert(guard.contains("frame-ancestors 'none'"));
+    const cookie = security.cookie("sid", "abc");
+    assert(cookie.contains("HttpOnly"));
+    assert(security.allow(0, 3, 10, 60, 0));
+    assert(!security.allow(3, 3, 10, 60, 0));
+    assert(security.retry_after(0, 60, 10) == 50);
+
+    const secrets = "s3cr3t\ncookie=abc";
+    const text = redact.redact("token=s3cr3t cookie=abc", secrets);
+    assert(!text.contains("s3cr3t"));
+    assert(redact.clean(text, secrets));
+    const trace = redact.trace_id("req-1");
+    assert(trace.len() == 16);
+    const line = redact.event(trace, "request", "user=s3cr3t", secrets);
+    assert(!line.contains("s3cr3t"));
+
+    print("phase8-services-ok");
+}

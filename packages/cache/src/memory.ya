@@ -1,0 +1,211 @@
+// An in-memory TTL cache with a bounded capacity.
+//
+// The entries live in a linear `[]string` field: each entry is
+// `key<TAB>value<TAB>issued`. Operations move the array out, build the array
+// they replace, and store it back, which is the same ownership shape the
+// database package uses for its row buffers. Eviction drops the oldest entry
+// when the capacity is reached.
+
+import ttl;
+
+pub struct Cache {
+    entries: []string,
+    limit: int,
+}
+
+/// An empty cache holding at most `limit` live entries.
+pub fn bounded(int limit) -> Cache {
+    return Cache {
+        entries: []string {}, limit: limit
+    };
+}
+
+/// The first tab in an entry, or `-1`.
+fn tab_at(string text, int from) -> int {
+    const rest = text.slice(from, text.len());
+    const found = rest.index_of("\t");
+    return switch found {
+        case Some(value) {
+            from + value
+        }
+        case None {
+            -1
+        }
+    };
+}
+
+fn entry_key(string entry) -> string {
+    const at = tab_at(entry, 0);
+    if at < 0 {
+        return entry;
+    }
+    return entry.slice(0, at);
+}
+
+fn entry_value(string entry) -> string {
+    const first = tab_at(entry, 0);
+    if first < 0 {
+        return "";
+    }
+    const second = tab_at(entry, first + 1);
+    if second < 0 {
+        return entry.slice(first + 1, entry.len());
+    }
+    return entry.slice(first + 1, second);
+}
+
+fn entry_issued(string entry) -> int {
+    const first = tab_at(entry, 0);
+    if first < 0 {
+        return 0;
+    }
+    const second = tab_at(entry, first + 1);
+    if second < 0 {
+        return 0;
+    }
+    const text = entry.slice(second + 1, entry.len());
+    const parsed = text.parse_i64();
+    return switch parsed {
+        case Some(value) {
+            value
+        }
+        case None {
+            0
+        }
+    };
+}
+
+fn entry_text(string key, string value, int now) -> string {
+    return key + "\t" + value + "\t" + str_from_i64(now);
+}
+
+/// The array a store produces: the same keys with `key` replaced or appended,
+/// and the oldest entries dropped past `limit`.
+fn stored([]string entries, string key, string value, int now, int limit) -> []string {
+    let out = []string {};
+    let replaced = false;
+    let index = 0;
+    while index < entries.len() {
+        const slot = entries[index];
+        const text = switch slot {
+            case Some(entry) {
+                entry
+            }
+            case None {
+                ""
+            }
+        };
+        if entry_key(text) == key {
+            if !replaced {
+                out.push(entry_text(key, value, now));
+                replaced = true;
+            }
+        } else {
+            out.push(text);
+        }
+        index = index + 1;
+    }
+    if !replaced {
+        out.push(entry_text(key, value, now));
+    }
+    while limit > 0 && out.len() > limit {
+        let trimmed = []string {};
+        let at = 1;
+        while at < out.len() {
+            const slot = out[at];
+            const text = switch slot {
+                case Some(entry) {
+                    entry
+                }
+                case None {
+                    ""
+                }
+            };
+            trimmed.push(text);
+            at = at + 1;
+        }
+        out.free();
+        out = move trimmed;
+    }
+    entries.free();
+    return out;
+}
+
+/// The array without `key`.
+fn filtered([]string entries, string key) -> []string {
+    let out = []string {};
+    let index = 0;
+    while index < entries.len() {
+        const slot = entries[index];
+        const text = switch slot {
+            case Some(entry) {
+                entry
+            }
+            case None {
+                ""
+            }
+        };
+        if entry_key(text) != key {
+            out.push(text);
+        }
+        index = index + 1;
+    }
+    entries.free();
+    return out;
+}
+
+impl Cache {
+    /// Store a value with a lifetime in seconds, evicting the oldest entry
+    /// when the capacity is reached.
+    pub fn put(self: *mut Cache, string key, string value, int now) {
+        const entries = self[0].entries;
+        const updated = stored(entries, key, value, now, self[0].limit);
+        self[0].entries = move updated;
+    }
+
+    /// Read a live value. An expired or missing key is `None`, never a
+    /// sentinel.
+    pub fn get(self: *mut Cache, string key, int lifetime, int now) -> Option[string] {
+        const list = self[0].entries;
+        let Option[string] result = None;
+        let index = 0;
+        while index < list.len() {
+            const slot = list[index];
+            const text = switch slot {
+                case Some(entry) {
+                    entry
+                }
+                case None {
+                    ""
+                }
+            };
+            if entry_key(text) == key {
+                if !ttl.is_expired(now, entry_issued(text), lifetime) {
+                    const raw = entry_value(text);
+                    result = Some(raw.slice(0, raw.len()));
+                }
+                break;
+            }
+            index = index + 1;
+        }
+        self[0].entries = move list;
+        return result;
+    }
+
+    /// Remove one key.
+    pub fn remove(self: *mut Cache, string key) {
+        const entries = self[0].entries;
+        const updated = filtered(entries, key);
+        self[0].entries = move updated;
+    }
+
+    /// Release every stored entry. A cache owns its entries, so leaving one
+    /// alive without calling this is a leak.
+    pub fn free(self: *mut Cache) {
+        const entries = self[0].entries;
+        entries.free();
+        const nothing = []string {};
+        self[0].entries = move nothing;
+        self[0].limit = 0;
+    }
+}

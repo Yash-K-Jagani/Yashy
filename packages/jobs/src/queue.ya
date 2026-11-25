@@ -1,0 +1,208 @@
+// A durable-shaped job queue.
+//
+// A job is data, not a closure: its `run` step calls a named function with an
+// id and an idempotency key. The queue stores attempts so a job that runs
+// twice is still counted once. Delivery is at-least-once; a worker must be
+// idempotent by contract.
+
+/// `id|key|tries|state|error` — no nested structs, so a queue is one linear
+/// array of lines and can be saved or replayed byte for byte.
+fn field(string line, int wanted) -> string {
+    let current = 0;
+    let start = 0;
+    let index = 0;
+    while index <= line.len() {
+        if index == line.len() || line.byte_at(index) == '|' {
+            if current == wanted {
+                return line.slice(start, index);
+            }
+            current = current + 1;
+            start = index + 1;
+        }
+        index = index + 1;
+    }
+    return "";
+}
+
+fn entry(string id, string key, int tries, string state, string error) -> string {
+    return id + "|" + key + "|" + str_from_i64(tries) + "|" + state + "|" + error;
+}
+
+/// An empty queue.
+pub fn empty() -> []string {
+    return []string {};
+}
+
+/// Enqueue a job with its idempotency key. Re-adding an id is a no-op.
+pub fn add([]string jobs, string id, string key) -> []string {
+    let bool present = false;
+    let index = 0;
+    while index < jobs.len() {
+        const slot = jobs[index];
+        const line = switch slot {
+            case Some(value) {
+                value
+            }
+            case None {
+                ""
+            }
+        };
+        if field(line, 0) == id {
+            present = true;
+        }
+        index = index + 1;
+    }
+    if !present {
+        jobs.push(entry(id, key, 0, "pending", ""));
+    }
+    return jobs;
+}
+
+/// Record one attempt. A success marks the job done; a failure keeps it
+/// pending, and the caller decides from `tries` when to dead-letter it.
+pub fn record([]string jobs, string id, bool succeeded, string error) -> []string {
+    let out = []string {};
+    let index = 0;
+    while index < jobs.len() {
+        const slot = jobs[index];
+        const line = switch slot {
+            case Some(value) {
+                value
+            }
+            case None {
+                ""
+            }
+        };
+        if field(line, 0) == id {
+            const tries_text = field(line, 2);
+            const parsed = tries_text.parse_i64();
+            const tries = switch parsed {
+                case Some(value) {
+                    value
+                }
+                case None {
+                    0
+                }
+            };
+            let string state = "pending";
+            if succeeded {
+                state = "done";
+            }
+            out.push(entry(id, field(line, 1), tries + 1, state, error));
+        } else {
+            out.push(line);
+        }
+        index = index + 1;
+    }
+    jobs.free();
+    return out;
+}
+
+/// Move an exhausted job to the dead-letter set, keeping its last error.
+pub fn dead_letter([]string jobs, string id, string error) -> []string {
+    let out = []string {};
+    let index = 0;
+    while index < jobs.len() {
+        const slot = jobs[index];
+        const line = switch slot {
+            case Some(value) {
+                value
+            }
+            case None {
+                ""
+            }
+        };
+        if field(line, 0) == id {
+            out.push(entry(id, field(line, 1), tries_of(line), "dead", error));
+        } else {
+            out.push(line);
+        }
+        index = index + 1;
+    }
+    jobs.free();
+    return out;
+}
+
+fn tries_of(string line) -> int {
+    const tries_text = field(line, 2);
+    const parsed = tries_text.parse_i64();
+    return switch parsed {
+        case Some(value) {
+            value
+        }
+        case None {
+            0
+        }
+    };
+}
+
+/// Replay a dead letter as a fresh pending job with the same idempotency key.
+pub fn replay([]string jobs, string id) -> []string {
+    let out = []string {};
+    let index = 0;
+    while index < jobs.len() {
+        const slot = jobs[index];
+        const line = switch slot {
+            case Some(value) {
+                value
+            }
+            case None {
+                ""
+            }
+        };
+        if field(line, 0) == id {
+            out.push(entry(id, field(line, 1), 0, "pending", ""));
+        } else {
+            out.push(line);
+        }
+        index = index + 1;
+    }
+    jobs.free();
+    return out;
+}
+
+/// A dead-letter entry for inspection, or `None` when the job is not dead.
+pub fn inspect([]string jobs, string id) -> Option[string] {
+    let index = 0;
+    while index < jobs.len() {
+        const slot = jobs[index];
+        const line = switch slot {
+            case Some(value) {
+                value
+            }
+            case None {
+                ""
+            }
+        };
+        if field(line, 0) == id {
+            if field(line, 3) == "dead" {
+                return Some(field(line, 4));
+            }
+            return None;
+        }
+        index = index + 1;
+    }
+    return None;
+}
+
+/// How many jobs are still pending.
+pub fn pending([]string jobs) -> int {
+    let count = 0;
+    let index = 0;
+    while index < jobs.len() {
+        const slot = jobs[index];
+        const line = switch slot {
+            case Some(value) {
+                value
+            }
+            case None {
+                ""
+            }
+        };
+        if field(line, 3) == "pending" {
+            count = count + 1;
+        }
+        index = index + 1;
+    }
+    return count;
+}

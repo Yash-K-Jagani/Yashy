@@ -167,6 +167,10 @@ pub fn parse_arguments(string program, string declarations, []string arguments) 
             let declaration = "";
             const declaration_index = find_declaration(declarations, name);
             if declaration_index < 0 {
+                const near = suggest(declarations, name);
+                if near.len() > 0 {
+                    fail(program, declarations, "unknown option --${name}; did you mean --${near}?");
+                }
                 fail(program, declarations, "unknown option --${name}");
             }
             const declaration_line = declarations.slice(
@@ -203,19 +207,171 @@ pub fn parse_arguments(string program, string declarations, []string arguments) 
             index = index + 1;
             continue;
         }
-        if argument.starts_with("-") && argument != "-" {
-            fail(program, declarations, "unknown option ${argument}");
+        if argument.starts_with("-") && argument != "-" && !argument.starts_with("--") {
+            // Short flags are bundled: `-abc` is `-a -b -c`. A declaration's
+            // optional fourth field names its short letter.
+            const letters = argument.slice(1, argument.len());
+            let at = 0;
+            while at < letters.len() {
+                const letter = letters.byte_at(at);
+                const long = short_name(declarations, letter);
+                if long.len() == 0 {
+                    fail(program, declarations, "unknown option -${letter}");
+                }
+                let bool present = false;
+                let check = 0;
+                while check < flags.len() {
+                    const known = switch flags[check] {
+                        case Some(value) {
+                            value
+                        }
+                        case None {
+                            ""
+                        }
+                    };
+                    if known == long {
+                        present = true;
+                    }
+                    check = check + 1;
+                }
+                if !present {
+                    flags.push(long);
+                }
+                at = at + 1;
+            }
+            index = index + 1;
+            continue;
         }
         positionals.push(argument);
         index = index + 1;
     }
     arguments.free();
+    // Fifth field of a declaration names an environment variable used only
+    // when the flag was absent on the command line: CLI > env > default.
+    let start = 0;
+    while start < declarations.len() {
+        const end = line_end(declarations, start);
+        const line = declarations.slice(start, end);
+        const name = declaration_name(line);
+        const env_name = declaration_field(line, 4);
+        if env_name.len() > 0 {
+            if declaration_kind(line) == "value" {
+                let bool have_value = false;
+                let vi = 0;
+                while vi < values.len() {
+                    const key = switch values[vi] {
+                        case Some(v) {
+                            v
+                        }
+                        case None {
+                            ""
+                        }
+                    };
+                    if key == name {
+                        have_value = true;
+                    }
+                    vi = vi + 2;
+                }
+                if !have_value {
+                    const found = getenv(env_name);
+                    if let Some(text) = found {
+                        values.push(name);
+                        values.push(text);
+                    }
+                }
+            } else {
+                let bool have_flag = false;
+                let fi = 0;
+                while fi < flags.len() {
+                    const key = switch flags[fi] {
+                        case Some(v) {
+                            v
+                        }
+                        case None {
+                            ""
+                        }
+                    };
+                    if key == name {
+                        have_flag = true;
+                    }
+                    fi = fi + 1;
+                }
+                if !have_flag {
+                    const found = getenv(env_name);
+                    if let Some(text) = found {
+                        if text == "true" || text == "1" {
+                            flags.push(name);
+                        }
+                    }
+                }
+            }
+        }
+        start = end + 1;
+    }
     return Parsed {
         flags: move flags,
         values: move values,
         positionals: move positionals,
         help: help,
     };
+}
+
+/// The fourth field of a declaration line names its short flag letter.
+fn declaration_field(string line, int wanted) -> string {
+    let field = 0;
+    let start = 0;
+    let index = 0;
+    while index <= line.len() {
+        if index == line.len() || line.byte_at(index) == '|' {
+            if field == wanted {
+                return line.slice(start, index);
+            }
+            field = field + 1;
+            start = index + 1;
+        }
+        index = index + 1;
+    }
+    return "";
+}
+
+/// Find the long name of a short letter, or "" when none is declared.
+fn short_name(string declarations, char letter) -> string {
+    let start = 0;
+    while start < declarations.len() {
+        const end = line_end(declarations, start);
+        const line = declarations.slice(start, end);
+        const short = declaration_field(line, 3);
+        if short.len() > 0 && short.byte_at(0) == letter {
+            return declaration_name(line);
+        }
+        start = end + 1;
+    }
+    return "";
+}
+
+/// The closest declared name to an unknown option, for a usage suggestion.
+pub fn suggest(string declarations, string unknown) -> string {
+    let best = "";
+    let best_score = 0;
+    let start = 0;
+    while start < declarations.len() {
+        const end = line_end(declarations, start);
+        const name = declaration_name(declarations.slice(start, end));
+        let score = 0;
+        let index = 0;
+        while index < name.len() && index < unknown.len() {
+            if name.byte_at(index) == unknown.byte_at(index) {
+                score = score + 1;
+            }
+            index = index + 1;
+        }
+        if score > best_score {
+            best = name;
+            best_score = score;
+        }
+        start = end + 1;
+    }
+    return best;
 }
 
 fn find_declaration(string declarations, string name) -> int {

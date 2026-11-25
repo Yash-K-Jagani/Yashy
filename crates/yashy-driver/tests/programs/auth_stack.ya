@@ -1,0 +1,52 @@
+// Password hashing, signed sessions, CSRF, TTL cache and retry backoff.
+import password;
+
+import session;
+
+import csrf;
+
+import ttl;
+
+import memory;
+
+import retry;
+
+fn main() {
+    const stored = password.hash("correct horse battery staple");
+    assert(password.check(stored, "correct horse battery staple"));
+    assert(!password.check(stored, "wrong"));
+
+    const signed = session.sign("key", "user=7");
+    assert(session.verify("key", signed) matches Some("user=7"));
+    assert(session.verify("other", signed) matches None);
+    assert(session.verify("key", signed + "x") matches None);
+
+    const csrf_token = csrf.token("secret", "nonce");
+    assert(csrf.valid("secret", "nonce", csrf_token));
+    assert(!csrf.valid("secret", "other", csrf_token));
+
+    assert(ttl.is_expired(200, 100, 50));
+    assert(ttl.fresh(120, 100, 50));
+    let cache = memory.bounded(2);
+    cache.put("a", "1", 100);
+    cache.put("b", "2", 100);
+    assert(cache.get("a", 50, 120) matches Some("1"));
+    cache.put("c", "3", 120);
+    assert(cache.get("a", 50, 130) matches None);
+    assert(cache.get("c", 50, 130) matches Some("3"));
+    cache.remove("b");
+    assert(cache.get("b", 50, 130) matches None);
+    cache.free();
+
+    let job = retry.Attempt {
+        id: "sync", tries: 0, delay_ms: 0, failed: false, error: ""
+    };
+    job = retry.attempt(job, false, "down");
+    assert(job.delay_ms == 100);
+    job = retry.attempt(job, false, "down");
+    assert(job.delay_ms == 200);
+    job = retry.attempt(job, true, "");
+    assert(!job.failed && job.tries == 3);
+    assert(retry.backoff(9) == 25600);
+    print("auth-stack-ok");
+}

@@ -1,0 +1,38 @@
+// Default security headers and a bounded rate limiter.
+//
+// The defaults are emitted as one `name: value` per line so a server can apply
+// them without an attribute system. PKCE, OIDC and WebAuthn verification are
+// carried forward in `docs/gates.md`: this checkout has no JOSE/WebAuthn
+// primitive to verify a signature or an attestation with.
+
+/// The header set a browser-facing response starts with.
+pub fn defaults() -> string {
+    return "Strict-Transport-Security: max-age=31536000; includeSubDomains\n"
+    + "Content-Security-Policy: default-src 'self'; frame-ancestors 'none'\n"
+    + "X-Content-Type-Options: nosniff\n"
+    + "Referrer-Policy: strict-origin-when-cross-origin\n"
+    + "X-Frame-Options: DENY\n";
+}
+
+/// Add a cookie's attributes without letting a caller omit the safe defaults.
+pub fn cookie(string name, string value) -> string {
+    return name + "=" + value + "; HttpOnly; Secure; SameSite=Lax; Path=/";
+}
+
+/// A token-bucket decision. `now` and `window` are seconds; `tokens` is the
+/// remaining budget before the request.
+pub fn allow(int tokens, int limit, int now, int window, int issued) -> bool {
+    if now - issued >= window {
+        return true;
+    }
+    return tokens < limit;
+}
+
+/// The `Retry-After` value for a rejected request.
+pub fn retry_after(int issued, int window, int now) -> int {
+    const elapsed = now - issued;
+    if elapsed >= window {
+        return 0;
+    }
+    return window - elapsed;
+}

@@ -1,0 +1,51 @@
+// Retry with bounded exponential backoff and a dead-letter record.
+//
+// A job is data, not a closure: the worker calls a named function with an id
+// and a payload. The queue records attempts so a job can run twice without
+// being counted twice.
+
+pub struct Attempt {
+    pub id: string,
+    pub tries: int,
+    pub delay_ms: int,
+    pub failed: bool,
+    pub error: string,
+}
+
+/// The delay before attempt `n` (1-based): 100, 200, 400, ... capped at 30 s.
+pub fn backoff(int tries) -> int {
+    let int delay = 100;
+    let index = 1;
+    while index < tries && delay < 30000 {
+        delay = delay * 2;
+        index = index + 1;
+    }
+    if delay > 30000 {
+        return 30000;
+    }
+    return delay;
+}
+
+/// Run one attempt, recording its failure and the next delay. The caller owns
+/// the retry loop: at-least-once semantics mean the worker may call twice.
+pub fn attempt(Attempt prior, bool succeeded, string error) -> Attempt {
+    const tries = prior.tries + 1;
+    if succeeded {
+        return Attempt {
+            id: prior.id, tries: tries, delay_ms: 0, failed: false, error: ""
+        };
+    }
+    return Attempt {
+        id: prior.id, tries: tries, delay_ms: backoff(tries), failed: true, error: error
+    };
+}
+
+/// Whether a job has exhausted its retries.
+pub fn dead_letter(Attempt current, int max_tries) -> bool {
+    return current.failed && current.tries >= max_tries;
+}
+
+/// A replayable dead-letter entry: id and the last error.
+pub fn dead_letter_text(Attempt current) -> string {
+    return current.id + ": " + current.error;
+}

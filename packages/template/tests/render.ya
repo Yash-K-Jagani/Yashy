@@ -1,0 +1,19 @@
+// Contextual escaping and explicit raw fragments.
+import template;
+
+fn main() {
+    const value = "<b>&\"'\n";
+    const html = template.escape_html(value);
+    assert(html.contains("&lt;b&gt;"));
+    assert(html.contains("&quot;"));
+    const url = template.escape_url("a b&c");
+    assert(url.contains("%20"));
+    const attr = template.escape_attr(value);
+    assert(attr.contains("&lt;"));
+    const js = template.escape_js("x\ny");
+    assert(js.contains("\\n"));
+
+    const rendered = template.render("Hello {{name}}! {{!trusted}}", "name=Ada\ntrusted=<i>ok</i>");
+    assert(rendered == "Hello Ada! <i>ok</i>");
+    print("template-ok");
+}

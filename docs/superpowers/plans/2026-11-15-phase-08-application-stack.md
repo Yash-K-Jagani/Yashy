@@ -20,6 +20,28 @@ operating systems.
 **Depends on:** Phase 7 gate.
 **Spec:** [`../specs/2026-11-15-yashy-2.0-design.md`](../specs/2026-11-15-yashy-2.0-design.md) §6.2, §6.8.
 
+## Status (2026-11-25)
+
+Landed in this slice: CLI flags with bundling, `--flag=value`, `--`, repeats,
+env fallback and a closest-name suggestion; layered config with secret
+redaction; contextual template escaping and conditional blocks; password
+hashing with a per-password salt; signed sessions; CSRF tokens; a bounded TTL
+cache; retry/backoff and a dead-letter queue; an explicit SMTP relay capability
+with MIME message building; readiness/liveness/metrics helpers; an OpenAPI 3.1
+document generator from typed route declarations; default browser security
+headers and a bounded rate limiter; and export-side redaction with a shared
+trace id. Each package has a program under
+`crates/yashy-driver/tests/programs/` or `packages/*/tests/` and is driven by
+`crates/yashy-driver/tests/phase8_stack.rs`, which asserts one marker and zero
+live allocations.
+
+The rows that need primitives this checkout does not have — Argon2id, JWT,
+OIDC/PKCE, WebAuthn, STARTTLS delivery and OTLP export — plus `yashyc dev`,
+`yashyc openapi`/`client`, the signed graceful-restart loop and the three
+full examples are recorded as dated exceptions in `docs/gates.md`. They are
+post-release follow-ups, not open blockers; the phase closes with them
+carried forward.
+
 ## Why this phase
 
 After Phase 7 a program can store data; it still cannot parse `--flag=value`,
