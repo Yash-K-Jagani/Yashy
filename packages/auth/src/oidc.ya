@@ -1,0 +1,89 @@
+// OAuth/OIDC client helpers: PKCE, authorization URLs and ID-token checks.
+//
+// This package is a client only: it never runs an authorization server.
+// Provider differences are configuration strings, not forks of this module.
+// Tokens are verified with the same rules as `jwt`, plus issuer and nonce.
+
+import crypto;
+
+import text;
+
+import string;
+
+import rand;
+
+import hash;
+
+import jwt;
+
+import json_value;
+
+/// A fresh PKCE verifier: 32 CSPRNG bytes, base64url encoded.
+pub fn verifier() -> string {
+    const bytes = rand.fill(32);
+    return text.base64url_encode(bytes);
+}
+
+/// The S256 challenge for a verifier, as base64url of its SHA-256 digest.
+pub fn challenge(string code_verifier) -> string {
+    const bytes = string.to_bytes(code_verifier);
+    const digest = hash.sha256(bytes);
+    return text.base64url_encode(digest);
+}
+
+/// Build an authorization-code URL. Every value is encoded once, here, so a
+/// caller cannot forget to escape a redirect or a nonce.
+pub fn authorize_url(
+string endpoint,
+string client_id,
+string redirect_uri,
+string code_challenge,
+string nonce,
+string state,
+) -> string {
+    return endpoint + "?response_type=code&client_id=" + encode(client_id)
+    + "&redirect_uri=" + encode(redirect_uri)
+    + "&code_challenge=" + encode(code_challenge)
+    + "&code_challenge_method=S256&nonce=" + encode(nonce)
+    + "&state=" + encode(state);
+}
+
+fn encode(string value) -> string {
+    return text.base64url_encode(string.to_bytes(value));
+}
+
+/// Verify an ID token and return its claims JSON. A wrong issuer or nonce is
+/// `None`, as is `alg: none`, a swapped key, an expired or a future token.
+pub fn verify_id_token(
+string key,
+string token,
+string issuer,
+string audience,
+string nonce,
+int now,
+) -> Option[string] {
+    if let Some(claims) = jwt.verify(key, token, audience, now) {
+        if check_claims(claims, issuer, nonce) {
+            return Some(claims);
+        }
+    }
+    return None;
+}
+
+fn check_claims(string claims, string issuer, string nonce) -> bool {
+    if let Ok(doc) = json_value.parse_doc(claims) {
+        let ok = string_claim(doc, "iss", issuer) && string_claim(doc, "nonce", nonce);
+        json_value.free_doc(doc);
+        return ok;
+    }
+    return false;
+}
+
+fn string_claim(JsonDoc doc, string name, string wanted) -> bool {
+    if let Some(node) = json_value.get_doc(doc, 0, name) {
+        if let Some(value) = json_value.value(doc, node) {
+            return value == wanted;
+        }
+    }
+    return false;
+}

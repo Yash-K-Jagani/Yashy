@@ -41,10 +41,6 @@ pub fn routes(source: &str) -> Vec<Route> {
     out
 }
 
-fn field(line: &str, index: usize) -> String {
-    line.split('|').nth(index).unwrap_or("").trim().to_string()
-}
-
 /// A route with no response type is a build error: an emitted document must
 /// never contain a 200 with an unknown body.
 pub fn incomplete(routes: &[Route]) -> Vec<String> {

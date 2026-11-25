@@ -1,0 +1,123 @@
+// A bounded export buffer.
+//
+// An exporter failure must not block the request path: an event is appended
+// to a fixed-capacity buffer and the oldest entry is dropped when it fills.
+// A drain returns all buffered text and leaves an empty buffer.
+
+/// An empty buffer admitting at most `limit` events.
+pub fn bounded(int limit) -> []string {
+    let out = []string {};
+    out.push(str_from_i64(limit));
+    return out;
+}
+
+fn capacity([]string buffer) -> int {
+    const slot = buffer[0];
+    const value = switch slot {
+        case Some(text) {
+            text
+        }
+        case None {
+            "0"
+        }
+    };
+    const parsed = value.parse_i64();
+    return switch parsed {
+        case Some(number) {
+            number
+        }
+        case None {
+            0
+        }
+    };
+}
+
+/// Append one event, dropping the oldest when the buffer is full.
+pub fn append([]string buffer, string event, int limit) -> []string {
+    const head = buffer[0];
+    const cap_text = switch head {
+        case Some(text) {
+            text
+        }
+        case None {
+            "0"
+        }
+    };
+    const parsed_cap = cap_text.parse_i64();
+    const cap = switch parsed_cap {
+        case Some(number) {
+            number
+        }
+        case None {
+            0
+        }
+    };
+    const max = switch limit {
+        case value if value > 0 {
+            value
+        }
+        default {
+            cap
+        }
+    };
+    let events = []string {};
+    let index = 1;
+    while index < buffer.len() {
+        const slot = buffer[index];
+        const value = switch slot {
+            case Some(text) {
+                text
+            }
+            case None {
+                ""
+            }
+        };
+        events.push(value);
+        index = index + 1;
+    }
+    let int start = events.len() - (max - 1);
+    if start < 0 {
+        start = 0;
+    }
+    let out = []string {};
+    out.push(str_from_i64(max));
+    let at = start;
+    while at < events.len() {
+        const slot = events[at];
+        const value = switch slot {
+            case Some(text) {
+                text
+            }
+            case None {
+                ""
+            }
+        };
+        out.push(value);
+        at = at + 1;
+    }
+    out.push(event);
+    events.free();
+    buffer.free();
+    return out;
+}
+
+/// All buffered events as one text, in order.
+pub fn drain([]string buffer) -> string {
+    let text = "";
+    let index = 1;
+    while index < buffer.len() {
+        const slot = buffer[index];
+        const value = switch slot {
+            case Some(item) {
+                item
+            }
+            case None {
+                ""
+            }
+        };
+        text = text + value + "\n";
+        index = index + 1;
+    }
+    buffer.free();
+    return text;
+}

@@ -1,0 +1,51 @@
+// WebAuthn-shaped second factor.
+//
+// A credential is bound to its RP id and origin, and an assertion is an
+// Ed25519 signature over `challenge|rp_id|origin`. The challenge is generated
+// here and must be echoed by the caller. Full CBOR/COSE attestation parsing is
+// not available in this checkout; the binding and origin checks are, and they
+// are the parts a relying party most often gets wrong.
+
+import crypto;
+
+import rand;
+
+import text;
+
+pub struct Credential {
+    pub public_key: string,
+    pub rp_id: string,
+    pub origin: string,
+}
+
+/// A fresh, base64url-encoded 32-byte challenge.
+pub fn new_challenge() -> string {
+    const bytes = rand.fill(32);
+    return text.base64url_encode(bytes);
+}
+
+fn signed_text(string challenge, string rp_id, string origin) -> string {
+    return challenge + "|" + rp_id + "|" + origin;
+}
+
+/// Register a credential for one relying party and origin. A malformed public
+/// key is rejected here rather than at assertion time.
+pub fn register(string public_key, string rp_id, string origin) -> Option[Credential] {
+    if public_key.len() != 64 {
+        return None;
+    }
+    return Some(Credential {
+        public_key: public_key, rp_id: rp_id, origin: origin
+    }
+    );
+}
+
+/// Verify an assertion. A challenge from another ceremony, a different origin
+/// or a different RP id cannot produce a matching signature.
+pub fn assert_valid(Credential credential, string signature, string challenge) -> bool {
+    const message = signed_text(challenge, credential.rp_id, credential.origin);
+    if let Ok(valid) = crypto.ed25519_check(signature, credential.public_key, message) {
+        return valid;
+    }
+    return false;
+}

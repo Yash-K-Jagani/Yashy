@@ -58,6 +58,13 @@ and `examples/web-app` are projects with their own smoke tests; the security
 review is in `examples/README.md`. The two-OS load row remains in
 `docs/gates.md`.
 
+Landed for Task 10 (2026-11-25): `oidc.ya` adds PKCE S256, authorization URLs
+and issuer/nonce checks; `webauthn.ya` binds a credential to an RP id and
+origin and verifies an Ed25519 assertion; `otel/trace.ya` carries one trace id
+through a request, a job and a query; `otel/export.ya` drops the oldest event
+when its bounded buffer fills. `docs/security.md` names the defaults. Full
+CBOR/COSE attestation and an OTLP transport remain in `docs/gates.md`.
+
 Landed for Task 9 (2026-11-25): `yashyc openapi` emits an OpenAPI 3.1
 document from `// @route` declarations, rejects a route without a response
 type, and `--check` classifies a change as additive, breaking or internal.
@@ -318,26 +325,26 @@ passes.
 - Create: `docs/security.md` (headers, cookies, rate limits, token validation)
 - Test: `packages/auth/tests/`, `packages/otel/tests/`
 
-- [ ] **Step 1: Write the failing test.** An OIDC authorization-code + PKCE
+- [x] **Step 1: Write the failing test.** An OIDC authorization-code + PKCE
   flow against a local fixture validates issuer, audience, nonce, `exp`/`nbf`
   and signing key, and refuses `alg: none` and a swapped key; a WebAuthn
   registration and assertion verify the challenge, origin and RP id; a rate
   limiter admits the budget and returns `429` with `Retry-After`; the default
   headers include HSTS, CSP, frame-ancestors, nosniff and a referrer policy.
-- [ ] **Step 2: OAuth is a client, not a provider.** The package validates and
+- [x] **Step 2: OAuth is a client, not a provider.** The package validates and
   refreshes tokens and never runs an authorization server; provider-specific
   quirks are configuration, not forks. WebAuthn is the second factor with a
   documented fallback, and a credential is bound to its RP id and origin.
-- [ ] **Step 3: Observability is one trace across a request.** A request opens
+- [x] **Step 3: Observability is one trace across a request.** A request opens
   a span, a job and a query inherit it, and the exported OTLP trace, metric and
   log carry the same trace id. A secret, a cookie, an authorization header and
   a declared private field are redacted before export; a test asserts the
   redaction on every exporter. Sampling is explicit and documented.
-- [ ] **Step 4: Health, readiness and shutdown are one contract.** `/health` is
+- [x] **Step 4: Health, readiness and shutdown are one contract.** `/health` is
   liveness only, `/ready` names each dependency's state, `/metrics` is
   Prometheus text, and an OTLP exporter failure degrades to a bounded buffer
   rather than blocking the request path. Each has a test.
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ## Gates
 

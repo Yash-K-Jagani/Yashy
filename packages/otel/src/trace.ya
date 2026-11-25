@@ -1,0 +1,38 @@
+// One trace across a request, its jobs and its queries.
+//
+// A span carries the trace id and an explicit sampling decision. `child`
+// copies both, so a job or a query started inside a request is exported with
+// the same trace id rather than a new one. There is no ambient tracer.
+
+import redact;
+
+pub struct Span {
+    pub trace: string,
+    pub name: string,
+    pub sampled: bool,
+}
+
+/// Start a sampled or unsampled trace with the id chosen by the caller.
+pub fn root(string trace, bool sampled, string name) -> Span {
+    return Span {
+        trace: trace, name: name, sampled: sampled
+    };
+}
+
+/// A child span inherits the trace id and the sampling decision.
+pub fn child(Span parent, string name) -> Span {
+    return Span {
+        trace: parent.trace, name: name, sampled: parent.sampled
+    };
+}
+
+/// The JSON event this span contributes to an exporter. Secrets and headers
+/// are redacted before the text is built, never after.
+pub fn span_event(Span span, string attributes, string secrets) -> string {
+    if !span.sampled {
+        return "";
+    }
+    const safe = redact.redact(attributes, secrets);
+    return "{\"trace\":\"" + span.trace + "\",\"span\":\"" + span.name
+    + "\",\"attributes\":" + safe + "}";
+}

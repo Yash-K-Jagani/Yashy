@@ -658,11 +658,14 @@ claimed green here.
   `crates/yashy-driver/tests/client_gen.rs` passes. The emitted document uses
   `x-yashy-*` fields for the typed request/response model rather than a full
   component schema.
-- **OIDC/PKCE, WebAuthn, OTLP export** — owner: compiler/core. Default headers,
-  rate limiting and export-side redaction ship in `packages/auth/src/security.ya`
-  and `packages/otel/src/redact.ya`; a JOSE/WebAuthn verifier and an OTLP
-  transport do not. Closes with local-fixture tests for each flow and an
-  exporter test asserting one trace id across a request, a job and a query.
+- **Full WebAuthn attestation and OTLP transport** — owner: compiler/core.
+  `oidc.ya` (PKCE S256, issuer/nonce), `webauthn.ya` (RP id, origin and Ed25519
+  assertion), `security.ya`, `ratelimit.ya`, `trace.ya`, `redact.ya` and the
+  bounded `export.ya` are covered by `packages/auth/tests/browser.ya` and
+  `docs/security.md`. What remains: CBOR/COSE attestation parsing and an OTLP
+  transport. Closes when a local fixture exercises registration and assertion
+  with a real authenticator payload and an exporter emits the shared trace id
+  over OTLP.
 
 ## Running the runner
 

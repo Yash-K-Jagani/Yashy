@@ -211,6 +211,18 @@ fn web_app_example_runs() {
 }
 
 #[test]
+fn browser_auth_and_otel_program_is_checked() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    run(
+        &root,
+        "packages/auth/tests/browser.ya",
+        "p8-browser-otel",
+        "browser-otel-ok",
+        &["auth", "otel"],
+    );
+}
+
+#[test]
 fn service_packages_program_is_checked() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     run(

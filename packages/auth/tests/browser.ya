@@ -1,0 +1,67 @@
+// Browser-grade auth and one trace across a request, a job and a query.
+import oidc;
+
+import webauthn;
+
+import jwt;
+
+import crypto;
+
+import trace;
+
+import export;
+
+fn main() {
+    const verifier = oidc.verifier();
+    const code_challenge = oidc.challenge(verifier);
+    assert(code_challenge.len() > 0);
+    const url = oidc.authorize_url(
+    "https://idp/authorize", "client", "https://app/cb", code_challenge, "nonce", "state"
+    );
+    assert(url.contains("code_challenge_method=S256"));
+
+    const id_token = jwt.issue("key", "{\"iss\":\"idp\",\"nonce\":\"n\"}", "api", 100, 100);
+    if let Some(claims) = oidc.verify_id_token("key", id_token, "idp", "api", "n", 150) {
+        assert(claims.contains("idp"));
+    } else {
+        assert(false);
+    }
+    assert(oidc.verify_id_token("key", id_token, "other", "api", "n", 150) matches None);
+
+    const seed = "0000000000000000000000000000000000000000000000000000000000000000";
+    if let Ok(pair) = crypto.ed25519_key_pair_hex(seed) {
+        const secret = pair.slice(0, 128);
+        const public = pair.slice(128, 192);
+        const challenge = webauthn.new_challenge();
+        if let Some(credential) = webauthn.register(public, "example.com", "https://example.com") {
+            if let Ok(signature) = crypto.ed25519_sign_hex(
+            secret, challenge + "|example.com|https://example.com"
+            ) {
+                assert(webauthn.assert_valid(credential, signature, challenge));
+                assert(!webauthn.assert_valid(credential, signature, challenge + "x"));
+            } else {
+                assert(false);
+            }
+        } else {
+            assert(false);
+        }
+    } else {
+        assert(false);
+    }
+
+    const root_span = trace.root("trace-1", true, "request");
+    const job = trace.child(root_span, "job");
+    const query = trace.child(job, "query");
+    const line = trace.span_event(query, "user=s3cr3t", "s3cr3t");
+    assert(line.contains("trace-1"));
+    assert(!line.contains("s3cr3t"));
+
+    let buffer = export.bounded(2);
+    buffer = export.append(buffer, "one", 2);
+    buffer = export.append(buffer, "two", 2);
+    buffer = export.append(buffer, "three", 2);
+    const drained = export.drain(buffer);
+    assert(drained.contains("two") && drained.contains("three"));
+    assert(!drained.contains("one"));
+    print("browser-otel-ok");
+}
