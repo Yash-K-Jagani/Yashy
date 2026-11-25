@@ -1,0 +1,87 @@
+// A bounded fuzz campaign over a plain target function.
+//
+// A target is `fn(string) -> bool` returning true when the input is accepted.
+// Inputs come from a fixed seed so a finding is reproducible. A failing input
+// is shrunk by repeatedly removing halves that still fail before it is
+// returned, and the returned value carries the seed and the reduced input.
+
+pub struct Finding {
+    pub seed: int,
+    pub input: string,
+    pub description: string,
+}
+
+fn next(int seed) -> int {
+    return (seed * 1103515245 + 12345) & 0x7fffffff;
+}
+
+fn sample(int seed, int length) -> string {
+    let int state = seed;
+    let string out = "";
+    let index = 0;
+    while index < length {
+        state = next(state);
+        const at = state % 26;
+        const alphabet = "abcdefghijklmnopqrstuvwxyz";
+        out = out + alphabet.slice(at, at + 1);
+        index = index + 1;
+    }
+    return out;
+}
+
+fn fails(fn (string) -> bool target, string value) -> bool {
+    return !target(value);
+}
+
+/// Shrink a failing input by dropping halves that still fail.
+pub fn shrink(fn (string) -> bool target, string input) -> string {
+    let string value = input;
+    let int guard = 0;
+    while value.len() > 1 && guard < 32 {
+        const half = value.len() / 2;
+        const left = value.slice(0, half);
+        const right = value.slice(half, value.len());
+        if fails(target, left) {
+            value = left;
+        } else if fails(target, right) {
+            value = right;
+        } else {
+            break;
+        }
+        guard = guard + 1;
+    }
+    return value;
+}
+
+/// Run `iterations` seeded inputs. The first failure is shrunk and returned.
+pub fn campaign(
+fn (string) -> bool target,
+int seed,
+int iterations,
+int min_length,
+int max_length,
+) -> Option[Finding] {
+    let int state = seed;
+    let index = 0;
+    while index < iterations {
+        state = next(state);
+        const span = min_length + (state % (max_length - min_length + 1));
+        const input = sample(state, span);
+        if fails(target, input) {
+            const reduced = shrink(target, input);
+            return Some(Finding {
+                seed: seed,
+                input: reduced,
+                description: "target rejected input",
+            }
+            );
+        }
+        index = index + 1;
+    }
+    return None;
+}
+
+/// Render a finding as a reproduction line.
+pub fn describe(Finding found) -> string {
+    return "seed=${found.seed} input=${found.input} ${found.description}";
+}

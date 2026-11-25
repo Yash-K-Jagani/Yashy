@@ -679,6 +679,12 @@ claimed green here.
   above: warmup, N iterations, median/p95, outlier rejection, interleaved A/B
   and `--save-baseline` are implemented and tested.
 
+- **`fuzz` CLI campaign runner and finding files** — **partly closed
+  2026-11-26.** `packages/fuzz/src/campaign.ya` runs seeded, bounded campaigns
+  with shrinking; the library test passes. The `[]u8 -> void` target signature,
+  `fuzz/findings/<hash>.bin` and `fuzz --replay` over a generated binary remain
+  owed.
+
 - **Generic `expect_eq[T]`, automatic file/line, `expect_panics`** — owner:
   compiler/core. Needs a display bound and catchable faults; the concrete typed
   helpers and `table`/`property`/`snapshot`/`mock` are in `packages/test/src`.

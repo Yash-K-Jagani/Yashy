@@ -1,0 +1,19 @@
+// A bounded, reproducible fuzz campaign with shrinking.
+import campaign;
+
+fn accepts(string value) -> bool {
+    return !value.contains("q");
+}
+
+fn main() {
+    if let Some(found) = campaign.campaign(accepts, 7, 200, 4, 12) {
+        const line = campaign.describe(found);
+        assert(line.contains("seed=7"));
+        const reduced = found.input;
+        assert(reduced.len() > 0);
+        assert(reduced.contains("q"));
+        print("fuzz-campaign-ok");
+    } else {
+        assert(false);
+    }
+}

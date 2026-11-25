@@ -36,6 +36,18 @@ fn run(root: &Path, source: &str, name: &str, expected: &str, packages: &[&str])
 }
 
 #[test]
+fn fuzz_campaign_program_is_checked() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    run(
+        &root,
+        "packages/fuzz/tests/campaign_test.ya",
+        "p9-fuzz",
+        "fuzz-campaign-ok",
+        &["fuzz"],
+    );
+}
+
+#[test]
 fn value_assertions_program_is_checked() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     run(

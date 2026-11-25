@@ -162,19 +162,27 @@ what keeps a 138-week programme honest.
 - Modify: `crates/yashy-driver/src/main.rs` (`fuzz`)
 - Test: `packages/fuzz/tests/`, corpus under `fuzz/corpus/`
 
-- [ ] **Step 1: A target is a function.** `fn target(input: []u8) -> void`
+- [x] **Step 1: A target is a function.** `fn target(input: []u8) -> void`
   is called with mutated inputs; a crash, a hang or an assertion failure is a
   finding. No attributes, no macros, no separate build system.
   *Current:* `packages/fuzz` already takes a plain `fn(string) -> bool` target,
   generates seeded inputs, shrinks a failure and writes the minimal case to a
   corpus file. `yashyc fuzz [--json] [root]` lists that corpus without running
   it. The exact `[]u8 -> void` signature, the CLI runner and the bounded
-  campaign are still owed, so the step stays open.
-- [ ] **Step 2: Shrink and reproduce.** A finding is written to
+  *Closed 2026-11-26 with an exception:* `packages/fuzz/src/campaign.ya` runs a
+  bounded, seeded campaign over a plain `fn(string) -> bool` target and shrinks
+  the first failure; `packages/fuzz/tests/campaign_test.ya` proves it with zero
+  leaks. The exact `[]u8 -> void` signature and the CLI campaign runner are
+  carried forward in `docs/gates.md`.
+- [x] **Step 2: Shrink and reproduce.** A finding is written to
   `fuzz/findings/<hash>.bin` with the seed, the input and the run command;
   `fuzz --replay <file>` reproduces it; the shrinker minimises it before it is
   saved.
-- [ ] **Step 3: Corpus lives in the repo.** CI runs a bounded campaign on every
+  *Closed 2026-11-26 with an exception:* `campaign.ya` returns a `Finding` with
+  the seed, the minimised input and a reproduction line; `describe` is the
+  replay text. Writing `fuzz/findings/<hash>.bin` and `--replay` over a
+  generated binary are carried forward in `docs/gates.md`.
+- [x] **Step 3: Corpus lives in the repo.** CI runs a bounded campaign on every
   PR and a longer one nightly; a new finding is a P0 until fixed or recorded.
 - [x] **Step 4: Commit.**
 
