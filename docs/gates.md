@@ -668,6 +668,27 @@ claimed green here.
   with a real authenticator payload and an exporter emits the shared trace id
   over OTLP.
 
+
+## Phase 9 — carried forward (2026-11-26)
+
+- **Generic `expect_eq[T]`, automatic file/line, `expect_panics`** — owner:
+  compiler/core. Needs a display bound and catchable faults; the concrete typed
+  helpers and `table`/`property`/`snapshot`/`mock` are in `packages/test/src`.
+  Closes when the language has a display bound and a fault-catching primitive
+  and the corresponding helpers are tested.
+- **Domain-specific shrinking and failure file/line** — owner: compiler/core.
+  `property.ya` shrinks a failing integer to a minimum with its seed; richer
+  generators need type-driven shrinking. Closes when a failing property names
+  its source location and shrinks a structured input.
+- **Generic mocks bounded by `Recorder`** — owner: compiler/core. Needs trait
+  bounds; the concrete mock is tested. Closes when a generic helper can accept
+  any `Recorder` implementation.
+- **Real call graph for `--affected`** — owner: compiler/core. Current selection
+  uses paths, imports, declared symbols and `cfg` keys and widens on unknown
+  files. Closes when a call-graph edge cannot cause a missed test.
+- **Phase 8 rows still open** — Argon2id, STARTTLS, Redis store, two-OS load,
+  full WebAuthn attestation and OTLP transport remain dated rows above.
+
 ## Running the runner
 
 ```sh

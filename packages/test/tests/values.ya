@@ -1,0 +1,14 @@
+// Value-rendering assertions from the test package.
+import test;
+
+fn main() {
+    test.expect_eq_string("yashy", "yashy", "string equality");
+    test.expect_contains_text("quality stack", "stack", "contains");
+    const found = test.expect_some_string(Some("value"), "some");
+    test.expect_eq_string(found, "value", "unwrapped");
+    test.expect_none_string(None, "none");
+    test.expect_eq_int(2, 1 + 1, "integer equality");
+    test.expect_eq_bool(true, !false, "boolean equality");
+    test.expect_approx(1.0, 1.0001, 0.001, "approximate equality");
+    print("p9-assertions-ok");
+}

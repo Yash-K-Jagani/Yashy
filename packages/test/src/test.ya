@@ -68,36 +68,75 @@ pub fn expect_approx(float actual, float expected, float tolerance, string label
 
 /// Expect an integer `Option` to hold a value; return it.
 pub fn expect_some_int(Option[int] actual, string label) -> int {
-    switch actual {
-        case Some(value) { return value; }
-        case None { test_fail(label, "expected Some(int), found None"); }
-    };
+    if let Some(value) = actual {
+        return value;
+    }
+    test_fail(label, "expected Some(int), found None");
     return 0;
 }
 
 /// Expect an integer `Option` to be empty.
 pub fn expect_none_int(Option[int] actual, string label) {
-    switch actual {
-        case Some(value) {
-            print("FAIL ${label}");
-            print("  expected: None");
-            print("  actual:   Some(${value})");
-            exit(1);
-        }
-        case None {}
-    };
+    if let Some(value) = actual {
+        print("FAIL ${label}");
+        print("  expected: None");
+        print("  actual:   Some(${value})");
+        exit(1);
+    }
 }
 
 /// Expect a `Result[int, string]` to be an error; return the message.
 pub fn expect_err(Result[int, string] actual, string label) -> string {
-    switch actual {
-        case Err(message) { return message; }
-        case Ok(value) {
-            print("FAIL ${label}");
-            print("  expected: Err(_)");
-            print("  actual:   Ok(${value})");
-            exit(1);
-        }
-    };
+    if let Err(message) = actual {
+        return message;
+    }
+    if let Ok(value) = actual {
+        print("FAIL ${label}");
+        print("  expected: Err(_)");
+        print("  actual:   Ok(${value})");
+        exit(1);
+    }
     return "";
+}
+
+/// Expect two strings to match, rendering both sides on failure.
+pub fn expect_eq_string(string actual, string expected, string label) {
+    if actual != expected {
+        print("FAIL ${label}");
+        print("  expected: ${expected}");
+        print("  actual:   ${actual}");
+        exit(1);
+    }
+}
+
+/// Expect a string option to be `Some`, returning its value.
+pub fn expect_some_string(Option[string] actual, string label) -> string {
+    if let Some(value) = actual {
+        return value;
+    }
+    print("FAIL ${label}");
+    print("  expected: Some(string)");
+    print("  actual:   None");
+    exit(1);
+    return "";
+}
+
+/// Expect a string option to be `None`.
+pub fn expect_none_string(Option[string] actual, string label) {
+    if let Some(value) = actual {
+        print("FAIL ${label}");
+        print("  expected: None");
+        print("  actual:   Some(${value})");
+        exit(1);
+    }
+}
+
+/// Expect one string to contain another, naming both sides on failure.
+pub fn expect_contains_text(string haystack, string needle, string label) {
+    if !haystack.contains(needle) {
+        print("FAIL ${label}");
+        print("  expected to contain: ${needle}");
+        print("  actual: ${haystack}");
+        exit(1);
+    }
 }
