@@ -200,13 +200,13 @@ the stack is not done, no matter how many modules exist.
   twice and succeeds on the third attempt with backoff; a job that exhausts its
   retries lands in a dead-letter queue with its error; a scheduled job fires
   once.
-- [ ] **Step 2: At-least-once, idempotent by contract.** A job carries an id
+- [x] **Step 2: At-least-once, idempotent by contract.** A job carries an id
   and an idempotency key; the worker documents that a job may run twice, and the
   queue records attempts. A dead letter is inspectable and replayable.
-- [ ] **Step 3: Mail is a capability.** A test build uses the fixture and never
+- [x] **Step 3: Mail is a capability.** A test build uses the fixture and never
   a real relay; a production build requires an explicit relay configuration;
   no default `localhost:25` send.
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ### Task 6: The service skeleton
 

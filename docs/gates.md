@@ -630,7 +630,9 @@ claimed green here.
   package builds a MIME message and requires an explicit relay
   (`packages/mail/src/message.ya`); no default `localhost:25` send exists.
   There is no TLS client in the pinned packages, so delivery over STARTTLS is
-  untested. Closes when a fixture test sends a message over STARTTLS.
+  untested. Message building, templated subject/body and one-shot scheduling
+  are covered by `packages/mail/tests/compose.ya`. Closes when a fixture test
+  sends a message over STARTTLS.
 - **Graceful shutdown and in-flight drain in the service skeleton** — owner:
   compiler/core. `/health`, `/ready` and `/metrics` are pure helpers in
   `packages/http/src/health.ya`; signal-driven shutdown is not wired. Closes

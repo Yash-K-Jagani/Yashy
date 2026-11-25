@@ -1,0 +1,22 @@
+// Render a message's subject and body from one variable table.
+//
+// The template package owns escaping and missing-path diagnostics. This module
+// only names the two slots a mail message has, so a caller cannot render the
+// body with a different variable table than the subject.
+
+import template;
+
+pub struct Content {
+    pub subject: string,
+    pub body: string,
+}
+
+/// Render both parts. A missing name is an empty value here; callers that
+/// need a diagnostic call `template.render_checked` on each part first.
+pub fn render_content(string subject_template, string body_template, string variables) -> Content {
+    const subject = template.render(subject_template, variables);
+    const body = template.render(body_template, variables);
+    return Content {
+        subject: subject, body: body
+    };
+}

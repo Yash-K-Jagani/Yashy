@@ -157,6 +157,18 @@ fn auth_tokens_program_is_checked() {
 }
 
 #[test]
+fn mail_jobs_program_is_checked() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    run(
+        &root,
+        "packages/mail/tests/compose.ya",
+        "p8-mail-jobs",
+        "mail-jobs-ok",
+        &["mail", "jobs", "template"],
+    );
+}
+
+#[test]
 fn service_packages_program_is_checked() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     run(

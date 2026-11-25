@@ -1,0 +1,32 @@
+// Mail content rendering and one-shot scheduling.
+import content;
+
+import schedule;
+
+import message;
+
+fn main() {
+    const variables = "name=Ada\nproduct=Yashy\n";
+    const rendered = content.render_content("Hello {{name}}", "{{name}} tried {{product}}", variables);
+    const subject = rendered.subject;
+    const body = rendered.body;
+    assert(subject == "Hello Ada");
+    assert(body == "Ada tried Yashy");
+
+    const mime = message.build("a@example.com", "b@example.com", subject, body, "");
+    if let Some(message_text) = mime {
+        assert(message_text.contains("Hello Ada"));
+        assert(message_text.contains("text/plain"));
+    } else {
+        assert(false);
+    }
+
+    let job = schedule.once(100, 10);
+    assert(schedule.due(job, 110));
+    assert(!job.fire(105, 10));
+    assert(job.fire(110, 10));
+    assert(!job.fire(120, 10));
+    const at = job.advance();
+    assert(at == 110);
+    print("mail-jobs-ok");
+}

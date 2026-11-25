@@ -1,0 +1,48 @@
+// One-shot and repeating schedules for jobs.
+//
+// A schedule is data, not a timer thread. The worker asks `due` at a point it
+// chooses, so a scheduled job fires once and a replay records a fresh start.
+
+pub struct Schedule {
+    pub start: int,
+    pub interval: int,
+    pub fired: bool,
+}
+
+pub fn once(int start, int interval) -> Schedule {
+    return Schedule {
+        start: start, interval: interval, fired: false
+    };
+}
+
+/// Whether now is at or past the next run. The caller advances the schedule
+/// with `advance`; `due` itself has no side effect.
+pub fn due(Schedule current, int now) -> bool {
+    return now >= current.start + current.interval;
+}
+
+/// The timestamp of the next run.
+pub fn next_at(Schedule current) -> int {
+    return current.start + current.interval;
+}
+
+impl Schedule {
+    /// Mark a one-shot job as fired. A second call cannot fire it again.
+    pub fn fire(self: *mut Schedule, int now, int limit) -> bool {
+        if self[0].fired {
+            return false;
+        }
+        if limit > 0 && now >= self[0].start + limit {
+            self[0].fired = true;
+            return true;
+        }
+        return false;
+    }
+
+    /// Move a repeating schedule to its next slot, returning the timestamp.
+    pub fn advance(self: *mut Schedule) -> int {
+        self[0].start = self[0].start + self[0].interval;
+        self[0].fired = false;
+        return self[0].start;
+    }
+}
