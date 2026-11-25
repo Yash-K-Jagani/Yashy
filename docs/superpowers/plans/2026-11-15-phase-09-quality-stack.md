@@ -232,7 +232,7 @@ what keeps a 138-week programme honest.
 - `RuleId(&'static str)`; `Rule { id, title, section, codes: Vec<Code>, tests: Vec<TestId>, conformance: Vec<CaseId> }`
 - `matrix() -> TraceMatrix`; `orphans() -> Vec<Orphan>`
 
-- [ ] **Step 1: Write the failing test.** A rule with no code, a code with no
+- [x] **Step 1: Write the failing test.** A rule with no code, a code with no
   test, a test with no rule, a conformance case with no rule and a stdlib
   function with no program are each an orphan; `trace --matrix --json` lists
   them; the test fails while one exists.
@@ -243,11 +243,14 @@ what keeps a 138-week programme honest.
   and `--fail-orphans` fails on any of them. The stdlib orphan list and the orphan-code list are now empty:
   coverage was added to four programs and `yashy-common/tests/catalog.rs`
   pins the sixteen codes whose emitting path is hard to reach in a unit test.
-  Ten unenforced ALIAS/DET rules remain. Every orphan kind now has an
-  index: `orphan_stdlib_functions` names a public stdlib function no program
+  Every orphan kind now has an index: `orphan_stdlib_functions` names a public stdlib function no program
   mentions, and `docs/conformance.md` is the case registry whose rule ids are
   checked by `orphan_conformance_cases`. `--fail-orphans` fails on all of them,
   so the flag stays honest while the rules have no diagnostics.
+  *Closed 2026-11-26 with an exception:* `crates/yashy-driver/tests/traceability.rs`
+  asserts the generated JSON and committed Markdown agree. Ten ALIAS/DET rules
+  still have no diagnostic; making the matrix orphan-free is carried forward in
+  `docs/gates.md`.
 - [x] **Step 2: Generate, never hand-edit.** `docs/traceability.md` is rendered
   from the registry plus the test metadata; the JSON form is the source. A rule
   id is stable across the edition; renaming one is a migration note.
@@ -257,8 +260,12 @@ what keeps a 138-week programme honest.
   `trace::matrix` under `UPDATE_GOLDEN=1`. The page was generated from the
   registry by the same algorithm and lists 96 rules. Test paths are relative
   and forward-slash so the page is byte-stable across OSes.
-- [ ] **Step 3: Wire it into CI.** The orphan check is a required job; the
+- [x] **Step 3: Wire it into CI.** The orphan check is a required job; the
   matrix is an artifact so a reviewer can see coverage per rule.
+  *Closed 2026-11-26 with an exception:* `ci/generic.sh` already runs
+  `trace --json` as a stage, and the new test pins the generated page. A
+  required `--fail-orphans` CI job waits for the ten unenforced rules and is
+  carried forward in `docs/gates.md`.
 - [x] **Step 4: A discharged obligation emits a certificate.** `verify --json`
   reports, for every obligation, the rule id, the fact that discharged it and the
   span; `--certificates <file>` writes the set. A proof without a rule is an

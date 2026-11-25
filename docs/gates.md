@@ -679,6 +679,11 @@ claimed green here.
   above: warmup, N iterations, median/p95, outlier rejection, interleaved A/B
   and `--save-baseline` are implemented and tested.
 
+- **Orphan-free traceability matrix** — owner: compiler/core. The generator,
+  `--fail-orphans` and the committed page are tested; ten ALIAS/DET rules still
+  have no diagnostic. Closes when every rule in the matrix has a code and a
+  test so `--fail-orphans` can be a required CI job.
+
 - **CI coverage/SARIF fixture with LLVM** — owner: compiler/core. The local
   `ci_template` test checks the template stages and prints `SKIP` for the SARIF
   assertion when `llvm-profdata` is absent. Closes when a CI job with LLVM runs
