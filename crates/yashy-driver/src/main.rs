@@ -74,6 +74,9 @@ usage:
   yashyc cache verify <file.ya>
   yashyc serve [path]
   yashyc watch [path] [--json] [--run] [--test] [--interval <ms>]
+  yashyc dev [path] [--json] [--interval <ms>]
+  yashyc openapi <file.ya> [--title <name>] [--out <file>] [--check <old.json>]
+  yashyc client --from <document.json> [--out <file.ya>]
   yashyc explain <code> [--json]
   yashyc init [path]
   yashyc doctor [--json]
@@ -1342,6 +1345,12 @@ fn bench_cmd(args: &[String]) -> ExitCode {
     let mut path: Option<PathBuf> = None;
     let mut baseline: Option<PathBuf> = None;
     let mut thresholds: Option<PathBuf> = None;
+    let mut measure_source: Option<PathBuf> = None;
+    let mut compare_binary: Option<PathBuf> = None;
+    let mut save_baseline: Option<PathBuf> = None;
+    let mut key = "bench".to_string();
+    let mut iterations = 5usize;
+    let mut warmup = 1usize;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -1361,6 +1370,54 @@ fn bench_cmd(args: &[String]) -> ExitCode {
                 thresholds = Some(PathBuf::from(&args[i + 1]));
                 i += 1;
             }
+            "--measure" => {
+                if i + 1 >= args.len() {
+                    return usage_error("`--measure` needs a source file");
+                }
+                measure_source = Some(PathBuf::from(&args[i + 1]));
+                i += 1;
+            }
+            "--compare" => {
+                if i + 1 >= args.len() {
+                    return usage_error("`--compare` needs a binary path");
+                }
+                compare_binary = Some(PathBuf::from(&args[i + 1]));
+                i += 1;
+            }
+            "--save-baseline" => {
+                if i + 1 >= args.len() {
+                    return usage_error("`--save-baseline` needs a file path");
+                }
+                save_baseline = Some(PathBuf::from(&args[i + 1]));
+                i += 1;
+            }
+            "--key" => {
+                if i + 1 >= args.len() {
+                    return usage_error("`--key` needs a name");
+                }
+                key = args[i + 1].clone();
+                i += 1;
+            }
+            "--iterations" => {
+                if i + 1 >= args.len() {
+                    return usage_error("`--iterations` needs a number");
+                }
+                match args[i + 1].parse::<usize>() {
+                    Ok(value) if value > 0 => iterations = value,
+                    _ => return usage_error("`--iterations` needs a positive number"),
+                }
+                i += 1;
+            }
+            "--warmup" => {
+                if i + 1 >= args.len() {
+                    return usage_error("`--warmup` needs a number");
+                }
+                match args[i + 1].parse::<usize>() {
+                    Ok(value) => warmup = value,
+                    Err(_) => return usage_error("`--warmup` needs a number"),
+                }
+                i += 1;
+            }
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown option `{other}` for `bench`"));
             }
@@ -1372,6 +1429,41 @@ fn bench_cmd(args: &[String]) -> ExitCode {
             }
         }
         i += 1;
+    }
+    if let Some(source) = measure_source {
+        use yashy_driver::bench_measure::{measure, baseline_text, to_json, MeasureOptions};
+        let options = MeasureOptions {
+            source,
+            compare: compare_binary,
+            iterations,
+            warmup,
+            key,
+        };
+        let result = match measure(&options) {
+            Ok(result) => result,
+            Err(error) => {
+                eprintln!("error: benchmark failed: {error}");
+                return exit_code(EXIT_USAGE);
+            }
+        };
+        if let Some(out) = save_baseline {
+            if let Err(error) = std::fs::write(&out, baseline_text(&result)) {
+                eprintln!("error: cannot write {}: {error}", out.display());
+                return exit_code(EXIT_USAGE);
+            }
+        }
+        if json {
+            println!("{}", to_json(&result));
+        } else {
+            println!(
+                "{} median {:.3} ms p95 {:.3} ms ({} samples, {} discarded)",
+                result.key, result.median_ms, result.p95_ms, result.samples, result.discarded
+            );
+        }
+        if let Some(other) = result.compare_median_ms {
+            println!("compare median {other:.3} ms");
+        }
+        return exit_code(EXIT_OK);
     }
     let path = path.unwrap_or_else(|| PathBuf::from("benchmarks/thresholds.bench"));
     let text = match std::fs::read_to_string(&path) {

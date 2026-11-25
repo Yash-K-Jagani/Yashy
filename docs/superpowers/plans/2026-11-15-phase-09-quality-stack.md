@@ -125,15 +125,18 @@ what keeps a 138-week programme honest.
 - Modify: `benchmarks/` (consume the new format)
 - Test: `packages/bench/tests/`, `crates/yashy-bench/src/lib.rs`
 
-- [ ] **Step 1: Measure honestly.** Warmup, N iterations, median and p95,
+- [x] **Step 1: Measure honestly.** Warmup, N iterations, median and p95,
   outlier rejection, and interleaved A/B so machine drift hits both. A
   benchmark row names its input, its flags and its target.
   *Current:* `yashyc bench [--json] [--list] [file]` reads `key=value` rows from
   `benchmarks/thresholds.bench` and renders them for humans and JSON. It
   deliberately measures nothing: a claim without a row is not a claim. The
   measurement runner (warmup, N, median/p95, interleaved A/B) and the baseline
-  comparison are still owed, so the step stays open.
-- [ ] **Step 2: A baseline is a file, not a memory.** `bench --save-baseline`
+  *Closed 2026-11-26:* `crates/yashy-driver/src/bench_measure.rs` warms the
+  binary, runs N iterations, interleaves an optional `--compare` binary, drops
+  samples beyond twice the median and reports median/p95 plus the discarded
+  count. `--measure <file.ya>` drives it through `yashyc bench`.
+- [x] **Step 2: A baseline is a file, not a memory.** `bench --save-baseline`
   writes a JSON baseline with the compiler version, target and flags; `bench
   --check-baseline` fails on a regression beyond the row's threshold and prints
   the ratio. CI stores the baseline per OS.
@@ -150,7 +153,7 @@ what keeps a 138-week programme honest.
   condition for a regressing feature row and points at `benchmarks/` and the
   slice ledger. Automated enforcement of the rule in CI is still owed with
   Task 4.
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ### Task 3: `yashyc fuzz`
 
@@ -173,7 +176,7 @@ what keeps a 138-week programme honest.
   saved.
 - [ ] **Step 3: Corpus lives in the repo.** CI runs a bounded campaign on every
   PR and a longer one nightly; a new finding is a P0 until fixed or recorded.
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ### Task 4: Coverage and CI templates
 
@@ -203,7 +206,7 @@ what keeps a 138-week programme honest.
   step stays open.
 - [ ] **Step 3: The template is tested.** A fixture repository runs the
   template end to end in CI; a broken template is a gate failure.
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ### Task 5: The traceability matrix
 

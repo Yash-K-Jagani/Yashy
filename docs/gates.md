@@ -675,6 +675,10 @@ claimed green here.
 
 ## Phase 9 — carried forward (2026-11-26)
 
+- **`yashyc bench` measurement runner** — **closed 2026-11-26.** See Task 2
+  above: warmup, N iterations, median/p95, outlier rejection, interleaved A/B
+  and `--save-baseline` are implemented and tested.
+
 - **Generic `expect_eq[T]`, automatic file/line, `expect_panics`** — owner:
   compiler/core. Needs a display bound and catchable faults; the concrete typed
   helpers and `table`/`property`/`snapshot`/`mock` are in `packages/test/src`.

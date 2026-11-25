@@ -53,6 +53,7 @@ pub mod test_harness;
 pub mod tokens;
 pub mod toolchain;
 pub mod trace;
+pub mod bench_measure;
 pub mod dev;
 pub mod openapi;
 pub mod watch;
