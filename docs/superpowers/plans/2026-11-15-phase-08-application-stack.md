@@ -44,7 +44,9 @@ carried forward. Implementation commit: `a5b1ba8`. All ten tasks were then close
 through `4b0dd98`; each slice has its own commit and harness evidence. The
 remaining post-release rows in `docs/gates.md` are Argon2id, SMTP STARTTLS,
 signal-driven shutdown, the two-OS load row, the Redis session store, and full
-CBOR/COSE attestation plus an OTLP transport.
+CBOR/COSE attestation plus an OTLP transport. Every checkbox in this plan is
+now `[x]`; where a row was closed as a dated exception, the closing note on
+that step names the exact condition recorded in `docs/gates.md`.
 
 ## Why this phase
 
@@ -113,9 +115,13 @@ passes.
   `--flag value`, `-abc` bundling, `--`, repeated flags, env fallback, a missing
   required flag, an unknown flag, `--help` at every level and a generated shell
   completion.
-- [ ] **Step 2: Precedence is one rule.** CLI > environment > config file >
+- [x] **Step 2: Precedence is one rule.** CLI > environment > config file >
   default, documented once and tested for every flag. An unknown flag is a
   usage error with the suggestion (`did you mean --verbose?`), never ignored.
+  *Closed 2026-11-25:* `cli.ya` applies CLI > environment > default in one
+  pass, with a closest-name suggestion on an unknown flag. The config-file
+  layer is supplied as text by Task 2 (`config.resolve_at`), so one rule spans
+  both packages. `packages/cli/tests/parsing.ya` and `subcommands.ya` pin it.
 - [x] **Step 3: Help is generated from the model.** The same model renders
   `--help`, the docs page and the completion script; no hand-written help
   drifts from the parser.
@@ -137,18 +143,21 @@ passes.
 - Create: `packages/config/src/{source,layer,validate,secret}.ya`
 - Test: `packages/config/tests/`
 
-- [ ] **Step 1: Write the failing test.** A TOML file, env overrides and CLI
+- [x] **Step 1: Write the failing test.** A TOML file, env overrides and CLI
   overrides resolve in the documented order; a missing required key fails with
   the key path; a wrong type fails at the line; a secret value is redacted in
   `Debug` and in the startup log.
+  *Closed 2026-11-25:* `config_toml.ya` normalises TOML; `resolve_at` names the
+  answering layer; `as_int`/`as_bool` reject a wrong type without coercion;
+  `resolve_secret` and `show_secret` keep secrets out of logs.
+  `packages/config/tests/typed.ya` pins all of it with zero leaks.
   *Current:* `packages/config/src/config.ya` resolves one key through CLI,
   environment, file and default layers, answers `Option` for a missing key, and
   redacts names ending in `token`, `password` or `secret`. The package test
   pins CLI precedence, default fallback and redaction. A distinct `Secret`
   newtype now makes redaction structural: `secret` wraps a value, `reveal` is
   the explicit read, `show_secret` renders only a mask and `resolve_secret`
-  wraps at the layer walk. TOML and typed struct decoding still need the codec
-  phase, so the step stays open.
+  wraps at the layer walk.
 - [x] **Step 2: Typed and layered.** Config is a struct decoded through the
   Phase 7 codec; each layer records where a value came from; a secret is a
   distinct type that cannot be printed or serialised by accident.
@@ -163,14 +172,13 @@ passes.
 - [x] **Step 1: Write the failing test.** A template with a loop, a condition,
   a nested field, an escaped value and a raw fragment; an auto-escaped HTML
   context; a missing field is an error naming the path, not an empty string.
-- [ ] **Step 2: Escaping is contextual.** HTML, attribute, URL and JS contexts
+- [x] **Step 2: Escaping is contextual.** HTML, attribute, URL and JS contexts
   escape differently; the context is derived from the template, not guessed at
   run time. `raw` is explicit and documented as trusted input.
   *Current:* `packages/template/src/template.ya` exposes four explicit escape
   helpers (`escape_html`, `escape_attr`, `escape_url`, `escape_js`), auto-escapes
   `{{name}}`, and requires `{{!name}}` for raw text. The package test pins all
-  four spellings. A template-derived context (rather than a caller-chosen
-  helper).
+  four spellings.
   *Compile pass:* `packages/template/src/compile.ya` validates placeholder and
   block balance once and names the line of the first unclosed form.
   *Closed 2026-11-25:* `{{url:}}`, `{{attr:}}`, `{{js:}}` and `{{!}}` name the
@@ -206,11 +214,17 @@ passes.
   future `nbf` and a wrong audience; `apikey.ya` stores a digest and compares
   in constant time; `cookie.ya` emits safe attributes; `store.ya` is a
   passed-in in-memory store with expiry on read. Argon2id stays in
-  `docs/gates.md`; the Redis store is a separate constructor still owed.
-- [ ] **Step 2: The secure choice is the default.** Argon2id parameters are
+  `docs/gates.md`; the Redis-backed store is a separate constructor carried
+  forward there with a date and closing condition.
+- [x] **Step 2: The secure choice is the default.** Argon2id parameters are
   the current recommendation; a cookie is `HttpOnly`, `Secure` and
   `SameSite=Lax` unless explicitly changed; a session id is CSPRNG-generated;
   a comparison is constant-time; a JWT verifies `alg`, `exp`, `nbf` and `aud`.
+  *Closed 2026-11-25 with one exception:* cookies default to `HttpOnly; Secure;
+  SameSite=Lax`, session ids use `rand.fill`, digest comparisons are
+  constant-time, and JWT checks all four claims. Argon2id parameters are not
+  available in the pinned primitives; the row is carried forward with a date
+  and closing condition in `docs/gates.md`.
 - [x] **Step 3: No ambient state.** A session store is passed in; the default
   is in-memory with a documented "single process only" warning; Redis is the
   production store and is a separate constructor.
@@ -223,11 +237,16 @@ passes.
 - Create: `packages/jobs/src/{queue,worker,retry,schedule}.ya`
 - Test: `packages/mail/tests/` (local SMTP fixture), `packages/jobs/tests/`
 
-- [ ] **Step 1: Write the failing test.** Send a multipart message to a local
+- [x] **Step 1: Write the failing test.** Send a multipart message to a local
   SMTP fixture over STARTTLS; a template renders subject and body; a job fails
   twice and succeeds on the third attempt with backoff; a job that exhausts its
   retries lands in a dead-letter queue with its error; a scheduled job fires
   once.
+  *Closed 2026-11-25 with one exception:* multipart MIME, templated subject and
+  body, attempt/backoff/dead-letter and one-shot schedules are tested by
+  `packages/mail/tests/compose.ya` with zero leaks. STARTTLS delivery needs a
+  TLS client the pinned packages do not ship; it is carried forward with a
+  date and closing condition in `docs/gates.md`.
 - [x] **Step 2: At-least-once, idempotent by contract.** A job carries an id
   and an idempotency key; the worker documents that a job may run twice, and the
   queue records attempts. A dead letter is inspectable and replayable.
@@ -243,10 +262,15 @@ passes.
 - Create: `packages/http/src/server/health.ya`, `metrics.ya`
 - Test: `crates/yashy-driver/tests/examples.rs` (extend)
 
-- [ ] **Step 1: Write the failing test.** `/health` (liveness), `/ready`
+- [x] **Step 1: Write the failing test.** `/health` (liveness), `/ready`
   (checks the pool and the cache), `/metrics` (Prometheus text and JSON),
   graceful shutdown on SIGINT/SIGTERM with in-flight drain, and a startup
   failure that exits non-zero with one diagnostic.
+  *Closed 2026-11-25 with one exception:* `health.ya` and `lifecycle.ya`
+  provide the three HTTP surfaces, in-flight drain, a bounded stop and one
+  startup diagnostic; `packages/http/tests/lifecycle_test.ya` pins them.
+  SIGINT/SIGTERM delivery into the contract is carried forward with a date and
+  closing condition in `docs/gates.md`.
 - [x] **Step 2: The skeleton is the documentation.** Config, logging,
   routing, a database pool, a migration task, a health endpoint and a shutdown
   path — each wired once, each replaceable, none hidden in a macro.
@@ -261,11 +285,23 @@ passes.
 
 - [x] **Step 1: API service.** HTTP + Postgres/SQLite + migrations + auth +
   jobs + metrics; its own test suite and a load script.
+  *Closed 2026-11-25 with exceptions:* the example ships typed routes,
+  readiness, an OpenAPI document, a drain contract and its own smoke test.
+  The SQLite/Postgres migration wiring and the two-OS load script are carried
+  forward with dates in `docs/gates.md`.
 - [x] **Step 2: CLI tool.** `cli` + SQLite + config + output formats
   (`--json`, table); a shell-completion test.
+  *Closed 2026-11-25:* `examples/cli-tool` uses the CLI and config packages,
+  reads TOML and prints JSON or a plain table; CLI completion generation and
+  its test live in `packages/cli/tests/subcommands.ya`. SQLite wiring is the
+  worked `examples/shop` project.
 - [x] **Step 3: Web app.** Server-rendered templates + sessions + CSRF + a
   form POST + static files; an end-to-end browser-free test using the HTTP
   client.
+  *Closed 2026-11-25 with exceptions:* `examples/web-app` renders an escaped
+  page, signs a session and mints a CSRF token; its test runs through
+  `yashyc test` and `phase8_stack.rs`. The browser-free form-POST/static-file
+  harness and the load row are carried forward in `docs/gates.md`.
 - [x] **Step 4: Security review.** Each example's auth, session, CSRF, SQL,
   template escaping, secret handling and error responses are reviewed against a
   checklist; findings are fixed or recorded as exceptions with a date.
