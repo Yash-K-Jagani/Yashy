@@ -219,10 +219,10 @@ the stack is not done, no matter how many modules exist.
   (checks the pool and the cache), `/metrics` (Prometheus text and JSON),
   graceful shutdown on SIGINT/SIGTERM with in-flight drain, and a startup
   failure that exits non-zero with one diagnostic.
-- [ ] **Step 2: The skeleton is the documentation.** Config, logging,
+- [x] **Step 2: The skeleton is the documentation.** Config, logging,
   routing, a database pool, a migration task, a health endpoint and a shutdown
   path — each wired once, each replaceable, none hidden in a macro.
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ### Task 7: Three production-shaped examples
 

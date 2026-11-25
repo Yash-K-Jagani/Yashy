@@ -635,9 +635,11 @@ claimed green here.
   sends a message over STARTTLS.
 - **Graceful shutdown and in-flight drain in the service skeleton** — owner:
   compiler/core. `/health`, `/ready` and `/metrics` are pure helpers in
-  `packages/http/src/health.ya`; signal-driven shutdown is not wired. Closes
-  when a service exits zero only after in-flight requests drain on SIGINT and
-  SIGTERM.
+  `packages/http/src/health.ya`; the drain contract is in
+  `packages/http/src/lifecycle.ya` and its test is
+  `packages/http/tests/lifecycle_test.ya`. Signal-driven shutdown is not
+  wired. Closes when a service exits zero only after in-flight requests drain
+  on SIGINT and SIGTERM.
 - **Three production-shaped examples** (`api-service`, `cli-tool`, `web-app`)
   with their own tests, security review and two-OS load test — owner:
   compiler/core. `examples/shop` remains the one worked persistence example.

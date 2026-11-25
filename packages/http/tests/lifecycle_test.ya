@@ -1,0 +1,24 @@
+// A service drains in-flight work before it stops.
+import lifecycle;
+
+import health;
+
+fn main() {
+    let service = lifecycle.begin();
+    assert(service.state() == "starting");
+    assert(service.arrive());
+    assert(service.active() == 1);
+    const drain = service.drain(200);
+    assert(drain == "draining");
+    assert(!service.arrive());
+    assert(service.settle(100) == "draining");
+    service.complete();
+    assert(service.active() == 0);
+    assert(service.settle(101) == "stopped");
+
+    const diagnostic = lifecycle.startup_error("database", "connection refused");
+    assert(diagnostic.contains("database"));
+    assert(diagnostic.contains("connection refused"));
+    assert(health.live() == "{\"status\":\"ok\"}");
+    print("lifecycle-ok");
+}

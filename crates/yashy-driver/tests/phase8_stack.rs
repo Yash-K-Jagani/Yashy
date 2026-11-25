@@ -169,6 +169,18 @@ fn mail_jobs_program_is_checked() {
 }
 
 #[test]
+fn service_lifecycle_program_is_checked() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    run(
+        &root,
+        "packages/http/tests/lifecycle_test.ya",
+        "p8-lifecycle",
+        "lifecycle-ok",
+        &["http"],
+    );
+}
+
+#[test]
 fn service_packages_program_is_checked() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     run(

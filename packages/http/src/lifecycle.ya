@@ -1,0 +1,73 @@
+// The service skeleton's shutdown contract.
+//
+// The server owns a `Lifecycle`. A request calls `arrive` and `complete`;
+// shutdown calls `drain`, which refuses new work and lets the last request
+// finish. A deadline bounds the wait. The phase is data, so `/health`,
+// `/ready` and the startup diagnostic read the same state the server uses.
+
+pub struct Lifecycle {
+    phase: string,
+    in_flight: int,
+    deadline: int,
+}
+
+/// A service starts as `starting` and moves to `serving` after its checks.
+pub fn begin() -> Lifecycle {
+    return Lifecycle {
+        phase: "starting", in_flight: 0, deadline: 0
+    };
+}
+
+/// One startup failure is one diagnostic, not a partial service.
+pub fn startup_error(string dependency, string reason) -> string {
+    return "startup: ${dependency}: ${reason}";
+}
+
+impl Lifecycle {
+    /// Accept a request. A draining service refuses new work.
+    pub fn arrive(self: *mut Lifecycle) -> bool {
+        if self[0].phase == "draining" || self[0].phase == "stopped" {
+            return false;
+        }
+        self[0].phase = "serving";
+        self[0].in_flight = self[0].in_flight + 1;
+        return true;
+    }
+
+    /// Finish one request.
+    pub fn complete(self: *mut Lifecycle) {
+        if self[0].in_flight > 0 {
+            self[0].in_flight = self[0].in_flight - 1;
+        }
+    }
+
+    /// Begin draining, with an absolute deadline for a hung request.
+    pub fn drain(self: *mut Lifecycle, int deadline) -> string {
+        self[0].deadline = deadline;
+        if self[0].phase != "stopped" {
+            self[0].phase = "draining";
+        }
+        return self[0].phase;
+    }
+
+    /// Move to `stopped` once nothing is in flight or the deadline passed.
+    pub fn settle(self: *mut Lifecycle, int now) -> string {
+        if self[0].phase != "draining" {
+            return self[0].phase;
+        }
+        if self[0].in_flight == 0 || now >= self[0].deadline {
+            self[0].phase = "stopped";
+        }
+        return self[0].phase;
+    }
+
+    /// Read the current phase.
+    pub fn state(self: *mut Lifecycle) -> string {
+        return self[0].phase;
+    }
+
+    /// Read the number of in-flight requests.
+    pub fn active(self: *mut Lifecycle) -> int {
+        return self[0].in_flight;
+    }
+}
