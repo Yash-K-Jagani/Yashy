@@ -729,6 +729,11 @@ claimed green here.
 
 ## Phase 10 — carried forward (2026-11-26)
 
+- **Single-threaded deterministic event loop** — owner: compiler/runtime.
+  `run --deterministic` fixes the clock and seed, and the harness compares two
+  traces; the runtime still uses the OS scheduler. Closes when 1 and 4 workers
+  produce the same event trace under a single-threaded loop.
+
 - **TSan differential and remaining race kinds** — owner: compiler/verify.
   The corpus harness proves E1701, E1702 and a clean program; TSan is not
   installed here and the remaining seeded races (lock-order inversion, bare

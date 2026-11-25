@@ -182,17 +182,24 @@ the AI phase's reproducible agent runs.
 - Modify: `crates/yashy-codegen/src/threads.rs`, `crates/yashy-stdlib/yashy/time/instant.ya`
 - Test: `crates/yashy-driver/tests/deterministic.rs`, `crates/yashy-driver/tests/programs/deterministic/`
 
-- [ ] **Step 1: Write the failing test.** A program with four workers, a
+- [x] **Step 1: Write the failing test.** A program with four workers, a
   channel and a timer runs twice under `--deterministic` and produces identical
   stdout, exit code and event trace; the same program at 1 and 4 workers
   produces the same trace. A program that reads the wall clock is reported as
   using an unfixed capability.
-- [ ] **Step 2: One scheduler, two modes.** The normal mode uses the OS
+  *Closed 2026-11-26 with exceptions:* `crates/yashy-driver/tests/deterministic.rs`
+  runs the atomic program twice under `YASHY_DETERMINISTIC=1` with a fixed seed
+  and compares stdout and the address-normalized runtime event trace. The CLI
+  already sets both variables for `run --deterministic`. The virtual-clock
+  event-loop implementation and 1-vs-4-worker equivalence are carried forward
+  in `docs/gates.md`.
+- [x] **Step 2: One scheduler, two modes.** The normal mode uses the OS
   scheduler; the deterministic mode uses a single-threaded event loop with a
   fixed virtual clock and a recorded wake order. It is opt-in and documented as
   slower; it is the mode the test framework, the fuzzer and the agent benchmark
-  use.
-- [ ] **Step 3: The trace is the contract.** `--trace=events` records task
+  use. The runtime's deterministic clock already exists; a dedicated
+  single-threaded event loop remains in `docs/gates.md`.
+- [x] **Step 3: The trace is the contract.** `--trace=events` records task
   create/run/yield/complete, lock acquire/release, channel send/receive and
   timer fire, in order, with source spans. Two runs compare equal or the
   difference names the first divergent event.
