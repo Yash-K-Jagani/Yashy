@@ -241,6 +241,8 @@ fn dispatch(args: &[String]) -> ExitCode {
         "watch" => watch_cmd(rest),
         "dev" => dev_cmd(rest),
         "openapi" => openapi_cmd(rest),
+        "record" => record_cmd(rest),
+        "replay" => replay_cmd(rest),
         "client" => client_cmd(rest),
         "explain" => explain(rest),
         "init" => init(rest),
@@ -3022,6 +3024,154 @@ fn cache_cmd(args: &[String]) -> ExitCode {
 }
 
 /// `yashyc watch [path]`: re-check the tree whenever a source file changes.
+fn record_cmd(args: &[String]) -> ExitCode {
+    use yashy_driver::record;
+    let mut source: Option<PathBuf> = None;
+    let mut output: Option<PathBuf> = None;
+    let mut iter = args.iter();
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
+            "--out" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`--out` needs a trace path");
+                };
+                output = Some(PathBuf::from(value));
+            }
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `record`"))
+            }
+            other => {
+                if source.is_some() {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+                source = Some(PathBuf::from(other));
+            }
+        }
+    }
+    let Some(source) = source else {
+        return usage_error("`record` needs a source file");
+    };
+    let text = match std::fs::read_to_string(&source) {
+        Ok(text) => text,
+        Err(error) => {
+            eprintln!("error: cannot read {}: {error}", source.display());
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    let output = output.unwrap_or_else(|| PathBuf::from("trace.yat"));
+    let dir = std::env::temp_dir().join(format!("yashy-record-{}", std::process::id()));
+    if let Err(error) = std::fs::create_dir_all(&dir) {
+        eprintln!("error: cannot create {}: {error}", dir.display());
+        return exit_code(EXIT_INTERNAL);
+    }
+    let binary = dir.join(format!("program{}", std::env::consts::EXE_SUFFIX));
+    let events_path = dir.join("events.txt");
+    let compiler = match std::env::current_exe() {
+        Ok(path) => path,
+        Err(_) => return exit_code(EXIT_INTERNAL),
+    };
+    let built = Command::new(&compiler)
+        .arg("build")
+        .arg(&source)
+        .arg("-o")
+        .arg(&binary)
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false);
+    if !built {
+        return exit_code(EXIT_COMPILE_ERROR);
+    }
+    let run = Command::new(&binary)
+        .env("YASHY_DETERMINISTIC", "1")
+        .env("YASHY_DETERMINISTIC_SEED", "1700000000000")
+        .env("YASHY_TRACE_FILE", &events_path)
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false);
+    if !run {
+        return exit_code(EXIT_INTERNAL);
+    }
+    let events = match std::fs::read_to_string(&events_path) {
+        Ok(text) => text.lines().map(record::normalise).collect::<Vec<_>>(),
+        Err(error) => {
+            eprintln!("error: cannot read {}: {error}", events_path.display());
+            return exit_code(EXIT_INTERNAL);
+        }
+    };
+    match record::write(&record::program_hash(&text), &events, &output) {
+        Ok(()) => {
+            println!("recorded {}", output.display());
+            exit_code(EXIT_OK)
+        }
+        Err(error) => {
+            eprintln!("error: cannot write trace: {error}");
+            exit_code(EXIT_USAGE)
+        }
+    }
+}
+
+fn replay_cmd(args: &[String]) -> ExitCode {
+    use yashy_driver::record;
+    let mut trace_path: Option<PathBuf> = None;
+    let mut source: Option<PathBuf> = None;
+    let mut json = false;
+    let mut iter = args.iter();
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
+            "--json" => json = true,
+            "--source" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`--source` needs a file path");
+                };
+                source = Some(PathBuf::from(value));
+            }
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `replay`"))
+            }
+            other => {
+                if trace_path.is_some() {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+                trace_path = Some(PathBuf::from(other));
+            }
+        }
+    }
+    let Some(path) = trace_path else {
+        return usage_error("`replay` needs a trace file");
+    };
+    let trace = match record::read(&path) {
+        Ok(trace) => trace,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    if let Some(source_path) = source {
+        let text = match std::fs::read_to_string(&source_path) {
+            Ok(text) => text,
+            Err(error) => {
+                eprintln!("error: cannot read {}: {error}", source_path.display());
+                return exit_code(EXIT_USAGE);
+            }
+        };
+        if let Err(error) = record::validate(&trace, &text) {
+            eprintln!("error: {error}");
+            return exit_code(EXIT_USAGE);
+        }
+    }
+    if json {
+        println!(
+            "{{\"schema_version\":1,\"tool\":\"replay\",\"program_hash\":\"{}\",\"target\":\"{}\",\"events\":{}}}",
+            trace.program_hash,
+            trace.target,
+            trace.events.len()
+        );
+    } else {
+        println!("{}", record::summary(&trace));
+    }
+    exit_code(EXIT_OK)
+}
+
 fn openapi_cmd(args: &[String]) -> ExitCode {
     let mut source: Option<PathBuf> = None;
     let mut output: Option<PathBuf> = None;

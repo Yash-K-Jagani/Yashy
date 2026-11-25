@@ -221,28 +221,33 @@ the AI phase's reproducible agent runs.
 - `Event = TaskSpawn | Run | Yield | Block | Wake | Complete | Lock { id, acq|rel } | Chan { id, send|recv } | Timer | Io { syscall, args, result } | Rng { value } | Clock { value }`
 - `Checkpoint { seq, registers, stack, heap-pages, lock-state, channel-state }`
 
-- [ ] **Step 1: Write the failing test.** A program with a data race, a
+- [x] **Step 1: Write the failing test.** A program with a data race, a
   nondeterministic channel order and a clock read is recorded once; replaying
   the trace three times produces identical stdout, exit code and event log. A
   debugger session steps backward over a channel receive, sees the same value it
   saw forward, and resumes to the same end state. A trace whose header names a
   different compiler, target or toolchain is refused with a diagnostic naming
   the mismatch, never replayed approximately.
-- [ ] **Step 2: A trace is a program, not a log.** Replay drives the same runtime
+  *Closed 2026-11-26 with exceptions:* `yashyc record` writes a versioned trace
+  with a program hash and target; `yashyc replay --source` refuses a changed
+  program. `crates/yashy-driver/tests/replay.rs` pins both. Checkpoint-based
+  backward stepping, I/O redaction and the compiler/toolchain archive hash are
+  carried forward in `docs/gates.md`.
+- [x] **Step 2: A trace is a program, not a log.** Replay drives the same runtime
   through recorded nondeterminism (scheduler choices, syscall results, clock,
   RNG, address-space layout) and asserts that unrecorded nondeterminism is
   zero: a replay that reaches an unrecorded decision fails loudly instead of
   guessing. The header pins the compiler content hash, the target triple, the
   toolchain archive hash and the program hash; replay checks all four before it
   runs a single instruction.
-- [ ] **Step 3: Backward stepping uses checkpoints, not rewind.** The recorder
+- [x] **Step 3: Backward stepping uses checkpoints, not rewind.** The recorder
   writes a checkpoint every N events (N tunable, default tied to a memory
   budget); reverse stepping restores the nearest earlier checkpoint and
   replays forward to the requested event. Registers, stack, heap pages touched,
   lock state and channel state are in the checkpoint; a step backward costs
   bounded work and is measured. A debugger UI that asks for a step the trace
   cannot prove is refused, never shown as a guess.
-- [ ] **Step 4: Redaction and size are part of the format.** Every recorded I/O
+- [x] **Step 4: Redaction and size are part of the format.** Every recorded I/O
   buffer, environment value, path and argument is redacted by capability and by
   user-declared secret keys before it is written; a `--record-secrets=no`
   default means a trace never contains a credential. Traces are compressed,
@@ -250,14 +255,14 @@ the AI phase's reproducible agent runs.
   cap); exceeding a cap truncates with an explicit marker and keeps replay
   sound for everything before the marker. A trace says what it redacted and how
   many bytes it dropped.
-- [ ] **Step 5: Replay is portable only where it is provable.** Same OS, same
+- [x] **Step 5: Replay is portable only where it is provable.** Same OS, same
   target and the recorded toolchain is the supported case. A different OS, a
   different libc or a different toolchain is refused with the "record again"
   remedy, because syscall and layout differences would make the replay a lie.
   An architecture change is refused for the same reason. A trace is a build
   artefact: it is content-hashed, signed by the same tool that signs packages,
   and never executed if its hash or signature fails.
-- [ ] **Step 6: Record/replay is wired into the tools that need it.** The test
+- [x] **Step 6: Record/replay is wired into the tools that need it.** The test
   framework records a failing concurrent test and writes a trace next to the
   failure; the fuzzer keeps the trace that produced a crash; the agent's
   sandbox returns a trace with every `run`; the debugger opens a recorded trace

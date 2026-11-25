@@ -729,6 +729,12 @@ claimed green here.
 
 ## Phase 10 — carried forward (2026-11-26)
 
+- **Checkpoint-based backward stepping and trace redaction** — owner:
+  compiler/driver. `record` writes a pinned header and `replay` validates it;
+  step-back over a checkpoint, redaction of I/O buffers and the compiler
+  archive hash remain. Closes when a debugger can step backward from a trace
+  and a trace contains no credential by default.
+
 - **Single-threaded deterministic event loop** — owner: compiler/runtime.
   `run --deterministic` fixes the clock and seed, and the harness compares two
   traces; the runtime still uses the OS scheduler. Closes when 1 and 4 workers
