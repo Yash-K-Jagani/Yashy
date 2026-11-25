@@ -713,10 +713,11 @@ claimed green here.
   helpers and `table`/`property`/`snapshot`/`mock` are in `packages/test/src`.
   Closes when the language has a display bound and a fault-catching primitive
   and the corresponding helpers are tested.
-- **Domain-specific shrinking and failure file/line** — owner: compiler/core.
-  `property.ya` shrinks a failing integer to a minimum with its seed; richer
-  generators need type-driven shrinking. Closes when a failing property names
-  its source location and shrinks a structured input.
+- **Domain-specific shrinking and failure file/line** — **partly closed
+  2026-11-26.** `property.ya` now shrinks strings by halves and single-byte
+  deletions, with `find_text` generating seeded string inputs; the
+  `p9-properties` harness proves the minimum is one byte with zero leaks. The
+  failure's source file/line still needs runtime support.
 - **Generic mocks bounded by `Recorder`** — owner: compiler/core. Needs trait
   bounds; the concrete mock is tested. Closes when a generic helper can accept
   any `Recorder` implementation.

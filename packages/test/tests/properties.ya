@@ -1,0 +1,17 @@
+// Seeded properties with string shrinking.
+import property;
+
+fn rejects(string value) -> bool {
+    return !value.contains("q");
+}
+
+fn main() {
+    if let Some(found) = property.find_text(rejects, 5, 50, 8) {
+        const reduced = found;
+        assert(reduced.len() == 1);
+        assert(reduced == "q");
+        print("p9-properties-ok");
+    } else {
+        assert(false);
+    }
+}

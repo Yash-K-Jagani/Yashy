@@ -25,13 +25,13 @@ pub struct Failure {
 /// Render a failure as a deterministic reproduction line.
 pub fn describe(Failure failure) -> string {
     return "seed=" + str_from_i64(failure.seed)
-        + " draw=" + str_from_i64(failure.index)
-        + " input=" + str_from_i64(failure.value)
-        + " (first=" + str_from_i64(failure.original) + ")";
+    + " draw=" + str_from_i64(failure.index)
+    + " input=" + str_from_i64(failure.value)
+    + " (first=" + str_from_i64(failure.original) + ")";
 }
 
 /// Find the smallest failing draw, or `None` when every input passed.
-pub fn find(fn(int) -> bool check, int seed, int iterations) -> Option[Failure] {
+pub fn find(fn (int) -> bool check, int seed, int iterations) -> Option[Failure] {
     assert(iterations > 0);
     let state = seed;
     let index = 0;
@@ -48,7 +48,8 @@ pub fn find(fn(int) -> bool check, int seed, int iterations) -> Option[Failure] 
                 index: index,
                 original: value,
                 value: smallest,
-            });
+            }
+            );
         }
         index = index + 1;
     }
@@ -59,10 +60,69 @@ pub fn find(fn(int) -> bool check, int seed, int iterations) -> Option[Failure] 
 ///
 /// Returns the smallest failing input, or `-1` when every input passed. Use
 /// `find` when the reproduction seed is needed.
-pub fn run_property(fn(int) -> bool check, int seed, int iterations) -> int {
+pub fn run_property(fn (int) -> bool check, int seed, int iterations) -> int {
     const found = find(check, seed, iterations);
     return switch found {
-        case Some(failure) { failure.value }
-        case None { 0 - 1 }
+        case Some(failure) {
+            failure.value
+        }
+        case None {
+            0 - 1
+        }
     };
+}
+
+/// Shrink a failing string by dropping halves that still fail, then by
+/// deleting single bytes that still fail. The result is a real minimum for
+/// this checker: every returned string is one the property rejects.
+pub fn shrink_text(fn (string) -> bool check, string input) -> string {
+    let string value = input;
+    let int guard = 0;
+    while value.len() > 1 && guard < 32 {
+        const half = value.len() / 2;
+        const left = value.slice(0, half);
+        const right = value.slice(half, value.len());
+        if !check(left) {
+            value = left;
+        } else if !check(right) {
+            value = right;
+        } else {
+            break;
+        }
+        guard = guard + 1;
+    }
+    let index = 0;
+    while index < value.len() {
+        const shorter = value.slice(0, index) + value.slice(index + 1, value.len());
+        if !check(shorter) {
+            value = shorter;
+        } else {
+            index = index + 1;
+        }
+    }
+    return value;
+}
+
+/// Find a failing string from a seeded run over an alphabet, shrinking it
+/// before it is returned.
+pub fn find_text(fn (string) -> bool check, int seed, int iterations, int length) -> Option[string] {
+    let int state = seed;
+    let index = 0;
+    const alphabet = "abcdefghijklmnopqrstuvwxyz";
+    while index < iterations {
+        state = next(state);
+        let string candidate = "";
+        let at = 0;
+        while at < length {
+            const position = state % 26;
+            candidate = candidate + alphabet.slice(position, position + 1);
+            state = next(state);
+            at = at + 1;
+        }
+        if !check(candidate) {
+            return Some(shrink_text(check, candidate));
+        }
+        index = index + 1;
+    }
+    return None;
 }

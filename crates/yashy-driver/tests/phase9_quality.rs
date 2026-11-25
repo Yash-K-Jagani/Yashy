@@ -36,6 +36,18 @@ fn run(root: &Path, source: &str, name: &str, expected: &str, packages: &[&str])
 }
 
 #[test]
+fn property_shrinking_program_is_checked() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    run(
+        &root,
+        "packages/test/tests/properties.ya",
+        "p9-properties",
+        "p9-properties-ok",
+        &["test"],
+    );
+}
+
+#[test]
 fn fuzz_campaign_program_is_checked() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     run(
