@@ -1,0 +1,131 @@
+// Subcommand dispatch for the CLI package.
+//
+// A command table is one `name|description|declarations` line per command,
+// where `declarations` is the same newline-separated string `cli.parse` reads.
+// The table is the single model: it renders top-level help, dispatches a
+// command and hands that command's own declaration string to the parser.
+
+import cli;
+
+/// The parsed state after a command has been selected.
+pub struct Invocation {
+    pub command: string,
+    pub declarations: string,
+    pub flags: []string,
+    pub values: []string,
+    pub positionals: []string,
+    pub help: bool,
+}
+
+fn app_field(string line, int wanted) -> string {
+    const parts = line.split("\t");
+    const value = switch parts[wanted] {
+        case Some(part) {
+            part
+        }
+        case None {
+            ""
+        }
+    };
+    const owned = value.slice(0, value.len());
+    parts.free();
+    return owned;
+}
+
+/// The name of one command line.
+pub fn name(string line) -> string {
+    return app_field(line, 0);
+}
+
+fn index_of(string commands, string wanted) -> int {
+    let start = 0;
+    while start < commands.len() {
+        const end = app_line_end(commands, start);
+        const line = commands.slice(start, end);
+        if name(line) == wanted {
+            return start;
+        }
+        start = end + 1;
+    }
+    return -1;
+}
+
+fn app_line_end(string text, int start) -> int {
+    let at = start;
+    while at < text.len() {
+        if text.byte_at(at).to_int() == 10 {
+            return at;
+        }
+        at = at + 1;
+    }
+    if start < text.len() {
+        return text.len();
+    }
+    return -1;
+}
+
+/// The top-level usage, generated from the command table.
+pub fn overview(string program, string commands) -> string {
+    let text = "usage: ${program} <command> [options] [operands]";
+    let start = 0;
+    while start < commands.len() {
+        const end = app_line_end(commands, start);
+        const line = commands.slice(start, end);
+        if line.len() > 0 {
+            text = text + "\n  " + name(line) + ": " + app_field(line, 1);
+        }
+        start = end + 1;
+    }
+    return text + "\n  --help: show this help";
+}
+
+/// Select a command and parse its own flags. The first operand names the
+/// command; everything after it reaches the command's parser. An unknown
+/// command stays as a positional so the caller can report it with the same
+/// usage text a missing command gets.
+pub fn dispatch(string program, string commands, []string arguments) -> Invocation {
+    let selected = "";
+    let declarations = "";
+    let rest = []string {};
+    let help = false;
+    let index = 0;
+    let bool found = false;
+    while index < arguments.len() {
+        const slot = arguments[index];
+        const argument = switch slot {
+            case Some(value) {
+                value
+            }
+            case None {
+                ""
+            }
+        };
+        if !found && argument != "--help" && argument != "-h" {
+            const at = index_of(commands, argument);
+            if at >= 0 {
+                const line = commands.slice(at, app_line_end(commands, at));
+                selected = name(line);
+                const encoded = app_field(line, 2);
+                declarations = encoded.replace(";", "\n");
+                found = true;
+                index = index + 1;
+                continue;
+            }
+        }
+        if argument == "--help" || argument == "-h" {
+            help = true;
+        }
+        rest.push(argument);
+        index = index + 1;
+    }
+    arguments.free();
+    const parsed = cli.parse_arguments(program + " " + selected, declarations, move rest);
+    return Invocation {
+        command: selected,
+        declarations: declarations,
+        flags: move parsed.flags,
+        values: move parsed.values,
+        positionals: move parsed.positionals,
+        help: help || parsed.help,
+    };
+}

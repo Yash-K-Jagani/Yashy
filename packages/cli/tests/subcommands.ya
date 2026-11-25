@@ -1,0 +1,40 @@
+// Subcommands, required options, generated help and completions.
+import app;
+
+import cli;
+
+import complete;
+
+fn main() {
+    const commands = "serve\tServe HTTP\tverbose|log more|flag|v|;output|write here|value||;path|where|value|||required\ninit\tCreate config\tforce|overwrite|flag||";
+    let arguments = []string {
+        "serve", "--output=out", "--path=/tmp", "-v", "leaf"
+    };
+    const call = app.dispatch("tool", commands, move arguments);
+    assert(call.command == "serve");
+    assert(!call.help);
+    assert(cli.has_flag(call.flags, "verbose"));
+    const output = cli.value(call.values, "output");
+    assert(output matches Some("out"));
+    assert(cli.positional(call.positionals, 0) matches Some("leaf"));
+
+    const usage = app.overview("tool", commands);
+    assert(usage.contains("serve: Serve HTTP"));
+    assert(usage.contains("init: Create config"));
+
+    let help_arguments = []string {
+        "--help"
+    };
+    const top = app.dispatch("tool", commands, move help_arguments);
+    assert(top.help);
+    const selected = top.command;
+    assert(selected.len() == 0);
+    assert(!cli.has_flag(top.flags, "verbose"));
+    assert(cli.value(top.values, "output") matches None);
+    assert(cli.positional(top.positionals, 0) matches None);
+
+    const zsh = complete.script("tool", "zsh", "verbose|log more|flag||");
+    assert(zsh.contains("tool"));
+    assert(zsh.contains("verbose"));
+    print("cli-subcommands-ok");
+}

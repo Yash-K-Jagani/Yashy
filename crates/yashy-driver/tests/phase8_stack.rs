@@ -85,6 +85,42 @@ fn auth_session_cache_jobs_program_is_checked() {
 }
 
 #[test]
+fn cli_subcommands_program_is_checked() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    run(
+        &root,
+        "packages/cli/tests/subcommands.ya",
+        "p8-cli-subcommands",
+        "cli-subcommands-ok",
+        &["cli"],
+    );
+}
+
+#[test]
+fn cli_required_option_is_a_usage_error() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut paths = root.join("crates/yashy-stdlib/yashy").display().to_string();
+    paths.push_str(path_separator());
+    paths.push_str(&root.join("packages/cli/src").display().to_string());
+    let dir = common::work_dir("p8-cli-required");
+    let binary = dir.join(format!("cli-required{}", std::env::consts::EXE_SUFFIX));
+    let build = Command::new(common::yashyc())
+        .arg("build")
+        .arg(root.join("packages/cli/tests/required.ya"))
+        .arg("-o")
+        .arg(&binary)
+        .env("YASHY_PATH", &paths)
+        .current_dir(&root)
+        .output()
+        .expect("the compiler must run");
+    assert!(build.status.success(), "{}", String::from_utf8_lossy(&build.stderr));
+    let output = Command::new(&binary).output().expect("the program must run");
+    assert_eq!(output.status.code(), Some(2), "a missing required option must exit 2");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("missing required --path"), "unexpected stderr: {stderr}");
+}
+
+#[test]
 fn service_packages_program_is_checked() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     run(

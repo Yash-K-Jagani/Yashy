@@ -1,0 +1,11 @@
+// A required option is a usage error, not a silent missing value.
+import app;
+
+fn main() {
+    const commands = "build\tBuild\tpath|where|value|||required";
+    let arguments = []string {
+        "build"
+    };
+    const call = app.dispatch("tool", commands, move arguments);
+    print("unexpected");
+}

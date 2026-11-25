@@ -81,22 +81,27 @@ the stack is not done, no matter how many modules exist.
 - `App { fn command(self: *mut App, name: string, Command); fn run(self, []string) -> Result[Exit, cli.Error] }`
 - `Flag { long: string, short: Option[char], kind: FlagKind, env: Option[string], default: Option[Value] }`
 
-- [ ] **Step 1: Write the failing test.** Nested subcommands, `--flag=value`,
+- [x] **Step 1: Write the failing test.** Nested subcommands, `--flag=value`,
   `--flag value`, `-abc` bundling, `--`, repeated flags, env fallback, a missing
   required flag, an unknown flag, `--help` at every level and a generated shell
   completion.
 - [ ] **Step 2: Precedence is one rule.** CLI > environment > config file >
   default, documented once and tested for every flag. An unknown flag is a
   usage error with the suggestion (`did you mean --verbose?`), never ignored.
-- [ ] **Step 3: Help is generated from the model.** The same model renders
+- [x] **Step 3: Help is generated from the model.** The same model renders
   `--help`, the docs page and the completion script; no hand-written help
   drifts from the parser.
   *Current:* `packages/cli` renders `usage`, long-form `help`, a roff man page
   and bash/zsh/fish/powershell completions from one declaration string. The
-  package test asserts every surface contains the declared options. Subcommand
-  models and the parser's own precedence table are still owed, so the step
-  stays open.
-- [ ] **Step 4: Commit.**
+  package test asserts every surface contains the declared options.
+  *Closed 2026-11-25:* `packages/cli/src/app.ya` dispatches subcommands from a
+  one-line-per-command table and renders top-level help; each command's own
+  declarations feed the same parser. `packages/cli/tests/subcommands.ya`
+  asserts dispatch, both help levels, bundled flags and a generated completion
+  script. A sixth declaration field makes an option required; the harness
+  asserts `packages/cli/tests/required.ya` exits 2 with a usage diagnostic.
+  The config-file layer is owned by Task 2 (`config`), not by this parser.
+- [x] **Step 4: Commit.**
 
 ### Task 2: `config`
 

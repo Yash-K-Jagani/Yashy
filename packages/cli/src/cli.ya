@@ -308,6 +308,46 @@ pub fn parse_arguments(string program, string declarations, []string arguments) 
         }
         start = end + 1;
     }
+    // A sixth field names a required option. The declaration is the single
+    // source of truth, so a missing required flag is a usage error here
+    // rather than a check repeated at every call site.
+    start = 0;
+    while start < declarations.len() {
+        const end = line_end(declarations, start);
+        const line = declarations.slice(start, end);
+        const required = declaration_field(line, 5);
+        if required.len() > 0 {
+            const name = declaration_name(line);
+            let present = false;
+            if declaration_kind(line) == "value" {
+                let vi = 0;
+                while vi < values.len() {
+                    const key = switch values[vi] {
+                        case Some(v) {
+                            v
+                        }
+                        case None {
+                            ""
+                        }
+                    };
+                    if key == name {
+                        present = true;
+                    }
+                    vi = vi + 2;
+                }
+            } else {
+                for flag in flags {
+                    if flag == name {
+                        present = true;
+                    }
+                }
+            }
+            if !present {
+                fail(program, declarations, "missing required --${name} (${required})");
+            }
+        }
+        start = end + 1;
+    }
     return Parsed {
         flags: move flags,
         values: move values,
