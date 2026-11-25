@@ -1,0 +1,24 @@
+// API service: typed routes, liveness, a bounded drain and an OpenAPI
+// document generated from the route table. No hidden framework state: the
+// lifecycle is a value the handler owns.
+
+import health;
+
+import lifecycle;
+
+import openapi;
+
+fn main() {
+    let service = lifecycle.begin();
+    assert(service.arrive());
+    service.complete();
+    const phase = service.drain(100);
+    assert(phase == "draining");
+    assert(service.settle(50) == "stopped");
+
+    const checks = health.dependency("db", true) + "\n" + health.dependency("cache", true);
+    const ready = health.ready(checks);
+    assert(ready.contains("\"status\":\"ready\""));
+    print(health.live());
+    print(openapi.document("items", "GET|/items||Item||\nPOST|/items|NewItem|Item||"));
+}

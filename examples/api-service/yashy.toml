@@ -1,0 +1,4 @@
+[package]
+name = "api-service"
+version = "0.1.0"
+description = "HTTP service shape: typed routes, health, readiness, drain and metrics"

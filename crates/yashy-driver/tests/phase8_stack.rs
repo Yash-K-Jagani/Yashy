@@ -181,6 +181,36 @@ fn service_lifecycle_program_is_checked() {
 }
 
 #[test]
+fn api_service_example_runs() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    run(
+        &root,
+        "examples/api-service/main.ya",
+        "p8-example-api",
+        "{\"status\":\"ok\"}\n{\"openapi\":\"3.1.0\",\"info\":{\"title\":\"items\",\"version\":\"1.0.0\"},\"paths\":{\"/items\":{\"get\":{\"responses\":{\"200\":{\"description\":\"ok\"}}}},\"/items\":{\"post\":{\"requestBody\":{\"content\":{\"application/json\":{}}},\"responses\":{\"200\":{\"description\":\"ok\"}}}}}}",
+        &["http"],
+    );
+}
+
+#[test]
+fn cli_tool_example_runs() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    run(&root, "examples/cli-tool/main.ya", "p8-example-cli", "name: config-user", &["cli", "config"]);
+}
+
+#[test]
+fn web_app_example_runs() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    run(
+        &root,
+        "examples/web-app/main.ya",
+        "p8-example-web",
+        "<h1>Hello &lt;b&gt;Ada&lt;/b&gt;</h1>",
+        &["template", "auth", "session"],
+    );
+}
+
+#[test]
 fn service_packages_program_is_checked() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     run(

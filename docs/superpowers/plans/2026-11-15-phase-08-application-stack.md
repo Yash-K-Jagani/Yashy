@@ -53,6 +53,11 @@ security mistake is easy and a good default is worth a package.
 The three examples are the phase's contract: if they are not pleasant to build,
 the stack is not done, no matter how many modules exist.
 
+Landed for Task 7 (2026-11-25): `examples/api-service`, `examples/cli-tool`
+and `examples/web-app` are projects with their own smoke tests; the security
+review is in `examples/README.md`. The two-OS load row remains in
+`docs/gates.md`.
+
 ## Starting point
 
 | Fact | 1.0 value |
@@ -231,17 +236,17 @@ the stack is not done, no matter how many modules exist.
 - Modify: `docs/tutorial/` (new chapters), `examples/README.md` (create if absent)
 - Test: `crates/yashy-driver/tests/examples.rs`
 
-- [ ] **Step 1: API service.** HTTP + Postgres/SQLite + migrations + auth +
+- [x] **Step 1: API service.** HTTP + Postgres/SQLite + migrations + auth +
   jobs + metrics; its own test suite and a load script.
-- [ ] **Step 2: CLI tool.** `cli` + SQLite + config + output formats
+- [x] **Step 2: CLI tool.** `cli` + SQLite + config + output formats
   (`--json`, table); a shell-completion test.
-- [ ] **Step 3: Web app.** Server-rendered templates + sessions + CSRF + a
+- [x] **Step 3: Web app.** Server-rendered templates + sessions + CSRF + a
   form POST + static files; an end-to-end browser-free test using the HTTP
   client.
-- [ ] **Step 4: Security review.** Each example's auth, session, CSRF, SQL,
+- [x] **Step 4: Security review.** Each example's auth, session, CSRF, SQL,
   template escaping, secret handling and error responses are reviewed against a
   checklist; findings are fixed or recorded as exceptions with a date.
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ### Task 8: `yashyc dev` — the development loop
 

@@ -107,6 +107,14 @@ fn wordcount_builds_and_tests() {
 }
 
 #[test]
+fn phase8_examples_build_and_test() {
+    for name in ["api-service", "cli-tool", "web-app"] {
+        let dir = example(name);
+        run_test(&dir);
+    }
+}
+
+#[test]
 fn json_report_builds_and_tests() {
     let dir = example("json-report");
     run_test(&dir);

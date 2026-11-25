@@ -1,0 +1,40 @@
+// CLI tool: one declaration table drives flags, precedence and output shape.
+import cli;
+
+import config;
+
+import config_toml;
+
+fn main() {
+    const declarations = "json|JSON output|flag||\nname|Name to greet|value||";
+    let arguments = args();
+    const parsed = cli.parse_arguments("cli-tool", declarations, move arguments);
+    const use_json = cli.has_flag(parsed.flags, "json");
+    const name_option = cli.value(parsed.values, "name");
+    const pending = move parsed.positionals;
+    pending.free();
+
+    const found = config.resolve("", "YASHY_EXAMPLE_", config_toml.parse_toml("name = config-user\n"), "name=world", "name");
+    const configured = switch found {
+        case Some(value) {
+            value
+        }
+        case None {
+            "world"
+        }
+    };
+    const name = switch name_option {
+        case Some(value) {
+            value
+        }
+        case None {
+            configured
+        }
+    };
+
+    if use_json {
+        print("{\"name\":\"" + name + "\"}");
+    } else {
+        print("name: " + name);
+    }
+}

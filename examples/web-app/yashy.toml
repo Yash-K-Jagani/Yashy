@@ -1,0 +1,4 @@
+[package]
+name = "web-app"
+version = "0.1.0"
+description = "Server-rendered web app shape: escaped templates, sessions and CSRF"

@@ -1,0 +1,4 @@
+[package]
+name = "cli-tool"
+version = "0.1.0"
+description = "CLI shape: flags, layered config, TOML input and two output formats"

@@ -1,11 +1,11 @@
 // TOML layers, value origin and typed decoding.
 import config;
 
-import toml;
+import config_toml;
 
 fn main() {
     const source = "[server]\nport = 8080\nhost = \"db.local\"\n[auth]\ntoken = \"s3cr3t\"\n[flags]\nenabled = true\n";
-    const layer = toml.parse_toml(source);
+    const layer = config_toml.parse_toml(source);
     assert(layer.contains("server.port=8080"));
     assert(layer.contains("server.host=db.local"));
     assert(layer.contains("auth.token=s3cr3t"));

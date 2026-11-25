@@ -1,0 +1,20 @@
+// Web app: render an escaped page, sign a session and mint a CSRF token.
+import template;
+
+import session;
+
+import csrf;
+
+fn main() {
+    const variables = "name=<b>Ada</b>\n";
+    const page = template.render("<h1>Hello {{name}}</h1>", variables);
+    assert(page.contains("&lt;b&gt;Ada&lt;/b&gt;"));
+
+    const signed = session.sign("key", "user=7");
+    assert(session.verify("key", signed) matches Some("user=7"));
+    assert(session.verify("other", signed) matches None);
+
+    const token = csrf.token("secret", "nonce");
+    assert(csrf.valid("secret", "nonce", token));
+    print(page);
+}
