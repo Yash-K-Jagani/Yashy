@@ -67,6 +67,18 @@ fn config_layers_program_is_checked() {
 }
 
 #[test]
+fn config_typed_program_is_checked() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    run(
+        &root,
+        "packages/config/tests/typed.ya",
+        "p8-config-typed",
+        "config-typed-ok",
+        &["config"],
+    );
+}
+
+#[test]
 fn template_render_program_is_checked() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     run(&root, "packages/template/tests/render.ya", "p8-template", "template-ok", &["template"]);

@@ -121,10 +121,10 @@ the stack is not done, no matter how many modules exist.
   the explicit read, `show_secret` renders only a mask and `resolve_secret`
   wraps at the layer walk. TOML and typed struct decoding still need the codec
   phase, so the step stays open.
-- [ ] **Step 2: Typed and layered.** Config is a struct decoded through the
+- [x] **Step 2: Typed and layered.** Config is a struct decoded through the
   Phase 7 codec; each layer records where a value came from; a secret is a
   distinct type that cannot be printed or serialised by accident.
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ### Task 3: `template`
 

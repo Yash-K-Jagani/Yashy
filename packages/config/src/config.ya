@@ -103,6 +103,70 @@ fn no_secret() -> Option[Secret] {
     return None;
 }
 
+/// A resolved value and the layer it came from. The origin is data, so a
+/// startup log can say where each setting came from without re-resolving it.
+pub struct Resolution {
+    pub value: string,
+    pub origin: string,
+}
+
+/// Resolve a key and report which layer answered. The order is CLI, environment,
+/// file, default — the same order as `resolve`, rendered as data.
+pub fn resolve_at(
+string cli,
+string environment_prefix,
+string file,
+string defaults,
+string name,
+) -> Resolution {
+    if let Some(value) = value_in(cli, name) {
+        return Resolution {
+            value: value, origin: "cli"
+        };
+    }
+    if let Some(value) = getenv(environment_prefix + name.to_upper()) {
+        return Resolution {
+            value: value, origin: "environment"
+        };
+    }
+    if let Some(value) = value_in(file, name) {
+        return Resolution {
+            value: value, origin: "file"
+        };
+    }
+    if let Some(value) = value_in(defaults, name) {
+        return Resolution {
+            value: value, origin: "default"
+        };
+    }
+    return Resolution {
+        value: "", origin: "missing"
+    };
+}
+
+/// Decode a resolved value as an integer, or `None` when its line does not
+/// hold one. The key path is the caller's, so a wrong type can name the line.
+pub fn as_int(string value) -> Option[int] {
+    return value.parse_i64();
+}
+
+/// Decode a resolved value as a boolean. Only `true` and `false` are booleans;
+/// `0` and `1` are integers and are not silently coerced.
+pub fn as_bool(string value) -> Option[bool] {
+    if value == "true" {
+        return Some(true);
+    }
+    if value == "false" {
+        return Some(false);
+    }
+    return None;
+}
+
+/// Whether a key is absent from every layer.
+pub fn absent(Resolution found) -> bool {
+    return found.origin == "missing";
+}
+
 /// Whether a name marks a secret value.
 pub fn is_secret(string name) -> bool {
     const lowered = name.to_lower();

@@ -1,0 +1,43 @@
+// TOML layers, value origin and typed decoding.
+import config;
+
+import toml;
+
+fn main() {
+    const source = "[server]\nport = 8080\nhost = \"db.local\"\n[auth]\ntoken = \"s3cr3t\"\n[flags]\nenabled = true\n";
+    const layer = toml.parse_toml(source);
+    assert(layer.contains("server.port=8080"));
+    assert(layer.contains("server.host=db.local"));
+    assert(layer.contains("auth.token=s3cr3t"));
+    assert(layer.contains("flags.enabled=true"));
+
+    const cli = "server.port=9090\n";
+    const defaults = "server.port=3000\nserver.host=localhost\n";
+    const from_cli = config.resolve_at(cli, "", layer, defaults, "server.port");
+    assert(from_cli.value == "9090");
+    assert(from_cli.origin == "cli");
+    assert(config.as_int(from_cli.value) matches Some(9090));
+
+    const from_file = config.resolve_at("", "", layer, defaults, "server.host");
+    assert(from_file.value == "db.local");
+    assert(from_file.origin == "file");
+
+    const from_default = config.resolve_at("", "", "", defaults, "server.host");
+    assert(from_default.value == "localhost");
+    assert(from_default.origin == "default");
+
+    const missing = config.resolve_at("", "", "", "", "server.port");
+    assert(config.absent(missing));
+    assert(config.as_bool("true") matches Some(true));
+    assert(config.as_bool("1") matches None);
+
+    const token = config.resolve_secret("", "", layer, "", "auth.token");
+    if let Some(wrapped) = token {
+        const shown = config.show_secret("auth.token", wrapped);
+        assert(shown.contains("***"));
+        assert(!shown.contains("s3cr3t"));
+    } else {
+        assert(false);
+    }
+    print("config-typed-ok");
+}

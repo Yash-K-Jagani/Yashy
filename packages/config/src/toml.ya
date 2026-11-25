@@ -1,0 +1,48 @@
+// TOML input as one `name=value` layer.
+//
+// The config package resolves identical `name=value` text from every layer.
+// This module turns a small TOML subset into that text: `[section]` headers,
+// `key = value` pairs, quoted strings, integers, booleans, comments and blank
+// lines. Dotted names are flattened (`server.port=8080`), which is the key
+// path a required-key diagnostic names.
+
+/// Normalise TOML text into the layer format `config.resolve_at` reads.
+pub fn parse_toml(string text) -> string {
+    const lines = text.split("\n");
+    let section = "";
+    let out = "";
+    for line in lines {
+        const trimmed = line.trim();
+        if trimmed.len() == 0 || trimmed.starts_with("#") {
+            continue;
+        }
+        if trimmed.starts_with("[") && trimmed.ends_with("]") {
+            section = trimmed.slice(1, trimmed.len() - 1);
+            continue;
+        }
+        const at = trimmed.index_of("=");
+        if let Some(equal) = at {
+            const raw_key = trimmed.slice(0, equal);
+            const raw_value = trimmed.slice(equal + 1, trimmed.len());
+            const key = raw_key.trim();
+            const value = unquote(raw_value.trim());
+            if section.len() > 0 {
+                out = out + section + "." + key + "=" + value + "\n";
+            } else {
+                out = out + key + "=" + value + "\n";
+            }
+        }
+    }
+    lines.free();
+    return out;
+}
+
+fn unquote(string value) -> string {
+    if value.len() >= 2 && value.starts_with("\"") && value.ends_with("\"") {
+        return value.slice(1, value.len() - 1);
+    }
+    if value.len() >= 2 && value.starts_with("'") && value.ends_with("'") {
+        return value.slice(1, value.len() - 1);
+    }
+    return value;
+}
