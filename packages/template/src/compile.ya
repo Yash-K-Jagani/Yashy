@@ -1,0 +1,68 @@
+// Compile a template once, then render it many times.
+//
+// Compilation is a validation pass: it checks that every `if`, `for` and
+// placeholder is closed and names the line of the first problem. The source
+// it returns is the same text the renderer consumes, so there is no second
+// representation to keep in sync.
+
+/// Count newlines before an offset, so a diagnostic can name a line.
+fn line_of(string text, int at) -> int {
+    const before = text.slice(0, at);
+    const lines = before.split("\n");
+    const count = lines.len();
+    lines.free();
+    return count;
+}
+
+fn next(string text, string needle, int start) -> int {
+    if start >= text.len() {
+        return -1;
+    }
+    const rest = text.slice(start, text.len());
+    if let Some(at) = rest.index_of(needle) {
+        return start + at;
+    }
+    return -1;
+}
+
+/// Validate a template. On success the returned text is the compiled source;
+/// on failure the error names the line and the unclosed form.
+pub fn compile(string source) -> Result[string, string] {
+    let text = source;
+    while true {
+        const open = next(text, "{{", 0);
+        if open < 0 {
+            break;
+        }
+        const close = next(text, "}}", open + 2);
+        if close < 0 {
+            return Err("line " + str_from_i64(line_of(text, open)) + ": unclosed placeholder");
+        }
+        text = text.slice(close + 2, text.len());
+    }
+    let body = source;
+    while true {
+        const at = next(body, "{% for ", 0);
+        if at < 0 {
+            break;
+        }
+        const end = next(body, "{% endfor %}", at);
+        if end < 0 {
+            return Err("line " + str_from_i64(line_of(body, at)) + ": unclosed for");
+        }
+        body = body.slice(end + 12, body.len());
+    }
+    body = source;
+    while true {
+        const at = next(body, "{% if ", 0);
+        if at < 0 {
+            break;
+        }
+        const end = next(body, "{% endif %}", at);
+        if end < 0 {
+            return Err("line " + str_from_i64(line_of(body, at)) + ": unclosed if");
+        }
+        body = body.slice(end + 11, body.len());
+    }
+    return Ok(source);
+}

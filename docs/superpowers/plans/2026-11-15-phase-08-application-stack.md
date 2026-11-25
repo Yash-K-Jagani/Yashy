@@ -132,7 +132,7 @@ the stack is not done, no matter how many modules exist.
 - Create: `packages/template/src/{parse,render,escape,filter}.ya`
 - Test: `packages/template/tests/`
 
-- [ ] **Step 1: Write the failing test.** A template with a loop, a condition,
+- [x] **Step 1: Write the failing test.** A template with a loop, a condition,
   a nested field, an escaped value and a raw fragment; an auto-escaped HTML
   context; a missing field is an error naming the path, not an empty string.
 - [ ] **Step 2: Escaping is contextual.** HTML, attribute, URL and JS contexts
@@ -142,12 +142,16 @@ the stack is not done, no matter how many modules exist.
   helpers (`escape_html`, `escape_attr`, `escape_url`, `escape_js`), auto-escapes
   `{{name}}`, and requires `{{!name}}` for raw text. The package test pins all
   four spellings. A template-derived context (rather than a caller-chosen
-  helper), loops and missing-field errors are still owed, so the step stays
-  open.
-- [ ] **Step 3: Compile once, render many.** A template parses to an AST at
+  helper).
+  *Compile pass:* `packages/template/src/compile.ya` validates placeholder and
+  block balance once and names the line of the first unclosed form.
+  *Closed 2026-11-25:* `{{url:}}`, `{{attr:}}`, `{{js:}}` and `{{!}}` name the
+  context in the template; `{% for name %}` repeats a body over a repeated
+  variable; `render_checked` reports a missing path instead of an empty string.
+- [x] **Step 3: Compile once, render many.** A template parses to an AST at
   startup; a parse error is a startup diagnostic with a line and column; a
   render error names the field and the template line.
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ### Task 4: `auth`, `session` and `cache`
 

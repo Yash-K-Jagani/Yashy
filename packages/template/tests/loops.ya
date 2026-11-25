@@ -1,0 +1,28 @@
+// Compiled templates: loops, contexts, and missing-field diagnostics.
+import template;
+
+import compile;
+
+fn main() {
+    const source = "{% for item %}[{{item}}|{{!item}}] {% endfor %}{% if show %}<a href=\"{{url:target}}\" title=\"{{attr:label}}\">{{js:name}}</a>{% endif %}";
+    const compiled = compile.compile(source);
+    if let Ok(text) = compiled {
+        assert(text == source);
+    } else {
+        assert(false);
+    }
+
+    const variables = "item=alpha\nitem=<b>\nshow=true\ntarget=a b&c\nlabel=x\"y\nname=x'y\n";
+    const page = template.render(source, variables);
+    assert(page.contains("[alpha|alpha]"));
+    assert(page.contains("[&lt;b&gt;|<b>]"));
+    assert(page.contains("%20") && page.contains("%26"));
+    assert(page.contains("x&quot;y"));
+    assert(page.contains("x\\'y"));
+
+    const checked = template.render_checked("{{absent}}", variables);
+    assert(checked matches Err("absent: missing variable"));
+    const broken = compile.compile("{% if x %}oops");
+    assert(broken matches Err("line 1: unclosed if"));
+    print("template-loops-ok");
+}

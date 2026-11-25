@@ -85,6 +85,18 @@ fn template_render_program_is_checked() {
 }
 
 #[test]
+fn template_loops_program_is_checked() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    run(
+        &root,
+        "packages/template/tests/loops.ya",
+        "p8-template-loops",
+        "template-loops-ok",
+        &["template"],
+    );
+}
+
+#[test]
 fn auth_session_cache_jobs_program_is_checked() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     run(

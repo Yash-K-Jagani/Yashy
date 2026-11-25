@@ -1,10 +1,11 @@
 // A small template renderer.
 //
-// A template is a string with `{{name}}` placeholders and `{% if name %}...{%
-// endif %}` blocks. Variables are one `name=value` line each. Values are HTML
-// escaped by default; `{{!name}}` is the explicit raw spelling. Contextual
-// escape helpers are separate functions so a caller chooses the escaping a
-// position needs instead of relying on a global mode.
+// A template is a string with `{{name}}` placeholders, `{% if name %}...{%
+// endif %}` blocks and `{% for name %}...{% endfor %}` loops. Variables are
+// one `name=value` line each; a repeated name is the loop's list. Values are
+// HTML escaped by default. `{{!name}}` is explicit trusted raw text, and
+// `{{url:name}}`, `{{attr:name}}` and `{{js:name}}` name the context in the
+// template itself, so the renderer never guesses it at run time.
 
 /// Replace the four characters that change HTML's structure.
 pub fn escape_html(string text) -> string {
@@ -50,7 +51,8 @@ fn find_from(string text, string needle, int start) -> int {
     return 0 - 1;
 }
 
-/// Read a variable. A missing name is the empty string, never a sentinel.
+/// Read a variable. A missing name is the empty string; `render_checked` is
+/// the entry point that turns a missing name into a diagnostic.
 pub fn lookup(string variables, string name) -> string {
     const lines = variables.split("\n");
     let found = "";
@@ -66,6 +68,109 @@ pub fn lookup(string variables, string name) -> string {
     }
     lines.free();
     return found;
+}
+
+/// Every value bound to a name, in declaration order. A repeated name is the
+/// input of a `for` block.
+pub fn all(string variables, string name) -> []string {
+    let values = []string {};
+    const lines = variables.split("\n");
+    for line in lines {
+        if let Some(split) = line.index_of("=") {
+            const key = line.slice(0, split);
+            if key == name {
+                const value = line.slice(split + 1, line.len());
+                values.push(value.slice(0, value.len()));
+            }
+        }
+    }
+    lines.free();
+    return values;
+}
+
+fn exists(string variables, string name) -> bool {
+    const lines = variables.split("\n");
+    let found = false;
+    for line in lines {
+        if let Some(split) = line.index_of("=") {
+            const key = line.slice(0, split);
+            if key == name {
+                found = true;
+            }
+        }
+    }
+    lines.free();
+    return found;
+}
+
+/// The first placeholder with no matching variable, or `None` when every
+/// placeholder is bound.
+pub fn missing(string source, string variables) -> Option[string] {
+    let text = source;
+    while true {
+        const at = find_from(text, "{{", 0);
+        if at < 0 {
+            return None;
+        }
+        const stop = find_from(text, "}}", at + 2);
+        if stop < 0 {
+            return None;
+        }
+        const inner = text.slice(at + 2, stop);
+        const name = placeholder_name(inner);
+        if !exists(variables, name) {
+            return Some(name);
+        }
+        text = text.slice(stop + 2, text.len());
+    }
+    return None;
+}
+
+fn placeholder_name(string inner) -> string {
+    if inner.starts_with("!") {
+        return inner.slice(1, inner.len());
+    }
+    const colon = inner.index_of(":");
+    if let Some(at) = colon {
+        return inner.slice(at + 1, inner.len());
+    }
+    return inner;
+}
+
+/// Expand loops. The body is repeated once per value of the loop's name, and
+/// its `{{name}}` placeholder is bound to that value before value expansion.
+fn expand_loops(string source, string variables) -> string {
+    let text = source;
+    while true {
+        const at = find_from(text, "{% for ", 0);
+        if at < 0 {
+            break;
+        }
+        const after = at + 7;
+        const stop = find_from(text, " %}", after);
+        if stop < 0 {
+            break;
+        }
+        const end_at = find_from(text, "{% endfor %}", stop + 3);
+        if end_at < 0 {
+            break;
+        }
+        const name = text.slice(after, stop);
+        const body = text.slice(stop + 3, end_at);
+        const marker = "{{" + name + "}}";
+        const items = all(variables, name.slice(0, name.len()));
+        let repeated = "";
+        for item in items {
+            const escaped = escape_html(item);
+            const raw_marker = "{{!" + name + "}}";
+            const once = body.replace(marker, escaped);
+            const expanded = once.replace(raw_marker, item);
+            repeated = repeated + expanded;
+        }
+        items.free();
+        text = text.slice(0, at) + repeated + text.slice(end_at + 12, text.len());
+    }
+    return text;
 }
 
 /// Expand the conditional blocks before the placeholders.
@@ -97,7 +202,9 @@ fn expand_ifs(string source, string variables) -> string {
     return text;
 }
 
-/// Replace `{{name}}` with the escaped value, or `{{!name}}` with the raw one.
+/// Replace `{{name}}` with an escaped value. A `!`, `url:`, `attr:` or `js:`
+/// prefix in the template selects the context; nothing is inferred at render
+/// time.
 fn expand_values(string source, string variables) -> string {
     let text = source;
     while true {
@@ -110,15 +217,17 @@ fn expand_values(string source, string variables) -> string {
             break;
         }
         const inner = text.slice(at + 2, stop);
-        const raw = inner.starts_with("!");
-        let name = inner;
-        if raw {
-            name = inner.slice(1, inner.len());
-        }
-        const value = lookup(variables, name.slice(0, name.len()));
+        const name = placeholder_name(inner);
+        const value = lookup(variables, name);
         let rendered = escape_html(value);
-        if raw {
+        if inner.starts_with("!") {
             rendered = value.slice(0, value.len());
+        } else if inner.starts_with("url:") {
+            rendered = escape_url(value);
+        } else if inner.starts_with("attr:") {
+            rendered = escape_attr(value);
+        } else if inner.starts_with("js:") {
+            rendered = escape_js(value);
         }
         text = text.slice(0, at) + rendered + text.slice(stop + 2, text.len());
     }
@@ -127,5 +236,14 @@ fn expand_values(string source, string variables) -> string {
 
 /// Render a template with one `name=value` variable per line.
 pub fn render(string source, string variables) -> string {
-    return expand_values(expand_ifs(source, variables), variables);
+    return expand_values(expand_ifs(expand_loops(source, variables), variables), variables);
+}
+
+/// Render with a field check first. A missing name is an error naming the
+/// path, never an empty string quietly rendered into the page.
+pub fn render_checked(string source, string variables) -> Result[string, string] {
+    if let Some(name) = missing(source, variables) {
+        return Err(name + ": missing variable");
+    }
+    return Ok(render(source, variables));
 }
