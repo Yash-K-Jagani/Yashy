@@ -40,7 +40,11 @@ OIDC/PKCE, WebAuthn, STARTTLS delivery and OTLP export — plus `yashyc dev`,
 `yashyc openapi`/`client`, the signed graceful-restart loop and the three
 full examples are recorded as dated exceptions in `docs/gates.md`. They are
 post-release follow-ups, not open blockers; the phase closes with them
-carried forward. Implementation commit: `a5b1ba8`.
+carried forward. Implementation commit: `a5b1ba8`. All ten tasks were then closed one by one
+through `4b0dd98`; each slice has its own commit and harness evidence. The
+remaining post-release rows in `docs/gates.md` are Argon2id, SMTP STARTTLS,
+signal-driven shutdown, the two-OS load row, the Redis session store, and full
+CBOR/COSE attestation plus an OTLP transport.
 
 ## Why this phase
 

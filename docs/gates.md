@@ -642,9 +642,11 @@ claimed green here.
   on SIGINT and SIGTERM.
 - **Three production-shaped examples** (`api-service`, `cli-tool`, `web-app`)
   with their own tests, security review and two-OS load test — owner:
-  compiler/core. `examples/shop` remains the one worked persistence example.
-  Closes when all three examples build and pass `yashyc test` in the examples
-  harness and the load row is green on both CI OSes.
+  compiler/core. All three examples now build, pass `yashyc test` in the
+  examples harness and run under `phase8_stack.rs` with zero live allocations;
+  `examples/README.md` carries the security review. `examples/shop` remains the
+  worked persistence example. Closes when the load row is green on both CI
+  OSes.
 - **`yashyc dev`** — **closed 2026-11-25.** `crates/yashy-driver/src/dev.rs`
   watches directories, builds through the CLI's own `build` command, keeps the
   last working process alive across a failed edit, and emits one JSON
