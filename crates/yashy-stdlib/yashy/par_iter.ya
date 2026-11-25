@@ -1,0 +1,103 @@
+// Ordered parallel iteration over integer slices.
+//
+// Slices cannot cross a thread boundary, so workers receive packed
+// `(index,value)` pairs over a channel instead of the slice itself. Results
+// carry their index and are sorted before the values are collected, which
+// restores input order regardless of worker completion order. The pool size is
+// passed in; there is no hidden global pool.
+
+fn map_worker(Channel[int] jobs, Channel[int] out, fn (int) -> int transform, int items) {
+    let taken = 0;
+    while taken < items {
+        if let Some(packed) = jobs.recv() {
+            const index = packed / 1000000;
+            const value = packed % 1000000;
+            out.send(index * 1000000 + transform(value));
+        }
+        taken = taken + 1;
+    }
+}
+
+/// Apply `transform` to each element and return results in input order.
+pub fn map([]int values, int workers, fn (int) -> int transform) -> []int {
+    const count = values.len();
+    const Channel[int] jobs = chan_new(count + 1);
+    const Channel[int] out = chan_new(count + 1);
+    let index = 0;
+    while index < count {
+        const slot = values[index];
+        const value = switch slot {
+            case Some(number) {
+                number
+            }
+            case None {
+                0
+            }
+        };
+        jobs.send(index * 1000000 + value);
+        index = index + 1;
+    }
+    values.free();
+
+    let spawned = 0;
+    while spawned < workers {
+        let int extra = 0;
+        if spawned < count % workers {
+            extra = 1;
+        }
+        const items = count / workers + extra;
+        const handle = thread_spawn(map_worker, jobs, out, transform, items);
+        thread_join(handle);
+        spawned = spawned + 1;
+    }
+
+    const packed = []int {};
+    let received = 0;
+    while received < count {
+        if let Some(value) = out.recv() {
+            packed.push(value);
+        }
+        received = received + 1;
+    }
+    packed.sort();
+    const result = []int {};
+    index = 0;
+    while index < count {
+        const slot = packed[index];
+        const value = switch slot {
+            case Some(number) {
+                number
+            }
+            case None {
+                0
+            }
+        };
+        result.push(value % 1000000);
+        index = index + 1;
+    }
+    packed.free();
+    jobs.free();
+    out.free();
+    return result;
+}
+
+/// Sum the elements. This is the sequential reference for a parallel fold.
+pub fn sum([]int values, int workers) -> int {
+    let total = 0;
+    let index = 0;
+    while index < values.len() {
+        const slot = values[index];
+        const value = switch slot {
+            case Some(number) {
+                number
+            }
+            case None {
+                0
+            }
+        };
+        total = total + value;
+        index = index + 1;
+    }
+    values.free();
+    return total;
+}

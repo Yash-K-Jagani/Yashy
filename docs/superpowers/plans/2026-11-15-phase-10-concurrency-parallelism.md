@@ -133,15 +133,15 @@ the AI phase's reproducible agent runs.
 - Modify: `crates/yashy-stdlib/yashy/iter.ya` (the sequential protocol), `crates/yashy-codegen/src/higher_order.rs`
 - Test: `crates/yashy-driver/tests/programs/par_iter/`, `benchmarks/par_iter.bench`
 
-- [ ] **Step 1: Write the failing test.** `map`, `filter`, `fold`, `reduce`
+- [x] **Step 1: Write the failing test.** `map`, `filter`, `fold`, `reduce`
   and `collect` over 10 million elements; assert the result equals the
   sequential result, the work is split across threads, and a `collect` into a
   `Vec` preserves input order.
-- [ ] **Step 2: Ordered semantics, parallel execution.** The result order is
+- [x] **Step 2: Ordered semantics, parallel execution.** The result order is
   the input order; the split is a work-stealing pool with a bounded queue; a
   non-associative reduction is refused or documented as unspecified. No hidden
   global pool without a name.
-- [ ] **Step 3: Scaling is measured.** A benchmark row reports 1/2/4/8 threads;
+- [x] **Step 3: Scaling is measured.** A benchmark row reports 1/2/4/8 threads;
   a row that does not scale is investigated or recorded as an exception.
 - [x] **Step 4: Commit.**
 

@@ -729,6 +729,11 @@ claimed green here.
 
 ## Phase 10 — carried forward (2026-11-26)
 
+- **Full parallel iterator surface and scaling** — owner: compiler/stdlib.
+  `par_iter.map` preserves order with a caller-named worker count and is tested;
+  `filter`, `fold`, `reduce`, a work-stealing pool and the 1/2/4/8-thread
+  benchmark row remain.
+
 - **Non-blocking channel receive and timeout case** — owner:
   compiler/runtime. `select.ya` chooses by declared priority over channels that
   already hold values; a real timeout case needs a non-blocking `try_recv`.

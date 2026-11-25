@@ -27,6 +27,17 @@ fn run(root: &Path, source: &str, name: &str, expected: &str) {
 }
 
 #[test]
+fn parallel_iterator_program_is_checked() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    run(
+        &root,
+        "crates/yashy-driver/tests/programs/parallel_iter.ya",
+        "p10-par-iter",
+        "par-iter-ok",
+    );
+}
+
+#[test]
 fn scope_mpmc_and_cancel_program_is_checked() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     run(

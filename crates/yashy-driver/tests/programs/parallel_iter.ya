@@ -1,0 +1,28 @@
+// Parallel map preserves input order across four workers.
+import par_iter;
+
+fn twice(int value) -> int {
+    return value * 2;
+}
+
+fn main() {
+    let values = []int {};
+    let index = 0;
+    while index < 1000 {
+        values.push(index);
+        index = index + 1;
+    }
+    assert(par_iter.sum(values, 4) == 499500);
+    let other = []int {};
+    let position = 0;
+    while position < 1000 {
+        other.push(position);
+        position = position + 1;
+    }
+    const mapped = par_iter.map(other, 4, twice);
+    assert(mapped.len() == 1000);
+    assert(mapped[0] matches Some(0));
+    assert(mapped[500] matches Some(1000));
+    assert(mapped[999] matches Some(1998));
+    print("par-iter-ok");
+}
