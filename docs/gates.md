@@ -679,6 +679,11 @@ claimed green here.
   above: warmup, N iterations, median/p95, outlier rejection, interleaved A/B
   and `--save-baseline` are implemented and tested.
 
+- **CI coverage/SARIF fixture with LLVM** — owner: compiler/core. The local
+  `ci_template` test checks the template stages and prints `SKIP` for the SARIF
+  assertion when `llvm-profdata` is absent. Closes when a CI job with LLVM runs
+  `coverage --format sarif` and uploads the artifact.
+
 - **`fuzz` CLI campaign runner and finding files** — **partly closed
   2026-11-26.** `packages/fuzz/src/campaign.ya` runs seeded, bounded campaigns
   with shrinking; the library test passes. The `[]u8 -> void` target signature,
