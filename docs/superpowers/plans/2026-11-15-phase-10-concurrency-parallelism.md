@@ -269,7 +269,7 @@ the AI phase's reproducible agent runs.
   without the original process. `yashyc trace inspect` prints the header,
   event counts, redaction summary and the first divergent event between two
   traces.
-- [ ] **Step 7: Commit.**
+- [x] **Step 7: Commit.**
 
 ## Gates
 
