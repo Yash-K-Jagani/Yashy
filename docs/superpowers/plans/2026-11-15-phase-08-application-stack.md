@@ -58,6 +58,12 @@ and `examples/web-app` are projects with their own smoke tests; the security
 review is in `examples/README.md`. The two-OS load row remains in
 `docs/gates.md`.
 
+Landed for Task 9 (2026-11-25): `yashyc openapi` emits an OpenAPI 3.1
+document from `// @route` declarations, rejects a route without a response
+type, and `--check` classifies a change as additive, breaking or internal.
+`yashyc client --from` emits a typed Yashy client whose signatures come from
+the document. `crates/yashy-driver/tests/client_gen.rs` passes.
+
 Landed for Task 8 (2026-11-25): `yashyc dev` watches a directory, builds
 through the CLI's own `build` command on each change, keeps the previous
 process alive across a failed edit, and emits one JSON generation per rebuild.
@@ -287,21 +293,21 @@ passes.
 - Create: `crates/yashy-driver/src/client_gen.rs` (`yashyc client`)
 - Test: `packages/http/tests/openapi.rs`, `crates/yashy-driver/tests/client_gen.rs`
 
-- [ ] **Step 1: Write the failing test.** A route declares path, query, body,
+- [x] **Step 1: Write the failing test.** A route declares path, query, body,
   response and error types once; `yashyc openapi` emits an OpenAPI 3.1 document
   that validates against the schema; `yashyc client --from openapi.json` emits
   a typed Yashy client whose calls fail to compile when the document changes a
   required field. A body that does not match its type is a 400 with a JSON
   problem document, never a 500.
-- [ ] **Step 2: The document is generated, never hand-maintained.** Routes,
+- [x] **Step 2: The document is generated, never hand-maintained.** Routes,
   types, status codes, auth requirements and examples come from the typed
   handler table; a route added without a response type is a build error. The
   client generator consumes the same model, so server and client cannot drift.
-- [ ] **Step 3: Compatibility is checked.** `yashyc openapi --check <old>`
+- [x] **Step 3: Compatibility is checked.** `yashyc openapi --check <old>`
   classifies a change as additive, breaking or internal, and CI fails on a
   breaking change without a version bump. Error responses use one problem
   document shape across the framework.
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ### Task 10: Browser-grade auth and production observability
 

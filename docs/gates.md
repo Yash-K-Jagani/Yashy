@@ -651,11 +651,13 @@ claimed green here.
   generation per rebuild. `crates/yashy-driver/tests/dev.rs` proves
   rebuild-on-change; `docs/dev-loop.md` records that socket inheritance is not
   portable and is therefore not attempted.
-- **`yashyc openapi` and `yashyc client`** — owner: compiler/core. The document
-  generator is a library (`packages/http/src/openapi.ya`); CLI emission, the
-  typed client generator and `openapi --check` compatibility classification
-  are not. Closes when both commands exist and a client fails to compile after
-  a required field changes.
+- **`yashyc openapi` and `yashyc client`** — **closed 2026-11-25.**
+  Both commands exist in `crates/yashy-driver/src/openapi.rs`; the document is
+  generated from `// @route` declarations, the client is generated from it and
+  `--check` classifies additive, breaking and internal changes.
+  `crates/yashy-driver/tests/client_gen.rs` passes. The emitted document uses
+  `x-yashy-*` fields for the typed request/response model rather than a full
+  component schema.
 - **OIDC/PKCE, WebAuthn, OTLP export** — owner: compiler/core. Default headers,
   rate limiting and export-side redaction ship in `packages/auth/src/security.ya`
   and `packages/otel/src/redact.ya`; a JOSE/WebAuthn verifier and an OTLP

@@ -54,6 +54,7 @@ pub mod tokens;
 pub mod toolchain;
 pub mod trace;
 pub mod dev;
+pub mod openapi;
 pub mod watch;
 pub mod workspace;
 

@@ -237,6 +237,8 @@ fn dispatch(args: &[String]) -> ExitCode {
         "serve" => serve(rest),
         "watch" => watch_cmd(rest),
         "dev" => dev_cmd(rest),
+        "openapi" => openapi_cmd(rest),
+        "client" => client_cmd(rest),
         "explain" => explain(rest),
         "init" => init(rest),
         "new" => new_cmd(rest),
@@ -2928,6 +2930,149 @@ fn cache_cmd(args: &[String]) -> ExitCode {
 }
 
 /// `yashyc watch [path]`: re-check the tree whenever a source file changes.
+fn openapi_cmd(args: &[String]) -> ExitCode {
+    let mut source: Option<PathBuf> = None;
+    let mut output: Option<PathBuf> = None;
+    let mut previous: Option<PathBuf> = None;
+    let mut title = "Yashy API".to_string();
+    let mut iter = args.iter();
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
+            "--out" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`--out` needs a path");
+                };
+                output = Some(PathBuf::from(value));
+            }
+            "--check" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`--check` needs a previous document");
+                };
+                previous = Some(PathBuf::from(value));
+            }
+            "--title" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`--title` needs a name");
+                };
+                title = value.clone();
+            }
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `openapi`"))
+            }
+            other => {
+                if source.is_some() {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+                source = Some(PathBuf::from(other));
+            }
+        }
+    }
+    let Some(source) = source else {
+        return usage_error("`openapi` needs a source file");
+    };
+    let text = match std::fs::read_to_string(&source) {
+        Ok(text) => text,
+        Err(error) => {
+            eprintln!("error: cannot read {}: {error}", source.display());
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    let found = yashy_driver::openapi::routes(&text);
+    let missing = yashy_driver::openapi::incomplete(&found);
+    if !missing.is_empty() {
+        for line in &missing {
+            eprintln!("error: {line}");
+        }
+        return exit_code(EXIT_USAGE);
+    }
+    let document = yashy_driver::openapi::document(&title, &found);
+    if let Some(old_path) = previous {
+        let old_text = match std::fs::read_to_string(&old_path) {
+            Ok(text) => text,
+            Err(error) => {
+                eprintln!("error: cannot read {}: {error}", old_path.display());
+                return exit_code(EXIT_USAGE);
+            }
+        };
+        let Ok(old_value) = yashy_common::json_rpc::parse(&old_text) else {
+            return usage_error("the previous document is not valid JSON");
+        };
+        let result = yashy_driver::openapi::check(&old_value, &document);
+        println!("{}", result.as_str());
+        return if result == yashy_driver::openapi::Compatibility::Breaking {
+            ExitCode::from(1)
+        } else {
+            exit_code(EXIT_OK)
+        };
+    }
+    let rendered = yashy_driver::openapi::render(&document);
+    match output {
+        Some(path) => {
+            if let Err(error) = std::fs::write(&path, format!("{rendered}\n")) {
+                eprintln!("error: cannot write {}: {error}", path.display());
+                return exit_code(EXIT_USAGE);
+            }
+        }
+        None => println!("{rendered}"),
+    }
+    exit_code(EXIT_OK)
+}
+
+fn client_cmd(args: &[String]) -> ExitCode {
+    let mut from: Option<PathBuf> = None;
+    let mut output: Option<PathBuf> = None;
+    let mut iter = args.iter();
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
+            "--from" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`--from` needs an OpenAPI document");
+                };
+                from = Some(PathBuf::from(value));
+            }
+            "--out" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`--out` needs a path");
+                };
+                output = Some(PathBuf::from(value));
+            }
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `client`"))
+            }
+            other => {
+                if from.is_some() {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+                from = Some(PathBuf::from(other));
+            }
+        }
+    }
+    let Some(from) = from else {
+        return usage_error("`client` needs `--from <document.json>`");
+    };
+    let text = match std::fs::read_to_string(&from) {
+        Ok(text) => text,
+        Err(error) => {
+            eprintln!("error: cannot read {}: {error}", from.display());
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    let Ok(document) = yashy_common::json_rpc::parse(&text) else {
+        return usage_error("the OpenAPI document is not valid JSON");
+    };
+    let source = yashy_driver::openapi::client_source(&document);
+    match output {
+        Some(path) => {
+            if let Err(error) = std::fs::write(&path, source) {
+                eprintln!("error: cannot write {}: {error}", path.display());
+                return exit_code(EXIT_USAGE);
+            }
+        }
+        None => print!("{source}"),
+    }
+    exit_code(EXIT_OK)
+}
+
 fn dev_cmd(args: &[String]) -> ExitCode {
     let mut path: Option<PathBuf> = None;
     let mut json = false;
