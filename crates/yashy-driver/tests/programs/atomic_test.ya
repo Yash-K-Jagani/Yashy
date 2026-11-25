@@ -1,0 +1,29 @@
+// Atomics with explicit orderings under contention.
+import atomic;
+
+fn bump(AtomicI64 counter) {
+    let index = 0;
+    while index < 1000 {
+        counter.fetch_add(1, Ordering.Relaxed);
+        index = index + 1;
+    }
+}
+
+fn main() {
+    let counter = atomic.atomic_i64(0);
+    let first = thread_spawn(bump, counter);
+    let second = thread_spawn(bump, counter);
+    thread_join(first);
+    thread_join(second);
+    const total = counter.load(Ordering.SeqCst);
+    assert(total == 2000);
+
+    let published = atomic.atomic_i64(0);
+    published.store(42, Ordering.Release);
+    const seen = published.load(Ordering.Acquire);
+    assert(seen == 42);
+    const observed = published.compare_exchange(42, 7, Ordering.AcqRel, Ordering.Relaxed);
+    assert(observed == 42);
+    assert(published.load(Ordering.SeqCst) == 7);
+    print("atomic-ok");
+}

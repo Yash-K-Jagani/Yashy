@@ -1,0 +1,93 @@
+// Atomic operations with explicit memory orderings.
+//
+// An atomic is a slot handle into a fixed C11 atomic table. Every operation
+// names its ordering: there is no default and no implicit SeqCst. AcqRel is
+// only valid for a read-modify-write; the wrapper rejects it for load and
+// store so an invalid ordering is a diagnostic rather than a silent
+// strengthening.
+
+extern "C" link "../native/atomic_shim.c" {
+    unsafe fn c_new(int value) -> int link_name "yashy_atomic_i64_new";
+    unsafe fn c_load(int id, int order) -> int link_name "yashy_atomic_i64_load";
+    unsafe fn c_store(int id, int value, int order) link_name "yashy_atomic_i64_store";
+    unsafe fn c_fetch_add(int id, int value, int order) -> int link_name "yashy_atomic_i64_fetch_add";
+    unsafe fn c_compare_exchange(int id, int expected, int desired, int success, int failure) -> int link_name "yashy_atomic_i64_compare_exchange";
+}
+
+pub enum Ordering {
+    Relaxed,
+    Acquire,
+    Release,
+    AcqRel,
+    SeqCst,
+}
+
+pub struct AtomicI64 {
+    id: int,
+}
+
+fn code(Ordering ordering) -> int {
+    return switch ordering {
+        case Relaxed {
+            0
+        }
+        case Acquire {
+            1
+        }
+        case Release {
+            2
+        }
+        case AcqRel {
+            3
+        }
+        case SeqCst {
+            4
+        }
+    };
+}
+
+/// Allocate an atomic slot with its initial value.
+pub fn atomic_i64(int initial) -> AtomicI64 {
+    return AtomicI64 {
+        id: c_new(initial)
+    };
+}
+
+impl AtomicI64 {
+    /// Read the value. `Acquire` and `SeqCst` are the valid read orderings.
+    pub fn load(self, Ordering ordering) -> int {
+        if ordering matches Ordering.Release || ordering matches Ordering.AcqRel {
+            eprint("AcqRel/Release is not a load ordering");
+            exit(2);
+        }
+        return c_load(self.id, code(ordering));
+    }
+
+    /// Write the value. `Release` and `SeqCst` are the valid write orderings.
+    pub fn store(self, int value, Ordering ordering) {
+        if ordering matches Ordering.Acquire || ordering matches Ordering.AcqRel {
+            eprint("AcqRel/Acquire is not a store ordering");
+            exit(2);
+        }
+        c_store(self.id, value, code(ordering));
+    }
+
+    /// Atomic addition, returning the previous value.
+    pub fn fetch_add(self, int value, Ordering ordering) -> int {
+        return c_fetch_add(self.id, value, code(ordering));
+    }
+
+    /// Compare and swap. Returns the observed value; success means it equals
+    /// the expected value.
+    pub fn compare_exchange(self, int expected, int desired, Ordering success, Ordering failure) -> int {
+        if success matches Ordering.Release || success matches Ordering.Acquire {
+            eprint("bad compare_exchange success ordering");
+            exit(2);
+        }
+        if failure matches Ordering.Release || failure matches Ordering.AcqRel {
+            eprint("bad compare_exchange failure ordering");
+            exit(2);
+        }
+        return c_compare_exchange(self.id, expected, desired, code(success), code(failure));
+    }
+}

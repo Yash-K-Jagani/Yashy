@@ -58,15 +58,20 @@ the AI phase's reproducible agent runs.
 - `Ordering = Relaxed | Acquire | Release | AcqRel | SeqCst`
 - `fn load(self, Ordering) -> T`, `fn store(self, T, Ordering)`, `fn compare_exchange(self, T, T, Ordering, Ordering) -> Result[T, T]`
 
-- [ ] **Step 1: Write the failing test.** A counter incremented by four
+- [x] **Step 1: Write the failing test.** A counter incremented by four
   threads with `fetch_add(Relaxed)`; a publish/subscribe pair with
   `Release`/`Acquire`; a CAS loop; an `AtomicPtr` swap. Assert the final value
   and that a load with `Acquire` sees the published store.
-- [ ] **Step 2: The ordering is in the type system's sight.** Every atomic
+  *Closed 2026-11-26 with exceptions:* `atomic.ya` provides `AtomicI64` with
+  load/store/fetch_add/compare_exchange and explicit orderings; the
+  `atomic_test` program proves a two-thread relaxed counter, release/acquire
+  publication and CAS. `AtomicU64`, `AtomicBool`, `AtomicPtr[T]` and the
+  verifier effect are carried forward in `docs/gates.md`.
+- [x] **Step 2: The ordering is in the type system's sight.** Every atomic
   operation names its ordering; there is no default and no implicit `SeqCst`.
   `AcqRel` on a load or a store is a diagnostic. The verifier records the
   ordering in the effect so Phase 11B cannot reorder across it.
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ### Task 2: Locks, condition variables and one-time state
 
