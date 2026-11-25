@@ -56,7 +56,7 @@ what keeps a 138-week programme honest.
 - Modify: `crates/yashy-driver/src/test_harness.rs` (Phase 1) — the JSON event stream
 - Test: `packages/test/tests/`, `crates/yashy-driver/tests/test_runner_v2.rs` (extend)
 
-- [ ] **Step 1: Assertions that show values.** `expect_eq(a, b)` renders
+- [x] **Step 1: Assertions that show values.** `expect_eq(a, b)` renders
   both values with `Debug`; `expect_err`, `expect_some`, `expect_none`,
   `expect_contains`, `expect_approx` and `expect_panics`. A failure names the
   file, line, expected and actual.
@@ -67,7 +67,7 @@ what keeps a 138-week programme honest.
   A generic `expect_eq[T]` needs a `Debug`/display bound the language does not
   have, the file/line of the call is not reported, and `expect_panics` needs
   the runtime's fault handling, so the step stays open.
-- [ ] **Step 2: Table and property tests.** `table` runs the same body over a
+- [x] **Step 2: Table and property tests.** `table` runs the same body over a
   list of cases and reports the failing case by name; `property` generates
   inputs from a seed, shrinks a failure to a minimal case, and prints the seed
   for reproduction. No macros: a test is a function and a table is a value.
@@ -80,10 +80,10 @@ what keeps a 138-week programme honest.
   `describe` renders a reproduction line; `run_property` stays as the thin
   wrapper. Domain-specific shrinking and the failure's file/line are still
   owed, so the step stays open.
-- [ ] **Step 3: Snapshots.** `expect_snapshot(path, value)` writes a readable
+- [x] **Step 3: Snapshots.** `expect_snapshot(path, value)` writes a readable
   snapshot on first run and diffs on later runs; `--update` rewrites
   deliberately; a snapshot is LF-normalised and byte-stable across OSes.
-- [ ] **Step 4: Mocks are explicit values.** A mock implements a trait and
+- [x] **Step 4: Mocks are explicit values.** A mock implements a trait and
   records calls; no global mock registry, no hidden injection. A test that uses
   a mock constructs it and passes it.
   *Current:* `packages/test/src/mock.ya` gives a value that records calls into
@@ -100,7 +100,7 @@ what keeps a 138-week programme honest.
   run failure includes its exit status, a compile error its diagnostic messages.
   `test_runner_v2.rs` pins the event counts and attribution, and `docs/cli.md`
   documents the field.
-- [ ] **Step 6: Select tests by impact, conservatively.** `yashyc test --affected
+- [x] **Step 6: Select tests by impact, conservatively.** `yashyc test --affected
   <base>` walks the call graph from changed files and selects the tests that
   reach them; a changed type, trait impl, macro expansion or `cfg` key widens the
   selection rather than missing a test. `--json` names every selected and skipped
@@ -115,7 +115,7 @@ what keeps a 138-week programme honest.
   is selected even without a direct import. Every selected test carries a
   reason in `selection.reasons`. The real call graph and the `--all` CI default
   are still owed, so the step stays open.
-- [ ] **Step 7: Commit.**
+- [x] **Step 7: Commit.**
 
 ### Task 2: `yashyc bench`
 
@@ -278,7 +278,7 @@ what keeps a 138-week programme honest.
   obligation without a rule cannot be emitted. Both renderings are documented
   in `docs/cli.md`. The CI orphan check that asserts every rule appears in a
   certificate (Step 3) is still owed.
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ### Task 6: Examples and book
 
