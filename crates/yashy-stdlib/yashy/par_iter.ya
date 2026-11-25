@@ -101,3 +101,141 @@ pub fn sum([]int values, int workers) -> int {
     values.free();
     return total;
 }
+
+fn filter_worker(
+    Channel[int] jobs,
+    Channel[int] out,
+    fn(int) -> bool keep,
+    int items,
+) {
+    let taken = 0;
+    while taken < items {
+        if let Some(packed) = jobs.recv() {
+            const index = packed / 1000000;
+            const value = packed % 1000000;
+            if keep(value) {
+                out.send(index * 1000000 + value);
+            }
+        }
+        taken = taken + 1;
+    }
+    out.send(0 - 1);
+}
+
+/// Keep the elements that satisfy `keep`, preserving input order.
+pub fn filter([]int values, int workers, fn(int) -> bool keep) -> []int {
+    const count = values.len();
+    const Channel[int] jobs = chan_new(count + 1);
+    const Channel[int] out = chan_new(count + workers + 1);
+    let index = 0;
+    while index < count {
+        const slot = values[index];
+        const value = switch slot {
+            case Some(number) { number }
+            case None { 0 }
+        };
+        jobs.send(index * 1000000 + value);
+        index = index + 1;
+    }
+    values.free();
+
+    let spawned = 0;
+    while spawned < workers {
+        let int extra = 0;
+        if spawned < count % workers { extra = 1; }
+        const items = count / workers + extra;
+        const handle = thread_spawn(filter_worker, jobs, out, keep, items);
+        thread_join(handle);
+        spawned = spawned + 1;
+    }
+
+    const packed = []int {};
+    let finished = 0;
+    while finished < workers {
+        if let Some(value) = out.recv() {
+            if value >= 0 {
+                packed.push(value);
+            } else {
+                finished = finished + 1;
+            }
+        } else {
+            finished = finished + 1;
+        }
+    }
+    packed.sort();
+    const result = []int {};
+    index = 0;
+    while index < packed.len() {
+        const slot = packed[index];
+        const value = switch slot {
+            case Some(number) { number }
+            case None { 0 }
+        };
+        result.push(value % 1000000);
+        index = index + 1;
+    }
+    packed.free();
+    jobs.free();
+    out.free();
+    return result;
+}
+
+fn fold_worker(Channel[int] jobs, Channel[int] out, fn(int, int) -> int combine, int items, int start) {
+    let total = start;
+    let taken = 0;
+    while taken < items {
+        if let Some(value) = jobs.recv() {
+            total = combine(total, value);
+        }
+        taken = taken + 1;
+    }
+    out.send(total);
+}
+
+/// Reduce the elements with `combine`, starting from `initial`.
+pub fn fold([]int values, int workers, int initial, fn(int, int) -> int combine) -> int {
+    const count = values.len();
+    const Channel[int] jobs = chan_new(count + 1);
+    const Channel[int] out = chan_new(workers + 1);
+    let index = 0;
+    while index < count {
+        const slot = values[index];
+        const value = switch slot {
+            case Some(number) { number }
+            case None { 0 }
+        };
+        jobs.send(value);
+        index = index + 1;
+    }
+    values.free();
+
+    let spawned = 0;
+    while spawned < workers {
+        let int extra = 0;
+        if spawned < count % workers { extra = 1; }
+        const items = count / workers + extra;
+        const handle = thread_spawn(fold_worker, jobs, out, combine, items, initial);
+        thread_join(handle);
+        spawned = spawned + 1;
+    }
+    let total = 0;
+    let received = 0;
+    while received < workers {
+        if let Some(value) = out.recv() {
+            total = combine(total, value);
+        }
+        received = received + 1;
+    }
+    jobs.free();
+    out.free();
+    return total;
+}
+
+/// Collect into a slice in input order; this is `map` with the identity.
+pub fn collect([]int values, int workers) -> []int {
+    return map(values, workers, identity);
+}
+
+fn identity(int value) -> int {
+    return value;
+}

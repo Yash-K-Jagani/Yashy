@@ -5,6 +5,14 @@ fn twice(int value) -> int {
     return value * 2;
 }
 
+fn is_even(int value) -> bool {
+    return value % 2 == 0;
+}
+
+fn add(int left, int right) -> int {
+    return left + right;
+}
+
 fn main() {
     let values = []int {};
     let index = 0;
@@ -24,5 +32,21 @@ fn main() {
     assert(mapped[0] matches Some(0));
     assert(mapped[500] matches Some(1000));
     assert(mapped[999] matches Some(1998));
+
+    let third = []int {};
+    let fourth = []int {};
+    let position2 = 0;
+    while position2 < 20 {
+        third.push(position2);
+        fourth.push(position2);
+        position2 = position2 + 1;
+    }
+    const even = par_iter.filter(third, 4, is_even);
+    assert(even.len() == 10);
+    assert(even[9] matches Some(18));
+    const total = par_iter.fold(fourth, 4, 0, add);
+    assert(total == 190);
+    const collected = par_iter.collect(mapped, 4);
+    assert(collected.len() == 1000);
     print("par-iter-ok");
 }

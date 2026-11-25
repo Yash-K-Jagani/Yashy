@@ -746,10 +746,10 @@ claimed green here.
   `Condvar` wait) are not yet diagnostics. Closes when a TSan run and each rule
   id are pinned in the corpus.
 
-- **Full parallel iterator surface and scaling** — owner: compiler/stdlib.
-  `par_iter.map` preserves order with a caller-named worker count and is tested;
-  `filter`, `fold`, `reduce`, a work-stealing pool and the 1/2/4/8-thread
-  benchmark row remain.
+- **Parallel iterator scaling row** — owner: compiler/stdlib. `map`, `filter`,
+  `fold` and `collect` now preserve order with a caller-named worker count and
+  are tested. A work-stealing pool and the 1/2/4/8-thread benchmark row remain;
+  closes when the scaling row is recorded with each worker count.
 
 - **Non-blocking channel receive and timeout case** — owner:
   compiler/runtime. `select.ya` chooses by declared priority over channels that
