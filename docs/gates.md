@@ -729,6 +729,12 @@ claimed green here.
 
 ## Phase 10 — carried forward (2026-11-26)
 
+- **TSan differential and remaining race kinds** — owner: compiler/verify.
+  The corpus harness proves E1701, E1702 and a clean program; TSan is not
+  installed here and the remaining seeded races (lock-order inversion, bare
+  `Condvar` wait) are not yet diagnostics. Closes when a TSan run and each rule
+  id are pinned in the corpus.
+
 - **Full parallel iterator surface and scaling** — owner: compiler/stdlib.
   `par_iter.map` preserves order with a caller-named worker count and is tested;
   `filter`, `fold`, `reduce`, a work-stealing pool and the 1/2/4/8-thread
