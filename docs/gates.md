@@ -679,6 +679,10 @@ claimed green here.
   above: warmup, N iterations, median/p95, outlier rejection, interleaved A/B
   and `--save-baseline` are implemented and tested.
 
+- **Two-OS book/example evidence** — owner: compiler/core. The local book and
+  tutorial tests pass on Linux; CI runs the same harness on Windows. Closes
+  when a green Windows run is recorded beside the Linux one.
+
 - **Orphan-free traceability matrix** — owner: compiler/core. The generator,
   `--fail-orphans` and the committed page are tested; ten ALIAS/DET rules still
   have no diagnostic. Closes when every rule in the matrix has a code and a

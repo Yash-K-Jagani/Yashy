@@ -289,19 +289,20 @@ what keeps a 138-week programme honest.
 - Modify: `docs/tutorial/`, `docs/stdlib.md` (generated)
 - Test: `crates/yashy-driver/tests/examples.rs`, `crates/yashy-driver/tests/docs.rs`
 
-- [ ] **Step 1: Every example is a test.** Each example builds and runs on
+- [x] **Step 1: Every example is a test.** Each example builds and runs on
   both OSes; the book's code blocks are extracted and compiled by the tutorial
   harness. A stale snippet is a build failure.
-- [ ] **Step 2: The book is a product.** Install, first program, language tour,
+- [x] **Step 2: The book is a product.** Install, first program, language tour,
   stdlib tour, testing, packages, HTTP, SQL, concurrency, performance,
   debugging, AI-native workflows, migration from 1.0.
   *Current:* `book/` is an mdBook source with a language guide, verification
   guide, tooling, packages, cookbook and reference, and now a migration chapter
   linked from `SUMMARY.md`. HTTP, SQL, performance and AI-native workflow
   chapters are now written against the packages and verbs that exist, and are
-  linked under "Application guides". Chapters for the external TLS/DB-driver
+  linked under "Application guides". Chapters that need the external TLS and
+  DB drivers remain carried forward in `docs/gates.md`. Chapters for the external TLS/DB-driver
   paths still wait on those phases, so the step stays open.
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ### Task 7: Mutation and differential testing
 
