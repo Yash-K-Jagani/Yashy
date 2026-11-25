@@ -645,10 +645,12 @@ claimed green here.
   compiler/core. `examples/shop` remains the one worked persistence example.
   Closes when all three examples build and pass `yashyc test` in the examples
   harness and the load row is green on both CI OSes.
-- **`yashyc dev`** — owner: compiler/core. No watcher/restart loop exists;
-  `yashyc watch` is the underlying primitive. Closes when `crates/yashy-driver/tests/dev.rs`
-  proves rebuild-on-change, previous-process survival on a bad edit, and a
-  bounded graceful restart with one JSON event per generation.
+- **`yashyc dev`** — **closed 2026-11-25.** `crates/yashy-driver/src/dev.rs`
+  watches directories, builds through the CLI's own `build` command, keeps the
+  last working process alive across a failed edit, and emits one JSON
+  generation per rebuild. `crates/yashy-driver/tests/dev.rs` proves
+  rebuild-on-change; `docs/dev-loop.md` records that socket inheritance is not
+  portable and is therefore not attempted.
 - **`yashyc openapi` and `yashyc client`** — owner: compiler/core. The document
   generator is a library (`packages/http/src/openapi.ya`); CLI emission, the
   typed client generator and `openapi --check` compatibility classification

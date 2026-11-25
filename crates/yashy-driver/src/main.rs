@@ -236,6 +236,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "trace" => trace_cmd(rest),
         "serve" => serve(rest),
         "watch" => watch_cmd(rest),
+        "dev" => dev_cmd(rest),
         "explain" => explain(rest),
         "init" => init(rest),
         "new" => new_cmd(rest),
@@ -2927,6 +2928,54 @@ fn cache_cmd(args: &[String]) -> ExitCode {
 }
 
 /// `yashyc watch [path]`: re-check the tree whenever a source file changes.
+fn dev_cmd(args: &[String]) -> ExitCode {
+    let mut path: Option<PathBuf> = None;
+    let mut json = false;
+    let mut interval_ms = 50u64;
+    let mut iter = args.iter();
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
+            "--json" => json = true,
+            "--interval" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`--interval` needs a value");
+                };
+                match value.parse::<u64>() {
+                    Ok(value) => interval_ms = value,
+                    Err(_) => return usage_error("`--interval` needs a whole number"),
+                }
+            }
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `dev`"))
+            }
+            other => {
+                if path.is_some() {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+                path = Some(PathBuf::from(other));
+            }
+        }
+    }
+    let path = path.unwrap_or_else(|| PathBuf::from("."));
+    let (root, only) = if path.is_file() {
+        (path.parent().unwrap_or(Path::new(".")).to_path_buf(), Some(path))
+    } else {
+        (path, None)
+    };
+    match yashy_driver::dev::dev(yashy_driver::dev::DevOptions {
+        root,
+        only,
+        json,
+        interval_ms,
+    }) {
+        Ok(()) => exit_code(EXIT_OK),
+        Err(error) => {
+            eprintln!("error: cannot run the dev loop: {error}");
+            exit_code(EXIT_USAGE)
+        }
+    }
+}
+
 fn watch_cmd(args: &[String]) -> ExitCode {
     let mut path: Option<PathBuf> = None;
     let mut json = false;

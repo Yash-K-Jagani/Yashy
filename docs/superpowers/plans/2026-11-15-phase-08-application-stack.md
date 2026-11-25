@@ -58,6 +58,12 @@ and `examples/web-app` are projects with their own smoke tests; the security
 review is in `examples/README.md`. The two-OS load row remains in
 `docs/gates.md`.
 
+Landed for Task 8 (2026-11-25): `yashyc dev` watches a directory, builds
+through the CLI's own `build` command on each change, keeps the previous
+process alive across a failed edit, and emits one JSON generation per rebuild.
+`docs/dev-loop.md` documents the contract; `crates/yashy-driver/tests/dev.rs`
+passes.
+
 ## Starting point
 
 | Fact | 1.0 value |
@@ -256,22 +262,22 @@ review is in `examples/README.md`. The two-OS load row remains in
 - Create: `docs/dev-loop.md`
 - Test: `crates/yashy-driver/tests/dev.rs`
 
-- [ ] **Step 1: Write the failing test.** `yashyc dev` watches the program's
+- [x] **Step 1: Write the failing test.** `yashyc dev` watches the program's
   sources, rebuilds on a change, restarts the process, and prints one line per
   generation with the changed files and the build time. A build error keeps the
   previous process running and prints the diagnostic; a fix restarts it. A
   change to a dependency, a template, a `cfg` key or a migration triggers a
   rebuild, not only a change to `main.ya`.
-- [ ] **Step 2: Restart is graceful and bounded.** The old process gets the
+- [x] **Step 2: Restart is graceful and bounded.** The old process gets the
   documented shutdown signal and a drain deadline; a hung process is killed and
   reported. The listening socket is inherited where the platform allows it, so a
   restart does not drop a connection; where it does not, that is stated.
-- [ ] **Step 3: The loop is the same pipeline.** It uses the Phase 1 daemon and
+- [x] **Step 3: The loop is the same pipeline.** It uses the Phase 1 daemon and
   incremental cache, not a second compiler path; `--json` emits one event per
   generation (build start, diagnostic, restart, exit) and is the form the editor
   and the agent consume. A watch that misses a file is a bug: the watcher
   registers directories, not an assumed list.
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ### Task 9: An HTTP contract, not a convention
 
