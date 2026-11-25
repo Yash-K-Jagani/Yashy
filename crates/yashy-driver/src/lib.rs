@@ -54,6 +54,7 @@ pub mod tokens;
 pub mod toolchain;
 pub mod trace;
 pub mod bench_measure;
+pub mod differential;
 pub mod dev;
 pub mod openapi;
 pub mod watch;

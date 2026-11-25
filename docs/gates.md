@@ -679,6 +679,15 @@ claimed green here.
   above: warmup, N iterations, median/p95, outlier rejection, interleaved A/B
   and `--save-baseline` are implemented and tested.
 
+- **Full mutation campaign and `test --mutate`** — owner: compiler/core.
+  The operator inventory, deterministic score and floor are tested; the
+  campaign runner, `Option`/`Result` arm and ownership mutants, and the nightly
+  `cargo-mutants` job remain owed.
+
+- **Second-opinion differential runs** — owner: compiler/core. The normalised
+  comparison harness is tested against itself; the 1.0-vs-2.0, second-LLVM and
+  Rust-reference campaigns need binaries not available on this host.
+
 - **Two-OS book/example evidence** — owner: compiler/core. The local book and
   tutorial tests pass on Linux; CI runs the same harness on Windows. Closes
   when a green Windows run is recorded beside the Linux one.
