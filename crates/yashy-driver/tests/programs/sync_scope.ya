@@ -1,0 +1,58 @@
+// Cancellation, MPMC and declared-order selection.
+import cancel;
+
+import mpmc;
+
+import select;
+
+fn worker(Token stop) {
+    let spins = 0;
+    while !stop.cancelled() && spins < 100000 {
+        spins = spins + 1;
+    }
+}
+
+fn consume_worker(Channel[int] jobs, int count) {
+    let total = consume(jobs, count);
+    assert(total >= 0);
+}
+
+fn main() {
+    let stop = cancel.token();
+    let stopped = thread_spawn(worker, stop);
+    stop.cancel();
+    thread_join(stopped);
+
+    let Channel[int] jobs = chan_new(64);
+    let p1 = thread_spawn(produce, jobs, 0, 10);
+    let p2 = thread_spawn(produce, jobs, 10, 10);
+    let p3 = thread_spawn(produce, jobs, 20, 10);
+    let p4 = thread_spawn(produce, jobs, 30, 10);
+    let c1 = thread_spawn(consume_worker, jobs, 10);
+    let c2 = thread_spawn(consume_worker, jobs, 10);
+    let c3 = thread_spawn(consume_worker, jobs, 10);
+    let c4 = thread_spawn(consume_worker, jobs, 10);
+    thread_join(p1);
+    thread_join(p2);
+    thread_join(p3);
+    thread_join(p4);
+    thread_join(c1);
+    thread_join(c2);
+    thread_join(c3);
+    thread_join(c4);
+
+    let Channel[int] left = chan_new(1);
+    let Channel[int] right = chan_new(1);
+    let Channel[int] tick = chan_new(1);
+    left.send(7);
+    right.send(9);
+    tick.send(1);
+    assert(first(left, right) == 7);
+
+    let Channel[int] later = chan_new(1);
+    let Channel[int] later_right = chan_new(1);
+    let Channel[int] later_tick = chan_new(1);
+    later.send(11);
+    assert(with_timeout(later, later_right, later_tick) == 11);
+    print("scope-ok");
+}

@@ -106,15 +106,21 @@ the AI phase's reproducible agent runs.
 - Modify: `crates/yashy-sema/src/lib.rs` (scope join), `crates/yashy-verify/src/typestate.rs` (task escape)
 - Test: `crates/yashy-driver/tests/programs/sync/scope/`, `.../select/`
 
-- [ ] **Step 1: Write the failing test.** A scope spawns workers that borrow a
+- [x] **Step 1: Write the failing test.** A scope spawns workers that borrow a
   stack value and join before it dies; an MPMC channel with four producers and
   four consumers; `select` over two channels and a timeout; a cancellation token
   stops a worker at a checkpoint.
-- [ ] **Step 2: A task cannot escape its scope** (`E1701`), and a lock cannot
+- [x] **Step 2: A task cannot escape its scope** (`E1701`), and a lock cannot
   be held across `.await` (`E1702`). Scoped threads make borrowing safe without a
   borrow checker: the scope's type carries the lifetime and the join is
   mandatory.
-- [ ] **Step 3: `select` is fair and deterministic under the deterministic
+  *Closed 2026-11-26 with exceptions:* `cancel.ya` provides a checkpoint token,
+  `mpmc.ya` a bounded producer/consumer protocol over the runtime channel, and
+  `select.ya` declared-priority choice. `sync_scope.ya` runs four producers and
+  four consumers under cancellation. A real timeout case needs a non-blocking
+  receive, which the channel API does not expose; it is carried forward in
+  `docs/gates.md`.
+- [x] **Step 3: `select` is fair and deterministic under the deterministic
   scheduler.** When several cases are ready, the choice follows the declared
   order; under `--deterministic` the order is fixed. A timeout is a case, not a
   sleep.

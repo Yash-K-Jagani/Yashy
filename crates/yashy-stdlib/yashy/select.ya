@@ -1,0 +1,29 @@
+// Deterministic selection over two channels.
+//
+// The declared order is the priority: when both channels hold a value, the
+// first case wins. This is the shape a deterministic scheduler can reproduce;
+// a timeout is represented by a third channel carrying a tick, not by a sleep
+// hidden inside this function.
+
+pub fn first(Channel[int] left, Channel[int] right) -> int {
+    if let Some(value) = left.recv() {
+        return value;
+    }
+    if let Some(value) = right.recv() {
+        return value;
+    }
+    return 0 - 1;
+}
+
+/// A two-case select with a timeout tick. The tick channel is checked only
+/// after both data cases, so data wins a tie by declared order.
+pub fn with_timeout(Channel[int] left, Channel[int] right, Channel[int] tick) -> int {
+    const value = first(left, right);
+    if value >= 0 {
+        return value;
+    }
+    if let Some(deadline) = tick.recv() {
+        return 0 - deadline;
+    }
+    return 0 - 1;
+}

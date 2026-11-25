@@ -1,0 +1,29 @@
+// A cancellation token is an atomic flag checked by workers at named points.
+//
+// There is no forced preemption: a worker stops when it reaches a checkpoint.
+// That makes cancellation deterministic and keeps a lock from being abandoned
+// mid-critical-section.
+
+import atomic;
+
+pub struct Token {
+    flag: AtomicBool,
+}
+
+pub fn token() -> Token {
+    return Token {
+        flag: atomic_bool(false)
+    };
+}
+
+impl Token {
+    pub fn cancel(self) {
+        const flag = self.flag;
+        flag.store(true, Ordering.Release);
+    }
+
+    pub fn cancelled(self) -> bool {
+        const flag = self.flag;
+        return flag.load(Ordering.Acquire);
+    }
+}

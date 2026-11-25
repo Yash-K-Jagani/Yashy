@@ -1,0 +1,27 @@
+// Multi-producer, multi-consumer helpers over the runtime channel.
+//
+// A channel is linear, so a client that needs several producers clones the
+// handle explicitly by constructing one channel and sharing it through
+// `thread_spawn`. The helpers here only name the protocol: producers send a
+// fixed count and consumers take a fixed count, which makes the campaign
+// bounded without a sentinel value that a program could mistake for data.
+
+pub fn produce(Channel[int] jobs, int base, int count) {
+    let index = 0;
+    while index < count {
+        jobs.send(base + index);
+        index = index + 1;
+    }
+}
+
+pub fn consume(Channel[int] jobs, int count) -> int {
+    let sum = 0;
+    let index = 0;
+    while index < count {
+        if let Some(value) = jobs.recv() {
+            sum = sum + value;
+        }
+        index = index + 1;
+    }
+    return sum;
+}

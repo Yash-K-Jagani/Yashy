@@ -729,6 +729,11 @@ claimed green here.
 
 ## Phase 10 — carried forward (2026-11-26)
 
+- **Non-blocking channel receive and timeout case** — owner:
+  compiler/runtime. `select.ya` chooses by declared priority over channels that
+  already hold values; a real timeout case needs a non-blocking `try_recv`.
+  Closes when the channel exposes one and `select --timeout` is tested.
+
 - **Lock guard typestate and lock-order diagnostics** — owner: compiler/core.
   `RwLock`, `Condvar`, `Barrier` and `Once` are implemented with generation-based
   waits and tested under threads. `Locked[T]`, static lock-order checking and

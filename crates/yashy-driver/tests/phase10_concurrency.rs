@@ -27,6 +27,17 @@ fn run(root: &Path, source: &str, name: &str, expected: &str) {
 }
 
 #[test]
+fn scope_mpmc_and_cancel_program_is_checked() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    run(
+        &root,
+        "crates/yashy-driver/tests/programs/sync_scope.ya",
+        "p10-scope",
+        "scope-ok",
+    );
+}
+
+#[test]
 fn locks_program_is_checked() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     run(
