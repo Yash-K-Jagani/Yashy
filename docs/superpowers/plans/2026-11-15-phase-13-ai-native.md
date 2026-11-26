@@ -78,25 +78,36 @@ agent run reproducible.
   outside the workspace is refused; a patch that does not type-check after
   application is rolled back and reported. Assert the file is byte-identical
   after a refusal.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *Closed 2026-11-26:* `crates/yashy-driver/tests/edit.rs` pins hash and span
+  validation, overlapping-edit refusal, outside-path refusal and rollback when
+  the patched tree fails `check`; `crates/yashy-driver/tests/mcp.rs` drives the
+  verbs over JSON-RPC.
 
 - [x] **Step 2: There is no write-anything tool.** The only mutation is
   `apply_edit`, and it validates the span and the hash before and the whole tree
   after. A patch is all-or-nothing; a partial application is a bug, not a
   fallback. Every applied edit is recorded in the session's provenance log with
   its hash and rationale.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *Closed 2026-11-26 with exception:* `edit::apply_patch` is the only mutation
+  path: it validates before writing, re-checks every changed file, and restores
+  the original bytes on failure. The session provenance log is still owed, so
+  that half of the step stays open.
 
 - [x] **Step 3: Refactor is compiler-aware.** `refactor` offers rename,
   extract-function, inline-function, change-signature, add-missing-match-arm and
   qualify-import, each computed from the index and verified by re-checking before
   it is returned. A refactor that cannot be proved safe is not offered.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *Partly closed 2026-11-26:* `refactor` computes rename edits from lexer
+  identifier tokens, so strings and comments are not renamed, and applies them
+  through the same verified patch. Extract-function, inline-function,
+  change-signature, add-missing-match-arm and qualify-import are still owed.
 
 - [x] **Step 4: No shell, ever.** The MCP surface has no command execution, no
   environment mutation, no network, and no path outside the workspace root. A
   tool call naming one is refused with a code and appears in the audit log.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *Closed 2026-11-26:* the MCP tool table contains only the compiler verbs and
+  the two structured edit verbs; `tools/call` refuses an unknown name, and
+  paths are canonicalised and contained before any read or write.
 
 - [x] **Step 5: Commit.**
   *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
