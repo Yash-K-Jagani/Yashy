@@ -209,6 +209,10 @@ sites, stack slots, bytes per value, and cold-start milliseconds.
   allocate; a longer one does; a `Vec` grows by a documented factor; a `Map` with
   1M integer keys keeps its load factor and iteration order; `map_array`,
   `map_scan` and `debug_format` rows are re-measured.
+  *Owed as of 2026-11-26:* slice growth is now pinned at 4/8/16 elements by the
+  profile test. Inline string storage changes the `yashy_str` ABI shared by the
+  C shim, codegen and every refcount path; the 1M-key map row and the three
+  feature benchmarks need a full measurement run, so those halves stay open.
 - [ ] **Step 2: The layout is the optimisation.** Small-string inline storage,
   a map with one probe sequence and a documented load factor, and array growth
   that does not copy twice. No benchmark-specific special case; the shape is the
@@ -226,6 +230,9 @@ sites, stack slots, bytes per value, and cold-start milliseconds.
 - [ ] **Step 1: Write the failing test.** `hello` runs in under 2 ms of runtime
   startup on both OSes; a static-init-heavy program reports its init cost; the
   binary size is recorded; a startup regression beyond 10% fails.
+  *Owed as of 2026-11-26:* this host can only measure one OS, and the two-OS
+  startup gate is an explicit plan requirement, so the row stays open rather
+  than claiming a single-platform result.
 - [ ] **Step 2: Initialise only what is used.** No eager runtime table, no
   global allocator warmup, no locale or timezone scan at startup. A program that
   uses a feature pays for it; one that does not, does not.
