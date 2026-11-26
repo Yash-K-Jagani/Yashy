@@ -90,6 +90,8 @@ pub enum OptKind {
     NotPromoted,
     /// A parameter attribute emitted from a verifier-proved fact (ALIAS-1/2/5).
     Attribute,
+    /// The inliner policy decided to ask LLVM to inline or not inline a callee.
+    Inline,
 }
 
 impl OptKind {
@@ -103,6 +105,7 @@ impl OptKind {
             OptKind::Promoted => "promoted",
             OptKind::NotPromoted => "not-promoted",
             OptKind::Attribute => "attribute",
+            OptKind::Inline => "inline",
         }
     }
 }
@@ -232,6 +235,8 @@ pub struct Module {
     /// plain struct. Name- and declaration-based consumers translate through
     /// [`Module::field_index`] before touching the emitted aggregate.
     struct_field_order: HashMap<String, Vec<usize>>,
+    /// The LLVM function attribute and its report reason, keyed by Yashy name.
+    inline_attributes: HashMap<String, (String, &'static str)>,
     /// The index the next `@__lambda_N` will use.
     ///
     /// A lambda has no name in the source, so the backend gives it one: the
@@ -300,6 +305,7 @@ impl Module {
             struct_fields: HashMap::new(),
             struct_field_names: HashMap::new(),
             struct_field_order: HashMap::new(),
+            inline_attributes: HashMap::new(),
             next_lambda: 0,
             captures: Vec::new(),
             atomic_strings: false,
@@ -758,6 +764,26 @@ impl Module {
     /// Record the emission order of a struct's fields.
     pub fn add_struct_field_order(&mut self, name: &str, order: Vec<usize>) {
         self.struct_field_order.insert(name.to_string(), order);
+    }
+
+    /// Record the LLVM function attribute and report reason chosen by policy.
+    pub fn set_inline_attribute(&mut self, name: &str, reason: String, attribute: &'static str) {
+        self.inline_attributes.insert(name.to_string(), (reason, attribute));
+    }
+
+    /// The inliner policy's attribute for `name`, or `""` when none was chosen.
+    pub fn inline_attribute(&self, name: &str) -> &'static str {
+        self.inline_attributes
+            .get(name)
+            .map(|(_, attribute)| *attribute)
+            .unwrap_or("")
+    }
+
+    /// Why the policy chose that attribute, for the opt report.
+    pub fn inline_reason(&self, name: &str) -> Option<&str> {
+        self.inline_attributes
+            .get(name)
+            .map(|(reason, _)| reason.as_str())
     }
 
     /// The emitted aggregate index of a field known by its declaration index.

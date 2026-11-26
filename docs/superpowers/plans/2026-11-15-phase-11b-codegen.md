@@ -61,11 +61,21 @@ measured row, not a default someone turned on.
   IR is cached; `--opt-report` names the decision, the caller, the callee and the
   estimated cost. There is no `inline` keyword in the language and no attribute
   a user can add.
+  *Partly closed 2026-11-26:* `crates/yashy-codegen/tests/attributes.rs` pins
+  `alwaysinline` on a small function called twice and `noinline` on a large
+  uncalled one; `--opt-report` names the callee, the statement count, the call
+  count and the attribute. The caller's name and cross-module cached-IR reuse
+  are not wired into this policy, so the step stays open.
 - [ ] **Step 2: Policy is data.** Thresholds live in one table with a comment
   and a row each; a change to a threshold needs its benchmark row. Hot/cold
   splitting uses the Phase 9 profile or a static heuristic, and the report says
   which.
-- [ ] **Step 3: Commit.**
+  *Closed 2026-11-26 with exception:* `yashy_codegen::pass::INLINE_POLICY` is
+  the one table (12 statements, 2 call sites, 64-statement cutoff), with the
+  reason printed in the report. Splitting is the static heuristic, not the
+  Phase 9 profile, and the `inline_run_ms` benchmark row has not been measured;
+  both are recorded rather than claimed.
+- [x] **Step 3: Commit.**
 
 ### Task 2: Checked arithmetic that vectorises
 

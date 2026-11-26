@@ -113,6 +113,37 @@ fn main() { }
 ";
 
 #[test]
+fn a_small_hot_function_gets_the_inline_attribute() {
+    let (ir, _) = lower(
+        "fn small(int x) -> int {\n\
+             return x + 1;\n\
+         }\n\
+         fn main() {\n\
+             print(small(1));\n\
+             print(small(2));\n\
+         }\n",
+    );
+    assert!(
+        ir.contains("alwaysinline {") && ir.contains("@yashy_fn_small"),
+        "the policy must ask LLVM to inline the small hot callee:\n{ir}"
+    );
+}
+
+#[test]
+fn a_large_cold_function_stays_out_of_line() {
+    let mut source = String::from("fn large() -> int {\n");
+    for index in 0..65 {
+        source.push_str(&format!("    let x{index} = {index};\n"));
+    }
+    source.push_str("    return 0;\n}\nfn main() { }\n");
+    let (ir, _) = lower(&source);
+    assert!(
+        ir.contains("@yashy_fn_large(") && ir.contains("noinline {"),
+        "a large uncalled body must not be inlined:\n{ir}"
+    );
+}
+
+#[test]
 fn the_single_unit_reference_path_emits_the_same_ir() {
     // The driver's per-module cache emits one unit per source file. With one
     // unit that is the reference path: an attribute must not depend on which

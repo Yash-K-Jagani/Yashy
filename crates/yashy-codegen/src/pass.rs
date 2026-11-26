@@ -28,6 +28,38 @@ use yashy_sema::hir::HirExpr;
 use crate::module::Module;
 use crate::CodegenOptions;
 
+/// The inliner policy, in one table. A change to a number needs the benchmark
+/// row named beside it; no source-level `inline` keyword or user attribute can
+/// override it.
+pub const INLINE_POLICY: InlinePolicy = InlinePolicy {
+    max_instructions: 12,
+    min_callers: 2,
+    large_instructions: 64,
+};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InlinePolicy {
+    /// A body with at most this many statements is a small candidate.
+    pub max_instructions: usize,
+    /// A small body needs this many call sites to earn `alwaysinline`.
+    pub min_callers: usize,
+    /// A body this large is explicitly kept out of line.
+    pub large_instructions: usize,
+}
+
+impl InlinePolicy {
+    /// The LLVM attribute for `cost` instructions and `callers` call sites.
+    pub fn attribute(self, cost: usize, callers: usize) -> &'static str {
+        if cost <= self.max_instructions && callers >= self.min_callers {
+            " alwaysinline"
+        } else if cost >= self.large_instructions {
+            " noinline"
+        } else {
+            ""
+        }
+    }
+}
+
 /// What one pass did.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PassStats {

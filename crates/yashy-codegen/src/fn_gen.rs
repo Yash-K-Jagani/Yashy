@@ -292,16 +292,17 @@ fn gen_fn_impl(module: &mut Module, f: &HirFn, entry_point: bool, symbol: &str) 
         .iter()
         .any(|param| matches!(param.ty.kind, TypeKind::Func(_, _)))
     {
-        " noinline"
+        // A function value parameter stays opaque (see above); the policy may
+        // not override that promise.
+        " noinline".to_string()
     } else {
-        ""
+        module.inline_attribute(&f.name).to_string()
     };
     module.push(format!(
         "define {ret_repr} @{}({}){attributes} {{",
         symbol,
         params.join(", ")
     ));
-
     gen_body(module, f, entry_point, None);
 }
 
@@ -322,6 +323,12 @@ fn gen_body(module: &mut Module, f: &HirFn, entry_point: bool, env: Option<&str>
     // this body opened. Record their facts under the same function group so the
     // opt report explains every promise (ALIAS-5).
     note_attributes(module, f);
+    if !module.inline_attribute(&f.name).is_empty() {
+        if let Some(reason) = module.inline_reason(&f.name) {
+            let reason = reason.to_string();
+            module.note(OptKind::Inline, f.body.span, reason, None);
+        }
+    }
     {
         let mut ctx = FnCtx::new(module, f.ret.kind.clone());
         ctx.file = f.file;

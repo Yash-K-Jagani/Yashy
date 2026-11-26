@@ -106,6 +106,7 @@ fn label(kind: OptKind) -> &'static str {
         OptKind::Promoted => "promoted",
         OptKind::NotPromoted => "not promoted",
         OptKind::Attribute => "parameter attribute",
+        OptKind::Inline => "inline decision",
     }
 }
 

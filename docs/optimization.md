@@ -12,7 +12,7 @@ The verifier (phase 3) knows, per function, which pointer is the unique live ref
 - **IR attributes.** `noalias`, `nonnull`, `readonly` and `align` on function parameters, traced one-to-one to `ParamFacts`. A fact that isn't there becomes no attribute — a missing fact can never become a wrong promise. `dereferenceable` is deliberately not emitted: it needs a pointer parameter that carries a length, and a slice is an aggregate, not a pointer.
 - **Promotion.** An allocation that never escapes becomes a frame `alloca` or a block-arena slot instead of a runtime allocator call. Escape analysis reads the HIR and treats any reference it cannot follow as an escape; the verifier's facts are wired through the interface, but phase 3 records no "shared" fact yet, so a doubtful site stays on the heap.
 
-What remains after all of that is LLVM's business: inlining, GVN, unrolling, vectorisation. Yashy never promises an `inline`, never reorders struct fields, and never grows a custom register allocator. `--opt-report` says what survived and why, so a programmer can add the contract clause that removes a check rather than guessing at backend flags.
+What remains after all of that is LLVM's business: GVN, unrolling and vectorisation. Yashy never promises an `inline` keyword and never grows a custom register allocator; struct fields of a plain type may be reordered but a declared `repr` fixes the ABI. `--opt-report` says what survived and why, so a programmer can add the contract clause that removes a check rather than guessing at backend flags.
 
 ## The registered passes
 
@@ -38,6 +38,8 @@ async    async_run_ms
 
 Anything not in the table is mandatory lowering, not a pass: there is no switch that turns an expression into a call or a field into an offset, because there would be no program left to measure. `yashy_codegen::pass::owner` names the owner of each expression form, and its exhaustive match is the check that every construct has an owner — a new form fails to compile until that is decided.
 
+The inliner policy is data in `yashy_codegen::pass::INLINE_POLICY`: a body of at most 12 statements called from at least two sites gets `alwaysinline`, one of at least 64 statements gets `noinline`, and everything in between is left to LLVM. A function taking a function value keeps `noinline` regardless — folding an indirect call would change what the program can observe. `--opt-report` names the decision, the cost and the call count; there is no source-level attribute that can override it.
+
 The per-pass gate (`yashy-bench --per-pass`) compares the all-passes measurement with one taken with each pass disabled and fails when disabling a pass *improves* its own row by more than 2%. See [benchmarks/README.md](../benchmarks/README.md#the-per-pass-gate) for the command that produces the table.
 
 `escape` is the one pass whose named row cannot move: `maps.ya` inserts and probes a builtin `Map`, so the source has no `alloc` site and disabling the pass changes nothing in that program. Its positive row is the promotion count instead. [`benchmarks/promote.ya`](../benchmarks/promote.ya) holds one allocation that stays in its function and one that is returned, and `benchmarks/ci.sh`/`ci.ps1` require `yashyc build --timings` to report exactly one promoted site while the program still answers `43` — a pass that stops promoting, or that promotes the returned pointer, fails that row rather than passing vacuously.
@@ -57,7 +59,7 @@ main.ya:5  fn wordcount
   call not inlined      labs(-3)          `labs` is a C function declared `extern`; this module has its declaration and no body
 ```
 
-Every entry has a kind — `bounds`, `overflow`, `alloc`, `not-inlined`, `promoted`, or `not-promoted` — a reason, and a fix when one exists. The report is recorded while the body is lowered, so it cannot disagree with the IR: a check that was deleted has no entry, and an allocation that moved to the frame says so.
+Every entry has a kind — `bounds`, `overflow`, `alloc`, `not-inlined`, `promoted`, `not-promoted`, `attribute`, or `inline` — a reason, and a fix when one exists. The report is recorded while the body is lowered, so it cannot disagree with the IR: a check that was deleted has no entry, and an allocation that moved to the frame says so.
 
 `--opt-report=json` prints the same record as schema v1 (`{"schema_version":1,"tool":"yashyc","functions":[…]}`, with `fix: null` where nothing would help) for an agent. A program with nothing to explain prints one line in the human form and `"functions": []` in JSON.
 

@@ -46,8 +46,10 @@ pub use pass::{pipeline, Pass, PassCtx, PassStats};
 pub use patterns::{bind_pattern, gen_match, pattern_variant_name};
 pub use stmt_gen::{gen_block, gen_stmt, run_all_scopes_defers, run_defers, Flow};
 
+use std::collections::HashMap;
+
 use yashy_common::{Diagnostic, FileId, Severity, Span};
-use yashy_sema::{HirFn, HirItem, HirProgram, TypeKind};
+use yashy_sema::{HirExpr, HirFn, HirItem, HirProgram, HirStmt, TypeKind};
 
 /// The choices a caller may make about code generation itself, as opposed to
 /// about how the result is compiled.
@@ -332,6 +334,61 @@ pub fn emit_program_with_entry(
     .0
 }
 
+/// Count direct calls to named functions in one expression, for the inliner
+/// policy's caller count. Builtins and indirect calls are not candidates.
+fn count_calls_expr(expr: &HirExpr, out: &mut HashMap<String, usize>) {
+    match expr {
+        HirExpr::Call { callee, args, .. } => {
+            if callee.len() == 1 {
+                *out.entry(callee[0].clone()).or_default() += 1;
+            }
+            for arg in args {
+                count_calls_expr(arg, out);
+            }
+        }
+        HirExpr::Binary { lhs, rhs, .. } => {
+            count_calls_expr(lhs, out);
+            count_calls_expr(rhs, out);
+        }
+        HirExpr::Unary { operand, .. } | HirExpr::Move(operand, ..) => {
+            count_calls_expr(operand, out)
+        }
+        HirExpr::StructLit { fields, .. } => {
+            for (_, field, _) in fields {
+                count_calls_expr(field, out);
+            }
+        }
+        HirExpr::FieldAccess { base, .. } | HirExpr::Index { base, .. } => {
+            count_calls_expr(base, out)
+        }
+        _ => {}
+    }
+}
+
+fn count_calls_stmt(stmt: &HirStmt, out: &mut HashMap<String, usize>) {
+    match stmt {
+        HirStmt::Var { init, .. }
+        | HirStmt::Const { init, .. }
+        | HirStmt::Destructure { init, .. }
+        | HirStmt::LetElse { init, .. }
+        | HirStmt::Expr(init, ..)
+        | HirStmt::Assign { value: init, .. }
+        | HirStmt::Return(Some(init), _) => count_calls_expr(init, out),
+        HirStmt::If { cond, then_block, else_block, .. } => {
+            count_calls_expr(cond, out);
+            for stmt in &then_block.stmts {
+                count_calls_stmt(stmt, out);
+            }
+            if let Some(else_block) = else_block {
+                for stmt in &else_block.stmts {
+                    count_calls_stmt(stmt, out);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Emit a whole program and the reasons behind every decision that survived.
 ///
 /// The IR is identical to [`emit_program`]'s for the same inputs; the second
@@ -413,6 +470,29 @@ fn emit(
                     f.ret.kind.clone(),
                 );
             }
+        }
+    }
+    // The inliner policy is data: one table in `pass.rs`, one attribute and one
+    // opt-report note per candidate. A source-level `inline` keyword cannot
+    // override it, and a function value parameter stays opaque.
+    let mut callers: HashMap<String, usize> = HashMap::new();
+    for item in &hir.items {
+        if let HirItem::Fn(f) = item {
+            for stmt in &f.body.stmts {
+                count_calls_stmt(stmt, &mut callers);
+            }
+        }
+    }
+    for item in &hir.items {
+        if let HirItem::Fn(f) = item {
+            let cost = f.body.stmts.len();
+            let calls = callers.get(&f.name).copied().unwrap_or(0);
+            let attribute = pass::INLINE_POLICY.attribute(cost, calls);
+            module.set_inline_attribute(
+                &f.name,
+                format!("inline policy: {cost} statements, {calls} call sites -> {attribute}"),
+                attribute,
+            );
         }
     }
     // Named type definitions are emitted once, before any body. A struct or

@@ -169,6 +169,29 @@ fn main() { }
 }
 
 #[test]
+fn the_inline_policy_names_its_decision_and_cost() {
+    const SOURCE: &str = "\
+fn small(int x) -> int {
+    return x + 1;
+}
+fn main() {
+    print(small(1));
+    print(small(2));
+}
+";
+    let text = report("opt-report-inline", SOURCE, &[]);
+    assert!(
+        text.contains("inline decision"),
+        "the report names the decision kind:\n{text}"
+    );
+    assert!(
+        text.contains("inline policy") && text.contains("alwaysinline"),
+        "the report names the cost and the attribute:\n{text}"
+    );
+    assert!(text.contains("small"), "the callee is named:\n{text}");
+}
+
+#[test]
 fn the_json_report_is_stable_and_carries_the_schema() {
     let first = report("opt-report-json-a", UNPROVEN, &["--opt-report=json"]);
     let second = report("opt-report-json-b", UNPROVEN, &["--opt-report=json"]);
