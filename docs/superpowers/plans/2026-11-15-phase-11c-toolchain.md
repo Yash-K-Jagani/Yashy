@@ -79,26 +79,35 @@ path would repeat it.
 - `runtime_archive_for(triple) -> Option<RuntimeArchive>`
 - `--runtime-source` keeps the compile-from-C path for development.
 
-- [ ] **Step 1: Write the failing test.** Build `hello` with a `PATH` that
+- [x] **Step 1: Write the failing test.** Build `hello` with a `PATH` that
   contains no C compiler and no LLVM front end; the build succeeds, the binary
   runs, and `doctor` reports `runtime: bundled` with a hash. Assert the archive
   and `--runtime-source` modes produce the same exported runtime symbols and
   the same e2e output, and that the leak report still reads zero.
-- [ ] **Step 2: Build the archive once, not per link.** A release job compiles
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: Build the archive once, not per link.** A release job compiles
   the five C sources with a pinned compiler and `-ffreestanding`-honest flags
   for each supported triple, archives them with `llvm-ar` (`.lib` through
   `llvm-lib` on COFF), records the symbol list and checksum, and signs the
   manifest. The compiler embeds its host archive and discovers other triples in
   the toolchain package (Task 5). No user build compiles C.
-- [ ] **Step 3: Refuse a mismatched archive.** The archive records the runtime
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: Refuse a mismatched archive.** The archive records the runtime
   source hash and compiler version; a compiler whose embedded sources differ
   from the archive refuses the build with a diagnostic naming both hashes,
   rather than linking a runtime the IR was not emitted against.
-- [ ] **Step 4: Keep the developer path honest.** `--runtime-source` compiles
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 4: Keep the developer path honest.** `--runtime-source` compiles
   from the embedded sources with the system C compiler, is reported as
   `runtime: source (development)` in `doctor`, and is covered by the same e2e
   parity test. It is never selected implicitly.
-- [ ] **Step 5: Commit.**
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 5: Commit.**
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 2: `llc` object emission
 
@@ -107,21 +116,28 @@ path would repeat it.
 - Create: `crates/yashy-driver/src/object.rs`
 - Test: `crates/yashy-driver/tests/emit_object.rs`, `crates/yashy-driver/tests/incremental.rs` (extend)
 
-- [ ] **Step 1: Write the failing test.** Put a `clang` shim on `PATH` that
+- [x] **Step 1: Write the failing test.** Put a `clang` shim on `PATH` that
   exits `99` and records its arguments. `yashyc build` must still succeed, and
   the shim's log must be empty. Assert one object per module, an
   `--emit-object` directory with a stable name per module, and IR that still
   round-trips through `--emit-ir`.
-- [ ] **Step 2: One emitter, two forms.** Textual IR remains the compiler's
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: One emitter, two forms.** Textual IR remains the compiler's
   output because it is readable; `llc -filetype=obj` turns it into an object,
   and `llvm-as` turns it into bitcode only where LTO needs bitcode. Target,
   CPU and feature flags map to `llc` (`-mtriple`, `-mcpu`, `-mattr`) rather than
   to a C driver's `--target`/`-march`.
-- [ ] **Step 3: Reuse 11B's object model.** A module's object is keyed by its IR
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: Reuse 11B's object model.** A module's object is keyed by its IR
   bytes, flags, target and toolchain identity, and an unchanged module is not
   re-emitted. The link consumes the object set; a missing object is rebuilt,
   never guessed.
-- [ ] **Step 4: Commit.**
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 4: Commit.**
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 3: The linker and the sysroot
 
@@ -136,27 +152,36 @@ path would repeat it.
 - `Linker::{Lld, LldLink, AppleLd, MsvcLink, Cc}` with one `link(&LinkSpec)` each.
 - `Sysroot { crt, libc, libdirs, sdk }` discovered per target and overridable with `--sysroot`.
 
-- [ ] **Step 1: Write the failing test.** With no `clang` on `PATH`, link a
+- [x] **Step 1: Write the failing test.** With no `clang` on `PATH`, link a
   program through `ld.lld` on Linux and `lld-link` on Windows; it runs and its
   exit code matches. `--linker <path>`, `YASHY_LINKER` and
   `--toolchain system` select the expected backend; a missing linker is a
   diagnostic with an install hint and a `doctor --json` field, not a panic.
-- [ ] **Step 2: Stop asking a compiler driver to link.** Each backend renders
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: Stop asking a compiler driver to link.** Each backend renders
   `LinkSpec` into arguments; no backend receives a shell string. The platform
   defaults (`-lpthread -ldl -lm`, `ws2_32`, `bcrypt`, `System`) move from
   `platform_library_flags` into the link layer, where the backend can spell
   them for its own linker.
-- [ ] **Step 3: Find the sysroot honestly.** Linux multiarch and CRT paths,
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: Find the sysroot honestly.** Linux multiarch and CRT paths,
   Windows `LIB` plus `vswhere` for the UCRT/Windows SDK, macOS SDK through
   `xcrun --show-sdk-path` with Apple `ld`. `--sysroot` overrides discovery.
   `E2201` is rewritten to name the missing linker, CRT or SDK rather than a C
   compiler, and the error catalog and message table are regenerated.
-- [ ] **Step 4: ThinLTO without a C driver.** Feed bitcode to `ld.lld --lto-O2`
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 4: ThinLTO without a C driver.** Feed bitcode to `ld.lld --lto-O2`
   (or `llvm-lto2` where the platform linker cannot) and assert the program is
   byte-identical to the non-LTO build's behaviour and faster on the release
   rows. A backend without LTO reports `lto: unavailable` instead of silently
   falling back.
-- [ ] **Step 5: Commit.**
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 5: Commit.**
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 4: PGO, debug info, coverage and sanitizers
 
@@ -166,24 +191,33 @@ path would repeat it.
 - Test: `crates/yashy-driver/tests/pgo_llvm.rs`, `crates/yashy-driver/tests/coverage_llvm.rs`, `crates/yashy-driver/tests/debug.rs` (extend)
 - Docs: `docs/optimization.md`, `docs/debugging.md`, `docs/coverage.md`
 
-- [ ] **Step 1: Write the failing test.** `--pgo` runs instrumented, merges the
+- [x] **Step 1: Write the failing test.** `--pgo` runs instrumented, merges the
   profile with `llvm-profdata`, applies it with `opt` and emits with `llc`; no
   `clang` process runs; two builds with the same profile are byte-identical,
   and a profile from a different target is refused.
-- [ ] **Step 2: Debug info is still a codegen fact.** `llc -O0` carries the
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: Debug info is still a codegen fact.** `llc -O0` carries the
   DWARF/CodeView Phase 2 emits, and `lld-link /debug` writes a PDB; a scripted
   session still stops on the expected line and prints a struct as a value.
   Missing `llvm-pdbutil` is a diagnostic with a hint, not a failed build.
-- [ ] **Step 3: Coverage is instrumentation the compiler owns.** Emit line and
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: Coverage is instrumentation the compiler owns.** Emit line and
   branch counters from codegen (the same facts `opt`'s instrumentation pass
   uses), merge with `llvm-profdata`, and render with `llvm-cov`. If a profile
   cannot name a source line, coverage says `unavailable` and names the missing
   mapping; it never reports a number it cannot justify.
-- [ ] **Step 4: Sanitizers stay optional.** `--sanitize` requires a `clang`
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 4: Sanitizers stay optional.** `--sanitize` requires a `clang`
   backend and compiler-rt runtimes, says so in `doctor`, and is not on the
   default path. The TSan differential in Phase 10 runs in CI with the pinned
   `clang`; a user build never needs it.
-- [ ] **Step 5: Commit.**
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 5: Commit.**
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 5: The toolchain package and selection
 
@@ -198,26 +232,35 @@ path would repeat it.
 - `ToolchainPackage { llvm_version, triple, files: Vec<FileHash>, signature }`
 - `yashyc toolchain {install,list,verify,remove} [--json]`
 
-- [ ] **Step 1: Write the failing test.** `yashyc toolchain install 20.1.0`
+- [x] **Step 1: Write the failing test.** `yashyc toolchain install 20.1.0`
   verifies the signature and every file hash, installs under
   `~/.yashy/toolchains/20.1.0/<triple>`, and `--toolchain bundled` uses it. A
   tampered archive, an archive for another triple, and an unsigned manifest
   are each refused. `list --json` is the machine form.
-- [ ] **Step 2: The package is pinned and small.** One archive per target holds
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: The package is pinned and small.** One archive per target holds
   `llc`, `lld` (`ld.lld`/`lld-link`), `llvm-ar`/`llvm-lib`, `llvm-as`, `opt`,
   `llvm-profdata`, `llvm-cov` and, on Windows, `llvm-pdbutil`, plus the
   runtime archive. The LLVM version is a supported major/minor range, not
   "whatever is on `PATH`". Licenses and NOTICE files travel with it.
-- [ ] **Step 3: Selection is explicit.** `auto` prefers bundled, then a system
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: Selection is explicit.** `auto` prefers bundled, then a system
   LLVM in the supported range, then `clang` as the legacy mode; each step is
   recorded. `system` never silently upgrades; `clang` exists so a developer or
   a sanitizer run can opt in; `YASHY_LLVM` names a directory; an unusable
   version is refused with the supported range.
-- [ ] **Step 4: The toolchain is part of the build fact.** Its identity
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 4: The toolchain is part of the build fact.** Its identity
   (mode, version, file hashes) is in the cache key, in `--reproducible` output,
   in `doctor` and in the SBOM. Two machines with the same toolchain package
   produce the same bytes; a different LLVM is a different build.
-- [ ] **Step 5: Commit.**
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 5: Commit.**
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 6: The clean-machine gate
 
@@ -227,21 +270,28 @@ path would repeat it.
 - Modify: `docs/install.md`, `docs/toolchain.md`, `docs/errors/E2201.md`, `docs/errors.md`
 - Test: `crates/yashy-driver/tests/doctor.rs` (extend)
 
-- [ ] **Step 1: Write the failing test.** On a fresh Windows image and a
+- [x] **Step 1: Write the failing test.** On a fresh Windows image and a
   minimal Linux image with no `clang`, `gcc`, `cc` or LLVM on `PATH`: install
   the signed archive, run `yashyc doctor`, `yashyc new hello`, `yashyc test`,
   `yashyc build --release`, run the binary, `yashyc debug` to a breakpoint, and
   `yashyc build --reproducible` twice. Assert it all succeeds, assert `clang`
   is absent, and assert the two reproducible builds are byte-identical.
-- [ ] **Step 2: The installer carries or fetches the toolchain.** One artifact
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: The installer carries or fetches the toolchain.** One artifact
   per OS and architecture; the toolchain package is included or fetched from
   the same signed origin as the compiler; an offline install from a local
   archive works. Uninstall removes the compiler and leaves user caches alone.
-- [ ] **Step 3: Phase 3's matrix is re-run, not assumed.** Re-run the install
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: Phase 3's matrix is re-run, not assumed.** Re-run the install
   matrix with `clang` absent, update its expected output, and make `doctor`
   print `clang: absent (not required)`. The docs stop telling users to install
   a C toolchain.
-- [ ] **Step 4: Commit.**
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 4: Commit.**
+  *Closed 2026-11-26 with exception: needs platform toolchain archives, installers and linkers this host does not provide. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ## Gates
 

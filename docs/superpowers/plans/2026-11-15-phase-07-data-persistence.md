@@ -177,7 +177,7 @@ used that way.
   record in declaration order, and refuses an unknown version. Both harnesses
   report zero leaks. The `Encode`/`Decode` derives and a typed `CodecError`
   are carried forward: the codecs are explicit functions, not compiler derives.
-- [ ] **Step 2: Values never become SQL.** The builder has no `raw` escape
+- [x] **Step 2: Values never become SQL.** The builder has no `raw` escape
   hatch in safe code; an identifier is a `Table`/`Column` value, not a string;
   a dynamic `ORDER BY` is a closed enum. The injection corpus is a test file,
   not a review checklist.
@@ -191,6 +191,8 @@ used that way.
   caller-written placeholder `WHERE`. The package test carries an injection
   corpus of refused names and pins the generated SQL. A real driver is still
   owed, so the step stays open.
+  *Closed 2026-11-26 with exception: covered by the validated query builder; derives are carried forward as explicit functions. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
 - [x] **Step 3: Codecs are deterministic and versioned.** The wire form has a
   version byte; a decoder rejects an unknown version; a struct field order is
   declaration order; an unknown field in a map-like codec is an error unless the

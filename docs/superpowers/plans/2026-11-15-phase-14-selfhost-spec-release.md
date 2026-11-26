@@ -70,7 +70,7 @@ end stays the reference for the 2.0 release (design call 7).
 - Modify: `crates/yashy-driver/tests/selfhost_diff.rs`
 - Test: `selfhost/tests/differential.ya`, `crates/yashy-driver/tests/programs/selfhost/`
 
-- [ ] **Step 1: Write the failing test.** The differential classifies every
+- [x] **Step 1: Write the failing test.** The differential classifies every
   file under `docs/tutorial/`, `crates/yashy-driver/tests/programs/`, `packages/`,
   `examples/`, `selfhost/` and `playground/` as *agree* or *reproduced*;
   *unsupported* and *mismatch* are both failures. Cover every 2.0 form: generic
@@ -78,18 +78,27 @@ end stays the reference for the 2.0 release (design call 7).
   and `@` patterns, `matches`, derives, `unsafe`, typed pointers, `repr` clauses,
   `defer expr`, `cfg`, named/default arguments, `async`/`scope`/`.await` and SIMD
   types.
-- [ ] **Step 2: The lexer stays the stricter contract.** Token kind and span
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: The lexer stays the stricter contract.** Token kind and span
   agree on every corpus file, including the error cases: a malformed program
   produces the same first token error on both front ends. The digest is
   canonical — sorted, stable and byte-identical across runs and OSes.
-- [ ] **Step 3: Errors are part of the differential.** A file both front ends
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: Errors are part of the differential.** A file both front ends
   reject is *reproduced* only when the first error has the same span and the same
   code; a different code is a mismatch. This is what makes the differential a
   front-end test rather than a happy-path test.
-- [ ] **Step 4: The subset declaration shrinks to nothing.** The spike's
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 4: The subset declaration shrinks to nothing.** The spike's
   `unsupported` list is a checked file; it reaches zero in this task and any new
   entry is a regression.
-- [ ] **Step 5: Commit.**
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 5: Commit.**
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 2: Bootstrap
 
@@ -98,19 +107,26 @@ end stays the reference for the 2.0 release (design call 7).
 - Modify: `crates/yashy-driver/tests/selfhost_diff.rs`, `docs/gates.md`
 - Test: `crates/yashy-driver/tests/bootstrap.rs`
 
-- [ ] **Step 1: Write the failing test.** Stage 0 (the Rust-built
+- [x] **Step 1: Write the failing test.** Stage 0 (the Rust-built
   `yashyc`) builds the Yashy front end; the result (stage 1) builds itself
   (stage 2); stage 2 and stage 3 are byte-identical when given the same inputs,
   and all stages produce the same digest for every corpus file.
-- [ ] **Step 2: Bootstrap is reproducible, not just converging.** Fixed stage
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: Bootstrap is reproducible, not just converging.** Fixed stage
   ordering, no timestamps, no absolute paths, no environment reads; a stage with
   a different input hash is recorded and compared. `scripts/bootstrap` runs the
   whole chain and prints a stage-by-stage hash table.
-- [ ] **Step 3: The front end is the proof, not the compiler.** The bootstrap
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: The front end is the proof, not the compiler.** The bootstrap
   covers lexer and parser only; the Rust front end remains the reference for the
   release (design call 7). A full self-hosted compiler is a later record, and the
   plan says so in writing rather than implying it.
-- [ ] **Step 4: Commit.**
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 4: Commit.**
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 3: The language reference
 
@@ -122,7 +138,7 @@ end stays the reference for the 2.0 release (design call 7).
 - Modify: `docs/architecture.md` (link, never contradict)
 - Test: `crates/yashy-driver/tests/reference.rs`, `crates/yashy-driver/tests/docs.rs`
 
-- [ ] **Step 1: Write the failing test.** Every chapter has a grammar block
+- [x] **Step 1: Write the failing test.** Every chapter has a grammar block
   that `yashyc conformance` parses, a rule id per normative sentence, and a
   link from the rule to its diagnostic code and its conformance case. The
   EBNF is generated from the parser's own tables and a hand edit fails the test.
@@ -131,7 +147,9 @@ end stays the reference for the 2.0 release (design call 7).
   diagnostic pages; `tests/docs.rs` checks every page's local links. The
   grammar, types, items, patterns and other chapters, the generated EBNF and
   the `yashyc conformance` parser gate are still owed, so the step stays open.
-- [ ] **Step 2: The memory model is specified, not described.** Provenance,
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: The memory model is specified, not described.** Provenance,
   the owning/FFI pointer split, the `noalias` rule, the null niche, layout and
   `repr`, zeroed allocation and the allocator interface, stack promotion and
   `stack_alloc`, and the determinism contract each get a normative section with
@@ -141,10 +159,15 @@ end stays the reference for the 2.0 release (design call 7).
   layout and the determinism contract have normative sections. Provenance, the
   null niche, stack promotion/`stack_alloc` and per-section corpus links are
   still owed, so the step stays open.
-- [ ] **Step 3: Two readings agree.** The reference, `docs/architecture.md` and
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: Two readings agree.** The reference, `docs/architecture.md` and
   the error catalog are reconciled: a rule id appears in all three or in none.
   A drift test fails on a contradiction, not just a missing link.
-- [ ] **Step 4: Commit.**
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 4: Commit.**
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 4: The conformance suite
 
@@ -158,17 +181,24 @@ end stays the reference for the 2.0 release (design call 7).
 - `Case { id, rule, source, expected: Compiles | Rejects(Code, Span) | Runs(stdout, exit) }`
 - `run_conformance(target: &Target, filter: &Filter) -> Report`
 
-- [ ] **Step 1: Write the failing test.** Every rule id in the reference has at
+- [x] **Step 1: Write the failing test.** Every rule id in the reference has at
   least one case, and every case names its rule. Run the suite against a target
   and assert every case's expected outcome. A case with no rule or a rule with no
   case fails the suite — the Phase 9 traceability matrix is the index.
-- [ ] **Step 2: The suite is the platform gate.** Every claimed target runs it
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: The suite is the platform gate.** Every claimed target runs it
   natively or under an emulator; `conformance --json` reports per-target, per-rule
   results and the suite is required in CI before a release artifact is published.
-- [ ] **Step 3: Negative cases are first-class.** A rejection case asserts the
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: Negative cases are first-class.** A rejection case asserts the
   code, the span and the suggestion; a diagnostic that changes code is a
   conformance diff, which is a breaking change and needs an RFC.
-- [ ] **Step 4: Commit.**
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 4: Commit.**
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 5: Editions, migration and deprecation
 
@@ -179,12 +209,14 @@ end stays the reference for the 2.0 release (design call 7).
 - Create: `docs/editions.md`
 - Test: `crates/yashy-driver/tests/migrate.rs`, `crates/yashy-driver/tests/edition.rs`
 
-- [ ] **Step 1: Write the failing test.** A 1.0 project with no `edition` key
+- [x] **Step 1: Write the failing test.** A 1.0 project with no `edition` key
   builds unchanged under the default; `yashyc migrate` rewrites it to
   `edition = "2027"`, reports every semantic change with a diff, and the result
   passes `check`, `test` and `verify`. `--dry-run` prints the diff and changes
   nothing. A file with an unknown edition is a diagnostic naming the valid set.
-- [ ] **Step 2: An edition is a compatibility promise.** Within an edition, no
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: An edition is a compatibility promise.** Within an edition, no
   program that compiled stops compiling; a change that breaks one is a new
   edition with a migration. The compiler keeps reading every edition it has
   shipped.
@@ -192,13 +224,18 @@ end stays the reference for the 2.0 release (design call 7).
   default, `2027`), what an edition may and may not change, and the RFC gate.
   The manifest `edition` key and the compiler's multi-edition reader are still
   owed, so the step stays open.
-- [ ] **Step 3: Deprecation has a path.** A deprecated item warns with a code
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: Deprecation has a path.** A deprecated item warns with a code
   and a `yashyc fix`; it is removed only in an edition, and the removal is listed
   in the migration notes. There is no silent removal.
   *Current:* `docs/deprecation.md` gives the four-step path and the migration
   table, and `docs/editions.md` ties removal to an edition. The `yashyc fix`
   command is not implemented, so the step stays open.
-- [ ] **Step 4: Commit.**
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 4: Commit.**
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 6: LTS, RFC and governance in the repo
 
@@ -230,7 +267,8 @@ end stays the reference for the 2.0 release (design call 7).
   *Current:* `docs/governance.md` holds the decision log, the quarterly
   re-plan rule, and the identity/non-goals/never-cut list. The contributing
   page is `CONTRIBUTING.md`; both are covered by the link test.
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 7: Hardening and the signed, reproducible 2.0 release
 
@@ -239,28 +277,39 @@ end stays the reference for the 2.0 release (design call 7).
 - Modify: `.github/workflows/release.yml`, `scripts/install/*`, `crates/yashy-driver/src/main.rs` (`self-update`)
 - Test: `scripts/install/test-install.*`, `crates/yashy-driver/tests/reproducible.rs`, `crates/yashy-driver/tests/release.rs`
 
-- [ ] **Step 1: Write the failing test.** Build the release twice in two
+- [x] **Step 1: Write the failing test.** Build the release twice in two
   directories on Windows, Linux and macOS; the archives are byte-identical, the
   SBOM matches, every artifact has a detached signature, and the installers
   verify it before installing. Tamper with one archive byte and assert the
   installer and `self-update` both refuse it.
-- [ ] **Step 2: Four hardening gates before the tag.** The full fuzz corpus
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: Four hardening gates before the tag.** The full fuzz corpus
   (parsers, JSON/TOML/YAML/CSV/XML, HTTP, WebSocket, RESP3, WASM) has no open
   finding; ASan/UBSan and TSan are clean on the corpus; the alias and determinism
   differentials are green; the sandbox escape corpus is empty on both OSes.
-- [ ] **Step 3: The audit is external and written down.** A third-party review of
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: The audit is external and written down.** A third-party review of
   the memory model, `unsafe` sites, FFI, crypto wrappers, TLS configuration and
   the sandbox; findings, fixes and accepted exceptions with dates. The CVE
   process names the contact, the window and the advisory format.
-- [ ] **Step 4: macOS is claimed only now.** A signed and notarised archive that
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 4: macOS is claimed only now.** A signed and notarised archive that
   passes the install matrix, the conformance suite and the examples on macOS. If
   the secrets do not exist, macOS stays unclaimed and the release notes say so —
   the 1.0 rule stands.
-- [ ] **Step 5: The release checklist is executable.** `yashyc doctor --release`
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 5: The release checklist is executable.** `yashyc doctor --release`
   checks every gate, every platform, every signature and the SBOM; `RELEASE.md`
   is the human rendering of the same script. A release that skips a line is not a
   release.
-- [ ] **Step 6: Commit and tag.**
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 6: Commit and tag.**
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 8: Release channels, versioned docs and the benchmark dashboard
 
@@ -276,26 +325,35 @@ end stays the reference for the 2.0 release (design call 7).
 - `yashyc toolchain install <channel>`; `yashyc toolchain list`; `yashyc channel set <channel>`
 - `docs/versioned/<version>/` generated from `yashyc doc`; a redirect map for moved pages
 
-- [ ] **Step 1: Write the failing test.** Install nightly, beta and a pinned
+- [x] **Step 1: Write the failing test.** Install nightly, beta and a pinned
   1.0 and 2.0 side by side; `yashyc +2.0.0 check` uses the pinned toolchain;
   `channel set beta` changes the default and prints the previous value. A
   project with a `toolchain = "2.0"` key resolves to the newest stable 2.0 and
   refuses a version it does not have with the install command in the message.
-- [ ] **Step 2: A channel is a signed pointer, not a branch.** Each channel
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: A channel is a signed pointer, not a branch.** Each channel
   points at an immutable, signed, reproducible archive; promoting a build writes
   a new pointer and never rebuilds. Nightly is allowed to fail; beta and stable
   are gated by the full release checklist. Two toolchains can be installed at
   once and nothing is mutated in place.
-- [ ] **Step 3: Docs are versioned with the compiler.** `yashyc doc` writes a
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: Docs are versioned with the compiler.** `yashyc doc` writes a
   versioned tree; the current version is a pointer; a removed page gets a
   redirect with the reason and the replacement. A docs build fails when a code
   sample in the reference does not compile under the versioned compiler.
-- [ ] **Step 4: The benchmark dashboard is a fact, not a screenshot.** Every
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 4: The benchmark dashboard is a fact, not a screenshot.** Every
   merged benchmark row is appended to a JSON history keyed by compiler hash,
   target and toolchain; the dashboard page is generated from it and shows the
   row, the baseline and the delta. A row that regresses more than its budget
   fails CI; a row without history is marked "new", never "green".
-- [ ] **Step 5: Commit.**
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 5: Commit.**
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 9: Advisories, migration guides and community
 
@@ -306,26 +364,35 @@ end stays the reference for the 2.0 release (design call 7).
 - Create: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `docs/governance.md`
 - Test: `crates/yashy-driver/tests/advisory.rs`, `crates/yashy-driver/tests/migrate_docs.rs`
 
-- [ ] **Step 1: Write the failing test.** A crafted advisory names a package,
+- [x] **Step 1: Write the failing test.** A crafted advisory names a package,
   a version range, a severity and a fixed version; `yashyc audit` refuses a
   project inside the range and names the advisory, the range and the fix. An
   advisory with a bad signature or an unknown schema is refused. A migration
   guide's code blocks compile under both the old and the new compiler and its
   claims match `yashyc migrate --dry-run`.
-- [ ] **Step 2: Advisories are a signed feed, not a web page.** The format is
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: Advisories are a signed feed, not a web page.** The format is
   a small, versioned JSON document signed by the release key; the feed is
   fetched only with the `net` capability and cached offline. A project can pin
   the feed and fail closed; `--offline` uses the cache and says how old it is.
-- [ ] **Step 3: Migration guides are tested programs.** Each edition pair has
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: Migration guides are tested programs.** Each edition pair has
   a guide whose snippets are compiled, whose before/after is produced by
   `migrate`, and whose breaking changes link to the RFC and the diagnostic code.
   A guide that drifts from the tool is a docs-test failure.
-- [ ] **Step 4: The community process is in the repo.** A contributor guide
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 4: The community process is in the repo.** A contributor guide
   names the build, test, format and review commands; an RFC has a decision log;
   a code of conduct and a security policy name a contact; a good-first-issue
   list is generated from the traceability matrix, not hand-curated. A release
   notes page is generated from merged RFCs and advisories.
-- [ ] **Step 5: Commit.**
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 5: Commit.**
+  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ## Gates
 

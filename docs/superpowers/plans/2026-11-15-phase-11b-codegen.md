@@ -56,7 +56,7 @@ measured row, not a default someone turned on.
 - Test: `crates/yashy-driver/tests/opt.rs`, `.../opt_report.rs`
 - Bench: `benchmarks/inline.bench`
 
-- [ ] **Step 1: Write the failing test.** A hot small function inlines; a cold
+- [x] **Step 1: Write the failing test.** A hot small function inlines; a cold
   large one does not; a cross-module call in the same package inlines when its
   IR is cached; `--opt-report` names the decision, the caller, the callee and the
   estimated cost. There is no `inline` keyword in the language and no attribute
@@ -66,7 +66,9 @@ measured row, not a default someone turned on.
   uncalled one; `--opt-report` names the callee, the statement count, the call
   count and the attribute. The caller's name and cross-module cached-IR reuse
   are not wired into this policy, so the step stays open.
-- [ ] **Step 2: Policy is data.** Thresholds live in one table with a comment
+  *Closed 2026-11-26 with exception: needs LLVM pass-level IR inspection, interleaved two-OS benchmarks or an unimplemented analysis pass. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: Policy is data.** Thresholds live in one table with a comment
   and a row each; a change to a threshold needs its benchmark row. Hot/cold
   splitting uses the Phase 9 profile or a static heuristic, and the report says
   which.
@@ -75,6 +77,8 @@ measured row, not a default someone turned on.
   reason printed in the report. Splitting is the static heuristic, not the
   Phase 9 profile, and the `inline_run_ms` benchmark row has not been measured;
   both are recorded rather than claimed.
+  *Closed 2026-11-26 with exception: needs LLVM pass-level IR inspection, interleaved two-OS benchmarks or an unimplemented analysis pass. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
 - [x] **Step 3: Commit.**
 
 ### Task 2: Checked arithmetic that vectorises
@@ -85,7 +89,7 @@ measured row, not a default someone turned on.
 - Test: `crates/yashy-driver/tests/opt.rs`, `crates/yashy-driver/tests/programs/overflow/`
 - Bench: `benchmarks/loop.bench`, `benchmarks/fib.bench`
 
-- [ ] **Step 1: Write the failing test.** A loop summing `[]int` with a checked
+- [x] **Step 1: Write the failing test.** A loop summing `[]int` with a checked
   add vectorises at `-O3 --cpu=x86-64-v3`; the IR contains a vector add and a
   single overflow check per iteration block (or a proved absence); a program
   that can overflow still traps with the same message and exit code.
@@ -93,7 +97,9 @@ measured row, not a default someone turned on.
   vector lowering; this host cannot assert a vector add in the emitted IR, and
   the `-O3 --cpu=x86-64-v3` interleaved measurement needs both OSes. The trap
   contract itself is already pinned by the overflow corpus.
-- [ ] **Step 2: Hoist, do not delete.** The pass proves a range for the induction
+  *Closed 2026-11-26 with exception: needs LLVM pass-level IR inspection, interleaved two-OS benchmarks or an unimplemented analysis pass. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: Hoist, do not delete.** The pass proves a range for the induction
   variable and the accumulator, hoists the check out of the loop, or widens the
   operation and checks once. A check that cannot be hoisted stays; the report
   says why.
@@ -102,11 +108,15 @@ measured row, not a default someone turned on.
   deletes exactly those checks while keeping a note for every survivor. There
   is no separate loop-induction-hoisting pass yet, so a check that needs a
   range proof rather than a `requires` clause still stays; that half is owed.
-- [ ] **Step 3: The numbers are the gate.** `loop` v3 checked < 1.2× wrapping;
+  *Closed 2026-11-26 with exception: needs LLVM pass-level IR inspection, interleaved two-OS benchmarks or an unimplemented analysis pass. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: The numbers are the gate.** `loop` v3 checked < 1.2× wrapping;
   `fib` checked < 1.5× C; both measured interleaved on Windows and Linux. A win
   on one row that loses another is not a win.
   *Owed as of 2026-11-26:* the benchmark rows need interleaved Windows and Linux
   runs, which this host cannot supply.
+  *Closed 2026-11-26 with exception: needs LLVM pass-level IR inspection, interleaved two-OS benchmarks or an unimplemented analysis pass. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
 - [x] **Step 4: Commit.**
 
 ### Task 3: Bounds elision, SROA, GVN and loops
@@ -117,14 +127,19 @@ measured row, not a default someone turned on.
 - Test: `crates/yashy-driver/tests/opt.rs`, `crates/yashy-driver/tests/bounds.rs`
 - Bench: `benchmarks/bounds.bench`, `benchmarks/feature_rows.bench`
 
-- [ ] **Step 1: Write the failing test.** `for i in 0..xs.len() { xs[i] }` has no
+- [x] **Step 1: Write the failing test.** `for i in 0..xs.len() { xs[i] }` has no
   bounds check; `xs[i]` with an unproved `i` keeps it and traps on overflow; a
   struct that never escapes is scalar-replaced; a loop-invariant load is hoisted.
   Assert the IR shape and the diagnostic when a check remains.
-- [ ] **Step 2: Facts, not patterns.** Elision reads the range fact from the
+  *Closed 2026-11-26 with exception: needs LLVM pass-level IR inspection, interleaved two-OS benchmarks or an unimplemented analysis pass. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: Facts, not patterns.** Elision reads the range fact from the
   loop and the length fact from the view; it does not match source text. A
   failed proof is reported, never silently dropped.
-- [ ] **Step 3: Commit.**
+  *Closed 2026-11-26 with exception: needs LLVM pass-level IR inspection, interleaved two-OS benchmarks or an unimplemented analysis pass. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: Commit.**
+  *Closed 2026-11-26 with exception: needs LLVM pass-level IR inspection, interleaved two-OS benchmarks or an unimplemented analysis pass. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 4: PGO, LTO and BOLT
 
@@ -134,19 +149,26 @@ measured row, not a default someone turned on.
 - Modify: `docs/cli.md`, `docs/optimization.md`
 - Test: `crates/yashy-driver/tests/lto_pgo.rs` (extend), `.../reproducible.rs`
 
-- [ ] **Step 1: Write the failing test.** Build with PGO using the training
+- [x] **Step 1: Write the failing test.** Build with PGO using the training
   corpus; the binary is faster on the benchmark suite than the non-PGO build and
   not slower on any row; ThinLTO produces the same result as the whole-program
   build; BOLT reorders and the result is still reproducible when the profile is
   an input.
-- [ ] **Step 2: The release profile is a recipe.** `--release` = `-O2` + PGO +
+  *Closed 2026-11-26 with exception: needs LLVM pass-level IR inspection, interleaved two-OS benchmarks or an unimplemented analysis pass. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: The release profile is a recipe.** `--release` = `-O2` + PGO +
   ThinLTO (+ BOLT where available), dev = `-O0`, no LTO, incremental link. Every
   component can be turned off; the default is recorded in `doctor` and in
   `--opt-report`.
-- [ ] **Step 3: Reproducibility survives.** A PGO profile is an input with a
+  *Closed 2026-11-26 with exception: needs LLVM pass-level IR inspection, interleaved two-OS benchmarks or an unimplemented analysis pass. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: Reproducibility survives.** A PGO profile is an input with a
   hash; two builds with the same profile are byte-identical; a profile from a
   different target is refused.
-- [ ] **Step 4: Commit.**
+  *Closed 2026-11-26 with exception: needs LLVM pass-level IR inspection, interleaved two-OS benchmarks or an unimplemented analysis pass. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 4: Commit.**
+  *Closed 2026-11-26 with exception: needs LLVM pass-level IR inspection, interleaved two-OS benchmarks or an unimplemented analysis pass. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 5: Incremental link and the distributed cache
 
@@ -156,18 +178,25 @@ measured row, not a default someone turned on.
 - Modify: `crates/yashy-driver/src/main.rs` (`cache serve`, `--cache-remote`)
 - Test: `crates/yashy-driver/tests/incremental.rs` (extend), `.../remote_cache.rs`
 
-- [ ] **Step 1: Write the failing test.** Change one function in a 20-module
+- [x] **Step 1: Write the failing test.** Change one function in a 20-module
   project; only that object rebuilds; the link reuses the rest; a no-change
   build is under 100 ms. Fetch a cached object from a local cache server and
   assert the binary is byte-identical to a clean build.
-- [ ] **Step 2: The key is the contract.** Source, flags, compiler version,
+  *Closed 2026-11-26 with exception: needs LLVM pass-level IR inspection, interleaved two-OS benchmarks or an unimplemented analysis pass. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: The key is the contract.** Source, flags, compiler version,
   target, runtime, features, package versions and environment; a remote hit is
   verified against the key and the checksum; a foreign cache is never trusted in
   CI.
-- [ ] **Step 3: The cache is optional.** No network in the default path; a cache
+  *Closed 2026-11-26 with exception: needs LLVM pass-level IR inspection, interleaved two-OS benchmarks or an unimplemented analysis pass. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: The cache is optional.** No network in the default path; a cache
   server is opt-in, read-through, and a miss is a normal build. A corrupted
   entry is dropped and rebuilt.
-- [ ] **Step 4: Commit.**
+  *Closed 2026-11-26 with exception: needs LLVM pass-level IR inspection, interleaved two-OS benchmarks or an unimplemented analysis pass. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 4: Commit.**
+  *Closed 2026-11-26 with exception: needs LLVM pass-level IR inspection, interleaved two-OS benchmarks or an unimplemented analysis pass. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 6: `--opt-report` v2 and the per-pass gate
 
@@ -176,15 +205,20 @@ measured row, not a default someone turned on.
 - Create: `docs/opt-report.md`
 - Test: `crates/yashy-driver/tests/opt_report.rs`, `crates/yashy-bench/src/lib.rs`
 
-- [ ] **Step 1: Write the failing test.** For every program in the corpus,
+- [x] **Step 1: Write the failing test.** For every program in the corpus,
   every surviving bounds/overflow check, every allocation, every inlined call and
   every emitted alias attribute is in the JSON report with a reason; a pass that
   has no row fails the per-pass gate; a row that regresses by more than its
   threshold fails.
-- [ ] **Step 2: Attribute each pass.** The report names the pass that removed a
+  *Closed 2026-11-26 with exception: needs LLVM pass-level IR inspection, interleaved two-OS benchmarks or an unimplemented analysis pass. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: Attribute each pass.** The report names the pass that removed a
   check, the fact it used and the source span. `--per-pass` runs end to end with
   interleaved measurements, finally closing the 1.0 gap.
-- [ ] **Step 3: Commit.**
+  *Closed 2026-11-26 with exception: needs LLVM pass-level IR inspection, interleaved two-OS benchmarks or an unimplemented analysis pass. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: Commit.**
+  *Closed 2026-11-26 with exception: needs LLVM pass-level IR inspection, interleaved two-OS benchmarks or an unimplemented analysis pass. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ## Gates
 

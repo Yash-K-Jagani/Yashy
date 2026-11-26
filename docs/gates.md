@@ -793,6 +793,28 @@ claimed green here.
   and the two-OS startup gate (Task 6). What shipped is recorded in the plan's
   closing notes and the dated rows above; no owed item is silently dropped.
 
+## Plan obligations deferred with exceptions (2026-11-26)
+
+Every checkbox in the active plans now has a closing note naming its condition.
+The following groups remain unimplemented and are tracked in those plans, not
+dropped:
+
+- Phase 11A: inline string ABI, 1M-key map row, three-feature re-measurement,
+  two-OS startup gate, per-function stack-depth accounting, allocator interface
+  and runtime size classes.
+- Phase 11B: LLVM pass-level vector IR assertions, loop-check hoisting,
+  interleaved two-OS benchmark rows, bounds/SROA/GVN/loop passes, PGO profile,
+  ThinLTO/BOLT, per-module incremental link, distributed cache, opt-report v2.
+- Phase 11C: bundled toolchain archives, object emission without clang, native
+  sysroot discovery, ThinLTO without a C driver, sanitizers, installer matrix.
+- Phase 12: WASM/cross targets, JS bridge, bindgen, C++ interop, SIMD, dlopen,
+  shared-library ABI, `-sys` convention, embedding matrix.
+- Phase 13: MCP refactor verbs, generic graph, focus packs, sandbox limits,
+  agent benchmark, provenance, BPE policy, tamper-evident audit log, SDK.
+- Phase 14: self-host differential, reproducible bootstrap, normative spec,
+  conformance suite, editions, release/tag gates, channels, advisory feed,
+  contributor process.
+
 ## Running the runner
 
 ```sh

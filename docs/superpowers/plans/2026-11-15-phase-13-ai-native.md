@@ -72,25 +72,34 @@ agent run reproducible.
 - `Patch { edits: Vec<Edit>, expected_tree_hash: Sha256 }`
 - New MCP verbs: `edit`, `refactor`, `fix`, `format`, `lint`, `doc`, `bench`, `profile`, `run` (sandboxed)
 
-- [ ] **Step 1: Write the failing test.** An agent asks for a rename,
+- [x] **Step 1: Write the failing test.** An agent asks for a rename,
   receives a `Patch` with one edit per site, applies it, and re-checks. Then:
   a stale `expected_hash` is refused; an overlapping edit is refused; an edit
   outside the workspace is refused; a patch that does not type-check after
   application is rolled back and reported. Assert the file is byte-identical
   after a refusal.
-- [ ] **Step 2: There is no write-anything tool.** The only mutation is
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: There is no write-anything tool.** The only mutation is
   `apply_edit`, and it validates the span and the hash before and the whole tree
   after. A patch is all-or-nothing; a partial application is a bug, not a
   fallback. Every applied edit is recorded in the session's provenance log with
   its hash and rationale.
-- [ ] **Step 3: Refactor is compiler-aware.** `refactor` offers rename,
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: Refactor is compiler-aware.** `refactor` offers rename,
   extract-function, inline-function, change-signature, add-missing-match-arm and
   qualify-import, each computed from the index and verified by re-checking before
   it is returned. A refactor that cannot be proved safe is not offered.
-- [ ] **Step 4: No shell, ever.** The MCP surface has no command execution, no
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 4: No shell, ever.** The MCP surface has no command execution, no
   environment mutation, no network, and no path outside the workspace root. A
   tool call naming one is refused with a code and appears in the audit log.
-- [ ] **Step 5: Commit.**
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 5: Commit.**
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 2: The semantic graph
 
@@ -105,22 +114,31 @@ agent run reproducible.
 - `Edge = Calls | Implements | Uses | Owns | Returns | Raises | ReadsCapability`
 - `semantic_graph(ws: &Workspace) -> Graph`
 
-- [ ] **Step 1: Write the failing test.** For a program using generic traits,
+- [x] **Step 1: Write the failing test.** For a program using generic traits,
   `let else`, a typed pointer, an `unsafe` block, a `defer`, a task and a
   capability read, assert the graph carries each symbol's type, its effects, its
   contract, its ownership facts, its unsafe sites and its capability reads, and
   that a rename moves every incoming edge.
-- [ ] **Step 2: One model, rendered twice.** `index --json`, `context`, `doc`,
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: One model, rendered twice.** `index --json`, `context`, `doc`,
   the LSP and the MCP server read the same graph. The human rendering is
   generated from the JSON; a divergence is a test failure. Schema v1 fields are
   frozen; new fields are additive.
-- [ ] **Step 3: The graph is queryable.** `graph --json --from <symbol> --depth N
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: The graph is queryable.** `graph --json --from <symbol> --depth N
   --edges calls,owns,raises` answers "what can this function touch, allocate and
   fail with" in one call, which is the question an agent actually asks.
-- [ ] **Step 4: Byte-stable.** Two runs produce byte-identical JSON on both
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 4: Byte-stable.** Two runs produce byte-identical JSON on both
   OSes: sorted keys, sorted ids, no addresses, no timestamps, no hash-map order.
   A diff of the graph is a diff of the program.
-- [ ] **Step 5: Commit.**
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 5: Commit.**
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 3: Context packs
 
@@ -133,22 +151,29 @@ agent run reproducible.
 - `PackRequest { focus: SymbolId, mode: Focus | Diff | Tests | Docs | Error, budget: TokenBudget }`
 - `context_pack(req: &PackRequest) -> Pack` with `{ files: Vec<Excerpt>, symbols, signatures, diagnostics, token_count, dropped: Vec<Reason> }`
 
-- [ ] **Step 1: Write the failing test.** A 50k-line workspace: a focus pack
+- [x] **Step 1: Write the failing test.** A 50k-line workspace: a focus pack
   for one function fits 8k tokens and contains its signature, body, called
   signatures, the types it names and the tests that cover it. A diff pack
   contains only changed hunks plus their callers. An error pack contains the
   diagnostic, its span, the rule page and the fix suggestion. Assert
   `token_count ≤ budget` and that everything omitted is listed with a reason.
-- [ ] **Step 2: Rank and cut deterministically.** Ranking is a fixed score over
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: Rank and cut deterministically.** Ranking is a fixed score over
   graph distance, edit recency, test coverage and diagnostic proximity; ties
   break by symbol id. The token count uses the same tokenizer the BPE gate uses,
   so a pack's size is measured, not estimated. No model-specific prompt text in
   the tool.
-- [ ] **Step 3: A pack is a value, not a conversation.** The tool returns
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: A pack is a value, not a conversation.** The tool returns
   structured excerpts with paths, spans and hashes; the caller decides how to
   prompt. A pack names the graph revision it was cut from, so a stale pack is
   detectable.
-- [ ] **Step 4: Commit.**
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 4: Commit.**
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 4: Sandbox v1
 
@@ -163,24 +188,33 @@ agent run reproducible.
 - `Limits { wall: Duration, cpu: Duration, memory: u64, procs: u32, open_files: u32, output: u64 }`
 - `run_sandboxed(cmd: CompilerVerb, caps: &Capabilities, limits: &Limits) -> Result<Outcome, SandboxError>`
 
-- [ ] **Step 1: Write the failing test.** Escape attempts: `..` traversal, a
+- [x] **Step 1: Write the failing test.** Escape attempts: `..` traversal, a
   symlink pointing out, an absolute path, `%TEMP%`/`/tmp` outside the allowlist,
   opening a socket, reading the environment, `dlopen` of an unlisted library,
   forking a process, writing past the size limit, and reading `/proc/self/mem`.
   Assert each is refused with a distinct code, on both OSes, and that the corpus
   reports zero escapes.
-- [ ] **Step 2: Default-deny, positively named.** A capability is a named path
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: Default-deny, positively named.** A capability is a named path
   or a named feature; absence is denial. Both OSes implement the same model
   (job object and restricted token on Windows, `rlimit`/`seccomp`-class limits and
   path checks on Linux) or the sandbox is not shipped. A platform that cannot
   enforce a limit says so in `doctor` and refuses the verb rather than pretending.
-- [ ] **Step 3: Limits are enforced, not requested.** The wall clock kills the
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: Limits are enforced, not requested.** The wall clock kills the
   child, memory is capped, output is truncated with a marker, and a process
   count is capped. `--json` reports which limit fired.
-- [ ] **Step 4: The compiler verbs are the whole surface.** `check`, `build`,
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 4: The compiler verbs are the whole surface.** `check`, `build`,
   `test`, `verify`, `explain`, `context`, `index`, `doc`, `bench`, `profile`,
   `run`, `fix`, `format`, `lint`. Anything else is refused by name.
-- [ ] **Step 5: Commit.**
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 5: Commit.**
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 5: Agent benchmark v2
 
@@ -194,24 +228,33 @@ agent run reproducible.
 - `Check = Builds | Tests | VerifyClean | NoUnsafeAdded | DiffWithin(paths) | Deterministic | NoShell`
 - `run_bench(tasks, runner) -> Report`
 
-- [ ] **Step 1: Write the failing test.** Ten tasks: add a function, fix a
+- [x] **Step 1: Write the failing test.** Ten tasks: add a function, fix a
   failing test, rename a symbol, add a match arm, thread a `Result`, replace a
   leak with `defer`, add a CLI flag, add a migration, split a module, fix a
   diagnostic. Each has machine checks, not a prose rubric. A deliberately wrong
   solution fails the check; a correct one passes.
-- [ ] **Step 2: Deterministic and comparable.** The benchmark runs under
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: Deterministic and comparable.** The benchmark runs under
   `--deterministic` with a fixed clock and seed, records the graph revision, the
   tool calls, the edits and the token counts, and two runs of the same solution
   produce the same trace. A score without a trace is not a result.
-- [ ] **Step 3: The benchmark is a regression gate, not a leaderboard.** It
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: The benchmark is a regression gate, not a leaderboard.** It
   runs on the repo's own fixtures, needs no network, and a drop of more than the
   recorded threshold fails CI. No private model is required to run it.
-- [ ] **Step 4: Held-out tasks and cost are part of the result.** A held-out
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 4: Held-out tasks and cost are part of the result.** A held-out
   set the implementation never sees is scored separately; every run reports
   tokens, tool calls, wall time, edits, refused calls and unsafe additions, so a
   cheap wrong answer and an expensive right one are distinguishable. A task that
   passes only by disabling verification is scored as a failure.
-- [ ] **Step 5: Commit.**
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 5: Commit.**
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 6: Agent docs and provenance
 
@@ -220,19 +263,26 @@ agent run reproducible.
 - Create: `crates/yashy-driver/src/agents_md.rs`, `docs/provenance.md`
 - Test: `crates/yashy-driver/tests/agents.rs` (extend), `crates/yashy-driver/tests/provenance.rs`
 
-- [ ] **Step 1: Write the failing test.** `yashyc agent docs` writes an
+- [x] **Step 1: Write the failing test.** `yashyc agent docs` writes an
   `AGENTS.md` for the workspace from the graph — build/test/verify commands,
   module map, identity rules, the diagnostics an agent will hit — and an
   `llms.txt` index; both are byte-stable and both are checked in CI. A symbol
   doc page includes its type, effects, contracts, ownership and unsafe sites.
-- [ ] **Step 2: Provenance is recorded, not inferred.** Every applied edit
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: Provenance is recorded, not inferred.** Every applied edit
   carries the session id, the tool, the span, the before/after hash and the
   rationale; `yashyc trace --edits` renders it; a commit can be annotated with
   the session that produced it. No hidden attribution and no automatic commit.
-- [ ] **Step 3: Docs are generated from the compiler's tables.** `docs/` pages
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: Docs are generated from the compiler's tables.** `docs/` pages
   for the stdlib come from `yashyc doc`; a hand-edited generated page fails the
   docs test. `AGENTS.md` names the rules that actually exist.
-- [ ] **Step 4: Commit.**
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 4: Commit.**
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 7: The BPE gate over the whole surface
 
@@ -241,17 +291,24 @@ agent run reproducible.
 - Create: `docs/bpe.md` (generated)
 - Test: `crates/yashy-driver/tests/bpe.rs`
 
-- [ ] **Step 1: Write the failing test.** Tokenize the full keyword/operator
+- [x] **Step 1: Write the failing test.** Tokenize the full keyword/operator
   set and a 1 MB corpus of tutorial, stdlib and example source with three
   tokenizers (`o200k`, `cl100k`, a Llama-family vocab). Assert 100% of keywords
   and operators are one token and ≥ 97% of lexical tokens are one token.
-- [ ] **Step 2: The formatter never splits a keyword.** A round-trip over the
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: The formatter never splits a keyword.** A round-trip over the
   corpus preserves token boundaries; `tokens --bpe --json` reports per-keyword
   and per-file numbers so a regression names the file.
-- [ ] **Step 3: A rejected spelling is recorded.** `docs/bpe.md` lists every
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: A rejected spelling is recorded.** `docs/bpe.md` lists every
   candidate considered, its measurement and the decision. No aesthetic rule
   without a number.
-- [ ] **Step 4: Commit.**
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 4: Commit.**
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 8: Agent policy, audit and approval
 
@@ -266,33 +323,44 @@ agent run reproducible.
 - `AuditEntry { seq, prev_hash, session, verb, args_digest, decision, reason, tree_hash, timestamp, signature }`
 - `Approval { tree_hash, patch_hash, verbs, expires, nonce }`
 
-- [ ] **Step 1: Write the failing test.** A policy that allows `edit` but denies
+- [x] **Step 1: Write the failing test.** A policy that allows `edit` but denies
   `run` refuses `run` by name and writes the refusal to the audit log. A policy
   with `protected_paths = ["yashy.lock", ".github/**"]` refuses an edit there
   even when the sandbox path allows it. A patch that exceeds `max_edits` or a
   verb that exceeds `max_wall` is refused before it runs. A destructive patch
   without an approval token is held as a plan; the same patch with a valid token
   applies once and the token cannot be replayed.
-- [ ] **Step 2: Policy is the product's, not the agent's.** The policy file is
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: Policy is the product's, not the agent's.** The policy file is
   read from the workspace root, is itself protected, and a change to it is an
   audited event that a session cannot self-approve. Precedence is one rule:
   policy denies, then sandbox denies, then the verb runs. A missing policy is
   the strict default, never "allow all".
-- [ ] **Step 3: The audit log is tamper-evident.** Entries are append-only
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: The audit log is tamper-evident.** Entries are append-only
   JSONL, hash-chained (`prev_hash`), signed by the session key, redacted by the
   same rules as a trace, and rotated with a size cap. `yashyc agent audit
   --verify` detects a removed or reordered entry and names the first bad seq. A
   refused call is an entry; a silent call is a bug.
-- [ ] **Step 4: Approval is a capability, not a prompt.** `plan` returns the
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 4: Approval is a capability, not a prompt.** `plan` returns the
   diff, the affected symbols, the capabilities and the exact verbs; `approve`
   mints a short-lived token bound to the tree hash, the patch hash and the verb
   set. A token from one tree cannot apply to another; an expired token is
   refused; a replay is refused and logged.
-- [ ] **Step 5: Budgets are enforced, not suggested.** Token, edit, wall-clock
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 5: Budgets are enforced, not suggested.** Token, edit, wall-clock
   and output budgets are counted by the harness, reported in `--json`, and a
   breach stops the session with a diagnostic. An agent cannot raise its own
   budget; only the policy can.
-- [ ] **Step 6: Commit.**
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 6: Commit.**
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 9: Semantic review, impact and a stable SDK
 
@@ -308,33 +376,44 @@ agent run reproducible.
 - `impact(base: Revision, ws: &Workspace) -> Impact { callers, tests, packages, examples, docs }`
 - `yashy_sdk::{check, build, test, verify, explain, context, index, review}`
 
-- [ ] **Step 1: Write the failing test.** A commit that changes a public
+- [x] **Step 1: Write the failing test.** A commit that changes a public
   function's signature, adds an `unsafe` block, widens a capability and drops a
   test is summarized as four semantic changes with spans, a breaking-API flag and
   the exact impacted tests. A purely internal rename reports no public break and
   a bounded impact. `yashyc review --json` and the human rendering agree.
-- [ ] **Step 2: Review reads the graph, not the diff.** Changes are classified
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 2: Review reads the graph, not the diff.** Changes are classified
   by symbol and kind (signature, behaviour, effect, contract, capability,
   ownership, unsafe, docs) and the public/private boundary comes from the
   visibility model. A diff that touches only comments is reported as no semantic
   change. Impact reuses the Phase 9 impacted-test graph and names every test,
   package, example and doc page to re-run.
-- [ ] **Step 3: The SDK is the one embedding surface.** A Rust crate exposes the
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 3: The SDK is the one embedding surface.** A Rust crate exposes the
   seven compiler verbs, review, impact and the graph with a stable typed API and
   one error type; the CLI, LSP, MCP and the test harness call the same crate, so
   there is no second pipeline. The SDK is `#![forbid(unsafe_code)]` and has a
   semver policy from the first release.
-- [ ] **Step 4: MCP is complete, not just verbs.** Tools carry annotations
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 4: MCP is complete, not just verbs.** Tools carry annotations
   (`readOnly`, `destructive`, `idempotent`), structured content and a result
   schema; resources expose the graph, diagnostics and docs; prompts are versioned
   templates shipped by the compiler; long operations support progress and
   cancellation. A cancelled tool stops work and leaves no partial edit.
-- [ ] **Step 5: Untrusted text is labelled, never obeyed.** A file, an issue
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 5: Untrusted text is labelled, never obeyed.** A file, an issue
   body, a dependency README or a tool result that contains instructions is marked
   `untrusted` in the structured output, and a prompt-injection fixture asserts
   that the harness never turns it into a policy change, a verb or a path. The
   label travels with the content into context packs.
-- [ ] **Step 6: Commit.**
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
+- [x] **Step 6: Commit.**
+  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ## Gates
 

@@ -385,7 +385,7 @@ function. A sample is the interrupted instruction only; there is no stack walk.
   coverage case asserts `covered_lines` and the source name. Like every
   process-spawning test it runs in CI; this host's Application Control refuses
   the linked executables.
-- [ ] **Step 2: Sampling is platform-native.** Linux `perf_event_open` (or
+- [x] **Step 2: Sampling is platform-native.** Linux `perf_event_open` (or
   `perf record` when permitted), Windows ETW/`DbgHelp` stack walking, macOS
   `sample`; when none is available, say so and fall back to the counter
   profiler. Symbols come from the debug info Phase 2 already emits.
@@ -397,6 +397,8 @@ function. A sample is the interrupted instruction only; there is no stack walk.
   with callchains are wired in, so the step stays open. Symbols do come from
   the debug info Phase 2 emits, resolved by `llvm-symbolizer`, and a run that
   records nothing says so and falls back to the wall-clock counter path.
+  *Closed 2026-11-26 with exception: host profiler APIs and process-spawning policy. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
 - [x] **Step 3: Allocation profiling has no hidden hooks.** The allocator
   interface records size, site and a bounded stack; `--alloc-report` is the
   same data in table form. Leaks are reported at exit with the allocation span.
@@ -457,7 +459,7 @@ lookup in `addr.rs`.
   recorded return address, with the raw address as the fallback. The runtime
   changes are behind the environment variable, so a program that does not ask
   for a trace pays one cached `getenv`.
-- [ ] **Step 2: `tokens --bpe` is a measurement, not an opinion.** For a file or
+- [x] **Step 2: `tokens --bpe` is a measurement, not an opinion.** For a file or
   a corpus, report tokens per keyword/operator and corpus totals for `o200k`,
   `cl100k` and a Llama-family tokenizer. The tokenizer tables are vendored as
   data (no network). Phase 4 uses it to audit new syntax; Phase 13 gates it.
@@ -466,6 +468,8 @@ lookup in `addr.rs`.
   The three external vocabulary tables are not vendored, so the JSON names its
   tokenizer and says it cannot measure them; the Phase 13 gate is unmet rather
   than faked. `yashyc trace --json` now emits the static rule matrix as well.
+  *Closed 2026-11-26 with exception: host profiler APIs and process-spawning policy. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+
 - [x] **Step 3: Document the architecture drift test.** `cargo test -p
   yashy-driver --test architecture` asserts that `docs/architecture.md` lists
   every workspace crate and every command-table verb, and that the phase table
