@@ -121,7 +121,7 @@ sites, stack slots, bytes per value, and cold-start milliseconds.
   matching fact, or when an `attribute` note has no span. The whole-program
   reference path is not wired into this harness, so binary equality remains
   owed and the step stays open.
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ### Task 3: Stack promotion and `stack_alloc`
 
@@ -136,12 +136,23 @@ sites, stack slots, bytes per value, and cold-start milliseconds.
   escape runs with zero heap calls and `--stack-report` names the site; a
   pointer returned, stored in a field or sent to another task is not promoted;
   `stack_alloc(64)` works and an escaping `stack_alloc` is refused with a span.
+  *Partly closed 2026-11-26:* `crates/yashy-driver/tests/stack.rs` proves a
+  non-escaping `alloc(8)` is named by `--stack-report` while the IR emits no
+  `@yashy_alloc` call, and that a returned pointer is reported as heap with the
+  verifier's reason. `--stack-report[=json]` renders the same emitter notes as
+  `--opt-report`, so the two cannot disagree. There is no `stack_alloc` builtin
+  yet, so the step stays open.
 - [ ] **Step 2: Promotion is a proof, not a heuristic.** Constant size, no
   escape, no address observation, no `unsafe` escape. The report says why a site
   was promoted or why it was not. Stack depth is accounted per function; a
   recursion that can exceed the guard is a diagnostic or a documented runtime
   trap with a deterministic message.
-- [ ] **Step 3: Commit.**
+  *Partly closed 2026-11-26:* placement comes from `yashy-hir::escape`, which
+  refuses anything that reaches a return, call, aggregate, move or capture and
+  caps a frame slot at `STACK_LIMIT` (4096 bytes); each site's reason is printed
+  by the report. Per-function stack-depth accounting and the explicit
+  `stack_alloc` refusal are still owed, so the step stays open.
+- [x] **Step 3: Commit.**
 
 ### Task 4: Direct heap accounting
 

@@ -34,6 +34,7 @@ yashyc build main.ya --emit-ir
 | `--no-opt=<pass>` | Disable one registered optimization pass for bisecting. See [Optimization passes](#optimization-passes). |
 | `--opt-list` | List the passes in order with the bench row each is held to; needs no input. |
 | `--opt-report[=json]` | Explain every check and allocation that survived, grouped by function, and stop. See [The optimization report](#the-optimization-report). |
+| `--stack-report[=json]` | Show only the allocation placements from the same report: site, stack/heap and the reason. See [The optimization report](#the-optimization-report). |
 | `--emit-ir` | Print LLVM IR and stop; do not link. With `--debug-info` the dump is the annotated debug IR: the same metadata a debug build links, so the variable and type tables can be inspected without a toolchain. |
 | `--stdlib-source` | Derive the program from source instead of reusing cached IR. The IR cache is neither read nor written, for bisecting a suspected cache problem. |
 | `--no-verify` | Build without the verifier and stamp `<output>.unverified`. Refused for a program with a contract, or when `YASHY_REQUIRE_VERIFY` is set. See [`--no-verify`](#--no-verify). |
@@ -102,8 +103,8 @@ The instrumented binary is a build artifact beside the requested output, and
 the profile lives under `<output-dir>/.yashy/pgo/`. Nothing is written outside
 that directory. A training run that exits non-zero, or one that writes no
 counter file, is an error rather than a profile built from a program that could
-not finish. `--pgo` is refused with `--emit-ir` and `--opt-report` because there
-is no binary to train.
+not finish. `--pgo` is refused with `--emit-ir`, `--opt-report` and
+`--stack-report` because there is no binary to train.
 
 The training corpus is checked in under [`benchmarks/pgo/`](../benchmarks/pgo);
 [`scripts/pgo.ps1`](../scripts/pgo.ps1) and
@@ -171,6 +172,15 @@ verifier's facts, so it refuses `--no-verify`, and it stops before linking, so
 it also refuses `--emit-ir` and `--pgo`. The full treatment — what Yashy proves,
 what LLVM decides, the pass list, and a worked example from a kept check to
 nothing to report — lives in [The optimization program](optimization.md).
+
+`--stack-report` is the allocation-only view of that same record. It names each
+site, its placement (`stack` or `heap`) and the reason escape analysis chose it,
+without the bounds/overflow rows; `--stack-report=json` prints the same sites as
+schema v1 with `count`, `sites`, each site's `span` and `placement`, and the
+`reason`. Because both reports render the notes the emitter recorded, a site
+cannot be promoted in one and heap-allocated in the other. It has the same
+stops-before-linking and `--no-verify` rules as `--opt-report`, and is refused
+alongside `--opt-report` and `--emit-ir`.
 
 The per-pass gate is `yashy-bench --per-pass`. It compares the all-passes
 measurement with one taken with a single pass disabled and fails when disabling

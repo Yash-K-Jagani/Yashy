@@ -1,7 +1,7 @@
 //! The `yashyc` command line interface.
 //!
 //! ```text
-//! yashyc build <file.ya> [-o <out>] [--emit-ir] [--opt-report[=json]] [--cpu <tier>] [--fast-math] [--release]
+//! yashyc build <file.ya> [-o <out>] [--emit-ir] [--opt-report[=json]] [--stack-report[=json]] [--cpu <tier>] [--fast-math] [--release]
 //! yashyc run <file.ya> [build flags] [-- <program args>...]
 //! yashyc check <file.ya>
 //! yashyc test [path] [--filter <substring>] [--list]
@@ -38,8 +38,8 @@ use yashy_driver::test_harness::{self, TestStatus};
 use yashy_driver::{
     check_and_verify_timed, check_and_verify_timed_with_features, compile_hir_timed, detect,
     diagnostic_json, load_and_check_exports_timed, load_and_check_exports_timed_with_features,
-    opt_report, resolve_opt, span_json, timed, BuildOptions, CommandKind, CpuTarget, OptLevel,
-    TimingRow,
+    opt_report, resolve_opt, span_json, stack_report, timed, BuildOptions, CommandKind, CpuTarget,
+    OptLevel, TimingRow,
 };
 use yashy_manifest::{Lockfile, Manifest};
 use yashy_verify::{
@@ -147,6 +147,9 @@ usage:
   --opt-report print why every check and allocation survived, grouped by
                function, and stop; `--opt-report=json` prints the schema-v1
                form for an agent
+  --stack-report print only the allocation placements from the same report,
+               with the reason each site was promoted or left on the heap;
+               `--stack-report=json` prints the schema-v1 form
   --no-verify  build without proving the program sound; refused when the program
                has a contract or `YASHY_REQUIRE_VERIFY` is set, and stamps
                `<output>.unverified` beside the binary
@@ -442,6 +445,8 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     // `--opt-report` prints why decisions survived and stops. `None` is "not
     // asked for"; the `bool` is whether the JSON form was requested.
     let mut opt_report_flag: Option<bool> = None;
+    // `--stack-report` selects only the placement rows of the same record.
+    let mut stack_report_flag: Option<bool> = None;
     // The triple this build is for. `None` means the host, which is what every
     // build before `--target` existed meant.
     let mut target: Option<&'static str> = None;
@@ -499,6 +504,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
             "--stdlib-source" => stdlib_source = true,
             "--opt-list" => opt_list = true,
             "--opt-report" => opt_report_flag = Some(false),
+            "--stack-report" => stack_report_flag = Some(false),
             "--release" => release = true,
             "--no-lto" => no_lto = true,
             "--pgo" => pgo = true,
@@ -538,6 +544,15 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
                         _ => {
                             return stopped(usage_error(
                                 "`--opt-report` takes no value, or `=json`",
+                            ))
+                        }
+                    }
+                } else if let Some(value) = other.strip_prefix("--stack-report=") {
+                    match value {
+                        "json" => stack_report_flag = Some(true),
+                        _ => {
+                            return stopped(usage_error(
+                                "`--stack-report` takes no value, or `=json`",
                             ))
                         }
                     }
@@ -670,6 +685,27 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         if pgo {
             return stopped(usage_error(
                 "`--pgo` needs a binary to train; it cannot be combined with `--opt-report`",
+            ));
+        }
+    }
+
+    if stack_report_flag.is_some() {
+        if emit_ir || opt_report_flag.is_some() {
+            return stopped(usage_error(
+                "`--stack-report`, `--opt-report` and `--emit-ir` each stop before \
+                 linking; choose one",
+            ));
+        }
+        if no_verify {
+            return stopped(usage_error(
+                "`--stack-report` explains what the verifier proved; it cannot be \
+                 combined with `--no-verify`",
+            ));
+        }
+        if pgo {
+            return stopped(usage_error(
+                "`--pgo` needs a binary to train; it cannot be combined with \
+                 `--stack-report`",
             ));
         }
     }
@@ -833,6 +869,35 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         if report.error_count() > 0 {
             return BuildOutcome { code, timings };
         }
+    }
+
+    // `--stack-report` is the allocation-only view of the report the emitter
+    // already produced. It stops before the linker like `--opt-report`.
+    if let Some(as_json) = stack_report_flag {
+        let code = match check_main_exists(&hir.items) {
+            Ok(()) => {
+                let options = CodegenOptions {
+                    fp_contract: fast_math,
+                    escape,
+                    facts,
+                    intern,
+                    async_,
+                    target,
+                };
+                let (_, notes) = timed(measured, "emit", || {
+                    emit_program_with_notes(&hir, &entry, options, &report.facts)
+                });
+                if as_json {
+                    let document = stack_report::json(&sources, &notes);
+                    println!("{}", document.render());
+                } else {
+                    print!("{}", stack_report::render(&sources, &notes));
+                }
+                exit_code(EXIT_OK)
+            }
+            Err(diagnostic) => render(&sources, &[diagnostic]),
+        };
+        return BuildOutcome { code, timings };
     }
 
     // `--opt-report` is a front-end operation like `--emit-ir`: it explains the

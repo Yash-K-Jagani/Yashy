@@ -48,6 +48,7 @@ pub mod sarif;
 pub mod scaffold;
 pub mod target;
 pub mod task;
+pub mod stack_report;
 pub mod term;
 pub mod test_harness;
 pub mod tokens;
