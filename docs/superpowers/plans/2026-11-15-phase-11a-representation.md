@@ -158,9 +158,10 @@ sites, stack slots, bytes per value, and cold-start milliseconds.
   refuses anything that reaches a return, call, aggregate, move or capture and
   caps a frame slot at `STACK_LIMIT` (4096 bytes); each site's reason is printed
   by the report, and `stack_alloc` is refused when it reaches a return, a
-  field store or a task/channel argument. Per-function stack-depth accounting
-  is still owed, so the step stays open.
-  *Closed 2026-11-26 with exception: needs an ABI change, runtime size classes or two-OS startup measurement this host cannot supply. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  field store or a task/channel argument. Per-function stack depth is now
+  accounted by the verifier: `stack_alloc` bytes are summed per function and a
+  total above `STACK_LIMIT` is a diagnostic with a span. Recursion depth is
+  still not accounted, so that half remains an exception.
 
 - [x] **Step 3: Commit.**
 

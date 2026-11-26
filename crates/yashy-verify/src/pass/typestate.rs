@@ -11,7 +11,7 @@
 use crate::typestate::ResourceState as State;
 use yashy_common::{codes, Diagnostic, FileId, Severity, Span};
 use yashy_hir::hir::{
-    HirBlock, HirExpr, HirFn, HirItem, HirPattern, HirProgram, HirStmt, HirSwitchArm,
+    HirBlock, HirExpr, HirFn, HirItem, HirPattern, HirProgram, HirStmt, HirSwitchArm, Literal,
 };
 
 /// Run the typestate pass over `program`, pushing diagnostics into `out`.
@@ -70,6 +70,7 @@ fn check_stack_escape_fn(function: &HirFn, out: &mut Vec<Diagnostic>) {
         out,
         file: function.file,
         scoped: Vec::new(),
+        frame_bytes: 0,
     };
     walker.block(&function.body);
 }
@@ -78,7 +79,11 @@ struct StackEscapeWalker<'a> {
     out: &'a mut Vec<Diagnostic>,
     file: FileId,
     scoped: Vec<String>,
+    /// Bytes reserved by `stack_alloc` in this function so far.
+    frame_bytes: u64,
 }
+
+const STACK_FRAME_LIMIT: u64 = 4096;
 
 impl StackEscapeWalker<'_> {
     fn report(&mut self, name: &str, span: Span) {
@@ -133,6 +138,24 @@ impl StackEscapeWalker<'_> {
                 self.expr(init);
                 if Self::is_stack_call(init) {
                     self.scoped.push(name.clone());
+                    if let HirExpr::Call { args, span, .. } = init {
+                        if let Some(HirExpr::Literal(Literal::I64(count), _, _)) = args.first() {
+                            if *count > 0 {
+                                self.frame_bytes = self.frame_bytes.saturating_add(*count as u64 * 8);
+                                if self.frame_bytes > STACK_FRAME_LIMIT {
+                                    let total = self.frame_bytes;
+                                    self.out.push(Diagnostic::new(
+                                        Severity::Error,
+                                        self.file,
+                                        *span,
+                                        format!(
+                                            "stack_alloc uses {total} bytes in this function; the frame limit is {STACK_FRAME_LIMIT}"
+                                        ),
+                                    ));
+                                }
+                            }
+                        }
+                    }
                 }
             }
             HirStmt::Return(Some(expr), _) => {

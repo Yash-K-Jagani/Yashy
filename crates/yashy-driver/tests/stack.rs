@@ -180,6 +180,28 @@ fn an_escaping_stack_alloc_is_refused_with_a_span() {
 }
 
 #[test]
+fn the_frame_budget_is_accounted_per_function() {
+    let dir = work_dir("stack-alloc-budget");
+    write(
+        &dir,
+        "main.ya",
+        "fn main() {\n    let a = stack_alloc(300);\n    let b = stack_alloc(300);\n    a[0] = 1;\n    b[0] = 2;\n    print(a[0] + b[0]);\n}\n",
+    );
+    let output = Command::new(yashyc())
+        .args(["verify", "--json", "main.ya"])
+        .current_dir(&dir)
+        .output()
+        .expect("the CLI must start");
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.status.code(), Some(1), "{text}");
+    assert!(text.contains("frame limit is 4096"), "{text}");
+}
+
+#[test]
 fn a_non_literal_stack_alloc_count_is_refused() {
     let dir = work_dir("stack-alloc-count");
     write(
