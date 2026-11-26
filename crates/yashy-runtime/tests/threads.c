@@ -183,9 +183,36 @@ static void closing_unblocks_a_sender(void) {
     yashy_chan_free(chan);
 }
 
+/* ---- 4: try_recv never blocks ----------------------------------------- */
+
+static void try_recv_never_blocks(void) {
+    yashy_chan *chan = yashy_chan_new(1);
+    CHECK(chan != NULL);
+
+    long long value = 0;
+    /* Empty: a non-blocking receive answers immediately. */
+    CHECK(yashy_chan_try_recv(chan, &value, (long long)sizeof value) == 0);
+
+    long long queued = 42;
+    CHECK(yashy_chan_send(chan, &queued, (long long)sizeof queued) == 1);
+    CHECK(yashy_chan_try_recv(chan, &value, (long long)sizeof value) == 1);
+    CHECK(value == queued);
+    CHECK(yashy_chan_try_recv(chan, &value, (long long)sizeof value) == 0);
+
+    /* Queued values survive a close and are still drained by try_recv. */
+    CHECK(yashy_chan_send(chan, &queued, (long long)sizeof queued) == 1);
+    yashy_chan_close(chan);
+    CHECK(yashy_chan_try_recv(chan, &value, (long long)sizeof value) == 1);
+    CHECK(value == queued);
+    CHECK(yashy_chan_try_recv(chan, &value, (long long)sizeof value) == 0);
+
+    yashy_chan_free(chan);
+}
+
 int main(void) {
     four_threads_add_under_a_mutex();
     senders_and_receiver();
     closing_unblocks_a_sender();
+    try_recv_never_blocks();
     return 0;
 }

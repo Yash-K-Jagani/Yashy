@@ -8972,8 +8972,8 @@ impl<'src> Checker<'src> {
             | "map_values" | "map_contains_key" => {
                 self.check_map_builtin(builtin, &call_args, span).flatten()
             }
-            "chan_send" | "chan_recv" | "chan_close" | "chan_free" | "mutex_lock"
-            | "mutex_unlock" | "mutex_free" => self
+            "chan_send" | "chan_recv" | "chan_try_recv" | "chan_close" | "chan_free"
+            | "mutex_lock" | "mutex_unlock" | "mutex_free" => self
                 .check_thread_builtin(builtin, &call_args, span)
                 .flatten(),
             "dealloc" => self.check_pointer_free(&call_args, span),
@@ -12005,8 +12005,8 @@ impl<'src> Checker<'src> {
         })
     }
 
-    /// `chan_send(c, value)`, `chan_recv(c)`, `chan_close(c)` and
-    /// `chan_free(c)`. Only `chan_free` consumes the handle.
+    /// `chan_send(c, value)`, `chan_recv(c)`, `chan_try_recv(c)`,
+    /// `chan_close(c)` and `chan_free(c)`. Only `chan_free` consumes the handle.
     fn check_chan_builtin(&mut self, name: &str, args: &[Expr], span: Span) -> Option<HirExpr> {
         let arity = if name == "chan_send" { 2 } else { 1 };
         if args.len() != arity {
@@ -12066,7 +12066,7 @@ impl<'src> Checker<'src> {
                 ty: unit(span),
             });
         }
-        if name == "chan_recv" {
+        if name == "chan_recv" || name == "chan_try_recv" {
             let ty = option(&element, span);
             return Some(HirExpr::Call {
                 callee: vec![name.to_string()],
@@ -15682,6 +15682,7 @@ fn old_builtin_method_name(name: &str) -> Option<(&'static str, usize)> {
         "map_free" => Some(("free", 1)),
         "chan_send" => Some(("send", 2)),
         "chan_recv" => Some(("recv", 1)),
+        "chan_try_recv" => Some(("try_recv", 1)),
         "chan_close" => Some(("close", 1)),
         "chan_free" => Some(("free", 1)),
         "mutex_lock" => Some(("lock", 1)),
@@ -15729,6 +15730,7 @@ fn builtin_method_name(method: &str, receiver: &TypeKind) -> Option<&'static str
         TypeKind::Channel(_) => match method {
             "send" => Some("chan_send"),
             "recv" => Some("chan_recv"),
+            "try_recv" => Some("chan_try_recv"),
             "close" => Some("chan_close"),
             "free" => Some("chan_free"),
             _ => None,

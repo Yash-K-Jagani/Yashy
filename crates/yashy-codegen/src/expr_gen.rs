@@ -1968,6 +1968,7 @@ fn gen_call(
         "chan_new" => crate::threads::gen_chan_new(ctx, args, ty),
         "chan_send" => crate::threads::gen_chan_send(ctx, args),
         "chan_recv" => crate::threads::gen_chan_recv(ctx, args, ty),
+        "chan_try_recv" => crate::threads::gen_chan_try_recv(ctx, args, ty),
         "chan_close" => crate::threads::gen_chan_call(ctx, args, "yashy_chan_close"),
         "chan_free" => crate::threads::gen_chan_call(ctx, args, "yashy_chan_free"),
         "block_on" => {

@@ -252,6 +252,20 @@ pub fn gen_chan_send(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
 /// answers 0, and `option_from_flag` loads the payload unconditionally even
 /// for `None`.
 pub fn gen_chan_recv(ctx: &mut FnCtx<'_>, args: &[HirExpr], option_ty: &TypeKind) -> GenValue {
+    gen_chan_receive(ctx, args, option_ty, "yashy_chan_recv")
+}
+
+/// Lower `chan_try_recv(c) -> Option[T]`: the non-blocking receive.
+pub fn gen_chan_try_recv(ctx: &mut FnCtx<'_>, args: &[HirExpr], option_ty: &TypeKind) -> GenValue {
+    gen_chan_receive(ctx, args, option_ty, "yashy_chan_try_recv")
+}
+
+fn gen_chan_receive(
+    ctx: &mut FnCtx<'_>,
+    args: &[HirExpr],
+    option_ty: &TypeKind,
+    symbol: &str,
+) -> GenValue {
     let Some(receiver) = args.first() else {
         return unit();
     };
@@ -266,7 +280,7 @@ pub fn gen_chan_recv(ctx: &mut FnCtx<'_>, args: &[HirExpr], option_ty: &TypeKind
     let size = size_in_bytes(ctx, &repr);
     let flag = ctx.tmp();
     ctx.push(format!(
-        "{flag} = call i8 @yashy_chan_recv(i8* {}, ptr {slot}, i64 {size})",
+        "{flag} = call i8 @{symbol}(i8* {}, ptr {slot}, i64 {size})",
         channel.value
     ));
     let flag = {

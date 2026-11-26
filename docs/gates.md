@@ -754,10 +754,13 @@ claimed green here.
   are tested. A work-stealing pool and the 1/2/4/8-thread benchmark row remain;
   closes when the scaling row is recorded with each worker count.
 
-- **Non-blocking channel receive and timeout case** — owner:
-  compiler/runtime. `select.ya` chooses by declared priority over channels that
-  already hold values; a real timeout case needs a non-blocking `try_recv`.
-  Closes when the channel exposes one and `select --timeout` is tested.
+- **Non-blocking channel receive and timeout case** — **closed 2026-11-26.**
+  The channel exposes `yashy_chan_try_recv` (runtime, codegen and
+  `Channel.try_recv()`), `select.ya` adds `try_first` and `try_with_timeout`,
+  and `crates/yashy-driver/tests/programs/select_try.ya` proves the timeout
+  case never blocks on an empty channel. The C runtime test
+  `crates/yashy-runtime/tests/threads.c` exercises the empty, filled and
+  closed-and-drained states.
 
 - **Lock guard typestate and lock-order diagnostics** — owner: compiler/core.
   `RwLock`, `Condvar`, `Barrier` and `Once` are implemented with generation-based
@@ -770,6 +773,15 @@ claimed green here.
   have explicit orderings and a concurrent harness. What remains is recording
   the ordering in the verifier effect for Phase 11B and a generic pointer type
   (the language has no phantom type parameter). Closes when both exist.
+
+### Phase 11A — Representation
+
+- **Layout report and IR cross-check** — **closed 2026-11-26.** `inspect --layout
+  --json` and `--all --json` share one render from the `yashy-hir` walk; both
+  carry padding, saved and niche facts and per-field sizes. The harness
+  re-derives size, alignment and every field offset from the backend's emitted
+  aggregates and fails on a mismatch; `find` resolves enums as well as structs.
+  Field reordering and a used niche remain tasks 1 Step 2 of the plan.
 
 ## Running the runner
 

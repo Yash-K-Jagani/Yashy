@@ -15,14 +15,41 @@ pub fn first(Channel[int] left, Channel[int] right) -> int {
     return 0 - 1;
 }
 
+/// A non-blocking two-case select: the declared order is still the priority,
+/// but a channel with nothing queued is skipped instead of waited on.
+pub fn try_first(Channel[int] left, Channel[int] right) -> int {
+    if let Some(value) = left.try_recv() {
+        return value;
+    }
+    if let Some(value) = right.try_recv() {
+        return value;
+    }
+    return 0 - 1;
+}
+
 /// A two-case select with a timeout tick. The tick channel is checked only
-/// after both data cases, so data wins a tie by declared order.
+/// after both data cases, so data wins a tie by declared order. When no data
+/// is queued, the tick is polled without blocking; a tick of `n` returns `-n`,
+/// so a positive tick is the one that can be told apart from "nothing".
 pub fn with_timeout(Channel[int] left, Channel[int] right, Channel[int] tick) -> int {
     const value = first(left, right);
     if value >= 0 {
         return value;
     }
     if let Some(deadline) = tick.recv() {
+        return 0 - deadline;
+    }
+    return 0 - 1;
+}
+
+/// The non-blocking form of `with_timeout`: neither data channel nor the tick
+/// channel is allowed to block. Returns `-1` when all three are empty.
+pub fn try_with_timeout(Channel[int] left, Channel[int] right, Channel[int] tick) -> int {
+    const value = try_first(left, right);
+    if value >= 0 {
+        return value;
+    }
+    if let Some(deadline) = tick.try_recv() {
         return 0 - deadline;
     }
     return 0 - 1;

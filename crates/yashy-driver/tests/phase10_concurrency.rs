@@ -20,9 +20,19 @@ fn run(root: &Path, source: &str, name: &str, expected: &str) {
         .current_dir(root)
         .output()
         .expect("the compiler must run");
-    assert!(build.status.success(), "{}", String::from_utf8_lossy(&build.stderr));
-    let output = Command::new(&binary).output().expect("the program must run");
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        build.status.success(),
+        "{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let output = Command::new(&binary)
+        .output()
+        .expect("the program must run");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), expected);
 }
 
@@ -67,5 +77,16 @@ fn atomic_program_is_checked() {
         "crates/yashy-driver/tests/programs/atomic_test.ya",
         "p10-atomic",
         "atomic-ok",
+    );
+}
+
+#[test]
+fn non_blocking_select_program_is_checked() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    run(
+        &root,
+        "crates/yashy-driver/tests/programs/select_try.ya",
+        "p10-select-try",
+        "select-try-ok",
     );
 }

@@ -974,6 +974,7 @@ impl Module {
         out.push_str("declare i8* @yashy_chan_new(i64)\n");
         out.push_str("declare i8 @yashy_chan_send(i8*, i8*, i64)\n");
         out.push_str("declare i8 @yashy_chan_recv(i8*, i8*, i64)\n");
+        out.push_str("declare i8 @yashy_chan_try_recv(i8*, i8*, i64)\n");
         out.push_str("declare void @yashy_chan_close(i8*)\n");
         out.push_str("declare void @yashy_chan_free(i8*)\n");
         // The executor (Phase 10, Task 4). An unused `declare` is legal IR,

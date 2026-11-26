@@ -3428,6 +3428,33 @@ char yashy_chan_recv(yashy_chan *chan, void *out_item, long long size) {
     return 1;
 }
 
+/* The non-blocking form: reports 0 immediately when the ring is empty instead
+ * of waiting for a sender. A closed-and-drained channel answers 0 too, so a
+ * caller that cares distinguishes the two by its own protocol (for example, a
+ * close followed by a drained receive), not by this flag. */
+char yashy_chan_try_recv(yashy_chan *chan, void *out_item, long long size) {
+    if (chan == NULL || out_item == NULL || size <= 0) {
+        return 0;
+    }
+
+    yashy_os_lock_acquire(&chan->lock);
+    if (chan->count == 0) {
+        yashy_os_lock_release(&chan->lock);
+        return 0;
+    }
+    if (!yashy_chan_reserve(chan, size)) {
+        yashy_os_lock_release(&chan->lock);
+        return 0;
+    }
+
+    memcpy(out_item, chan->slots + chan->head * chan->slot_size, (size_t)chan->slot_size);
+    chan->head = (chan->head + 1) % chan->capacity;
+    chan->count--;
+    yashy_os_cond_signal(&chan->not_full);
+    yashy_os_lock_release(&chan->lock);
+    return 1;
+}
+
 void yashy_chan_close(yashy_chan *chan) {
     if (chan == NULL) {
         return;

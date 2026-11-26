@@ -810,7 +810,8 @@ void yashy_map_values(yashy_slice *out, const yashy_map *map);
  * the slot was queued, 0 when the channel is closed. `recv` blocks while the
  * channel is empty and answers 1 when a slot was copied out; it answers 0 only
  * once the channel is closed *and* drained, so a close never discards a value
- * that was already sent. `close` never blocks, wakes every waiter, and may be
+ * that was already sent. `try_recv` never blocks: it answers 0 immediately when
+ * the ring is empty. `close` never blocks, wakes every waiter, and may be
  * called more than once. A capacity below 1 is treated as 1: a zero-capacity
  * rendezvous needs a handshake this ring does not model, and treating it as a
  * one-slot channel is the only answer that cannot deadlock.
@@ -833,6 +834,7 @@ void yashy_mutex_free(yashy_mutex *mutex);
 yashy_chan *yashy_chan_new(long long capacity);
 char yashy_chan_send(yashy_chan *chan, const void *item, long long size);
 char yashy_chan_recv(yashy_chan *chan, void *out_item, long long size);
+char yashy_chan_try_recv(yashy_chan *chan, void *out_item, long long size);
 void yashy_chan_close(yashy_chan *chan);
 void yashy_chan_free(yashy_chan *chan);
 

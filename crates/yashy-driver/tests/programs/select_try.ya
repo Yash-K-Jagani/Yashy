@@ -1,0 +1,44 @@
+// Non-blocking channel receive and the timeout select case.
+//
+// A channel parameter is linear: passing it to `try_first` or
+// `try_with_timeout` moves it, so each case below constructs the channels it
+// needs exactly once.
+import select;
+
+fn main() {
+    let Channel[int] empty = chan_new(1);
+    assert(empty.try_recv() matches None);
+    empty.free();
+
+    let Channel[int] data = chan_new(1);
+    data.send(5);
+    if let Some(value) = data.try_recv() {
+        assert(value == 5);
+    } else {
+        assert(false);
+    }
+    assert(data.try_recv() matches None);
+    data.free();
+
+    let Channel[int] left1 = chan_new(1);
+    let Channel[int] right1 = chan_new(1);
+    assert(try_first(left1, right1) == 0 - 1);
+
+    let Channel[int] left2 = chan_new(1);
+    let Channel[int] right2 = chan_new(1);
+    right2.send(4);
+    assert(try_first(left2, right2) == 4);
+
+    let Channel[int] left3 = chan_new(1);
+    let Channel[int] right3 = chan_new(1);
+    let Channel[int] tick3 = chan_new(1);
+    tick3.send(2);
+    assert(try_with_timeout(left3, right3, tick3) == 0 - 2);
+
+    let Channel[int] left4 = chan_new(1);
+    let Channel[int] right4 = chan_new(1);
+    let Channel[int] tick4 = chan_new(1);
+    assert(try_with_timeout(left4, right4, tick4) == 0 - 1);
+
+    print("select-try-ok");
+}

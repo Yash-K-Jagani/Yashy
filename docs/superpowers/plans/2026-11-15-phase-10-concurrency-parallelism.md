@@ -117,9 +117,10 @@ the AI phase's reproducible agent runs.
   *Closed 2026-11-26 with exceptions:* `cancel.ya` provides a checkpoint token,
   `mpmc.ya` a bounded producer/consumer protocol over the runtime channel, and
   `select.ya` declared-priority choice. `sync_scope.ya` runs four producers and
-  four consumers under cancellation. A real timeout case needs a non-blocking
-  receive, which the channel API does not expose; it is carried forward in
-  `docs/gates.md`.
+  four consumers under cancellation. The channel now exposes `try_recv`, and
+  `select_try.ya` proves the non-blocking timeout case: data wins by declared
+  order, an empty data pair polls the tick without blocking, and a positive
+  tick returns its negation.
 - [x] **Step 3: `select` is fair and deterministic under the deterministic
   scheduler.** When several cases are ready, the choice follows the declared
   order; under `--deterministic` the order is fixed. A timeout is a case, not a
