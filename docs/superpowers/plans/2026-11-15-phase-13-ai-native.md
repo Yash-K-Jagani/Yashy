@@ -99,8 +99,10 @@ agent run reproducible.
   it is returned. A refactor that cannot be proved safe is not offered.
   *Partly closed 2026-11-26:* `refactor` computes rename edits from lexer
   identifier tokens, so strings and comments are not renamed, and applies them
-  through the same verified patch. Extract-function, inline-function,
-  change-signature, add-missing-match-arm and qualify-import are still owed.
+  through the same verified patch. `format`, `lint`, `fix` and `doc` are also
+  served, each through the same contained surface. Extract-function,
+  inline-function, change-signature, add-missing-match-arm and qualify-import
+  are still owed.
 
 - [x] **Step 4: No shell, ever.** The MCP surface has no command execution, no
   environment mutation, no network, and no path outside the workspace root. A
