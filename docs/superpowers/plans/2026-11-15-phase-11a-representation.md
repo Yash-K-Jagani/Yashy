@@ -66,6 +66,10 @@ sites, stack slots, bytes per value, and cold-start milliseconds.
   be reordered to reduce padding; the report shows the chosen order and the
   bytes saved. A `repr(C)`, `repr(transparent)` or `repr(packed)` type is never
   reordered. An enum niche is used only when it is ABI-safe.
+  *Still owed 2026-11-26:* the report exposes `saved: 0` and `niche: null`;
+  no type is reordered or exploits a niche yet. Reordering changes the
+  field-index contract shared by the checker's constant folds and the
+  backend's `insertvalue`/`extractvalue`, so it needs its own slice.
 - [x] **Step 3: `size_of`/`align_of`/`offset_of` read the same table.** The
   const evaluator and the report cannot disagree; a disagreement is a compiler
   bug with a test.
@@ -90,16 +94,33 @@ sites, stack slots, bytes per value, and cold-start milliseconds.
 - `attributes_for(param: &HirParam, facts: &AliasFacts) -> Vec<IrAttribute>`
 - `opt_report` records `(attribute, fact, span)` for every emitted attribute.
 
-- [ ] **Step 1: Write the failing test.** An owning pointer parameter gets
+- [x] **Step 1: Write the failing test.** An owning pointer parameter gets
   `noalias`/`nonnull`; an FFI `*const T` gets neither; a `noalias` `unsafe`
   parameter gets it because the caller promised; an unknown provenance gets
   nothing. `--opt-report=json` names the fact and the span for each attribute.
-- [ ] **Step 2: Only proved facts.** The analysis consumes ownership, escape and
+  *Closed 2026-11-26 with exceptions:* `crates/yashy-codegen/tests/attributes.rs`
+  pins the IR for a read-only pointer (`noalias nonnull readonly align 8`), a
+  written one (`noalias nonnull align 8`), an escaping one (`nonnull align 8`)
+  and an `Option[*mut int]` (no attribute). There is no separate `unsafe
+  noalias` parameter spelling; a safe owning pointer earns the same word from
+  the escape fact. FFI declarations are `declare`, not `define`, and carry no
+  parameter attributes; `crates/yashy-driver/tests/alias_corpus.rs` covers the
+  unsafe trust assumptions.
+- [x] **Step 2: Only proved facts.** The analysis consumes ownership, escape and
   bounds facts; it never invents one. A pointer from an `unsafe` block with
   unknown provenance is opaque until a checked cast or a bounds fact proves it.
+  *Closed 2026-11-26:* `fn_gen::parameters` reads only `Module::param_attrs`,
+  and `without_facts_no_attribute_is_emitted` proves that disabling the facts
+  removes every attribute. A pointer whose provenance is not proved has no
+  table entry, so it is opaque by omission rather than by a negative claim.
 - [ ] **Step 3: Audit in CI.** For every corpus program, every emitted attribute
   has an entry in the report; an attribute without a fact fails the audit. The
   whole-program reference path produces the same binary as the per-module path.
+  *Partly closed 2026-11-26:* `crates/yashy-driver/tests/alias_audit.rs` builds
+  each corpus source twice and fails when an attribute from `--emit-ir` has no
+  matching fact, or when an `attribute` note has no span. The whole-program
+  reference path is not wired into this harness, so binary equality remains
+  owed and the step stays open.
 - [ ] **Step 4: Commit.**
 
 ### Task 3: Stack promotion and `stack_alloc`
