@@ -1,0 +1,17 @@
+import sync;
+
+fn main() {
+    const lock = rwlock();
+    lock.write();
+    lock.unlock();
+    lock.read();
+    lock.unlock();
+
+    const changed = condvar();
+    changed.signal();
+    print(changed.generation() > 0);
+
+    const startup = once();
+    print(startup.enter());
+    print(!startup.enter());
+}

@@ -98,6 +98,7 @@ pub struct AtomicU64 {
     id: int,
 }
 
+/// Allocate an atomic unsigned 64-bit slot.
 pub fn atomic_u64(int initial) -> AtomicU64 {
     return AtomicU64 {
         id: c_new(initial)
@@ -105,6 +106,7 @@ pub fn atomic_u64(int initial) -> AtomicU64 {
 }
 
 impl AtomicU64 {
+    /// Read the unsigned value with an explicit ordering.
     pub fn load(self, Ordering ordering) -> int {
         if ordering matches Ordering.Release || ordering matches Ordering.AcqRel {
             eprint("AcqRel/Release is not a load ordering");
@@ -113,6 +115,7 @@ impl AtomicU64 {
         return c_load(self.id, code(ordering));
     }
 
+    /// Write the unsigned value with an explicit ordering.
     pub fn store(self, int value, Ordering ordering) {
         if ordering matches Ordering.Acquire || ordering matches Ordering.AcqRel {
             eprint("AcqRel/Acquire is not a store ordering");
@@ -121,10 +124,12 @@ impl AtomicU64 {
         c_store(self.id, value, code(ordering));
     }
 
+    /// Add to the slot and return its previous unsigned value.
     pub fn fetch_add(self, int value, Ordering ordering) -> int {
         return c_fetch_add(self.id, value, code(ordering));
     }
 
+    /// Swap on equality and return the observed unsigned value.
     pub fn compare_exchange(self, int expected, int desired, Ordering success, Ordering failure) -> int {
         if success matches Ordering.Release || success matches Ordering.Acquire {
             eprint("bad compare_exchange success ordering");
@@ -143,6 +148,7 @@ pub struct AtomicBool {
     id: int,
 }
 
+/// Allocate an atomic boolean slot, initially 0 or 1.
 pub fn atomic_bool(bool initial) -> AtomicBool {
     const value = switch initial {
         case true {
@@ -158,10 +164,12 @@ pub fn atomic_bool(bool initial) -> AtomicBool {
 }
 
 impl AtomicBool {
+    /// Read the flag as a boolean with an explicit ordering.
     pub fn load(self, Ordering ordering) -> bool {
         return c_load(self.id, code(ordering)) != 0;
     }
 
+    /// Write the flag as 0 or 1 with an explicit ordering.
     pub fn store(self, bool value, Ordering ordering) {
         const number = switch value {
             case true {
@@ -174,6 +182,7 @@ impl AtomicBool {
         c_store(self.id, number, code(ordering));
     }
 
+    /// Swap the flag on equality and return the observed boolean.
     pub fn compare_exchange(self, bool expected, bool desired, Ordering success, Ordering failure) -> bool {
         const want = switch expected {
             case true {
@@ -201,6 +210,7 @@ pub struct AtomicPtr {
     id: int,
 }
 
+/// Allocate an atomic opaque handle in an integer slot.
 pub fn atomic_ptr(int initial) -> AtomicPtr {
     return AtomicPtr {
         id: c_new(initial)
@@ -208,14 +218,17 @@ pub fn atomic_ptr(int initial) -> AtomicPtr {
 }
 
 impl AtomicPtr {
+    /// Read the opaque handle with an explicit ordering.
     pub fn load(self, Ordering ordering) -> int {
         return c_load(self.id, code(ordering));
     }
 
+    /// Write the opaque handle with an explicit ordering.
     pub fn store(self, int value, Ordering ordering) {
         c_store(self.id, value, code(ordering));
     }
 
+    /// Swap the handle on equality and return the observed value.
     pub fn compare_exchange(self, int expected, int desired, Ordering success, Ordering failure) -> int {
         return c_compare_exchange(self.id, expected, desired, code(success), code(failure));
     }

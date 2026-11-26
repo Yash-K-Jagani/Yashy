@@ -6,6 +6,7 @@
 // fixed count and consumers take a fixed count, which makes the campaign
 // bounded without a sentinel value that a program could mistake for data.
 
+/// Send `count` consecutive values starting at `base`.
 pub fn produce(Channel[int] jobs, int base, int count) {
     let index = 0;
     while index < count {
@@ -14,6 +15,7 @@ pub fn produce(Channel[int] jobs, int base, int count) {
     }
 }
 
+/// Take `count` values and return their sum.
 pub fn consume(Channel[int] jobs, int count) -> int {
     let sum = 0;
     let index = 0;

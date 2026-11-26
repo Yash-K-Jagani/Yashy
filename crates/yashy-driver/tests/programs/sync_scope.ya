@@ -5,7 +5,7 @@ import mpmc;
 
 import select;
 
-fn worker(Token stop) {
+fn worker(StopToken stop) {
     let spins = 0;
     while !stop.cancelled() && spins < 100000 {
         spins = spins + 1;

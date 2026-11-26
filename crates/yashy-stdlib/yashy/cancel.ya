@@ -6,22 +6,25 @@
 
 import atomic;
 
-pub struct Token {
+pub struct StopToken {
     flag: AtomicBool,
 }
 
-pub fn token() -> Token {
-    return Token {
+/// Create a checkpoint token with its flag cleared.
+pub fn token() -> StopToken {
+    return StopToken {
         flag: atomic_bool(false)
     };
 }
 
-impl Token {
+impl StopToken {
+    /// Set the flag; workers stop at their next checkpoint.
     pub fn cancel(self) {
         const flag = self.flag;
         flag.store(true, Ordering.Release);
     }
 
+    /// Read the flag at a checkpoint.
     pub fn cancelled(self) -> bool {
         const flag = self.flag;
         return flag.load(Ordering.Acquire);

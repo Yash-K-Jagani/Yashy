@@ -293,6 +293,8 @@ fn store(AtomicU64 self, int value, Ordering ordering) -> void
 fn atomic_bool(bool initial) -> AtomicBool
 ```
 
+Allocate an atomic boolean slot, initially 0 or 1.
+
 ### `atomic_i64`
 
 ```yashy
@@ -307,11 +309,15 @@ Allocate an atomic slot with its initial value.
 fn atomic_ptr(int initial) -> AtomicPtr
 ```
 
+Allocate an atomic opaque handle in an integer slot.
+
 ### `atomic_u64`
 
 ```yashy
 fn atomic_u64(int initial) -> AtomicU64
 ```
+
+Allocate an atomic unsigned 64-bit slot.
 
 ### `AtomicBool`
 
@@ -353,23 +359,25 @@ operations never interpret the sign.
 enum Ordering
 ```
 
-### `Token.cancel`
+### `StopToken.cancel`
 
 ```yashy
-fn cancel(Token self) -> void
+fn cancel(StopToken self) -> void
 ```
 
-### `Token.cancelled`
+### `StopToken.cancelled`
 
 ```yashy
-fn cancelled(Token self) -> bool
+fn cancelled(StopToken self) -> bool
 ```
 
 ### `token`
 
 ```yashy
-fn token() -> Token
+fn token() -> StopToken
 ```
+
+Create a checkpoint token with its flag cleared.
 
 ### `AtomicBool`
 
@@ -395,10 +403,10 @@ struct AtomicPtr
 struct AtomicU64
 ```
 
-### `Token`
+### `StopToken`
 
 ```yashy
-struct Token
+struct StopToken
 ```
 
 ## `casing`
@@ -1848,11 +1856,15 @@ A parsed media type, without parameters.
 fn consume(Channel[int] jobs, int count) -> int
 ```
 
+Take `count` values and return their sum.
+
 ### `produce`
 
 ```yashy
 fn produce(Channel[int] jobs, int base, int count) -> void
 ```
+
+Send `count` consecutive values starting at `base`.
 
 ## `normalize`
 
@@ -2144,14 +2156,6 @@ fn filter([]int values, int workers, fn(int) -> bool keep) -> []int
 
 Keep the elements that satisfy `keep`, preserving input order.
 
-### `fold`
-
-```yashy
-fn fold([]int values, int workers, int initial, fn(int, int) -> int combine) -> int
-```
-
-Reduce the elements with `combine`, starting from `initial`.
-
 ### `map`
 
 ```yashy
@@ -2160,13 +2164,21 @@ fn map([]int values, int workers, fn(int) -> int transform) -> []int
 
 Apply `transform` to each element and return results in input order.
 
+### `par_fold`
+
+```yashy
+fn par_fold([]int values, int workers, int initial, fn(int, int) -> int combine) -> int
+```
+
+Reduce the elements with `combine`, starting from `initial`.
+
 ### `sum`
 
 ```yashy
 fn sum([]int values, int workers) -> int
 ```
 
-Sum the elements. This is the sequential reference for a parallel fold.
+Sum the elements. This is the sequential reference for a parallel par_fold.
 
 ## `path`
 
@@ -2484,6 +2496,8 @@ struct Regex
 fn first(Channel[int] left, Channel[int] right) -> int
 ```
 
+Blocking two-case select: the left channel wins a tie by declared order.
+
 ### `try_first`
 
 ```yashy
@@ -2684,11 +2698,15 @@ fn write(RwLock self) -> void
 fn barrier(int parties) -> Barrier
 ```
 
+Create a barrier for `parties` threads.
+
 ### `condvar`
 
 ```yashy
 fn condvar() -> Condvar
 ```
+
+Create a generation-based condition variable.
 
 ### `once`
 
@@ -2696,11 +2714,15 @@ fn condvar() -> Condvar
 fn once() -> Once
 ```
 
+Create a one-time initialization guard.
+
 ### `rwlock`
 
 ```yashy
 fn rwlock() -> RwLock
 ```
+
+Create a reader-writer lock.
 
 ### `AtomicBool`
 

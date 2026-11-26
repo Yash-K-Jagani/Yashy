@@ -1,0 +1,9 @@
+import par_iter;
+
+fn main() {
+    let numbers = []int {
+        1, 2, 3, 4
+    };
+    const total = par_iter.sum(numbers, 2);
+    print(total == 10);
+}

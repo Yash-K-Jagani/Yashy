@@ -1,0 +1,8 @@
+import select;
+
+fn main() {
+    let Channel[int] ready = chan_new(1);
+    let Channel[int] idle = chan_new(1);
+    ready.send(9);
+    print(first(ready, idle) == 9);
+}

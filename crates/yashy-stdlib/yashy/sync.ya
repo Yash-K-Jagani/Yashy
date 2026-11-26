@@ -24,6 +24,7 @@ pub struct RwLock {
     id: int,
 }
 
+/// Create a reader-writer lock.
 pub fn rwlock() -> RwLock {
     return RwLock {
         id: c_rwlock_new()
@@ -31,14 +32,17 @@ pub fn rwlock() -> RwLock {
 }
 
 impl RwLock {
+    /// Take a shared read lock, blocking writers.
     pub fn read(self) {
         c_rwlock_rdlock(self.id);
     }
 
+    /// Take the exclusive write lock.
     pub fn write(self) {
         c_rwlock_wrlock(self.id);
     }
 
+    /// Release the held read or write lock.
     pub fn unlock(self) {
         c_rwlock_unlock(self.id);
     }
@@ -48,6 +52,7 @@ pub struct Condvar {
     id: int,
 }
 
+/// Create a generation-based condition variable.
 pub fn condvar() -> Condvar {
     return Condvar {
         id: c_cond_new()
@@ -55,14 +60,17 @@ pub fn condvar() -> Condvar {
 }
 
 impl Condvar {
+    /// Read the current generation counter.
     pub fn generation(self) -> int {
         return c_cond_generation(self.id);
     }
 
+    /// Wait until the generation differs from `observed`.
     pub fn wait(self, int observed) {
         c_cond_wait(self.id, observed);
     }
 
+    /// Advance the generation and wake its waiters.
     pub fn signal(self) {
         c_cond_signal(self.id);
     }
@@ -72,6 +80,7 @@ pub struct Barrier {
     id: int,
 }
 
+/// Create a barrier for `parties` threads.
 pub fn barrier(int parties) -> Barrier {
     return Barrier {
         id: c_barrier_new(parties)
@@ -79,6 +88,7 @@ pub fn barrier(int parties) -> Barrier {
 }
 
 impl Barrier {
+    /// Wait for all parties and return the arrival count.
     pub fn wait(self) -> int {
         return c_barrier_wait(self.id);
     }
@@ -90,6 +100,7 @@ pub struct Once {
     state: AtomicI64,
 }
 
+/// Create a one-time initialization guard.
 pub fn once() -> Once {
     return Once {
         state: atomic_i64(0)

@@ -1,0 +1,9 @@
+import mpmc;
+
+fn main() {
+    let Channel[int] jobs = chan_new(8);
+    const producer = thread_spawn(produce, jobs, 0, 4);
+    thread_join(producer);
+    const total = consume(jobs, 4);
+    print(total == 6);
+}

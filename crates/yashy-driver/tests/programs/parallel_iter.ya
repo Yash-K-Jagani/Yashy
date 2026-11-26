@@ -44,7 +44,7 @@ fn main() {
     const even = par_iter.filter(third, 4, is_even);
     assert(even.len() == 10);
     assert(even[9] matches Some(18));
-    const total = par_iter.fold(fourth, 4, 0, add);
+    const total = par_iter.par_fold(fourth, 4, 0, add);
     assert(total == 190);
     const collected = par_iter.collect(mapped, 4);
     assert(collected.len() == 1000);

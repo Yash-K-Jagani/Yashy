@@ -1,0 +1,8 @@
+import cancel;
+
+fn main() {
+    const stop = token();
+    print(!stop.cancelled());
+    stop.cancel();
+    print(stop.cancelled());
+}

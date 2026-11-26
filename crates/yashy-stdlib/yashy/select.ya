@@ -5,6 +5,7 @@
 // a timeout is represented by a third channel carrying a tick, not by a sleep
 // hidden inside this function.
 
+/// Blocking two-case select: the left channel wins a tie by declared order.
 pub fn first(Channel[int] left, Channel[int] right) -> int {
     if let Some(value) = left.recv() {
         return value;
