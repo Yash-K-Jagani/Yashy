@@ -190,11 +190,21 @@ fn manifest_from(document: &Document) -> Result<Manifest, ParseError> {
     let dependencies = dependencies_table(root, document, "dependencies")?;
     let dev_dependencies = dependencies_table(root, document, "dev-dependencies")?;
 
+    let edition = optional_string(package_table, "edition", document)?;
+    if let Some(found) = &edition {
+        if found != "2021" && found != "2027" {
+            return Err(error_at(
+                "package.edition",
+                format!("unknown edition `{found}`; expected 2021 or 2027"),
+            ));
+        }
+    }
+
     Ok(Manifest {
         package: Package {
             name,
             version,
-            edition: optional_string(package_table, "edition", document)?,
+            edition,
             description: optional_string(package_table, "description", document)?,
             license: optional_string(package_table, "license", document)?,
         },
@@ -792,6 +802,19 @@ rev = "0123456789abcdef"
 [dev-dependencies]
 assert = { }
 "#;
+
+    #[test]
+    fn an_edition_is_validated_or_defaults_to_absent() {
+        let base = "[package]\nname = \"demo\"\nversion = \"1.0.0\"\n";
+        let manifest = Manifest::parse(base).expect("a missing edition is 1.0");
+        assert_eq!(manifest.package.edition, None);
+        let modern = Manifest::parse(&format!("{base}edition = \"2027\"\n"))
+            .expect("2027 is a known edition");
+        assert_eq!(modern.package.edition.as_deref(), Some("2027"));
+        let error = Manifest::parse(&format!("{base}edition = \"2026\"\n"))
+            .expect_err("an unknown edition is refused");
+        assert!(error.message.contains("unknown edition"), "{}", error.message);
+    }
 
     #[test]
     fn the_sample_maps_to_the_struct() {

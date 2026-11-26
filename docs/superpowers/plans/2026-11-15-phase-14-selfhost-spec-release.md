@@ -214,7 +214,9 @@ end stays the reference for the 2.0 release (design call 7).
   `edition = "2027"`, reports every semantic change with a diff, and the result
   passes `check`, `test` and `verify`. `--dry-run` prints the diff and changes
   nothing. A file with an unknown edition is a diagnostic naming the valid set.
-  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *Partly closed 2026-11-26:* the manifest now validates the closed edition set
+  (`2021` default when absent, `2027`) and reports an unknown edition at the
+  key. `yashyc migrate` and its `--dry-run` diff are still owed.
 
 - [x] **Step 2: An edition is a compatibility promise.** Within an edition, no
   program that compiled stops compiling; a change that breaks one is a new
@@ -224,7 +226,9 @@ end stays the reference for the 2.0 release (design call 7).
   default, `2027`), what an edition may and may not change, and the RFC gate.
   The manifest `edition` key and the compiler's multi-edition reader are still
   owed, so the step stays open.
-  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *Partly closed 2026-11-26:* `docs/editions.md` states the promise and the
+  closed set, and the manifest validates it; the compiler's multi-edition
+  reader is still owed.
 
 - [x] **Step 3: Deprecation has a path.** A deprecated item warns with a code
   and a `yashyc fix`; it is removed only in an edition, and the removal is listed
@@ -232,7 +236,9 @@ end stays the reference for the 2.0 release (design call 7).
   *Current:* `docs/deprecation.md` gives the four-step path and the migration
   table, and `docs/editions.md` ties removal to an edition. The `yashyc fix`
   command is not implemented, so the step stays open.
-  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *Partly closed 2026-11-26:* MCP now serves a `fix` verb that applies only
+  machine-applicable suggestions through the edit transaction; the
+  `yashyc fix` CLI command is still owed.
 
 - [x] **Step 4: Commit.**
   *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
