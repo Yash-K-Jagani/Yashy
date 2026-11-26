@@ -89,14 +89,25 @@ measured row, not a default someone turned on.
   add vectorises at `-O3 --cpu=x86-64-v3`; the IR contains a vector add and a
   single overflow check per iteration block (or a proved absence); a program
   that can overflow still traps with the same message and exit code.
+  *Owed as of 2026-11-26:* Yashy emits textual IR and the toolchain performs
+  vector lowering; this host cannot assert a vector add in the emitted IR, and
+  the `-O3 --cpu=x86-64-v3` interleaved measurement needs both OSes. The trap
+  contract itself is already pinned by the overflow corpus.
 - [ ] **Step 2: Hoist, do not delete.** The pass proves a range for the induction
   variable and the accumulator, hoists the check out of the loop, or widens the
   operation and checks once. A check that cannot be hoisted stays; the report
   says why.
+  *Closed 2026-11-26 with exception:* the verifier already records proved
+  bounds/overflow spans in `ProofFacts`, and `crates/yashy-codegen/src/faults.rs`
+  deletes exactly those checks while keeping a note for every survivor. There
+  is no separate loop-induction-hoisting pass yet, so a check that needs a
+  range proof rather than a `requires` clause still stays; that half is owed.
 - [ ] **Step 3: The numbers are the gate.** `loop` v3 checked < 1.2× wrapping;
   `fib` checked < 1.5× C; both measured interleaved on Windows and Linux. A win
   on one row that loses another is not a win.
-- [ ] **Step 4: Commit.**
+  *Owed as of 2026-11-26:* the benchmark rows need interleaved Windows and Linux
+  runs, which this host cannot supply.
+- [x] **Step 4: Commit.**
 
 ### Task 3: Bounds elision, SROA, GVN and loops
 
