@@ -172,17 +172,20 @@ what keeps a 138-week programme honest.
   it. The exact `[]u8 -> void` signature, the CLI runner and the bounded
   *Closed 2026-11-26 with an exception:* `packages/fuzz/src/campaign.ya` runs a
   bounded, seeded campaign over a plain `fn(string) -> bool` target and shrinks
-  the first failure; `packages/fuzz/tests/campaign_test.ya` proves it with zero
-  leaks. The exact `[]u8 -> void` signature and the CLI campaign runner are
-  carried forward in `docs/gates.md`.
+  the first failure; `crates/yashy-driver/tests/fuzz_cli.rs` drives
+  `yashyc fuzz --run <target> --iterations N --seed N` end to end. The exact
+  `[]u8 -> void` signature with crash/hang capture is carried forward in
+  `docs/gates.md`.
 - [x] **Step 2: Shrink and reproduce.** A finding is written to
   `fuzz/findings/<hash>.bin` with the seed, the input and the run command;
   `fuzz --replay <file>` reproduces it; the shrinker minimises it before it is
   saved.
-  *Closed 2026-11-26 with an exception:* `campaign.ya` returns a `Finding` with
-  the seed, the minimised input and a reproduction line; `describe` is the
-  replay text. Writing `fuzz/findings/<hash>.bin` and `--replay` over a
-  generated binary are carried forward in `docs/gates.md`.
+  *Closed 2026-11-26:* `campaign.ya` returns a `Finding` with the seed, the
+  minimised input and a reproduction line; the CLI writes it to
+  `fuzz/findings/<hash>.bin` by default (or `--findings <path>`), and
+  `yashyc fuzz --run <target> --replay <file>` re-runs the recorded seed,
+  compares the minimised input and refuses a target that no longer fails.
+  `crates/yashy-driver/tests/fuzz_cli.rs` pins both directions.
 - [x] **Step 3: Corpus lives in the repo.** CI runs a bounded campaign on every
   PR and a longer one nightly; a new finding is a P0 until fixed or recorded.
 - [x] **Step 4: Commit.**

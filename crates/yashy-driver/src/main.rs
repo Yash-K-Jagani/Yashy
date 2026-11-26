@@ -1529,6 +1529,9 @@ fn fuzz_cmd(args: &[String]) -> ExitCode {
     let mut findings: Option<PathBuf> = None;
     let mut replay: Option<PathBuf> = None;
     let mut root: Option<PathBuf> = None;
+    let mut run_target: Option<PathBuf> = None;
+    let mut iterations = 200usize;
+    let mut seed = 1i64;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -1547,6 +1550,33 @@ fn fuzz_cmd(args: &[String]) -> ExitCode {
                 replay = Some(PathBuf::from(&args[i + 1]));
                 i += 1;
             }
+            "--run" => {
+                if i + 1 >= args.len() {
+                    return usage_error("`--run` needs a target source file");
+                }
+                run_target = Some(PathBuf::from(&args[i + 1]));
+                i += 1;
+            }
+            "--iterations" => {
+                if i + 1 >= args.len() {
+                    return usage_error("`--iterations` needs a number");
+                }
+                match args[i + 1].parse::<usize>() {
+                    Ok(value) if value > 0 => iterations = value,
+                    _ => return usage_error("`--iterations` needs a positive number"),
+                }
+                i += 1;
+            }
+            "--seed" => {
+                if i + 1 >= args.len() {
+                    return usage_error("`--seed` needs a number");
+                }
+                match args[i + 1].parse::<i64>() {
+                    Ok(value) => seed = value,
+                    Err(_) => return usage_error("`--seed` needs a number"),
+                }
+                i += 1;
+            }
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown option `{other}` for `fuzz`"));
             }
@@ -1558,6 +1588,143 @@ fn fuzz_cmd(args: &[String]) -> ExitCode {
             }
         }
         i += 1;
+    }
+    if let Some(target_path) = run_target {
+        let source = match std::fs::read_to_string(&target_path) {
+            Ok(text) => text,
+            Err(error) => {
+                eprintln!("error: cannot read {}: {error}", target_path.display());
+                return exit_code(EXIT_USAGE);
+            }
+        };
+        let mut replay_input: Option<String> = None;
+        if let Some(path) = replay.as_ref() {
+            let text = match std::fs::read_to_string(path) {
+                Ok(text) => text,
+                Err(error) => {
+                    eprintln!("error: cannot read {}: {error}", path.display());
+                    return exit_code(EXIT_USAGE);
+                }
+            };
+            for token in text.split_whitespace() {
+                if let Some(value) = token.strip_prefix("seed=") {
+                    if let Ok(parsed) = value.parse::<i64>() {
+                        seed = parsed;
+                    }
+                }
+                if let Some(value) = token.strip_prefix("iterations=") {
+                    if let Ok(parsed) = value.parse::<usize>() {
+                        iterations = parsed;
+                    }
+                }
+            }
+            replay_input = text
+                .split_whitespace()
+                .find_map(|token| token.strip_prefix("input=").map(|value| value.to_string()));
+            if replay_input.is_none() {
+                eprintln!("error: finding has no `input=` field");
+                return exit_code(EXIT_USAGE);
+            }
+        }
+        let dir = std::env::temp_dir().join(format!("yashy-fuzz-{}", std::process::id()));
+        let app_dir = dir.join("app");
+        let target_dir = dir.join("targetsrc");
+        if let Err(error) = std::fs::create_dir_all(&app_dir) {
+            eprintln!("error: cannot create {}: {error}", app_dir.display());
+            return exit_code(EXIT_INTERNAL);
+        }
+        if let Err(error) = std::fs::create_dir_all(&target_dir) {
+            eprintln!("error: cannot create {}: {error}", target_dir.display());
+            return exit_code(EXIT_INTERNAL);
+        }
+        if let Err(error) = std::fs::write(target_dir.join("target.ya"), &source) {
+            eprintln!("error: cannot write target: {error}");
+            return exit_code(EXIT_INTERNAL);
+        }
+        let driver = format!(
+            "import campaign;\nimport target;\nfn accepts_input(string value) -> bool {{\n    return target.accepts(value);\n}}\nfn main() {{\n if let Some(f) = campaign.campaign(accepts_input, {seed}, {iterations}, 4, 12) {{\n  print(campaign.describe(f));\n }}\n}}\n"
+        );
+        if let Err(error) = std::fs::write(app_dir.join("main.ya"), driver) {
+            eprintln!("error: cannot write campaign driver: {error}");
+            return exit_code(EXIT_INTERNAL);
+        }
+        let compiler = match std::env::current_exe() {
+            Ok(path) => path,
+            Err(_) => return exit_code(EXIT_INTERNAL),
+        };
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let paths = format!(
+            "{}{}{}{}{}",
+            root.join("crates/yashy-stdlib/yashy").display(),
+            if cfg!(windows) { ";" } else { ":" },
+            root.join("packages/fuzz/src").display(),
+            if cfg!(windows) { ";" } else { ":" },
+            target_dir.display()
+        );
+        let binary = dir.join(format!("program{}", std::env::consts::EXE_SUFFIX));
+        let built = Command::new(&compiler)
+            .arg("build")
+            .arg(app_dir.join("main.ya"))
+            .arg("-o")
+            .arg(&binary)
+            .env("YASHY_PATH", &paths)
+            .current_dir(&root)
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false);
+        if !built {
+            return exit_code(EXIT_COMPILE_ERROR);
+        }
+        let run = Command::new(&binary)
+            .output()
+            .expect("the campaign must run");
+        let output = String::from_utf8_lossy(&run.stdout).trim().to_string();
+        let produced_input = output
+            .split_whitespace()
+            .find_map(|token| token.strip_prefix("input=").map(|value| value.to_string()));
+        if let Some(expected) = replay_input {
+            match produced_input {
+                Some(actual) if actual == expected => {
+                    println!("replay ok: {output}");
+                    return exit_code(EXIT_OK);
+                }
+                Some(actual) => {
+                    eprintln!("error: replay diverged: expected `{expected}`, got `{actual}`");
+                    return exit_code(EXIT_COMPILE_ERROR);
+                }
+                None => {
+                    eprintln!("error: replay did not reproduce a finding");
+                    return exit_code(EXIT_COMPILE_ERROR);
+                }
+            }
+        }
+        if output.starts_with("seed=") {
+            let record = format!("seed={seed}\niterations={iterations}\n{output}\n");
+            let path = match findings {
+                Some(path) => path,
+                None => {
+                    let dir = PathBuf::from("fuzz/findings");
+                    if let Err(error) = std::fs::create_dir_all(&dir) {
+                        eprintln!("error: cannot create {}: {error}", dir.display());
+                        return exit_code(EXIT_INTERNAL);
+                    }
+                    let hash = yashy_driver::record::program_hash(&record);
+                    dir.join(format!("{hash}.bin"))
+                }
+            };
+            if let Err(error) = std::fs::write(&path, &record) {
+                eprintln!("error: cannot write finding: {error}");
+                return exit_code(EXIT_USAGE);
+            }
+            println!("finding: {} ({output})", path.display());
+            return exit_code(EXIT_COMPILE_ERROR);
+        }
+        if json {
+            println!("{{\"schema_version\":1,\"tool\":\"fuzz\",\"iterations\":{iterations},\"finding\":null}}");
+        } else {
+            println!("fuzz: no finding in {iterations} iterations");
+        }
+        return exit_code(EXIT_OK);
     }
     if let Some(path) = replay {
         match std::fs::read(&path) {

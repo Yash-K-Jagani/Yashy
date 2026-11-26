@@ -702,11 +702,14 @@ claimed green here.
   assertion when `llvm-profdata` is absent. Closes when a CI job with LLVM runs
   `coverage --format sarif` and uploads the artifact.
 
-- **`fuzz` CLI campaign runner and finding files** — **partly closed
-  2026-11-26.** `packages/fuzz/src/campaign.ya` runs seeded, bounded campaigns
-  with shrinking; the library test passes. The `[]u8 -> void` target signature,
-  `fuzz/findings/<hash>.bin` and `fuzz --replay` over a generated binary remain
-  owed.
+- **`[]u8 -> void` fuzz target with crash/hang capture** — owner:
+  compiler/core. `yashyc fuzz --run` now runs a seeded, bounded campaign over
+  `pub fn accepts(string) -> bool`, writes `fuzz/findings/<hash>.bin` and
+  `--replay` re-runs the recorded seed to reproduction; `fuzz_cli.rs` pins both.
+  The byte-slice target signature, fault capture (a crashing or hanging target
+  is a finding) and the nightly long campaign remain. Closes when a `[]u8 ->
+  void` target is run out-of-process with a timeout and a crash artifact is
+  saved beside its input.
 
 - **Generic `expect_eq[T]`, automatic file/line, `expect_panics`** — owner:
   compiler/core. Needs a display bound and catchable faults; the concrete typed
