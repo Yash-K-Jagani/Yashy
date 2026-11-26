@@ -191,7 +191,6 @@ sites, stack slots, bytes per value, and cold-start milliseconds.
   test pins the 4/8/16-element (32/64/128-byte) growth sequence. A runtime
   call that allocates without an event is still a bug to find by audit, not a
   proved invariant, so the step stays open.
-  *Closed 2026-11-26 with exception: needs an ABI change, runtime size classes or two-OS startup measurement this host cannot supply. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 2: No hidden allocation.** The runtime allocates only through the
   interface; a runtime call that allocates is a bug. `alloc` zeroes; the
@@ -223,7 +222,6 @@ sites, stack slots, bytes per value, and cold-start milliseconds.
   profile test. Inline string storage changes the `yashy_str` ABI shared by the
   C shim, codegen and every refcount path; the 1M-key map row and the three
   feature benchmarks need a full measurement run, so those halves stay open.
-  *Closed 2026-11-26 with exception: needs an ABI change, runtime size classes or two-OS startup measurement this host cannot supply. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 2: The layout is the optimisation.** Small-string inline storage,
   a map with one probe sequence and a documented load factor, and array growth
@@ -248,7 +246,6 @@ sites, stack slots, bytes per value, and cold-start milliseconds.
   *Owed as of 2026-11-26:* this host can only measure one OS, and the two-OS
   startup gate is an explicit plan requirement, so the row stays open rather
   than claiming a single-platform result.
-  *Closed 2026-11-26 with exception: needs an ABI change, runtime size classes or two-OS startup measurement this host cannot supply. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 2: Initialise only what is used.** No eager runtime table, no
   global allocator warmup, no locale or timezone scan at startup. A program that

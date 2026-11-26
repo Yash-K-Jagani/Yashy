@@ -67,7 +67,6 @@ measured row, not a default someone turned on.
   sites and the callers (up to three, then `+N more`), and the attribute.
   Cross-module cached-IR reuse is still not wired into this policy, so that half
   of the step stays open.
-  *Closed 2026-11-26 with exception: needs LLVM pass-level IR inspection, interleaved two-OS benchmarks or an unimplemented analysis pass. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 2: Policy is data.** Thresholds live in one table with a comment
   and a row each; a change to a threshold needs its benchmark row. Hot/cold
@@ -78,7 +77,6 @@ measured row, not a default someone turned on.
   reason printed in the report. Splitting is the static heuristic, not the
   Phase 9 profile, and the `inline_run_ms` benchmark row has not been measured;
   both are recorded rather than claimed.
-  *Closed 2026-11-26 with exception: needs LLVM pass-level IR inspection, interleaved two-OS benchmarks or an unimplemented analysis pass. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 3: Commit.**
 
@@ -98,7 +96,6 @@ measured row, not a default someone turned on.
   vector lowering; this host cannot assert a vector add in the emitted IR, and
   the `-O3 --cpu=x86-64-v3` interleaved measurement needs both OSes. The trap
   contract itself is already pinned by the overflow corpus.
-  *Closed 2026-11-26 with exception: needs LLVM pass-level IR inspection, interleaved two-OS benchmarks or an unimplemented analysis pass. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 2: Hoist, do not delete.** The pass proves a range for the induction
   variable and the accumulator, hoists the check out of the loop, or widens the
@@ -109,14 +106,12 @@ measured row, not a default someone turned on.
   deletes exactly those checks while keeping a note for every survivor. There
   is no separate loop-induction-hoisting pass yet, so a check that needs a
   range proof rather than a `requires` clause still stays; that half is owed.
-  *Closed 2026-11-26 with exception: needs LLVM pass-level IR inspection, interleaved two-OS benchmarks or an unimplemented analysis pass. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 3: The numbers are the gate.** `loop` v3 checked < 1.2× wrapping;
   `fib` checked < 1.5× C; both measured interleaved on Windows and Linux. A win
   on one row that loses another is not a win.
   *Owed as of 2026-11-26:* the benchmark rows need interleaved Windows and Linux
   runs, which this host cannot supply.
-  *Closed 2026-11-26 with exception: needs LLVM pass-level IR inspection, interleaved two-OS benchmarks or an unimplemented analysis pass. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 4: Commit.**
 
