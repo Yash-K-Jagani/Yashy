@@ -281,6 +281,13 @@ pub const COMMANDS: &[CommandSpec] = &[
         takes_path: true,
     },
     CommandSpec {
+        name: "migrate",
+        summary: "rewrite a manifest to the target edition",
+        usage: "yashyc migrate [--dry-run] <yashy.toml>",
+        flags: &["--dry-run"],
+        takes_path: true,
+    },
+    CommandSpec {
         name: "inspect",
         summary: "report a symbol's facts from the index",
         usage: "yashyc inspect [--human] <file.ya>",

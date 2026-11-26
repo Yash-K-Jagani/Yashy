@@ -231,6 +231,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "lint" => lint_cmd(rest),
         "coverage" => coverage_cmd(rest),
         "fix" => fix_cmd(rest),
+        "migrate" => migrate_cmd(rest),
         "verify" => verify(rest),
         "test" => test(rest),
         "bench" => bench_cmd(rest),
@@ -5728,6 +5729,51 @@ fn check(args: &[String]) -> ExitCode {
 /// The two failure modes stay distinguishable in the output, because a check
 /// diagnostic names the source it is about and a verifier diagnostic carries a
 /// proof trace saying what could not be established.
+fn migrate_cmd(args: &[String]) -> ExitCode {
+    let mut dry_run = false;
+    let mut input: Option<PathBuf> = None;
+    for argument in args {
+        match argument.as_str() {
+            "--dry-run" => dry_run = true,
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `migrate`"));
+            }
+            other => {
+                if input.is_some() {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+                input = Some(PathBuf::from(other));
+            }
+        }
+    }
+    let Some(input) = input else {
+        return usage_error("`migrate` needs a manifest path");
+    };
+    let source = match fs::read_to_string(&input) {
+        Ok(source) => source,
+        Err(error) => {
+            eprintln!("error: cannot read {}: {error}", input.display());
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    let migrated = match yashy_driver::migrate::rewrite(&source, "2027") {
+        Ok(migrated) => migrated,
+        Err(message) => {
+            eprintln!("error: {message}");
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    if dry_run {
+        print!("{}", yashy_driver::migrate::diff(&source, &migrated));
+        return exit_code(EXIT_OK);
+    }
+    if let Err(error) = fs::write(&input, migrated) {
+        eprintln!("error: cannot write {}: {error}", input.display());
+        return exit_code(EXIT_COMPILE_ERROR);
+    }
+    exit_code(EXIT_OK)
+}
+
 fn verify(args: &[String]) -> ExitCode {
     let mut json = false;
     let mut sarif = false;
