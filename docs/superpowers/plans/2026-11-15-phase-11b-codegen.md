@@ -65,8 +65,11 @@ measured row, not a default someone turned on.
   `alwaysinline` on a small function called twice and `noinline` on a large
   uncalled one; `--opt-report` names the callee, the statement count, the call
   sites and the callers (up to three, then `+N more`), and the attribute.
-  Cross-module cached-IR reuse is still not wired into this policy, so that half
-  of the step stays open.
+  Cross-module calls are covered by the same policy: a small function in an
+  imported module is one `define` in the emitted module, so it earns
+  `alwaysinline` and the report still names the caller. The IR and the report
+  are pinned by `crates/yashy-driver/tests/inline_cross_module.rs`; the IR cache
+  does not change the decision.
 
 - [x] **Step 2: Policy is data.** Thresholds live in one table with a comment
   and a row each; a change to a threshold needs its benchmark row. Hot/cold
