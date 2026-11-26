@@ -85,6 +85,7 @@ fn initialize_advertises_the_compiler_and_edit_tools() {
     let response = mcp.call(&request(1, "initialize", "{}"));
     for tool in [
         "check", "build", "test", "verify", "explain", "context", "index", "edit", "refactor",
+        "format", "lint",
     ] {
         assert!(
             response.contains(&format!(r#""name":"{tool}""#)),
@@ -172,6 +173,36 @@ fn refactor_renames_a_function_and_every_call_site() {
     assert!(source.contains("fn twice"), "{source}");
     assert!(source.contains("twice(3)"), "{source}");
     assert!(!source.contains("double"), "{source}");
+}
+
+#[test]
+fn lint_reports_diagnostics_without_mutating() {
+    let dir = workspace_dir();
+    let before = std::fs::read(dir.join("bad.ya")).unwrap();
+    let mut mcp = Mcp::start(&dir);
+    let response = mcp.call(&request(
+        8,
+        "tools/call",
+        r#"{"name":"lint","arguments":{"path":"bad.ya"}}"#,
+    ));
+    assert!(response.contains("\"diagnostics\""), "{response}");
+    assert_eq!(std::fs::read(dir.join("bad.ya")).unwrap(), before);
+}
+
+#[test]
+fn format_applies_through_the_edit_transaction() {
+    let dir = common::work_dir("mcp-format");
+    common::write(&dir, "main.ya", "fn main(){print(1);}");
+    let mut mcp = Mcp::start(&dir);
+    let response = mcp.call(&request(
+        9,
+        "tools/call",
+        r#"{"name":"format","arguments":{"path":"main.ya"}}"#,
+    ));
+    assert!(response.contains("\"applied\""), "{response}");
+    let source = std::fs::read_to_string(dir.join("main.ya")).unwrap();
+    assert_ne!(source, "fn main(){print(1);}");
+    assert!(source.contains("fn main()"), "{source}");
 }
 
 #[test]

@@ -12,9 +12,10 @@ use std::path::{Path, PathBuf};
 use yashy_common::json_rpc::{self, Value};
 use yashy_common::{FileId, Json, SourceMap, Span};
 
-/// The seven tools, in a stable order.
-pub const TOOLS: [&str; 9] = [
+/// The tools, in a stable order.
+pub const TOOLS: [&str; 11] = [
     "check", "build", "test", "verify", "explain", "context", "index", "edit", "refactor",
+    "format", "lint",
 ];
 
 /// A tool error: JSON-RPC `code: -32000` with the diagnostic array in `data`.
@@ -202,6 +203,80 @@ fn parse_patch(value: &Value) -> Result<crate::edit::Patch, String> {
     })
 }
 
+fn call_source_tool(root: &Path, id: Value, name: &str, arguments: Option<&Value>) -> Value {
+    let arguments = match arguments {
+        Some(arguments) => arguments,
+        None => return error(id, -32602, "format and lint need arguments"),
+    };
+    let shown = arguments.get("path").and_then(Value::as_str).unwrap_or("");
+    let path = match contain(root, shown) {
+        Ok(path) => path,
+        Err(message) => return error(id, -32001, &message),
+    };
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(io_error) => return error(id, -32001, &format!("{shown}: {io_error}")),
+    };
+    if name == "lint" {
+        let group = arguments
+            .get("group")
+            .and_then(Value::as_str)
+            .and_then(crate::lint::LintGroup::parse);
+        let diagnostics: Vec<Value> =
+            crate::lint::check_filtered(&text, FileId::from_index(0), group)
+                .iter()
+                .map(|diagnostic| {
+                    json_rpc::object([
+                        ("message", json_rpc::string(&diagnostic.message)),
+                        (
+                            "code",
+                            diagnostic.code.map(json_rpc::string).unwrap_or(Value::Null),
+                        ),
+                    ])
+                })
+                .collect();
+        return ok(
+            id,
+            json_rpc::object([
+                ("diagnostics", Value::Arr(diagnostics)),
+                ("success", Value::Bool(true)),
+            ]),
+        );
+    }
+    let formatted = match yashy_fmt::format(&text) {
+        Ok(formatted) => formatted,
+        Err(diagnostics) => return tool_error(id, diagnostics),
+    };
+    if formatted == text {
+        return ok(id, json_rpc::object([("applied", Value::Arr(Vec::new()))]));
+    }
+    let hash = match crate::edit::file_hash(&path) {
+        Ok(hash) => hash,
+        Err(edit_error) => return error(id, -32001, &edit_error.message()),
+    };
+    let tree = match crate::edit::tree_hash(root) {
+        Ok(tree) => tree,
+        Err(edit_error) => return error(id, -32001, &edit_error.message()),
+    };
+    let patch = crate::edit::Patch {
+        expected_tree_hash: tree,
+        edits: vec![crate::edit::Edit {
+            file: shown.to_string(),
+            span: Span::new(0, text.len() as u32),
+            expected_hash: hash,
+            replacement: formatted,
+            rationale: "format".to_string(),
+        }],
+    };
+    match crate::edit::apply_patch(root, &patch, check_text) {
+        Ok(applied) => {
+            let applied: Vec<Value> = applied.into_iter().map(json_rpc::string).collect();
+            ok(id, json_rpc::object([("applied", Value::Arr(applied))]))
+        }
+        Err(edit_error) => error(id, -32001, &edit_error.message()),
+    }
+}
+
 fn call_edit_tool(root: &Path, id: Value, name: &str, arguments: Option<&Value>) -> Value {
     let arguments = match arguments {
         Some(arguments) => arguments,
@@ -276,6 +351,9 @@ fn call_tool(root: &Path, id: Value, name: &str, params: Option<&Value>) -> Valu
     let arguments = params.and_then(|params| params.get("arguments"));
     if name == "edit" || name == "refactor" {
         return call_edit_tool(root, id, name, arguments);
+    }
+    if name == "format" || name == "lint" {
+        return call_source_tool(root, id, name, arguments);
     }
     let path_text = arguments
         .and_then(|arguments| arguments.get("path"))
