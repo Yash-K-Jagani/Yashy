@@ -216,7 +216,9 @@ end stays the reference for the 2.0 release (design call 7).
   nothing. A file with an unknown edition is a diagnostic naming the valid set.
   *Partly closed 2026-11-26:* the manifest now validates the closed edition set
   (`2021` default when absent, `2027`) and reports an unknown edition at the
-  key. `yashyc migrate` and its `--dry-run` diff are still owed.
+  key. `yashyc migrate [--dry-run] <yashy.toml>` rewrites the key, prints the
+  diff on a dry run, and leaves every other byte of the manifest alone. Rewriting
+  source to the new semantics is still owed.
 
 - [x] **Step 2: An edition is a compatibility promise.** Within an edition, no
   program that compiled stops compiling; a change that breaks one is a new

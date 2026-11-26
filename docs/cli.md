@@ -1191,7 +1191,11 @@ helpers are found beside the clang doing the build, or through
 ## `yashy.toml` and `yashyc lock --check`
 
 A project may carry a manifest beside its source. The reader is a documented
-subset of TOML, hand-written so the compiler keeps building offline. The full
+subset of TOML, hand-written so the compiler keeps building offline. The
+`edition` key is validated against the closed set in [editions](editions.md):
+absent means `2021`, and `2027` is the other supported value. `yashyc migrate
+[--dry-run] <yashy.toml>` rewrites that key to `2027` and leaves every other byte
+alone; `--dry-run` prints the line diff and writes nothing. The full
 story — lockfile, store, audit and the local registry — is in
 [packages](packages.md).
 
