@@ -35,7 +35,7 @@ fn main() {
         assert(sqlite.bind_text(stmt, 1, "tea").matches (Ok(_)));
         const first = sqlite.step(stmt);
         assert(first matches Ok(true));
-        assert(sqlite.column_count(stmt) == 2);
+        assert(sqlite.columns(stmt) == 2);
         const name = sqlite.column_text(stmt, 0);
         assert(name == "tea");
         assert(sqlite.column_int(stmt, 1) == 3);
