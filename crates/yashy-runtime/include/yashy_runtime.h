@@ -45,6 +45,9 @@ typedef struct yashy_str yashy_str;
 #define YASHY_TRACE_TASK_END 4
 #define YASHY_TRACE_IO 5
 #define YASHY_TRACE_CLOCK 6
+/* The explicit unsafe allocation: same bookkeeping as 1, but the caller
+ * promised to write before reading, so reports must label the site. */
+#define YASHY_TRACE_ALLOC_UNINIT 7
 
 #ifndef YASHY_TRACE_CALLER
 #if defined(__clang__) || defined(__GNUC__)
@@ -167,7 +170,7 @@ static YASHY_ALWAYS_INLINE void *yashy_alloc_with(long long size,
     }
     yashy_alloc_note(1);
 #if defined(__clang__) || defined(__GNUC__)
-    yashy_trace_record(YASHY_TRACE_ALLOC, size,
+    yashy_trace_record(zero ? YASHY_TRACE_ALLOC : YASHY_TRACE_ALLOC_UNINIT, size,
                        (unsigned long long)(size_t)__builtin_return_address(0),
                        (unsigned long long)(size_t)aligned);
 #endif

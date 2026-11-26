@@ -179,8 +179,10 @@ sites, stack slots, bytes per value, and cold-start milliseconds.
   display `size_class` and the bounded `call_path` from the runtime trace. A
   site promoted to the stack emits no allocation event, so it cannot appear in
   a runtime-accounting table; the stack placement is reported by
-  `--stack-report`. An `alloc_uninit` marker and an explicit allocator interface
-  with runtime size classes remain owed, so the step stays open.
+  `--stack-report`. The runtime now records an `alloc_uninit` event kind and
+  `--alloc-report` marks those sites with `unsafe: true`; an explicit allocator
+  interface with runtime size classes and a stack-promoted column remain owed,
+  so the step stays open.
 - [ ] **Step 2: No hidden allocation.** The runtime allocates only through the
   interface; a runtime call that allocates is a bug. `alloc` zeroes; the
   zeroing is removed only when the optimizer proves the program writes before it

@@ -125,6 +125,35 @@ fn alloc_report_names_the_site_of_every_allocation() {
 }
 
 #[test]
+fn alloc_report_marks_the_unsafe_allocation_site() {
+    let dir = common::work_dir("profile-unsafe-site");
+    common::write(
+        &dir,
+        "main.ya",
+        "fn give() -> *mut int { let p = alloc(2); return p; }\n\
+         fn main() {\n\
+             let safe = give();\n\
+             safe[0] = 1;\n\
+             safe.free();\n\
+             unsafe {\n\
+                 let raw = alloc_uninit(2);\n\
+                 raw[0] = 2;\n\
+                 raw.free();\n\
+             };\n\
+             print(\"done\");\n\
+         }\n",
+    );
+    let (code, stdout, stderr) = run(&[
+        "profile",
+        "--alloc-report",
+        dir.join("main.ya").to_str().unwrap(),
+    ]);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert!(stdout.contains("\"unsafe\": true"), "{stdout}");
+    assert!(stdout.contains("\"unsafe\": false"), "{stdout}");
+}
+
+#[test]
 fn a_recorded_report_has_the_same_model_as_json() {
     let dir = common::work_dir("profile-json");
     common::write(&dir, "report.json", REPORT);

@@ -6688,7 +6688,7 @@ fn alloc_report(input: PathBuf, no_verify: bool) -> ExitCode {
     let mut frees = std::collections::HashSet::new();
     for event in &events {
         match event.kind {
-            "alloc" => {
+            "alloc" | "alloc_uninit" => {
                 live.insert(event.ptr, event);
                 frees.remove(&event.ptr);
             }
@@ -6706,6 +6706,7 @@ fn alloc_report(input: PathBuf, no_verify: bool) -> ExitCode {
         bytes: i64,
         classes: std::collections::BTreeSet<String>,
         paths: std::collections::BTreeSet<String>,
+        unsafe_: bool,
     }
 
     /// A display bucket, not a claim about the allocator's own size classes.
@@ -6727,6 +6728,7 @@ fn alloc_report(input: PathBuf, no_verify: bool) -> ExitCode {
         let entry = map.entry(event.span.as_str()).or_default();
         entry.count += 1;
         entry.bytes += event.size;
+        entry.unsafe_ |= event.kind == "alloc_uninit";
         entry.classes.insert(size_class(event.size));
         let path = if event.stack.is_empty() {
             "?".to_string()
@@ -6743,7 +6745,10 @@ fn alloc_report(input: PathBuf, no_verify: bool) -> ExitCode {
     }
     let mut all_by_site: std::collections::BTreeMap<&str, SiteFacts> =
         std::collections::BTreeMap::new();
-    for event in events.iter().filter(|event| event.kind == "alloc") {
+    for event in events
+        .iter()
+        .filter(|event| matches!(event.kind, "alloc" | "alloc_uninit"))
+    {
         record_site(&mut all_by_site, event);
     }
     let render_sites = |map: std::collections::BTreeMap<&str, SiteFacts>| -> Vec<Json> {
@@ -6753,6 +6758,7 @@ fn alloc_report(input: PathBuf, no_verify: bool) -> ExitCode {
                 site.set("span", Json::string(span));
                 site.set("count", Json::number(facts.count as i64));
                 site.set("bytes", Json::number(facts.bytes));
+                site.set("unsafe", Json::bool(facts.unsafe_));
                 site.set(
                     "size_class",
                     Json::array(facts.classes.into_iter().map(Json::string).collect()),
