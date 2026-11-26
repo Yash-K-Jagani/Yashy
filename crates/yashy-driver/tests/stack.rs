@@ -116,6 +116,92 @@ fn a_report_cannot_be_combined_with_the_ir_or_the_full_report() {
 }
 
 #[test]
+fn stack_alloc_stays_in_the_frame() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let source = root.join("crates/yashy-driver/tests/programs/stack_alloc.ya");
+    let dir = work_dir("stack-alloc-site");
+    let binary = dir.join("program");
+    let built = Command::new(yashyc())
+        .arg("build")
+        .arg(&source)
+        .arg("-o")
+        .arg(&binary)
+        .current_dir(&root)
+        .output()
+        .expect("the CLI must run");
+    assert!(
+        built.status.success(),
+        "{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    let ran = Command::new(&binary)
+        .output()
+        .expect("the program must run");
+    assert_eq!(String::from_utf8_lossy(&ran.stdout).trim(), "16");
+
+    let text = run(&dir, &["build", source.to_str().unwrap(), "--stack-report"]);
+    assert!(
+        text.contains("explicit stack_alloc"),
+        "the site and its reason are named:\n{text}"
+    );
+    let ir = run(&dir, &["build", source.to_str().unwrap(), "--emit-ir"]);
+    assert!(ir.contains("alloca [8 x i64]"), "{ir}");
+    assert!(!ir.contains("call i8* @yashy_alloc("), "{ir}");
+}
+
+#[test]
+fn an_escaping_stack_alloc_is_refused_with_a_span() {
+    let dir = work_dir("stack-alloc-escape");
+    write(
+        &dir,
+        "main.ya",
+        "fn give() -> *mut int {\n\
+             let p = stack_alloc(4);\n\
+             return p;\n\
+         }\n\
+         fn main() { }\n",
+    );
+    let output = Command::new(yashyc())
+        .args(["verify", "--json", "main.ya"])
+        .current_dir(&dir)
+        .output()
+        .expect("the CLI must start");
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.status.code(), Some(1), "{text}");
+    assert!(text.contains("cannot escape the function"), "{text}");
+    assert!(
+        text.contains("\"line\""),
+        "the diagnostic has a span: {text}"
+    );
+}
+
+#[test]
+fn a_non_literal_stack_alloc_count_is_refused() {
+    let dir = work_dir("stack-alloc-count");
+    write(
+        &dir,
+        "main.ya",
+        "fn f(int n) {\n    let p = stack_alloc(n);\n    p.free();\n}\nfn main() { }\n",
+    );
+    let output = Command::new(yashyc())
+        .args(["check", "--json", "main.ya"])
+        .current_dir(&dir)
+        .output()
+        .expect("the CLI must start");
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.status.code(), Some(1), "{text}");
+    assert!(text.contains("positive literal element count"), "{text}");
+}
+
+#[test]
 fn nothing_to_report_has_a_stable_answer() {
     let text = build(
         "stack-empty",

@@ -139,16 +139,16 @@ sites, stack slots, bytes per value, and cold-start milliseconds.
 - Create: `crates/yashy-driver/src/stack_report.rs`
 - Test: `crates/yashy-driver/tests/stack.rs`, `crates/yashy-driver/tests/programs/stack/`
 
-- [ ] **Step 1: Write the failing test.** `let p = alloc(16); p[0] = 1;` with no
+- [x] **Step 1: Write the failing test.** `let p = alloc(16); p[0] = 1;` with no
   escape runs with zero heap calls and `--stack-report` names the site; a
   pointer returned, stored in a field or sent to another task is not promoted;
   `stack_alloc(64)` works and an escaping `stack_alloc` is refused with a span.
-  *Partly closed 2026-11-26:* `crates/yashy-driver/tests/stack.rs` proves a
+  *Closed 2026-11-26:* `crates/yashy-driver/tests/stack.rs` proves a
   non-escaping `alloc(8)` is named by `--stack-report` while the IR emits no
-  `@yashy_alloc` call, and that a returned pointer is reported as heap with the
-  verifier's reason. `--stack-report[=json]` renders the same emitter notes as
-  `--opt-report`, so the two cannot disagree. There is no `stack_alloc` builtin
-  yet, so the step stays open.
+  `@yashy_alloc` call, and that a returned pointer is reported as heap. The new
+  `stack_alloc(n)` builtin emits a zeroed `alloca` with no runtime allocator
+  call, and `verify --json` refuses a returned stack pointer with a span.
+  `--stack-report[=json]` renders the same emitter notes as `--opt-report`.
 - [ ] **Step 2: Promotion is a proof, not a heuristic.** Constant size, no
   escape, no address observation, no `unsafe` escape. The report says why a site
   was promoted or why it was not. Stack depth is accounted per function; a
@@ -157,8 +157,9 @@ sites, stack slots, bytes per value, and cold-start milliseconds.
   *Partly closed 2026-11-26:* placement comes from `yashy-hir::escape`, which
   refuses anything that reaches a return, call, aggregate, move or capture and
   caps a frame slot at `STACK_LIMIT` (4096 bytes); each site's reason is printed
-  by the report. Per-function stack-depth accounting and the explicit
-  `stack_alloc` refusal are still owed, so the step stays open.
+  by the report, and `stack_alloc` is refused when it reaches a return, a
+  field store or a task/channel argument. Per-function stack-depth accounting
+  is still owed, so the step stays open.
 - [x] **Step 3: Commit.**
 
 ### Task 4: Direct heap accounting

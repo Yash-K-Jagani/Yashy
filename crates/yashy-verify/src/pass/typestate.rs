@@ -19,6 +19,11 @@ pub fn check(program: &HirProgram, out: &mut Vec<Diagnostic>) {
     check_typestate(program, out);
     check_race(program, out);
     check_async_rules(program, out);
+    for item in &program.items {
+        if let HirItem::Fn(function) = item {
+            check_stack_escape_fn(function, out);
+        }
+    }
 }
 
 /// Structured concurrency (phase 10, task 5): `E1701` (task escape) and
@@ -54,6 +59,179 @@ fn check_escape_fn(function: &HirFn, out: &mut Vec<Diagnostic>) {
         scoped: Vec::new(),
     };
     walker.block(&function.body);
+}
+
+/// A pointer from `stack_alloc` is only valid inside the allocating frame.
+/// Returning it, storing it, or handing it to a task is refused with the span of
+/// the escaping use; a plain `alloc` is not refused because the heap outlives
+/// the frame.
+fn check_stack_escape_fn(function: &HirFn, out: &mut Vec<Diagnostic>) {
+    let mut walker = StackEscapeWalker {
+        out,
+        file: function.file,
+        scoped: Vec::new(),
+    };
+    walker.block(&function.body);
+}
+
+struct StackEscapeWalker<'a> {
+    out: &'a mut Vec<Diagnostic>,
+    file: FileId,
+    scoped: Vec<String>,
+}
+
+impl StackEscapeWalker<'_> {
+    fn report(&mut self, name: &str, span: Span) {
+        self.out.push(Diagnostic::new(
+            Severity::Error,
+            self.file,
+            span,
+            format!("`{name}` is a stack_alloc pointer and cannot escape the function"),
+        ));
+    }
+
+    fn is_stack(&self, expr: &HirExpr) -> bool {
+        match root_ident(expr) {
+            HirExpr::Ident(path, _, _) => path.len() == 1 && self.scoped.contains(&path[0]),
+            _ => false,
+        }
+    }
+
+    fn is_stack_call(expr: &HirExpr) -> bool {
+        matches!(
+            expr,
+            HirExpr::Call { callee, .. }
+                if callee.last().map(String::as_str) == Some("stack_alloc")
+        )
+    }
+
+    fn expr(&mut self, expr: &HirExpr) {
+        if let HirExpr::Call { callee, args, .. } = expr {
+            let name = callee.last().map(String::as_str).unwrap_or("");
+            if matches!(name, "thread_spawn" | "chan_send") {
+                for arg in args {
+                    if self.is_stack(arg) {
+                        self.report("stack_alloc pointer", yashy_hir::hir::expr_span(arg));
+                    }
+                }
+            }
+            for arg in args {
+                self.expr(arg);
+            }
+        }
+    }
+
+    fn block(&mut self, block: &HirBlock) {
+        for stmt in &block.stmts {
+            self.stmt(stmt);
+        }
+    }
+
+    fn stmt(&mut self, stmt: &HirStmt) {
+        match stmt {
+            HirStmt::Var { name, init, .. } | HirStmt::Const { name, init, .. } => {
+                self.expr(init);
+                if Self::is_stack_call(init) {
+                    self.scoped.push(name.clone());
+                }
+            }
+            HirStmt::Return(Some(expr), _) => {
+                self.expr(expr);
+                if self.is_stack(expr) {
+                    if let HirExpr::Ident(path, _, _) = root_ident(expr) {
+                        if let Some(name) = path.first() {
+                            self.report(name, yashy_hir::hir::expr_span(expr));
+                        }
+                    }
+                }
+            }
+            HirStmt::Assign { value, .. }
+            | HirStmt::IndexAssign { value, .. }
+            | HirStmt::FieldAssign { value, .. }
+            | HirStmt::FieldPtrAssign { value, .. } => {
+                self.expr(value);
+                if self.is_stack(value) {
+                    self.report("stack_alloc pointer", yashy_hir::hir::expr_span(value));
+                }
+            }
+            HirStmt::Expr(expr, _, _) => self.expr(expr),
+            HirStmt::If {
+                init,
+                cond,
+                then_block,
+                else_block,
+                ..
+            } => {
+                if let Some(init) = init {
+                    self.stmt(init);
+                }
+                self.expr(cond);
+                self.block(then_block);
+                if let Some(else_block) = else_block {
+                    self.block(else_block);
+                }
+            }
+            HirStmt::IfLet {
+                subject,
+                then_block,
+                else_block,
+                ..
+            } => {
+                self.expr(subject);
+                self.block(then_block);
+                if let Some(else_block) = else_block {
+                    self.block(else_block);
+                }
+            }
+            HirStmt::ForRange {
+                start,
+                end,
+                step,
+                body,
+                ..
+            } => {
+                self.expr(start);
+                self.expr(end);
+                if let Some(step) = step {
+                    self.expr(step);
+                }
+                self.block(body);
+            }
+            HirStmt::ForIn { iterable, body, .. } => {
+                self.expr(iterable);
+                self.block(body);
+            }
+            HirStmt::ForC {
+                init,
+                cond,
+                update,
+                body,
+                ..
+            } => {
+                if let Some(init) = init {
+                    self.stmt(init);
+                }
+                if let Some(cond) = cond {
+                    self.expr(cond);
+                }
+                if let Some(update) = update {
+                    self.expr(update);
+                }
+                self.block(body);
+            }
+            HirStmt::Switch { subject, arms, .. } => {
+                self.expr(subject);
+                for arm in arms {
+                    if let Some(guard) = &arm.guard {
+                        self.expr(guard);
+                    }
+                    self.expr(&arm.body);
+                }
+            }
+            HirStmt::Defer { body, .. } | HirStmt::Scope { body, .. } => self.block(body),
+            _ => {}
+        }
+    }
 }
 
 struct EscapeWalker<'a> {
@@ -559,7 +737,7 @@ impl HoldWalker<'_> {
             "mutex_new" => {
                 self.held.push((name.to_string(), "mutex", true));
             }
-            "alloc" => {
+            "alloc" | "stack_alloc" => {
                 self.held.push((name.to_string(), "resource", false));
             }
             _ => {}
@@ -1109,7 +1287,8 @@ impl TypestatePass<'_> {
 
     fn walk(&mut self, expr: &HirExpr) {
         match expr {
-            HirExpr::Literal(..) | HirExpr::UnsafeBlock { .. }
+            HirExpr::Literal(..)
+            | HirExpr::UnsafeBlock { .. }
             | HirExpr::Ident(..)
             | HirExpr::AddrOf { .. }
             | HirExpr::Capture { .. } => {
@@ -1477,7 +1656,7 @@ fn resource_state_of_init(expr: &HirExpr) -> Option<State> {
             match name {
                 "mutex_new" => Some(State::Unlocked),
                 "chan_new" => Some(State::Open),
-                "alloc" => Some(State::Allocated),
+                "alloc" | "stack_alloc" => Some(State::Allocated),
                 "listen" | "accept" | "connect" | "net_listen" | "net_accept" | "net_connect" => {
                     Some(State::Open)
                 }

@@ -4,7 +4,7 @@
 //! These tests use only primitive field types, so `NoDecls` is enough to pin
 //! the rule without involving a program.
 
-use yashy_hir::layout::{field_order, layout, layout_fields, NoDecls};
+use yashy_hir::layout::{field_order, layout, layout_fields, Decls, NamedType, NoDecls};
 use yashy_hir::ty::TypeKind;
 use yashy_parser::ast::ReprKind;
 
@@ -65,4 +65,26 @@ fn the_layout_walk_uses_the_same_order() {
     // A standalone scalar's walk is unchanged: the helper is only a struct's
     // concern, and a declared type with NoDecls still has no guessed layout.
     assert_eq!(layout(&TypeKind::I64, &NoDecls).unwrap().size, 8);
+}
+
+struct Recursive;
+
+impl Decls for Recursive {
+    fn named(&self, name: &str) -> Option<NamedType> {
+        if name == "Node" {
+            Some(NamedType::Struct {
+                fields: vec![TypeKind::Struct("Node".to_string())],
+                repr: None,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+#[test]
+fn a_type_that_names_itself_by_value_has_no_layout() {
+    // The checker reports this as a diagnostic; the walk must not recurse
+    // forever while it is computing the field order of the rejected struct.
+    assert!(layout(&TypeKind::Struct("Node".to_string()), &Recursive).is_none());
 }

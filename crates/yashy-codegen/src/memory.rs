@@ -130,6 +130,41 @@ pub fn gen_alloc(ctx: &mut FnCtx<'_>, args: &[HirExpr], ret: &TypeKind, span: Sp
     }
 }
 
+/// Lower `stack_alloc(n) -> *mut i64` into the current frame.
+///
+/// The count is a positive literal, checked by the checker, so the `alloca` is
+/// sized. The block is zeroed just like a safe `alloc`, and `dealloc` on the
+/// binding is elided by the promoted-slot mark.
+pub fn gen_stack_alloc(
+    ctx: &mut FnCtx<'_>,
+    args: &[HirExpr],
+    ret: &TypeKind,
+    span: Span,
+) -> GenValue {
+    let count = constant_count(args).unwrap_or(1);
+    let slot = ctx.alloc_slot();
+    ctx.push_alloca(format!("{slot} = alloca [{count} x i64], align 8"));
+    ctx.push(format!(
+        "store [{count} x i64] zeroinitializer, ptr {slot}, align 8"
+    ));
+    let ptr = ctx.tmp();
+    ctx.push(format!(
+        "{ptr} = getelementptr [{count} x i64], ptr {slot}, i64 0, i64 0"
+    ));
+    if ctx.module.reporting() {
+        ctx.module.note(
+            OptKind::Promoted,
+            span,
+            format!("explicit stack_alloc of {count} elements stays in the frame"),
+            None,
+        );
+    }
+    GenValue {
+        value: ptr,
+        ty: ret.clone(),
+    }
+}
+
 /// Lower `alloc_uninit(n) -> *mut i64`.
 ///
 /// The unsafe spelling asks the runtime for the same aligned block as `alloc`

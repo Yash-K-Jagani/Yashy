@@ -1191,8 +1191,17 @@ impl<'src> Checker<'src> {
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ya`. Recorded as a divergence from the master plan's L3.
-        let builtins: [(&str, Vec<Type>, Type); 59] = [
+        let builtins: [(&str, Vec<Type>, Type); 60] = [
             ("alloc", vec![prim(TypeKind::I64)], ptr(prim(TypeKind::I64))),
+            // An explicit frame allocation: same usable type as `alloc`, but the
+            // backend emits an `alloca` instead of a runtime call. The verifier
+            // refuses a pointer that escapes the frame; see typestate's stack
+            // escape walk.
+            (
+                "stack_alloc",
+                vec![prim(TypeKind::I64)],
+                ptr(prim(TypeKind::I64)),
+            ),
             // The explicit unsafe spelling: same type as `alloc`, but the
             // runtime skips the zeroing. The checker refuses it outside an
             // `unsafe` block (E1405); the backend calls a different C symbol so
@@ -12970,6 +12979,18 @@ impl<'src> Checker<'src> {
                         *span,
                         codes::UNINITIALISED_ALLOC,
                         "`alloc_uninit` requires an `unsafe` block".to_string(),
+                    );
+                    return None;
+                }
+                if name == "stack_alloc"
+                    && !matches!(
+                        arg_vals.first(),
+                        Some(Expr::Literal(Literal::I64(count), _)) if *count > 0
+                    )
+                {
+                    self.error(
+                        *span,
+                        "`stack_alloc` needs a positive literal element count".to_string(),
                     );
                     return None;
                 }

@@ -422,7 +422,10 @@ impl<'f> Analysis<'f> {
         else {
             return None;
         };
-        if callee.last().map(String::as_str) != Some("alloc") {
+        if !matches!(
+            callee.last().map(String::as_str),
+            Some("alloc") | Some("stack_alloc")
+        ) {
             return None;
         }
         let site = AllocSite::of(*span);
@@ -823,7 +826,10 @@ impl<'f> Analysis<'f> {
             HirExpr::Call {
                 callee, args, span, ..
             } => {
-                if callee.last().map(String::as_str) == Some("alloc") {
+                if matches!(
+                    callee.last().map(String::as_str),
+                    Some("alloc") | Some("stack_alloc")
+                ) {
                     // Reaching here means the allocation is not the direct
                     // initializer of a binding: it is an argument, a return
                     // value, or a discarded temporary. It has no owner this

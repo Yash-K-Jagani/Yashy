@@ -1,0 +1,10 @@
+// An explicit frame allocation: the pointer never leaves `main`, so no runtime
+// allocator call is emitted and the report names the site.
+
+fn main() {
+    let p = stack_alloc(8);
+    p[0] = 7;
+    p[7] = 9;
+    print(p[0] + p[7]);
+    p.free();
+}

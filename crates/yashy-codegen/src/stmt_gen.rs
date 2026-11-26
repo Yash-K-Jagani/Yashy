@@ -111,6 +111,11 @@ pub struct Deferred {
 /// the allocator must free.
 fn note_promotion(ctx: &mut FnCtx<'_>, init: &HirExpr, name: &str) {
     let promoted = match init {
+        HirExpr::Call { callee, .. }
+            if callee.last().map(String::as_str) == Some("stack_alloc") =>
+        {
+            true
+        }
         HirExpr::Call { callee, span, .. }
             if callee.last().map(String::as_str) == Some("alloc") =>
         {

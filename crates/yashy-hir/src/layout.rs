@@ -85,18 +85,33 @@ impl Decls for NoDecls {
 /// The layout of `ty`, or `None` when a declared type it mentions is not in
 /// `decls`.
 pub fn layout(ty: &TypeKind, decls: &dyn Decls) -> Option<Layout> {
+    layout_inner(ty, decls, &mut Vec::new())
+}
+
+/// The recursive walk, with the named types currently being laid out. A type
+/// that names itself by value has no layout; refusing it here keeps a malformed
+/// program a diagnostic instead of a stack overflow.
+fn layout_inner(ty: &TypeKind, decls: &dyn Decls, seen: &mut Vec<String>) -> Option<Layout> {
     Some(match ty {
         TypeKind::Struct(name) => {
+            if seen.contains(name) {
+                return None;
+            }
+            seen.push(name.clone());
             let NamedType::Struct { fields, repr } = decls.named(name)? else {
                 return None;
             };
-            let order = field_order(&fields, repr, decls);
-            let fields_layout_value = layout_fields(&fields, decls, &order)?;
-            return match repr {
+            let order = field_order_inner(&fields, repr, decls, seen);
+            let fields_layout_value = layout_fields_inner(&fields, decls, &order, seen)?;
+            let result = match repr {
                 Some(ReprKind::Packed) => Some(Layout {
                     size: fields
                         .iter()
-                        .map(|field| layout(field, decls).map(|l| l.size).unwrap_or(0))
+                        .map(|field| {
+                            layout_inner(field, decls, seen)
+                                .map(|l| l.size)
+                                .unwrap_or(0)
+                        })
                         .sum(),
                     align: 1,
                     offsets: fields_layout_value.offsets,
@@ -108,8 +123,14 @@ pub fn layout(ty: &TypeKind, decls: &dyn Decls) -> Option<Layout> {
                 }),
                 _ => Some(fields_layout_value),
             };
+            seen.pop();
+            return result;
         }
         TypeKind::Enum(name) => {
+            if seen.contains(name) {
+                return None;
+            }
+            seen.push(name.clone());
             let NamedType::Enum {
                 payloads,
                 repr_c,
@@ -129,28 +150,30 @@ pub fn layout(ty: &TypeKind, decls: &dyn Decls) -> Option<Layout> {
             for payload in &payloads {
                 fields.extend(payload.iter().cloned());
             }
-            fields_layout(&fields, decls)?
+            let result = fields_layout(&fields, decls, seen)?;
+            seen.pop();
+            result
         }
         TypeKind::Option(inner) => {
-            let payload = layout(&inner.kind, decls)?;
-            let tag = layout(&TypeKind::CInt(8), decls)?;
+            let payload = layout_inner(&inner.kind, decls, seen)?;
+            let tag = layout_inner(&TypeKind::CInt(8), decls, seen)?;
             fields_layout_from(vec![tag, payload])
         }
         TypeKind::Result(ok, err) => {
-            let tag = layout(&TypeKind::CInt(8), decls)?;
-            let ok = layout(&ok.kind, decls)?;
-            let err = layout(&err.kind, decls)?;
+            let tag = layout_inner(&TypeKind::CInt(8), decls, seen)?;
+            let ok = layout_inner(&ok.kind, decls, seen)?;
+            let err = layout_inner(&err.kind, decls, seen)?;
             fields_layout_from(vec![tag, ok, err])
         }
         TypeKind::Tuple(elements) => {
             let fields = elements
                 .iter()
-                .map(|element| layout(&element.kind, decls))
+                .map(|element| layout_inner(&element.kind, decls, seen))
                 .collect::<Option<Vec<_>>>()?;
             fields_layout_from(fields)
         }
         TypeKind::FixedArray(element, length) => {
-            let element = layout(&element.kind, decls)?;
+            let element = layout_inner(&element.kind, decls, seen)?;
             // An array has no padding between elements beyond the element's
             // own stride, and its alignment is the element's.
             let stride = align_up(element.size, element.align);
@@ -240,13 +263,26 @@ pub fn layout(ty: &TypeKind, decls: &dyn Decls) -> Option<Layout> {
 /// only remove padding. The result is a permutation of `0..fields.len()`; the
 /// d-th entry is the declaration index of the d-th emitted field.
 pub fn field_order(fields: &[TypeKind], repr: Option<ReprKind>, decls: &dyn Decls) -> Vec<usize> {
+    field_order_inner(fields, repr, decls, &mut Vec::new())
+}
+
+fn field_order_inner(
+    fields: &[TypeKind],
+    repr: Option<ReprKind>,
+    decls: &dyn Decls,
+    seen: &mut Vec<String>,
+) -> Vec<usize> {
     let identity: Vec<usize> = (0..fields.len()).collect();
     if repr.is_some() {
         return identity;
     }
     let sizes: Vec<usize> = fields
         .iter()
-        .map(|field| layout(field, decls).map(|found| found.size).unwrap_or(0))
+        .map(|field| {
+            layout_inner(field, decls, seen)
+                .map(|found| found.size)
+                .unwrap_or(0)
+        })
         .collect();
     let mut order = identity;
     order.sort_by(|&a, &b| sizes[b].cmp(&sizes[a]).then_with(|| a.cmp(&b)));
@@ -259,9 +295,18 @@ pub fn field_order(fields: &[TypeKind], repr: Option<ReprKind>, decls: &dyn Decl
 /// `FieldAccess`, debug info); the backend uses `order` for the emitted
 /// aggregate. Both read the same computed placement.
 pub fn layout_fields(fields: &[TypeKind], decls: &dyn Decls, order: &[usize]) -> Option<Layout> {
+    layout_fields_inner(fields, decls, order, &mut Vec::new())
+}
+
+fn layout_fields_inner(
+    fields: &[TypeKind],
+    decls: &dyn Decls,
+    order: &[usize],
+    seen: &mut Vec<String>,
+) -> Option<Layout> {
     let found = fields
         .iter()
-        .map(|field| layout(field, decls))
+        .map(|field| layout_inner(field, decls, seen))
         .collect::<Option<Vec<_>>>()?;
     let arranged = order
         .iter()
@@ -280,9 +325,9 @@ pub fn layout_fields(fields: &[TypeKind], decls: &dyn Decls, order: &[usize]) ->
 }
 
 /// Lay out a list of field types by the natural-alignment rule.
-fn fields_layout(fields: &[TypeKind], decls: &dyn Decls) -> Option<Layout> {
+fn fields_layout(fields: &[TypeKind], decls: &dyn Decls, seen: &mut Vec<String>) -> Option<Layout> {
     let identity: Vec<usize> = (0..fields.len()).collect();
-    layout_fields(fields, decls, &identity)
+    layout_fields_inner(fields, decls, &identity, seen)
 }
 
 /// The shared walk: each field starts at the next offset that satisfies its

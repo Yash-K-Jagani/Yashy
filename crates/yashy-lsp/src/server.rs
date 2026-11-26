@@ -1288,6 +1288,7 @@ fn builtin_signature(name: &str) -> Option<&'static str> {
     Some(match name {
         "print" => "fn print(...) -> void",
         "alloc" => "fn alloc(int count) -> *mut int",
+        "stack_alloc" => "fn stack_alloc(int count) -> *mut int",
         "len" => "fn len(value) -> int",
         "str_from_i64" => "fn str_from_i64(int value) -> string",
         "read_line" => "fn read_line() -> string",
