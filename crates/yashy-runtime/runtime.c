@@ -510,6 +510,13 @@ void *yashy_realloc(void *ptr, long long used, long long size, long long align) 
         memmove((void *)aligned, data, carried);
     }
     ((void **)aligned)[-1] = moved;
+    /* A grow is a free plus an allocation, not an invisible extension. Without
+     * these events the report would miss every slice growth after the first
+     * reserve and count a live block as absent. */
+    yashy_trace_record(YASHY_TRACE_FREE, used, YASHY_TRACE_CALLER(),
+                       (unsigned long long)(uintptr_t)ptr);
+    yashy_trace_record(YASHY_TRACE_ALLOC, size, YASHY_TRACE_CALLER(),
+                       (unsigned long long)(uintptr_t)aligned);
     return (void *)aligned;
 }
 

@@ -183,6 +183,11 @@ sites, stack slots, bytes per value, and cold-start milliseconds.
   `--alloc-report` marks those sites with `unsafe: true`; an explicit allocator
   interface with runtime size classes and a stack-promoted column remain owed,
   so the step stays open.
+  *Step 2, partly closed 2026-11-26:* `yashy_realloc` now records a free and an
+  allocation, so slice growth is no longer a hidden allocation; the profile
+  test pins the 4/8/16-element (32/64/128-byte) growth sequence. A runtime
+  call that allocates without an event is still a bug to find by audit, not a
+  proved invariant, so the step stays open.
 - [ ] **Step 2: No hidden allocation.** The runtime allocates only through the
   interface; a runtime call that allocates is a bug. `alloc` zeroes; the
   zeroing is removed only when the optimizer proves the program writes before it

@@ -1169,7 +1169,8 @@ through `YASHY_DEBUG=1`.
 runtime's event trace enabled and reports every allocation site with a byte
 count, a source span, a display `size_class`, the bounded `call_path` recorded
 with the event, and an `unsafe` flag (`true` for an `alloc_uninit` site), plus
-the blocks still live at exit.
+the blocks still live at exit. A slice grow is a `realloc` and is reported as a
+free plus an allocation, so every capacity step has a site.
 A deliberate leak needs `--no-verify`, because a verified program cannot leak;
 the build is then stamped unverified as usual. See [profiling](profiling.md).
 

@@ -154,6 +154,31 @@ fn alloc_report_marks_the_unsafe_allocation_site() {
 }
 
 #[test]
+fn alloc_report_pins_the_slice_growth_factor() {
+    let dir = common::work_dir("profile-slice-growth");
+    common::write(
+        &dir,
+        "main.ya",
+        "fn main() {\n    let xs = []int {};\n    for i in 0..16 {\n        xs.push(i);\n    }\n    print(xs.len());\n    xs.free();\n}\n",
+    );
+    let (code, stdout, stderr) = run(&[
+        "profile",
+        "--alloc-report",
+        dir.join("main.ya").to_str().unwrap(),
+    ]);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    // The runtime starts slice capacity at four and doubles: 4, 8, 16 elements
+    // are 32, 64 and 128 bytes for `int`. Growth is a documented shape, not a
+    // benchmark-specific special case.
+    for class in ["32", "64", "128"] {
+        assert!(
+            stdout.contains(&format!("\"{class}\"")),
+            "missing size class {class}: {stdout}"
+        );
+    }
+}
+
+#[test]
 fn a_recorded_report_has_the_same_model_as_json() {
     let dir = common::work_dir("profile-json");
     common::write(&dir, "report.json", REPORT);
