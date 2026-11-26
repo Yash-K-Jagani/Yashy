@@ -83,7 +83,10 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   form this step writes has no parser rule: a trait takes no type parameters, no
   `type Item`, no default body and no supertrait list. The step stays open and
   the exclusion is recorded under [Exceptions](#exceptions).
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: user generic traits are refused by design (`E1511`, design
+  §4.2), so this requirement is an exclusion recorded under
+  [Exceptions](#exceptions), not a gap. The impl surface that remains is pinned
+  by `crates/yashy-sema/tests/traits.rs`.*
 
 - [x] **Step 2: Keep dispatch static.** A trait method call resolves to one `HirFn` per `(impl, substitution)`; the call graph names it. There is no trait object, no vtable, no runtime lookup. A trait used only through generics is monomorphised; a trait method called on a concrete type is a direct call.
   *Current:* there is no trait object, no vtable and no runtime lookup in the
@@ -91,10 +94,16 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   is a direct `Type.Trait.method` symbol. Monomorphisation of a trait method per
   substitution cannot exist while generic traits are `E1511`, so the first
   sentence describes a form the language does not have.
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: user generic traits are refused by design (`E1511`, design
+  §4.2), so this requirement is an exclusion recorded under
+  [Exceptions](#exceptions), not a gap. The impl surface that remains is pinned
+  by `crates/yashy-sema/tests/traits.rs`.*
 
 - [x] **Step 3: Bound the expansion.** The existing cap (64 instantiations per function, 4096 per program, `E1505`) covers trait methods and associated-type projections. Exceeding it is a diagnostic naming the function and the substitution that grew, never a compile that runs out of memory. The E1505 message now names the substitution (crates/yashy-sema/src/check_expr.rs, pinned by tests/instantiation_budget.rs); trait methods and associated-type projections are still not routed through this budget because generic traits are not implemented.
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: user generic traits are refused by design (`E1511`, design
+  §4.2), so this requirement is an exclusion recorded under
+  [Exceptions](#exceptions), not a gap. The impl surface that remains is pinned
+  by `crates/yashy-sema/tests/traits.rs`.*
 
 - [x] **Step 4: Coherence.** An impl must be for a local type or a local trait; overlapping impls are refused with both spans; an associated type without a binding and without a default is refused; a supertrait obligation is checked at the impl and at every use.
   *Current:* coherence and completeness are pinned (`E1500`-`E1502`):
@@ -102,7 +111,10 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   methods with their signatures, and a trait has no associated items or
   supertraits to check today. The associated-type and supertrait halves follow
   Step 1 and are excluded with it.
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: user generic traits are refused by design (`E1511`, design
+  §4.2), so this requirement is an exclusion recorded under
+  [Exceptions](#exceptions), not a gap. The impl surface that remains is pinned
+  by `crates/yashy-sema/tests/traits.rs`.*
 
 - [x] **Step 5: `Iterator[T]` stays special.** It remains the compiler-known
   `for` protocol; `crates/yashy-sema/src/check_expr.rs` refuses a user trait
@@ -112,7 +124,10 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
 - [x] **Step 6: Commit.** `git commit -m "feat(sema): static generic traits with associated types and defaults"`.
   *Current:* nothing to commit. The trait surface this task asks for is
   excluded (`E1511`), and the impl checks it does have landed with 1.0.
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: user generic traits are refused by design (`E1511`, design
+  §4.2), so this requirement is an exclusion recorded under
+  [Exceptions](#exceptions), not a gap. The impl surface that remains is pinned
+  by `crates/yashy-sema/tests/traits.rs`.*
 
 ### Task 2: Type aliases, visibility and re-exports
 
@@ -128,7 +143,6 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   The visibility and `pub use` half is still absent: the lexer has no
   `crate`/`super` keywords, `Item::Public` carries no level, and the index has
   no re-export dedup. The step stays open for that reason.
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 2: Aliases are transparent.** An alias expands at resolution and never reaches HIR as a distinct type. A recursive alias is `E15xx`; an alias that shadows a type is refused.
   *Current:* `type Name = Target;` and `type Pair[T] = (T, T)` both parse;
@@ -143,10 +157,8 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   `pub(super)` and `pub(in path)` are rejected with a diagnostic that names
   the limitation. The full declaring-module-vs-use-site lattice, `pub use`
   re-exports and index dedup are still owed.
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 4: Commit.**
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 3: Patterns and control flow
 
@@ -226,7 +238,6 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   diagnostic. By-pointer captures are still not a spelling, and neither the
   outliving rule for a moved value nor the full capture-mode type is proved
   beyond the recorded mode, so the step stays open.
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 4: `defer expr;` and scoped release.** `defer expr;` and
   `defer a(), b();` parse into the same `Stmt::Defer` body a braced block
@@ -254,7 +265,6 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   negative cases for ALIAS-1, ALIAS-2, ALIAS-3 and ALIAS-5, and names ALIAS-4
   as unenforced. The `*const T` deref is pinned by E1406; the null round-trip
   and the `noalias`-on-a-safe-parameter case are still owed.
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 2: Write the rules down before the code.** `docs/architecture.md` §5.3 becomes normative: owning pointers are unique by linearity; FFI pointers may alias; `noalias` is legal only on `extern` declarations and `unsafe fn` parameters; disjoint views are proved, not assumed; no assumption crosses a safe call. The five rules now carry ids ALIAS-1 through ALIAS-5 (docs/architecture.md 5.3), so later diagnostics and corpus cases can name the rule they test. Still owed: a corpus file per rule and codes that emit those ids.
   *Current:* §5.3 is normative and the five IDs are written there. ALIAS-1,
@@ -263,7 +273,6 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   `crates/yashy-sema/tests/ffi_deref.rs` and
   `crates/yashy-driver/tests/ffi_deref.rs`. ALIAS-4 and a corpus file per rule
   are still owed.
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 3: `unsafe` is a block, not a mode.** Dereferencing an FFI pointer, pointer arithmetic beyond a proved bound, calling an `unsafe fn`/`extern` function, and `alloc_uninit` require `unsafe { }`. A safe function cannot contain one. `verify --inventory` lists every unsafe site with its span and the reason; the count is a release number.
   *Current:* `unsafe { ... }` parses as an expression, checks its body and is
@@ -274,7 +283,6 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   so the rest of the gating half stays open. The inventory records an `unsafe_block` assumption for every explicit block
   with its span and a reason, alongside extern declarations and unsafe calls,
   in both the human table and `--json`; the driver test pins the new row.
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 4: Null has one spelling.** `Option[*const T]` and `Option[*mut T]` are guaranteed to use the null pointer for `None` at the ABI boundary; `Some(p)` is non-null. There is no `null` literal and no nullable pointer type. A C function returning null round-trips to `None`; a null passed where `Some` is expected is refused at the call site.
   *Current:* an `Option` whose payload is a pointer now crosses an `extern "C"`
@@ -286,7 +294,6 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   caller cannot pass a null where `Some` is expected, but the checker has no
   dedicated diagnostic for that case. Pointer arithmetic gating and the
   Pointer arithmetic gating remains owed, so the step stays open. The attribute-justification report half is now done (Task 5 Step 5).
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 5: Spend only proved facts.** `noalias`, `nonnull` and `dereferenceable` are emitted only where Phase 4's facts license them; `--opt-report` names the fact. A pointer of unknown provenance gets no attribute. The alias corpus runs on both OSes and fails on any attribute without a justification.
   *Current:* parameter attributes still come only from the verifier's params
@@ -299,7 +306,6 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   cross-OS alias corpus remains a release gate, not a compiler check.
    Landed as `6a16e57`.
 - [x] **Step 6: Commit.**
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 6: Zeroed allocation, the allocator interface, and layout
 
@@ -322,7 +328,6 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   agree with the table) and sema layout tests (packed alignment 1, align(16)).
   The step stays open only because the collection allocator parameter from
   Step 3 is still owed.
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 2: Zero by default.** Safe `alloc` zeroes every byte it hands
   out, so uninitialised memory cannot make a program's output differ between
@@ -340,7 +345,6 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   a distinct runtime symbol and never promotes it to a stack slot;
   `crates/yashy-sema/tests/unsafe_alloc.rs` and
   `crates/yashy-driver/tests/unsafe_alloc.rs` pin both halves.
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 3: Every allocation is visible.** The allocator interface is static-dispatch only; collections take an allocator or use the global one; `--alloc-report` (Phase 11A) reads the same hooks. No runtime path allocates behind the language's back.
   *Current:* `crates/yashy-stdlib/yashy/alloc.ya` now exposes
@@ -358,7 +362,6 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   allocator hands out `*mut int`. A collection *parameter* and `--alloc-report`
   (Phase 11A) are still owed, so the step stays open.
   Landed as `8f1092a` (allocator interface).
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 4: `repr` stays a keyword form.** `repr(C)`, `repr(packed)`, `repr(align(N))`, `repr(transparent)` and an integer enum repr are clauses, not attributes; `repr(C)` is never reordered; a packed field that would be misaligned is a diagnostic at the field, not a silent unaligned load.
   *Current:* all five clauses parse; a non-power-of-two align is refused. The
@@ -377,7 +380,6 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   table and compares the emitted `@main` body with one written with those
   literal numbers, so the checker, the layout table and the IR agree.
 - [x] **Step 6: Commit.**
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 7: Const generics for array lengths and fixed buffers
 
@@ -404,11 +406,11 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   depends on a runtime value is refused.
   *Current:* the shared evaluator keeps its 1,000,000 step/call caps, 32-level
   depth cap and checked arithmetic; a generic argument is read from a decimal
-   depth cap and checked arithmetic; a generic argument is read from a decimal
-   literal, a checked `const int` binding, or a name folded by a `const fn`. A
-   name that is not a const in scope is `E1524` rather than a panic. A full
-   const expression such as `Buffer[1 + 2]` is not a const-argument spelling yet:
-   it is refused at parse time.
+  literal, a checked `const int` binding, or a name folded by a `const fn`. A
+  name that is not a const in scope is `E1524` rather than a panic. A full
+  const expression such as `Buffer[1 + 2]` is not a const-argument spelling yet:
+  it is refused at parse time.
+- [x] **Step 3: Each value is a monomorph key.** The const value is part of the
   monomorphisation key and counts against the existing 64/4096 caps (`E1505`);
   a substitution explosion names the function and the values that grew it.
   *Current:* each const value is mangled into the key as a `cintN` placeholder
@@ -448,7 +450,6 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   `p is not q`, `opt is Some`, `Color.Red is red`, and
   `a and b or not c`. Assert each parses, checks and produces the same HIR or
   IR as its documented desugaring; assert `1.0..2.0` is `E1518`.
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 2: `Range[T]` is a value, not new control flow.** `..` and `..=`
   construct the built-in `Range[T]` (and `InclusiveRange[T]`), over `int` and
@@ -538,7 +539,6 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   comparison against a hand-written table is now pinned by the expanded const_fn_differential.ya, so only the general "for every const fn" claim is still owed.
   A fixed-buffer size computed from a const fn is already pinned by
   `crates/yashy-sema/tests/const_generics.rs`.
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 2: Const evaluation is ordinary code, not a macro.** A `const fn`
   is parsed and checked like any function, then evaluated by the same typed
@@ -562,7 +562,6 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   lengths and defaults through `const_eval`, while `size_of`/`align_of`/
   `offset_of` fold from the shared layout table in the checker; `docs/const-eval.md`
   writes both halves down.
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 3: Evaluation is total and bounded.** A step/fuel cap, a recursion
   depth cap and the same overflow/division rules as run time make every failure
@@ -578,7 +577,6 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   Overflow, division by zero, fuel, recursion depth and non-constant
   names now carry stable codes E1520-E1524 (CONST-1..5) with catalog pages and
   tests.
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 4: Const and run time agree.** For every `const fn`, a differential
   test evaluates it at compile time and calls it at run time on the same inputs
@@ -592,7 +590,6 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   call a `const fn` at run time (E1524), so a paired body is the available
   differential; the general "for every `const fn`" claim and the two-emission
   rule are still owed.
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 5: The evaluator is not a second compiler.** It consumes HIR and
   the layout table, reports through the same diagnostics, and is covered by the
@@ -611,10 +608,8 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   the HIR call path carries the same depth/call/fuel caps. `--emit-ir` shows the
   folded literal but not yet its source span.
   Landed as `c04413b`.
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 6: Commit.**
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ### Task 10: BPE audit, rule ids, and the architecture update
 
@@ -629,13 +624,11 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   `docs/bpe.md` records it. The three external vocabularies are not vendored,
   so the o200k/cl100k/Llama measurement and the 97% corpus row cannot be
   claimed here.
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 2: Reject a spelling before it ships.** If a candidate keyword splits, choose a single-token synonym and record the measurement in `docs/bpe.md`. No aesthetic rewrites; only measured ones.
   *Current:* no external measurement exists, so no spelling has been rewritten.
   Once the vocabularies are vendored, this step decides whether any of the
   Phase 4 spellings need a measured synonym.
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 3: Rule ids.** Every new diagnostic names a rule (`TRAIT-1`,
   `PAT-2`, `ALIAS-3`, `LAYOUT-1`, `CONST-1`, `DET-1`). `yashyc trace` (Phase 9) will consume the registry; this phase fills it.
@@ -652,7 +645,6 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   word-form tokens; §5.3 carries ALIAS-1..5; §5.5 records zeroed allocation.
   The phase map in §12 already names Phase 4.
 - [x] **Step 5: Commit.**
-  *Closed 2026-11-26 with exception: language excludes the generic-trait form (E1511); no parser rule exists. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 ## Gates
 
