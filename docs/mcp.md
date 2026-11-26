@@ -28,6 +28,9 @@ bytes, printed as decimal strings; they are staleness checks, not signatures.
 identifier tokens, so strings and comments carrying the same word are left
 alone, then applies them through the same transaction. `format` takes `path`
 and applies the canonical formatter through that transaction; `lint` takes an
-optional `group` and returns diagnostics without writing anything.
+optional `group` and returns diagnostics without writing anything. `fix` takes
+`path` and applies only machine-applicable suggestions through the same
+transaction. `doc` returns the compiler's JSON documentation model for the
+workspace.
 
-Both verbs return `{"applied":["main.ya"],"tree_hash":"<new tree hash>"}`.
+Mutation verbs return `{"applied":["main.ya"],"tree_hash":"<new tree hash>"}`.

@@ -85,7 +85,7 @@ fn initialize_advertises_the_compiler_and_edit_tools() {
     let response = mcp.call(&request(1, "initialize", "{}"));
     for tool in [
         "check", "build", "test", "verify", "explain", "context", "index", "edit", "refactor",
-        "format", "lint",
+        "format", "lint", "fix", "doc",
     ] {
         assert!(
             response.contains(&format!(r#""name":"{tool}""#)),
@@ -203,6 +203,35 @@ fn format_applies_through_the_edit_transaction() {
     let source = std::fs::read_to_string(dir.join("main.ya")).unwrap();
     assert_ne!(source, "fn main(){print(1);}");
     assert!(source.contains("fn main()"), "{source}");
+}
+
+#[test]
+fn fix_applies_machine_applicable_suggestions() {
+    let dir = common::work_dir("mcp-fix");
+    common::write(&dir, "main.ya", "fn main() { var int x = 1; }\n");
+    let mut mcp = Mcp::start(&dir);
+    let response = mcp.call(&request(
+        10,
+        "tools/call",
+        r#"{"name":"fix","arguments":{"path":"main.ya"}}"#,
+    ));
+    assert!(response.contains("\"applied\""), "{response}");
+    let source = std::fs::read_to_string(dir.join("main.ya")).unwrap();
+    assert!(source.contains("let int x"), "{source}");
+}
+
+#[test]
+fn doc_returns_a_json_model() {
+    let dir = common::work_dir("mcp-doc");
+    common::write(&dir, "main.ya", "/// A documented entry.\nfn main() {}\n");
+    let mut mcp = Mcp::start(&dir);
+    let response = mcp.call(&request(
+        11,
+        "tools/call",
+        r#"{"name":"doc","arguments":{}}"#,
+    ));
+    assert!(response.contains(r#"\"modules\""#), "{response}");
+    assert!(response.contains(r#"\"schema_version\""#), "{response}");
 }
 
 #[test]

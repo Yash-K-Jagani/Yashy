@@ -13,9 +13,9 @@ use yashy_common::json_rpc::{self, Value};
 use yashy_common::{FileId, Json, SourceMap, Span};
 
 /// The tools, in a stable order.
-pub const TOOLS: [&str; 11] = [
+pub const TOOLS: [&str; 13] = [
     "check", "build", "test", "verify", "explain", "context", "index", "edit", "refactor",
-    "format", "lint",
+    "format", "lint", "fix", "doc",
 ];
 
 /// A tool error: JSON-RPC `code: -32000` with the diagnostic array in `data`.
@@ -203,6 +203,82 @@ fn parse_patch(value: &Value) -> Result<crate::edit::Patch, String> {
     })
 }
 
+fn call_fix_doc_tool(root: &Path, id: Value, name: &str, arguments: Option<&Value>) -> Value {
+    if name == "doc" {
+        return match crate::doc::build_doc(root, false) {
+            Ok(model) => ok(id, json_rpc::string(crate::doc::to_json(&model).render())),
+            Err(message) => error(id, -32001, &message),
+        };
+    }
+    let arguments = match arguments {
+        Some(arguments) => arguments,
+        None => return error(id, -32602, "`fix` needs arguments"),
+    };
+    let shown = arguments.get("path").and_then(Value::as_str).unwrap_or("");
+    let path = match contain(root, shown) {
+        Ok(path) => path,
+        Err(message) => return error(id, -32001, &message),
+    };
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(io_error) => return error(id, -32001, &format!("{shown}: {io_error}")),
+    };
+    let mut sources = SourceMap::new();
+    let outcome = crate::pipeline::check_and_verify(
+        &mut sources,
+        &path,
+        text.clone(),
+        false,
+        &yashy_verify::VerifyOptions {
+            contracts: yashy_verify::ContractMode::Enforce,
+        },
+        1,
+    );
+    let diagnostics = match outcome {
+        Ok((_, report)) => report.diagnostics,
+        Err(diagnostics) => diagnostics,
+    };
+    let mut edits = Vec::new();
+    for diagnostic in &diagnostics {
+        for suggestion in &diagnostic.suggestions {
+            if suggestion.applicability == yashy_common::Applicability::MachineApplicable {
+                edits.push(crate::edit::Edit {
+                    file: shown.to_string(),
+                    span: suggestion.span,
+                    expected_hash: String::new(),
+                    replacement: suggestion.replacement.clone(),
+                    rationale: suggestion.message.clone(),
+                });
+            }
+        }
+    }
+    if edits.is_empty() {
+        return ok(id, json_rpc::object([("applied", Value::Arr(Vec::new()))]));
+    }
+    let hash = match crate::edit::file_hash(&path) {
+        Ok(hash) => hash,
+        Err(edit_error) => return error(id, -32001, &edit_error.message()),
+    };
+    let tree = match crate::edit::tree_hash(root) {
+        Ok(tree) => tree,
+        Err(edit_error) => return error(id, -32001, &edit_error.message()),
+    };
+    for edit in &mut edits {
+        edit.expected_hash = hash.clone();
+    }
+    let patch = crate::edit::Patch {
+        expected_tree_hash: tree,
+        edits,
+    };
+    match crate::edit::apply_patch(root, &patch, check_text) {
+        Ok(applied) => {
+            let applied: Vec<Value> = applied.into_iter().map(json_rpc::string).collect();
+            ok(id, json_rpc::object([("applied", Value::Arr(applied))]))
+        }
+        Err(edit_error) => error(id, -32001, &edit_error.message()),
+    }
+}
+
 fn call_source_tool(root: &Path, id: Value, name: &str, arguments: Option<&Value>) -> Value {
     let arguments = match arguments {
         Some(arguments) => arguments,
@@ -354,6 +430,9 @@ fn call_tool(root: &Path, id: Value, name: &str, params: Option<&Value>) -> Valu
     }
     if name == "format" || name == "lint" {
         return call_source_tool(root, id, name, arguments);
+    }
+    if name == "fix" || name == "doc" {
+        return call_fix_doc_tool(root, id, name, arguments);
     }
     let path_text = arguments
         .and_then(|arguments| arguments.get("path"))
