@@ -141,7 +141,8 @@ impl StackEscapeWalker<'_> {
                     if let HirExpr::Call { args, span, .. } = init {
                         if let Some(HirExpr::Literal(Literal::I64(count), _, _)) = args.first() {
                             if *count > 0 {
-                                self.frame_bytes = self.frame_bytes.saturating_add(*count as u64 * 8);
+                                self.frame_bytes =
+                                    self.frame_bytes.saturating_add(*count as u64 * 8);
                                 if self.frame_bytes > STACK_FRAME_LIMIT {
                                     let total = self.frame_bytes;
                                     self.out.push(Diagnostic::new(
