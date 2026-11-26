@@ -233,12 +233,10 @@ end stays the reference for the 2.0 release (design call 7).
 - [x] **Step 3: Deprecation has a path.** A deprecated item warns with a code
   and a `yashyc fix`; it is removed only in an edition, and the removal is listed
   in the migration notes. There is no silent removal.
-  *Current:* `docs/deprecation.md` gives the four-step path and the migration
-  table, and `docs/editions.md` ties removal to an edition. The `yashyc fix`
-  command is not implemented, so the step stays open.
-  *Partly closed 2026-11-26:* MCP now serves a `fix` verb that applies only
-  machine-applicable suggestions through the edit transaction; the
-  `yashyc fix` CLI command is still owed.
+  *Closed 2026-11-26:* `docs/deprecation.md` gives the four-step path and the
+  migration table, and `docs/editions.md` ties removal to an edition. Both
+  `yashyc fix <file.ya>` and the MCP `fix` verb apply machine-applicable
+  suggestions, so there is no silent removal.
 
 - [x] **Step 4: Commit.**
   *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
