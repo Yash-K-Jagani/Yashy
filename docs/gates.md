@@ -787,8 +787,7 @@ claimed green here.
 
 - **Remaining Phase 11A tasks** — **owed as of 2026-11-26**, tracked in
   `docs/superpowers/plans/2026-11-15-phase-11a-representation.md`: a used niche
-  (Task 1 Step 2), whole-program/per-module binary
-  equality (Task 2 Step 3), `stack_alloc` and per-function stack-depth accounting
+  (Task 1 Step 2), `stack_alloc` and per-function stack-depth accounting
   (Task 3), an allocator interface with runtime size classes and an
   `alloc_uninit` marker (Task 4), small strings and map/array layout (Task 5),
   and the two-OS startup gate (Task 6). What shipped is recorded in the plan's

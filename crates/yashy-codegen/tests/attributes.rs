@@ -11,7 +11,7 @@ use yashy_lexer::Lexer;
 use yashy_parser::Parser;
 use yashy_sema::check_program;
 
-use yashy_codegen::{emit_program, emit_program_with_notes, CodegenOptions, OptKind};
+use yashy_codegen::{emit_program, emit_program_with_notes, emit_units, CodegenOptions, OptKind};
 use yashy_verify::{verify, VerifyOptions};
 
 /// Lex, parse, check and emit `src` as one module, then emit it again with the
@@ -111,6 +111,43 @@ fn maybe(Option[*mut int] p) -> int {
 }
 fn main() { }
 ";
+
+#[test]
+fn the_single_unit_reference_path_emits_the_same_ir() {
+    // The driver's per-module cache emits one unit per source file. With one
+    // unit that is the reference path: an attribute must not depend on which
+    // entry point produced the module.
+    for (name, source) in [("read", READ_ONLY), ("fill", WRITES), ("escape", RETURNS)] {
+        let mut sources = SourceMap::new();
+        let file = sources.add_file("attributes.ya".to_string(), source.to_string());
+        let tokens = Lexer::new(source)
+            .tokenize()
+            .expect("the fixture's lexer must succeed");
+        let mut parser = Parser::new(tokens, &sources, file);
+        let ast = parser.parse_program().expect("the fixture must parse");
+        let hir = check_program(&ast, &sources, file).expect("the fixture must check");
+        let report = verify(&hir, &VerifyOptions::default());
+        assert_eq!(report.error_count(), 0, "{name} must verify");
+
+        let whole = emit_program(
+            &hir,
+            "attributes.ya",
+            CodegenOptions::default(),
+            &report.facts,
+        );
+        let units = emit_units(
+            &hir,
+            &[(file, "attributes.ya".to_string())],
+            CodegenOptions::default(),
+            &report.facts,
+        );
+        assert_eq!(units.len(), 1, "one source file is one unit");
+        assert_eq!(
+            whole, units[0],
+            "the reference path and the unit path disagree"
+        );
+    }
+}
 
 #[test]
 fn a_read_only_pointer_gets_noalias_nonnull_readonly_and_alignment() {

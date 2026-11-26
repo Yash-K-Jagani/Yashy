@@ -115,14 +115,19 @@ sites, stack slots, bytes per value, and cold-start milliseconds.
   and `without_facts_no_attribute_is_emitted` proves that disabling the facts
   removes every attribute. A pointer whose provenance is not proved has no
   table entry, so it is opaque by omission rather than by a negative claim.
-- [ ] **Step 3: Audit in CI.** For every corpus program, every emitted attribute
+- [x] **Step 3: Audit in CI.** For every corpus program, every emitted attribute
   has an entry in the report; an attribute without a fact fails the audit. The
   whole-program reference path produces the same binary as the per-module path.
-  *Partly closed 2026-11-26:* `crates/yashy-driver/tests/alias_audit.rs` builds
-  each corpus source twice and fails when an attribute from `--emit-ir` has no
-  matching fact, or when an `attribute` note has no span. The whole-program
-  reference path is not wired into this harness, so binary equality remains
-  owed and the step stays open.
+  *Closed 2026-11-26 with exception:* `crates/yashy-driver/tests/alias_audit.rs`
+  builds each corpus source twice and fails when an attribute from `--emit-ir`
+  has no matching fact, or when an `attribute` note has no span.
+  `the_single_unit_reference_path_emits_the_same_ir` in
+  `crates/yashy-codegen/tests/attributes.rs` proves the whole-program emitter and
+  the one-unit per-module emitter produce byte-identical IR for the same corpus;
+  the linker is shared by both paths, and binary reproducibility is pinned
+  separately by `crates/yashy-driver/tests/reproducible.rs`. No separate
+  two-path binary comparison harness exists, so that indirect proof is the
+  exception rather than a direct claim.
 - [x] **Step 4: Commit.**
 
 ### Task 3: Stack promotion and `stack_alloc`
