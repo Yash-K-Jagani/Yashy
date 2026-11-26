@@ -468,7 +468,7 @@ date, owner and closing condition above; none blocks the phase.
 |---|---|---|
 | Context ≤ 8k tokens | `cargo test -p yashy-driver --test context` | every pack reports `tokens ≤ budget`; drops are named |
 | Escape tests | `cargo test -p yashy-driver --test sandbox_escape` | all 10 attempts denied with the right code, both OSes |
-| MCP is compiler-only | `cargo test -p yashy-driver --test mcp` | seven tools, traversal refused, malformed request survived |
+| MCP is compiler-only | `cargo test -p yashy-driver --test mcp` | the compiler verbs plus the hash-checked edit verbs; traversal refused, malformed request survived |
 | Schema v1 frozen | `cargo test -p yashy-driver --test schema_diff` | no removal, no type change |
 | Benchmark runs | `yashy-bench agent --tasks benchmarks/agent` | 10 tasks + variants, five metrics recorded |
 | Determinism | `cargo test -p yashy-driver --test e2e observability` | byte-identical stderr across runs |

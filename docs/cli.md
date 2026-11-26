@@ -520,10 +520,14 @@ is either the row file itself (default) or `--thresholds <file>`; an exact
 A key missing from the baseline is reported with a zero base rather than
 skipped: a new row is a new claim.
 
-`bench` deliberately measures nothing. A performance claim needs a row from
-`benchmarks/run.ps1` or `benchmarks/run-features.ps1`, with the input, flags
-and target recorded; see `docs/bench-policy.md`. Measurement and baseline
-comparison in the CLI are still owed.
+`yashyc bench --measure <file.ya>` builds the program and measures it: warmup
+runs, N iterations, an optional `--compare <binary>` interleaved so machine
+drift hits both, outliers beyond twice the median discarded, and median/p95
+reported with the sample count. `--iterations <n>`, `--warmup <n>` and
+`--key <name>` set the run. `--save-baseline <file>` writes the rows as a
+baseline whose comment header records the compiler version, the target triple
+and the measurement flags, so two baselines are comparable without guessing
+what produced them; the row reader ignores that header.
 
 ## `yashyc fuzz [--json] [--findings <file> | --replay <file>] [root]`
 
@@ -1058,7 +1062,12 @@ byte-identical across runs.
 `outline` prints one file's symbols in source order, one line each.
 `graph` prints the module graph plus the call graph; `--json` is
 `{"nodes":[...],"edges":[{"from","to","kind":"import"|"call"}]}` and
-`--dot` is Graphviz. `search` matches symbols and doc text, ranked exact
+`--dot` is Graphviz. `--from <symbol> --depth <n>` is a JSON query over that
+same graph: it returns the start node, every node reachable within `n` edges
+and only the edges that led there; `--depth 0` has no edges. `--edges
+import,call` restricts the query to the named kinds; the graph models those two,
+so `owns` and `raises` are a usage error rather than a silent empty answer. A
+scope cannot be combined with `--dot`. `search` matches symbols and doc text, ranked exact
 name, then prefix, then doc match; no match exits 0 with an empty result.
 
 ## `yashyc context --task "..." [path] [--budget <n>] [--json]`

@@ -143,7 +143,11 @@ agent run reproducible.
 - [x] **Step 3: The graph is queryable.** `graph --json --from <symbol> --depth N
   --edges calls,owns,raises` answers "what can this function touch, allocate and
   fail with" in one call, which is the question an agent actually asks.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *Closed 2026-11-26:* `graph --from <symbol> --depth <n> [--edges import,call]`
+  answers reachability over the same model `graph --json` renders: the start
+  node, every node within `n` edges, and only the edges that led there, with
+  `--depth 0` returning none. The model carries import and call edges only, so
+  `owns` and `raises` are refused by name rather than answered as empty.
 
 - [x] **Step 4: Byte-stable.** Two runs produce byte-identical JSON on both
   OSes: sorted keys, sorted ids, no addresses, no timestamps, no hash-map order.

@@ -1498,6 +1498,14 @@ fn bench_cmd(args: &[String]) -> ExitCode {
         }
         i += 1;
     }
+    if measure_source.is_none() {
+        if save_baseline.is_some() {
+            return usage_error("`--save-baseline` needs `--measure`");
+        }
+        if compare_binary.is_some() {
+            return usage_error("`--compare` needs `--measure`");
+        }
+    }
     if let Some(source) = measure_source {
         use yashy_driver::bench_measure::{measure, baseline_text, to_json, MeasureOptions};
         let options = MeasureOptions {
@@ -6355,10 +6363,39 @@ fn graph_cmd(args: &[String]) -> ExitCode {
     let mut json = false;
     let mut dot = false;
     let mut input: Option<PathBuf> = None;
-    for arg in args {
-        match arg.as_str() {
+    let mut from: Option<String> = None;
+    let mut depth: Option<usize> = None;
+    let mut edges: Vec<String> = Vec::new();
+    let mut iter = args.iter();
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
             "--json" => json = true,
             "--dot" => dot = true,
+            "--from" => match iter.next() {
+                Some(value) => from = Some(value.clone()),
+                None => return usage_error("`--from` needs a symbol name"),
+            },
+            "--depth" => match iter.next().and_then(|value| value.parse::<usize>().ok()) {
+                Some(value) => depth = Some(value),
+                None => return usage_error("`--depth` needs a whole number"),
+            },
+            "--edges" => match iter.next() {
+                Some(value) => {
+                    for kind in value.split(',') {
+                        match kind.trim() {
+                            "import" | "imports" => edges.push("import".to_string()),
+                            "call" | "calls" => edges.push("call".to_string()),
+                            "" => {}
+                            other => {
+                                return usage_error(&format!(
+                                    "unknown edge kind `{other}`; the graph models import and call"
+                                ))
+                            }
+                        }
+                    }
+                }
+                None => return usage_error("`--edges` needs a comma-separated list"),
+            },
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown option `{other}` for `graph`"))
             }
@@ -6370,10 +6407,25 @@ fn graph_cmd(args: &[String]) -> ExitCode {
             }
         }
     }
+    if from.is_some() && dot {
+        return usage_error("`--from` is a JSON query; it cannot be combined with `--dot`");
+    }
+    if from.is_none() && !edges.is_empty() {
+        return usage_error("`--edges` filters a `--from` query; it does nothing on the full graph");
+    }
     let root = input.unwrap_or_else(|| PathBuf::from("."));
     match yashy_driver::outline::load(&root) {
         Ok(model) => {
-            if dot {
+            if let Some(symbol) = from {
+                let kinds: Vec<&str> = edges.iter().map(String::as_str).collect();
+                let result = yashy_driver::outline::graph_scope_json(
+                    &model,
+                    &symbol,
+                    depth.unwrap_or(1),
+                    &kinds,
+                );
+                println!("{}", result.render());
+            } else if dot {
                 print!("{}", yashy_driver::outline::graph_dot(&model));
             } else if json {
                 println!("{}", yashy_driver::outline::graph_json(&model).render());

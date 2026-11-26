@@ -141,11 +141,13 @@ what keeps a 138-week programme honest.
   writes a JSON baseline with the compiler version, target and flags; `bench
   --check-baseline` fails on a regression beyond the row's threshold and prints
   the ratio. CI stores the baseline per OS.
-  *Current:* `bench --check-baseline <file>` compares rows, applies exact or
-  kind thresholds, prints the ratio and exits `1` on regression; `--json`
-  carries the comparison. Unit tests pin a 50% movement past a 20% gate and an
-  exact override. `--save-baseline` still needs the measurement runner, so the
-  step stays open.
+  *Closed 2026-11-26 with exception:* `bench --check-baseline <file>` compares
+  rows, applies exact or kind thresholds, prints the ratio and exits `1` on
+  regression; `--json` carries the comparison. Unit tests pin a 50% movement
+  past a 20% gate and an exact override. `--save-baseline <file>` writes the
+  rows with a comment header naming the compiler version, the target triple and
+  the measurement flags. Storing one baseline per OS in CI is the remaining
+  exception: it needs CI infrastructure this host cannot supply.
 - [x] **Step 3: No claim without a row.** A pass in Phase 11B lands only with a
   row here; a feature row that regresses blocks the phase.
   *Current:* `docs/bench-policy.md` states the rule: a row names the command,

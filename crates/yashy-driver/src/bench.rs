@@ -3,8 +3,8 @@
 //! This module deliberately does not measure anything: a number printed
 //! without a row in a file is a claim, not evidence. It reads the `key=value`
 //! rows the benchmark scripts write and renders them for humans and JSON, so
-//! a baseline file is one fact with two renderings. Measurement and comparison
-//! belong to the scripts until `yashyc bench` grows its own runner.
+//! a baseline file is one fact with two renderings. Measurement lives in
+//! [`crate::bench_measure`]; this module owns the row and comparison shapes.
 
 use yashy_common::Json;
 

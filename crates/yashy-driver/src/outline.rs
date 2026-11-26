@@ -73,6 +73,81 @@ pub fn graph_json(model: &IndexModel) -> Json {
     root
 }
 
+/// The graph restricted to nodes reachable from `from` within `depth` edges.
+///
+/// `edges` names the kinds to follow (`import`, `call`); an empty slice follows
+/// every kind. Both import and call edges are followed by their `from`/`to`
+/// names; a symbol with no outgoing edge returns just itself. The shape is the
+/// same as [`graph_json`], so a consumer does not need a second parser.
+pub fn graph_scope_json(model: &IndexModel, from: &str, depth: usize, edges: &[&str]) -> Json {
+    fn field<'a>(value: &'a Json, key: &str) -> Option<&'a str> {
+        let Json::Object(fields) = value else {
+            return None;
+        };
+        let (_, found) = fields.iter().find(|(name, _)| name == key)?;
+        match found {
+            Json::String(text) => Some(text),
+            _ => None,
+        }
+    }
+
+    let root = graph_json(model);
+    let Json::Object(fields) = &root else {
+        unreachable!("graph_json always returns an object")
+    };
+    let Json::Array(all_edges) = fields
+        .iter()
+        .find(|(name, _)| name == "edges")
+        .map(|(_, value)| value.clone())
+        .unwrap_or_else(|| Json::Array(Vec::new()))
+    else {
+        unreachable!("graph_json always sets an edge array")
+    };
+    fn matches(source: &str, wanted: &str) -> bool {
+        let plain = source.trim_start_matches("./");
+        plain == wanted
+            || std::path::Path::new(plain)
+                .file_name()
+                .and_then(|name| name.to_str())
+                == Some(wanted)
+    }
+
+    let mut included = Vec::new();
+    let mut seen = vec![from.to_string()];
+    let mut frontier = vec![from.to_string()];
+    for _ in 0..depth {
+        let mut next = Vec::new();
+        for edge in &all_edges {
+            let kind = field(edge, "kind").unwrap_or("");
+            if !edges.is_empty() && !edges.iter().any(|wanted| *wanted == kind) {
+                continue;
+            }
+            let source = field(edge, "from").unwrap_or("");
+            if !frontier.iter().any(|name| matches(source, name)) {
+                continue;
+            }
+            included.push(edge.clone());
+            if let Some(target) = field(edge, "to") {
+                if !seen.iter().any(|name| name == target) {
+                    seen.push(target.to_string());
+                    next.push(target.to_string());
+                }
+            }
+        }
+        frontier = next;
+        if frontier.is_empty() {
+            break;
+        }
+    }
+    let mut root = Json::object();
+    root.set(
+        "nodes",
+        Json::array(seen.into_iter().map(Json::string).collect()),
+    );
+    root.set("edges", Json::array(included));
+    root
+}
+
 /// Graphviz DOT for the same graph.
 pub fn graph_dot(model: &IndexModel) -> String {
     let mut out = String::from("digraph yashyc {\n");

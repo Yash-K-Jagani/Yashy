@@ -247,9 +247,20 @@ pub const COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "bench",
-        summary: "list benchmark rows from a baseline file",
-        usage: "yashyc bench [--json] [--list] [--check-baseline <file>] [--thresholds <file>] [file]",
-        flags: &["--json", "--list", "--check-baseline", "--thresholds"],
+        summary: "measure a program or compare benchmark rows",
+        usage: "yashyc bench [--json] [--list] [--check-baseline <file>] [--thresholds <file>] [--measure <file.ya>] [file]",
+        flags: &[
+            "--json",
+            "--list",
+            "--check-baseline",
+            "--thresholds",
+            "--measure",
+            "--compare",
+            "--save-baseline",
+            "--key",
+            "--iterations",
+            "--warmup",
+        ],
         takes_path: true,
     },
     CommandSpec {
@@ -332,8 +343,8 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "graph",
         summary: "print the module graph",
-        usage: "yashyc graph [--json|--dot] [path]",
-        flags: &["--json", "--dot"],
+        usage: "yashyc graph [--json|--dot] [--from <symbol> --depth <n> --edges <kinds>] [path]",
+        flags: &["--json", "--dot", "--from", "--depth", "--edges"],
         takes_path: false,
     },
     CommandSpec {
