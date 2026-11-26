@@ -424,7 +424,15 @@ fn emit(
     for item in &hir.items {
         match item {
             HirItem::Struct(s) => {
-                let fields = s.fields.iter().map(|f| repr_type(&f.ty.kind)).collect();
+                let order = if s.field_order.len() == s.fields.len() {
+                    s.field_order.clone()
+                } else {
+                    (0..s.fields.len()).collect()
+                };
+                let fields = order
+                    .iter()
+                    .map(|&index| repr_type(&s.fields[index].ty.kind))
+                    .collect();
                 module.define_named_type(&format!("%struct.{}", s.name), fields);
                 // The field *types*, not just their representation: a `string`
                 // field is a reference the struct owns, and its representation
@@ -437,6 +445,7 @@ fn emit(
                     &s.name,
                     s.fields.iter().map(|f| f.name.clone()).collect(),
                 );
+                module.add_struct_field_order(&s.name, order);
             }
             HirItem::Enum(e) => {
                 let variants = e

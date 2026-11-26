@@ -266,24 +266,24 @@ fn insert_field(
         return base.to_string();
     };
     let field_repr = repr_type(&step.ty.kind);
+    let index = match aggregate {
+        TypeKind::Struct(name) => ctx.module.field_index(name, step.index),
+        _ => step.index,
+    };
     if steps.len() == 1 {
         let updated = ctx.tmp();
         ctx.push(format!(
-            "{updated} = insertvalue {repr} {base}, {field_repr} {}, {}",
-            value.value, step.index
+            "{updated} = insertvalue {repr} {base}, {field_repr} {}, {index}",
+            value.value
         ));
         return updated;
     }
     let sub = ctx.tmp();
-    ctx.push(format!(
-        "{sub} = extractvalue {repr} {base}, {}",
-        step.index
-    ));
+    ctx.push(format!("{sub} = extractvalue {repr} {base}, {index}"));
     let rebuilt = insert_field(ctx, &sub, &step.ty.kind, &steps[1..], value);
     let updated = ctx.tmp();
     ctx.push(format!(
-        "{updated} = insertvalue {repr} {base}, {field_repr} {rebuilt}, {}",
-        step.index
+        "{updated} = insertvalue {repr} {base}, {field_repr} {rebuilt}, {index}",
     ));
     updated
 }
@@ -688,10 +688,13 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             let mut current = element;
             for step in steps {
                 let repr = repr_type(&current.kind);
+                let index = match &current.kind {
+                    TypeKind::Struct(name) => ctx.module.field_index(name, step.index),
+                    _ => step.index,
+                };
                 let next = ctx.tmp();
                 ctx.push(format!(
-                    "{next} = getelementptr {repr}, ptr {addr}, i32 0, i32 {}",
-                    step.index
+                    "{next} = getelementptr {repr}, ptr {addr}, i32 0, i32 {index}"
                 ));
                 addr = next;
                 current = step.ty.clone();

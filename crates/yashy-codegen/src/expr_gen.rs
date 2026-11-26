@@ -789,10 +789,11 @@ pub(crate) fn retain_struct_fields(ctx: &mut FnCtx<'_>, value: &str, ty: &TypeKi
     };
     let repr = repr_type(ty);
     let fields: Vec<TypeKind> = ctx.module.struct_fields(name).to_vec();
-    for (index, field_ty) in fields.iter().enumerate() {
+    for (declaration, field_ty) in fields.iter().enumerate() {
         if !owns_string_refs(ctx, field_ty) {
             continue;
         }
+        let index = ctx.module.field_index(name, declaration);
         let extracted = ctx.tmp();
         ctx.push(format!(
             "{extracted} = extractvalue {repr} {value}, {index}"
@@ -808,10 +809,11 @@ fn release_struct_fields(ctx: &mut FnCtx<'_>, value: &str, ty: &TypeKind) {
     };
     let repr = repr_type(ty);
     let fields: Vec<TypeKind> = ctx.module.struct_fields(name).to_vec();
-    for (index, field_ty) in fields.iter().enumerate() {
+    for (declaration, field_ty) in fields.iter().enumerate() {
         if !owns_string_refs(ctx, field_ty) {
             continue;
         }
+        let index = ctx.module.field_index(name, declaration);
         let extracted = ctx.tmp();
         ctx.push(format!(
             "{extracted} = extractvalue {repr} {value}, {index}"
@@ -889,7 +891,12 @@ fn ref_slots(ctx: &FnCtx<'_>, ty: &TypeKind) -> Vec<(u32, TypeKind)> {
             .iter()
             .enumerate()
             .filter(|(_, field)| owns_string_refs(ctx, field))
-            .map(|(index, field)| (index as u32, field.clone()))
+            .map(|(declaration, field)| {
+                (
+                    ctx.module.field_index(name, declaration) as u32,
+                    field.clone(),
+                )
+            })
             .collect(),
         _ => Vec::new(),
     }
@@ -1131,16 +1138,20 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
             ..
         } => crate::fixed::gen_view(ctx, base, start, end, &ty.kind),
         // A struct value is an aggregate, so reading one field of it is
-        // `extractvalue` -- no address, no alloca, no GEP. The index was resolved
-        // against the declaration order in the checker (see `HirExpr::FieldAccess`).
+        // `extractvalue` -- no address, no alloca, no GEP. The checker's index is
+        // a declaration index; the emitted aggregate uses the struct's order.
         HirExpr::FieldAccess {
             base, index, ty, ..
         } => {
             let value = gen_expr(ctx, base);
             let repr = repr_type(&value.ty);
+            let emitted = match &value.ty {
+                TypeKind::Struct(name) => ctx.module.field_index(name, *index),
+                _ => *index,
+            };
             let tmp = ctx.tmp();
             ctx.push(format!(
-                "{tmp} = extractvalue {repr} {}, {index}",
+                "{tmp} = extractvalue {repr} {}, {emitted}",
                 value.value
             ));
             GenValue {
@@ -3000,24 +3011,31 @@ fn gen_try(ctx: &mut FnCtx<'_>, expr: &HirExpr, result_ty: &TypeKind) -> GenValu
 }
 
 /// Lower a struct literal: define the named type once, then `insertvalue`
-/// each field in **literal order**.
+/// each field in the order the aggregate was emitted.
 ///
-/// Field indices are literal order, not declaration order: the declaration
-/// table that would tell them apart is threaded through in Task 12, where the
-/// whole program's struct definitions are available.
+/// Sema delivers fields in declaration order. The backend maps each one through
+/// the struct's chosen order, so a literal and a field read agree even when a
+/// plain struct's fields were reordered to remove padding.
 fn gen_struct_lit(
     ctx: &mut FnCtx<'_>,
     path: &[String],
     fields: &[(String, HirExpr, Span)],
     ty: &TypeKind,
 ) -> GenValue {
-    let struct_name = format!("%struct.{}", path.last().cloned().unwrap_or_default());
+    let source_name = path.last().cloned().unwrap_or_default();
+    let struct_name = format!("%struct.{source_name}");
     let lowered: Vec<GenValue> = fields.iter().map(|(_, e, _)| gen_expr(ctx, e)).collect();
-    let field_tys: Vec<String> = lowered.iter().map(|v| repr_type(&v.ty)).collect();
-    ctx.module.define_named_type(&struct_name, field_tys);
+    let mut arranged = vec![String::new(); lowered.len()];
+    for (declaration, value) in lowered.iter().enumerate() {
+        let emitted = ctx.module.field_index(&source_name, declaration);
+        arranged[emitted] = repr_type(&value.ty);
+    }
+    ctx.module.define_named_type(&struct_name, arranged);
     let repr = repr_type(ty);
     let mut acc = "undef".to_string();
-    for (index, ((_, field_expr, _), value)) in fields.iter().zip(lowered.iter()).enumerate() {
+    for (declaration, ((_, field_expr, _), value)) in fields.iter().zip(lowered.iter()).enumerate()
+    {
+        let index = ctx.module.field_index(&source_name, declaration);
         // A `string` field is a reference the struct owns: the value is
         // either taken over (a temporary the runtime built) or retained (a
         // literal, a local, a call's result) -- never both, so the reference

@@ -1190,6 +1190,7 @@ mod tests {
                     span,
                 }],
                 repr: None,
+                field_order: vec![0],
                 span,
             })],
             instantiations: 0,

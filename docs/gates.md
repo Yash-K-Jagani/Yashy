@@ -781,11 +781,13 @@ claimed green here.
   carry padding, saved and niche facts and per-field sizes. The harness
   re-derives size, alignment and every field offset from the backend's emitted
   aggregates and fails on a mismatch; `find` resolves enums as well as structs.
-  Field reordering and a used niche remain tasks 1 Step 2 of the plan.
+  Plain structs are now emitted largest-first with the chosen `order` and real
+  `saved` reported; declared representations keep declaration order. A used
+  niche remains open because the backend has no ABI-safe niche encoding.
 
 - **Remaining Phase 11A tasks** — **owed as of 2026-11-26**, tracked in
-  `docs/superpowers/plans/2026-11-15-phase-11a-representation.md`: field
-  reordering and a used niche (Task 1 Step 2), whole-program/per-module binary
+  `docs/superpowers/plans/2026-11-15-phase-11a-representation.md`: a used niche
+  (Task 1 Step 2), whole-program/per-module binary
   equality (Task 2 Step 3), `stack_alloc` and per-function stack-depth accounting
   (Task 3), an allocator interface with runtime size classes and an
   `alloc_uninit` marker (Task 4), small strings and map/array layout (Task 5),

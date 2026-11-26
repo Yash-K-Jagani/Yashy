@@ -433,13 +433,18 @@ fn struct_field(ctx: &mut FnCtx<'_>, subject: &GenValue, field_name: &str) -> Op
     let TypeKind::Struct(struct_name) = &subject.ty else {
         return None;
     };
-    let index = ctx
+    let declaration = ctx
         .module
         .struct_field_names(struct_name)
         .iter()
         .position(|name| name == field_name)?;
-    let field_ty = ctx.module.struct_fields(struct_name).get(index)?.clone();
-    let payload = extract_field(ctx, subject, index as u32);
+    let field_ty = ctx
+        .module
+        .struct_fields(struct_name)
+        .get(declaration)?
+        .clone();
+    let emitted = ctx.module.field_index(struct_name, declaration);
+    let payload = extract_field(ctx, subject, emitted as u32);
     Some(GenValue {
         value: payload,
         ty: field_ty,

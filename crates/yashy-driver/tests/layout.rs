@@ -323,9 +323,22 @@ mod ir_cross_check {
             let fields = ir_body(&ir, &name);
             let defs = definitions(&ir);
             let mut seen = Vec::new();
-            let from_ir = struct_layout(&fields, &defs, &mut seen);
+            let (size, align, emitted_offsets) = struct_layout(&fields, &defs, &mut seen);
+            // The IR lists fields in emission order; the report keys offsets by
+            // declaration index. Translate through the struct's chosen order
+            // before comparing, or a deliberately reordered struct looks wrong.
+            let order = decls.field_order(&name);
+            let order = if order.len() == emitted_offsets.len() {
+                order
+            } else {
+                (0..emitted_offsets.len()).collect()
+            };
+            let mut declared_offsets = vec![0usize; emitted_offsets.len()];
+            for (position, &declaration) in order.iter().enumerate() {
+                declared_offsets[declaration] = emitted_offsets[position];
+            }
             assert_eq!(
-                from_ir,
+                (size, align, declared_offsets),
                 (found.size, found.align, found.offsets),
                 "the report and the IR disagree about `{name}`"
             );
@@ -387,4 +400,91 @@ fn a_const_generic_query_emits_the_instantiated_literal() {
         body(&literal_program),
         "size_of[Buffer[N]]() must fold to the size of that instantiation"
     );
+}
+
+mod field_reordering {
+    use super::check;
+    use yashy_hir::ty::TypeKind;
+
+    const PLAIN: &str = "\
+struct Order { flag: bool, total: int, tag: char }\n\
+fn main() {\n\
+    let order = Order { flag: true, total: 3, tag: 'x' };\n\
+    print(order.total);\n\
+}";
+
+    const FIXED: &str = "\
+repr(C) struct Fixed { flag: bool, total: int }\n\
+fn main() {\n\
+    let fixed = Fixed { flag: true, total: 3 };\n\
+    print(fixed.total);\n\
+}";
+
+    fn report(src: &str, name: &str) -> String {
+        let program = check(src);
+        let decls = yashy_driver::layout::HirDecls::from_program(&program);
+        yashy_driver::layout::json_report(name, &decls)
+            .expect("the type has a report")
+            .render()
+    }
+
+    fn ir(src: &str) -> String {
+        let program = check(src);
+        yashy_codegen::emit_program(
+            &program,
+            "main",
+            Default::default(),
+            &yashy_common::ProofFacts::empty(),
+        )
+    }
+
+    #[test]
+    fn the_report_names_the_chosen_order_and_the_bytes_saved() {
+        let text = report(PLAIN, "Order");
+        assert!(text.contains("\"saved\": 8"), "{text}");
+        assert!(text.contains("\"order\""), "{text}");
+        assert!(text.contains("\"total\""), "{text}");
+        assert!(text.contains("\"flag\""), "{text}");
+        assert!(text.contains("\"tag\""), "{text}");
+        // Offsets are still keyed by declaration name, not emission position.
+        assert!(text.contains("\"field\": \"flag\""), "{text}");
+    }
+
+    #[test]
+    fn the_emitted_aggregate_uses_that_order() {
+        let text = ir(PLAIN);
+        let definition = text
+            .lines()
+            .find(|line| line.starts_with("%struct.Order = type"))
+            .expect("the struct type is defined");
+        assert_eq!(definition, "%struct.Order = type { i64, i1, i8 }");
+        assert!(
+            text.contains("extractvalue %struct.Order"),
+            "a field read must use the aggregate:\n{text}"
+        );
+    }
+
+    #[test]
+    fn a_representation_promise_keeps_declaration_order() {
+        let text = report(FIXED, "Fixed");
+        assert!(text.contains("\"saved\": 0"), "{text}");
+        let text = ir(FIXED);
+        let definition = text
+            .lines()
+            .find(|line| line.starts_with("%struct.Fixed = type"))
+            .expect("the struct type is defined");
+        assert_eq!(definition, "%struct.Fixed = type { i1, i64 }");
+    }
+
+    #[test]
+    fn the_layout_walk_and_the_emit_order_are_the_same_choice() {
+        let program = check(PLAIN);
+        let decls = yashy_driver::layout::HirDecls::from_program(&program);
+        let found = yashy_hir::layout::layout(&TypeKind::Struct("Order".to_string()), &decls)
+            .expect("the declared struct has a layout");
+        // Declaration order: flag, total, tag. Largest-first puts `total` at 0,
+        // then `flag` at 8 and `tag` at 9, rounding a 10-byte body to 16.
+        assert_eq!(found.size, 16);
+        assert_eq!(found.offsets, vec![8, 0, 9]);
+    }
 }

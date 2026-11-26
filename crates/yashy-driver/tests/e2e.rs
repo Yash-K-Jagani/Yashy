@@ -2003,6 +2003,14 @@ fn a_struct_field_is_read_by_name_whatever_order_it_was_written() {
 }
 
 #[test]
+fn a_reordered_struct_keeps_every_name_based_access() {
+    // The emitted aggregate puts the largest fields first; literals, reads,
+    // writes, nested writes and a by-value call must all use that order.
+    let output = build_and_run("reorder");
+    assert_eq!(stdout_of(&output), "3\n6\n7\n13\norder\n");
+}
+
+#[test]
 fn print_accepts_many_values_joined_by_spaces() {
     // `print` is the main, preferred output: many values, one space
     // between each, one newline at the end.

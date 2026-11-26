@@ -3116,6 +3116,10 @@ impl<'src> Checker<'src> {
                         })
                         .collect(),
                     repr: if sig.repr_c { Some(ReprKind::C) } else { None },
+                    field_order: self.struct_field_order(
+                        &sig.fields,
+                        if sig.repr_c { Some(ReprKind::C) } else { None },
+                    ),
                     span: scheme_span,
                 }));
             } else if let Some(sig) = self.enums.get(&mangled).cloned() {
@@ -5801,6 +5805,7 @@ impl<'src> Checker<'src> {
                         })
                         .collect(),
                     repr: *repr,
+                    field_order: self.struct_field_order(&sig.fields, *repr),
                     span: *span,
                 })])
             }
@@ -5954,6 +5959,7 @@ impl<'src> Checker<'src> {
                         })
                         .collect(),
                     repr: *repr,
+                    field_order: self.struct_field_order(&sig.fields, *repr),
                     span: *span,
                 })];
                 if let Some(methods) = self.check_impl_methods(name, None, methods) {
@@ -15381,6 +15387,24 @@ impl<'src> Checker<'src> {
             enums: &self.enums,
         };
         type_layout::layout(&ty.kind, &decls)
+    }
+
+    /// The emission order of a struct's fields, from the same table the layout
+    /// walk and the backend's aggregate definition read.
+    fn struct_field_order(
+        &self,
+        fields: &[(String, Type)],
+        repr: Option<ReprKind>,
+    ) -> Vec<usize> {
+        let decls = CheckerDecls {
+            structs: &self.structs,
+            enums: &self.enums,
+        };
+        let types = fields
+            .iter()
+            .map(|(_, ty)| ty.kind.clone())
+            .collect::<Vec<_>>();
+        type_layout::field_order(&types, repr, &decls)
     }
 
     /// The `string` an interpolated expression contributes, converting with the

@@ -1,0 +1,35 @@
+// A plain struct has no layout promise, so the compiler may put its larger
+// fields first. Every name-based access must keep working through the emitted
+// aggregate: literals, reads, writes, nested writes and a by-value call.
+
+struct Inner {
+    tag: char,
+    value: int,
+}
+
+struct Order {
+    flag: bool,
+    total: int,
+    inner: Inner,
+    label: string,
+}
+
+fn read(Order order) -> int {
+    return order.total + order.inner.value;
+}
+
+fn main() {
+    let order = Order {
+        flag: true,
+        total: 3,
+        inner: Inner { tag: 'x', value: 4 },
+        label: "order"
+    };
+    print(order.total);
+    order.total = 6;
+    print(order.total);
+    order.inner.value = 7;
+    print(order.inner.value);
+    print(read(order));
+    print(order.label);
+}

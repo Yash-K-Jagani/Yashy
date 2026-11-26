@@ -1014,10 +1014,13 @@ layout table. `--layout --all <file.ya>` reports every declared type, sorted by
 name, with size, alignment and field offsets; both read the same table a
 `sizeof` query uses, so they cannot disagree. The JSON form also carries
 `padding` (bytes no field occupies, inter-field gaps plus the trailing tail),
-`niche` (`null` while no type has a spare representation) and `saved` (`0` until
-field reordering lands), and each field entry carries its `size`. Add `--human`
-to print the whole table as aligned text with `field@offset` entries instead of
-JSON.
+`niche` (`null` while no type has a spare representation), `saved` (bytes the
+chosen field order removes) and `order` (the field names in emission order), and
+each field entry carries its `size`. A declared representation fixes the order
+at declaration order and reports `saved: 0`; a plain struct is emitted
+largest-first, which can only save padding. Offsets stay keyed by field name, so
+`offsetof`, field reads and debug info keep their meaning. Add `--human` to print
+the whole table as aligned text with `field@offset` entries instead of JSON.
 
 ## `yashyc trace [--json] [--fail-orphans] [root]`
 

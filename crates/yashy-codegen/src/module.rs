@@ -227,6 +227,11 @@ pub struct Module {
     /// `VariantRepr.fields`. The types alone cannot give it: two fields of
     /// the same type are indistinguishable by position.
     struct_field_names: HashMap<String, Vec<String>>,
+    /// The emission order of a declared struct's fields, as declaration
+    /// indices. Identity for a declared representation; largest-first for a
+    /// plain struct. Name- and declaration-based consumers translate through
+    /// [`Module::field_index`] before touching the emitted aggregate.
+    struct_field_order: HashMap<String, Vec<usize>>,
     /// The index the next `@__lambda_N` will use.
     ///
     /// A lambda has no name in the source, so the backend gives it one: the
@@ -294,6 +299,7 @@ impl Module {
             fn_value_thunks: HashMap::new(),
             struct_fields: HashMap::new(),
             struct_field_names: HashMap::new(),
+            struct_field_order: HashMap::new(),
             next_lambda: 0,
             captures: Vec::new(),
             atomic_strings: false,
@@ -747,6 +753,21 @@ impl Module {
     /// field's index by name.
     pub fn add_struct_field_names(&mut self, name: &str, fields: Vec<String>) {
         self.struct_field_names.insert(name.to_string(), fields);
+    }
+
+    /// Record the emission order of a struct's fields.
+    pub fn add_struct_field_order(&mut self, name: &str, order: Vec<usize>) {
+        self.struct_field_order.insert(name.to_string(), order);
+    }
+
+    /// The emitted aggregate index of a field known by its declaration index.
+    /// An unknown struct keeps the identity: synthesized aggregates are not
+    /// reordered, and a missing table must not invent a permutation.
+    pub fn field_index(&self, name: &str, declaration: usize) -> usize {
+        self.struct_field_order
+            .get(name)
+            .and_then(|order| order.iter().position(|&index| index == declaration))
+            .unwrap_or(declaration)
     }
 
     /// The field types of a struct, or an empty list when it is not known.

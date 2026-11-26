@@ -61,6 +61,11 @@ pub struct HirStruct {
     /// The representation the declaration asked for, when it asked for one.
     /// `Some(ReprKind::C)` means the fields are laid out by C's rules.
     pub repr: Option<ReprKind>,
+    /// The declaration indices of the fields in emission order. Identity for a
+    /// declared representation; largest-first for a plain struct. The backend
+    /// emits the aggregate in this order while every name-based consumer keeps
+    /// using declaration indices.
+    pub field_order: Vec<usize>,
     /// The names from a `derive(..)` clause, in source order. Expansion is
     /// still owed; the names are carried so tooling can see the promise.
     pub derives: Vec<String>,

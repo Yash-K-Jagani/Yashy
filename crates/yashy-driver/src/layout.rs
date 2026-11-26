@@ -42,6 +42,31 @@ impl HirDecls {
             })
             .unwrap_or_default()
     }
+    /// The field types of a declared struct, in declaration order.
+    pub fn field_types(&self, name: &str) -> Vec<TypeKind> {
+        self.structs
+            .iter()
+            .find(|structure| structure.name == name)
+            .map(|structure| {
+                structure
+                    .fields
+                    .iter()
+                    .map(|field| field.ty.kind.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The emission order of a declared struct's fields, as declaration
+    /// indices. The backend reads the same order from the HIR item.
+    pub fn field_order(&self, name: &str) -> Vec<usize> {
+        self.structs
+            .iter()
+            .find(|structure| structure.name == name)
+            .map(|structure| structure.field_order.clone())
+            .unwrap_or_default()
+    }
+
     /// Every declared type's name, in declaration order.
     pub fn type_names(&self) -> Vec<String> {
         let mut names: Vec<String> = self
@@ -68,9 +93,27 @@ fn fill_entry(entry: &mut yashy_common::Json, name: &str, decls: &HirDecls) {
     entry.set("type", Json::string(name));
     entry.set("size", Json::number(found.size as i64));
     entry.set("align", Json::number(found.align as i64));
+    let fields = decls.field_types(name);
+    let natural =
+        yashy_hir::layout::layout_fields(&fields, decls, &(0..fields.len()).collect::<Vec<_>>())
+            .map(|layout| layout.size)
+            .unwrap_or(found.size);
+    let order = decls.field_order(name);
+    let saved = natural.saturating_sub(found.size);
     entry.set("padding", Json::number(padding_bytes(name, decls) as i64));
-    // Reserved for the reordering pass: a type that is never reordered saves 0.
-    entry.set("saved", Json::number(0));
+    entry.set("saved", Json::number(saved as i64));
+    let ordered: Vec<Json> = order
+        .iter()
+        .map(|&index| {
+            Json::string(
+                names
+                    .get(index)
+                    .cloned()
+                    .unwrap_or_else(|| format!("field{index}")),
+            )
+        })
+        .collect();
+    entry.set("order", Json::array(ordered));
     match niche(name, decls) {
         Some(niche) => {
             entry.set("niche", Json::string(niche));

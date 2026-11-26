@@ -62,14 +62,16 @@ sites, stack slots, bytes per value, and cold-start milliseconds.
   independently re-derives each declared struct and enum from the `= type { }`
   aggregate the backend emits and fails on any difference; `find` now resolves
   enums as well as structs, so `--all` reports every declared type.
-- [ ] **Step 2: Reorder only what is free.** A non-`repr(C)` struct's fields may
+- [x] **Step 2: Reorder only what is free.** A non-`repr(C)` struct's fields may
   be reordered to reduce padding; the report shows the chosen order and the
   bytes saved. A `repr(C)`, `repr(transparent)` or `repr(packed)` type is never
   reordered. An enum niche is used only when it is ABI-safe.
-  *Still owed 2026-11-26:* the report exposes `saved: 0` and `niche: null`;
-  no type is reordered or exploits a niche yet. Reordering changes the
-  field-index contract shared by the checker's constant folds and the
-  backend's `insertvalue`/`extractvalue`, so it needs its own slice.
+  *Closed 2026-11-26 with exception:* plain structs are emitted largest-first
+  by `yashy_hir::layout::field_order`, stored on `HirStruct` and used by codegen
+  for literals, reads, writes, patterns and reference walks; the report prints
+  `order` and the real `saved`. Any declared `repr` keeps declaration order.
+  No type exploits a niche yet (`niche: null`), and a niche needs an ABI-safe
+  encoding the backend does not have, so that half stays open.
 - [x] **Step 3: `size_of`/`align_of`/`offset_of` read the same table.** The
   const evaluator and the report cannot disagree; a disagreement is a compiler
   bug with a test.
@@ -78,7 +80,7 @@ sites, stack slots, bytes per value, and cold-start milliseconds.
   walk and with `inspect --layout`'s `find`, pins the C padding rule as an
   independent anchor, and checks that the literals reach the emitted IR.
   `every_declared_type_matches_the_ir_aggregate` adds the generated-IR half.
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ### Task 2: Alias analysis and the attribute audit
 

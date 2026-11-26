@@ -18,6 +18,8 @@
 //! table: a struct then has no layout this module can report, and [`layout`]
 //! returns `None` rather than inventing one.
 
+use yashy_parser::ast::ReprKind;
+
 use crate::ty::TypeKind;
 
 /// A type's layout: how many bytes it occupies, what it aligns to, and where
@@ -88,9 +90,10 @@ pub fn layout(ty: &TypeKind, decls: &dyn Decls) -> Option<Layout> {
             let NamedType::Struct { fields, repr } = decls.named(name)? else {
                 return None;
             };
-            let fields_layout_value = fields_layout(&fields, decls)?;
+            let order = field_order(&fields, repr, decls);
+            let fields_layout_value = layout_fields(&fields, decls, &order)?;
             return match repr {
-                Some(yashy_parser::ast::ReprKind::Packed) => Some(Layout {
+                Some(ReprKind::Packed) => Some(Layout {
                     size: fields
                         .iter()
                         .map(|field| layout(field, decls).map(|l| l.size).unwrap_or(0))
@@ -98,7 +101,7 @@ pub fn layout(ty: &TypeKind, decls: &dyn Decls) -> Option<Layout> {
                     align: 1,
                     offsets: fields_layout_value.offsets,
                 }),
-                Some(yashy_parser::ast::ReprKind::Align(align)) => Some(Layout {
+                Some(ReprKind::Align(align)) => Some(Layout {
                     size: align_up(fields_layout_value.size, align as usize),
                     align: align as usize,
                     offsets: fields_layout_value.offsets,
@@ -229,13 +232,57 @@ pub fn layout(ty: &TypeKind, decls: &dyn Decls) -> Option<Layout> {
     })
 }
 
-/// Lay out a list of field types by the natural-alignment rule.
-fn fields_layout(fields: &[TypeKind], decls: &dyn Decls) -> Option<Layout> {
-    let fields = fields
+/// The order in which a struct's fields are emitted, as declaration indices.
+///
+/// A representation clause is a promise about bytes, so a declared `repr` fixes
+/// the order at declaration order. A plain struct has no such promise: its
+/// fields are emitted largest-first (stable on declaration order), which can
+/// only remove padding. The result is a permutation of `0..fields.len()`; the
+/// d-th entry is the declaration index of the d-th emitted field.
+pub fn field_order(fields: &[TypeKind], repr: Option<ReprKind>, decls: &dyn Decls) -> Vec<usize> {
+    let identity: Vec<usize> = (0..fields.len()).collect();
+    if repr.is_some() {
+        return identity;
+    }
+    let sizes: Vec<usize> = fields
+        .iter()
+        .map(|field| layout(field, decls).map(|found| found.size).unwrap_or(0))
+        .collect();
+    let mut order = identity;
+    order.sort_by(|&a, &b| sizes[b].cmp(&sizes[a]).then_with(|| a.cmp(&b)));
+    order
+}
+
+/// Lay out `fields` in `order`, reporting offsets in **declaration** order.
+///
+/// Consumers that name a field keep using its declaration index (offsets,
+/// `FieldAccess`, debug info); the backend uses `order` for the emitted
+/// aggregate. Both read the same computed placement.
+pub fn layout_fields(fields: &[TypeKind], decls: &dyn Decls, order: &[usize]) -> Option<Layout> {
+    let found = fields
         .iter()
         .map(|field| layout(field, decls))
         .collect::<Option<Vec<_>>>()?;
-    Some(fields_layout_from(fields))
+    let arranged = order
+        .iter()
+        .map(|&index| found[index].clone())
+        .collect::<Vec<_>>();
+    let arranged_layout = fields_layout_from(arranged);
+    let mut offsets = vec![0usize; fields.len()];
+    for (position, &declaration) in order.iter().enumerate() {
+        offsets[declaration] = arranged_layout.offsets[position];
+    }
+    Some(Layout {
+        size: arranged_layout.size,
+        align: arranged_layout.align,
+        offsets,
+    })
+}
+
+/// Lay out a list of field types by the natural-alignment rule.
+fn fields_layout(fields: &[TypeKind], decls: &dyn Decls) -> Option<Layout> {
+    let identity: Vec<usize> = (0..fields.len()).collect();
+    layout_fields(fields, decls, &identity)
 }
 
 /// The shared walk: each field starts at the next offset that satisfies its
