@@ -557,10 +557,14 @@ and prints a schema-v1 report; `--fail-under <pct>` gates a project on it. The
 campaign runner itself is still owed.
 
 `--affected <file>` reads a newline-separated list of changed paths and runs
-only the tests that changed or import a module whose file changed. The selector
-is conservative: a changed file that is not a `.ya` selects every test with a
-stated reason. The human output prints each skipped test and why; `--json`
-carries the same `selection` object.
+only the tests that changed, import a module whose file changed, or reach a
+changed function through call and import edges. A changed type, trait, macro,
+alias, function or `cfg` key is also a selection signal, and a name declared in
+more than one file names all of them. The selector is conservative: a changed
+file that is not a `.ya` selects every test with a stated reason. The human
+output prints each skipped test and why; `--json` carries the same `selection`
+object. Selection runs only when `--affected` is given, so an ordinary CI run
+is an all-tests run.
 
 ## `yashyc lint [--list|--docs] [--json] [--group <g>] [--deny <code>] <file.ya>`
 

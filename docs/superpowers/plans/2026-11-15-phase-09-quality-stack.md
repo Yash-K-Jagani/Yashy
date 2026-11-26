@@ -114,8 +114,13 @@ what keeps a 138-week programme honest.
   macros, aliases and `cfg` keys are now selection signals too: `declared_symbols`
   and `cfg_keys` read them from the changed source, and any test that names one
   is selected even without a direct import. Every selected test carries a
-  reason in `selection.reasons`. The real call graph and the `--all` CI default
-  are still owed, so the step stays open.
+  reason in `selection.reasons`.
+  *Closed 2026-11-26:* `affected::CallGraph` resolves calls to the files that
+  declare the callee and follows both call and import edges transitively, so a
+  test that reaches a changed function through another module is selected; an
+  ambiguous name names every declaring file. A changed function name is also a
+  direct signal. `test` selects nothing unless `--affected` is given, which is
+  the all-tests CI default without another flag.
 - [x] **Step 7: Commit.**
 
 ### Task 2: `yashyc bench`

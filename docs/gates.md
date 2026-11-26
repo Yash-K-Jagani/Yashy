@@ -724,9 +724,14 @@ claimed green here.
 - **Generic mocks bounded by `Recorder`** — owner: compiler/core. Needs trait
   bounds; the concrete mock is tested. Closes when a generic helper can accept
   any `Recorder` implementation.
-- **Real call graph for `--affected`** — owner: compiler/core. Current selection
-  uses paths, imports, declared symbols and `cfg` keys and widens on unknown
-  files. Closes when a call-graph edge cannot cause a missed test.
+- **Real call graph for `--affected`** — **closed 2026-11-26.**
+  `affected::CallGraph` adds function-declaration and call edges to the import
+  walk: a test is selected when any file reachable from it through calls and
+  imports is a changed file. A name declared in several files names all of them,
+  so an ambiguous call widens rather than guesses; an unknown changed file still
+  selects every test. Unit tests pin both the transitive selection and its
+  negative case. Selection runs only when `--affected` is passed, so an ordinary
+  CI run is already an all-tests run and needs no separate `--all` default.
 - **Phase 8 rows still open** — Argon2id, STARTTLS, Redis store, two-OS load,
   full WebAuthn attestation and OTLP transport remain dated rows above.
 

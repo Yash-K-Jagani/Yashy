@@ -8,7 +8,10 @@
 //! selection instead of dropping a test. A selection that skips a test whose
 //! dependency changed is a bug, not a speed win.
 
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
+
+use crate::index::collect_files_from;
 
 /// Which tests run, and why the others were skipped.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -109,6 +112,149 @@ pub fn cfg_keys(text: &str) -> Vec<String> {
     names
 }
 
+/// Function names a file declares, including methods and generic functions.
+///
+/// Functions are selection signals too: a test that calls a changed function by
+/// name must not be selected only by accident when it imports some other module.
+fn declared_functions(text: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    for line in text.lines() {
+        let mut rest = line.trim();
+        loop {
+            let stripped = rest
+                .strip_prefix("pub ")
+                .or_else(|| rest.strip_prefix("async "))
+                .or_else(|| rest.strip_prefix("const "));
+            match stripped {
+                Some(next) => rest = next,
+                None => break,
+            }
+        }
+        let Some(rest) = rest.strip_prefix("fn ") else {
+            continue;
+        };
+        let name: String = rest
+            .chars()
+            .take_while(|ch| ch.is_alphanumeric() || *ch == '_')
+            .collect();
+        if !name.is_empty() && !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    names
+}
+
+/// The names a file calls, read from `name(` in source order.
+///
+/// This is deliberately textual: the selector runs before (and sometimes
+/// instead of) a full check, so it must work on a file that does not compile.
+/// A name after `.` is a method, not a module-level function, and keywords that
+/// take a parenthesised head are not calls.
+fn called_names(text: &str) -> Vec<String> {
+    const KEYWORDS: &[&str] = &[
+        "if", "while", "for", "switch", "case", "default", "return", "defer", "async", "let",
+        "const", "fn", "pub", "struct", "enum", "trait", "impl", "object", "import", "cfg",
+        "unsafe", "macro", "match", "matches", "move", "is", "and", "or", "not", "in", "else",
+    ];
+    let bytes = text.as_bytes();
+    let mut names: Vec<String> = Vec::new();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index].is_ascii_alphabetic() || bytes[index] == b'_' {
+            let start = index;
+            while index < bytes.len()
+                && (bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_')
+            {
+                index += 1;
+            }
+            let name = &text[start..index];
+            if KEYWORDS.contains(&name) || (start > 0 && bytes[start - 1] == b'.') {
+                continue;
+            }
+            let mut after = index;
+            while after < bytes.len() && bytes[after].is_ascii_whitespace() {
+                after += 1;
+            }
+            if after < bytes.len() && bytes[after] == b'(' && !names.iter().any(|n| n == name) {
+                names.push(name.to_string());
+            }
+        } else {
+            index += 1;
+        }
+    }
+    names
+}
+
+/// The call graph the selector needs: one file per declared function, plus
+/// import edges between files. A name declared in more than one file names all
+/// of them, so an ambiguous call widens rather than guesses.
+struct CallGraph {
+    declarations: BTreeMap<String, Vec<PathBuf>>,
+    modules: BTreeMap<String, Vec<PathBuf>>,
+    calls: BTreeMap<PathBuf, Vec<String>>,
+    imports: BTreeMap<PathBuf, Vec<String>>,
+}
+
+impl CallGraph {
+    fn build(root: &Path) -> Self {
+        let mut files = Vec::new();
+        collect_files_from(root, &mut files);
+        let mut graph = Self {
+            declarations: BTreeMap::new(),
+            modules: BTreeMap::new(),
+            calls: BTreeMap::new(),
+            imports: BTreeMap::new(),
+        };
+        for file in files {
+            let text = std::fs::read_to_string(&file).unwrap_or_default();
+            for name in declared_functions(&text) {
+                graph
+                    .declarations
+                    .entry(name)
+                    .or_default()
+                    .push(file.clone());
+            }
+            let stem = file
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or("")
+                .to_string();
+            if !stem.is_empty() {
+                graph.modules.entry(stem).or_default().push(file.clone());
+            }
+            graph.calls.insert(file.clone(), called_names(&text));
+            graph.imports.insert(file.clone(), imports(&text));
+        }
+        graph
+    }
+
+    /// Every file reachable from `start` through calls and imports.
+    fn reachable(&self, start: &Path) -> BTreeSet<PathBuf> {
+        let mut seen = BTreeSet::new();
+        let mut queue = VecDeque::from([start.to_path_buf()]);
+        while let Some(file) = queue.pop_front() {
+            if !seen.insert(file.clone()) {
+                continue;
+            }
+            for name in self.calls.get(&file).into_iter().flatten() {
+                for target in self.declarations.get(name).into_iter().flatten() {
+                    if !seen.contains(target) {
+                        queue.push_back(target.clone());
+                    }
+                }
+            }
+            for name in self.imports.get(&file).into_iter().flatten() {
+                for target in self.modules.get(name).into_iter().flatten() {
+                    if !seen.contains(target) {
+                        queue.push_back(target.clone());
+                    }
+                }
+            }
+        }
+        seen
+    }
+}
+
 /// A changed file's path is relative to `root` in CI, but tests also pass an
 /// absolute path. Read whichever exists so both spellings widen the same way.
 fn read_changed(root: &Path, path: &Path) -> String {
@@ -146,12 +292,33 @@ pub fn select(root: &Path, tests: &[PathBuf], changed: &[PathBuf]) -> Selection 
         .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("ya"))
     {
         let text = read_changed(root, path);
-        for name in declared_symbols(&text).into_iter().chain(cfg_keys(&text)) {
+        for name in declared_symbols(&text)
+            .into_iter()
+            .chain(declared_functions(&text))
+            .chain(cfg_keys(&text))
+        {
             if !signals.contains(&name) {
                 signals.push(name);
             }
         }
     }
+
+    // Source-level call and import edges are the last widening rule. A test can
+    // reach a changed function through a chain of modules without naming it and
+    // without importing the changed file, so a name-only walk would miss it.
+    let graph = CallGraph::build(root);
+    let normalize = |path: &Path| {
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            root.join(path)
+        }
+    };
+    let changed_paths: Vec<PathBuf> = changed
+        .iter()
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("ya"))
+        .map(|path| normalize(path))
+        .collect();
 
     let mut selected = Vec::new();
     let mut skipped = Vec::new();
@@ -173,20 +340,30 @@ pub fn select(root: &Path, tests: &[PathBuf], changed: &[PathBuf]) -> Selection 
                 || (!stem.is_empty() && names.iter().any(|module| module == stem))
         });
         let named = signals.iter().find(|signal| text.contains(*signal));
-        if !unknown.is_empty() || touched || named.is_some() {
+        let reachable = graph.reachable(&normalize(test));
+        let reached = changed_paths.iter().find(|path| reachable.contains(*path));
+        if !unknown.is_empty() || touched || named.is_some() || reached.is_some() {
             let reason = if !unknown.is_empty() {
                 format!("changed file {} is not a Yashy module", unknown[0])
             } else if touched {
                 "changed module is imported by this test".to_string()
+            } else if let Some(signal) = named {
+                format!("names changed symbol `{signal}`")
             } else {
-                format!("names changed symbol `{}`", named.unwrap())
+                let file = reached
+                    .unwrap()
+                    .strip_prefix(root)
+                    .unwrap_or(reached.unwrap())
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                format!("call graph reaches changed module `{file}`")
             };
             selected.push(name.clone());
             reasons.push((name, reason));
         } else {
             skipped.push((
                 name,
-                "no changed module is imported by this test".to_string(),
+                "no changed module is imported or called by this test".to_string(),
             ));
         }
     }
@@ -295,5 +472,43 @@ mod tests {
         assert_eq!(selection.selected, vec!["one.ya".to_string()]);
         assert!(selection.skipped.is_empty());
         assert_eq!(selection.reasons.len(), 1);
+    }
+
+    #[test]
+    fn a_call_chain_reaches_a_changed_function_in_another_file() {
+        let dir = std::env::temp_dir().join("yashy-affected-call-graph-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let leaf = dir.join("leaf.ya");
+        let middle = dir.join("middle.ya");
+        let test = dir.join("test.ya");
+        std::fs::write(&leaf, "pub fn leaf() -> int { return 1; }\n").unwrap();
+        std::fs::write(&middle, "pub fn middle() -> int { return leaf(); }\n").unwrap();
+        std::fs::write(&test, "fn main() { assert(middle() == 1); }\n").unwrap();
+        let selection = select(&dir, &[test], &[leaf]);
+        assert_eq!(selection.selected, vec!["test.ya".to_string()]);
+        assert!(
+            selection.reasons[0]
+                .1
+                .contains("call graph reaches changed module"),
+            "{:?}",
+            selection.reasons
+        );
+    }
+
+    #[test]
+    fn an_unreachable_call_chain_does_not_select_a_test() {
+        let dir = std::env::temp_dir().join("yashy-affected-call-graph-negative");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let leaf = dir.join("leaf.ya");
+        let other = dir.join("other.ya");
+        let test = dir.join("test.ya");
+        std::fs::write(&leaf, "pub fn leaf() -> int { return 1; }\n").unwrap();
+        std::fs::write(&other, "pub fn other() -> int { return 2; }\n").unwrap();
+        std::fs::write(&test, "fn main() { assert(other() == 2); }\n").unwrap();
+        let selection = select(&dir, &[test], &[leaf]);
+        assert!(selection.selected.is_empty(), "{:?}", selection.reasons);
+        assert_eq!(selection.skipped.len(), 1);
     }
 }
