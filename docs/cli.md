@@ -1074,8 +1074,8 @@ in the workspace.
 
 ## `yashyc mcp --root <dir>`
 
-JSON-RPC 2.0 over stdio with nine tools: `check`, `build`, `test`,
-`verify`, `explain`, `context`, `index`, `edit` and `refactor`. Every tool
+JSON-RPC 2.0 over stdio with eleven tools: the seven compiler verbs, `edit`,
+`refactor`, `format` and `lint`. Every tool
 returns the schema-v1 payload the CLI returns; a tool error is `code: -32000`
 with the diagnostic array in `data`. No tool accepts a path outside `--root`
 (refused with `-32001`), no tool accepts a shell string, and `build` writes only

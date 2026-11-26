@@ -26,6 +26,8 @@ bytes, printed as decimal strings; they are staleness checks, not signatures.
 
 `refactor` takes `path`, `from` and `to`. It computes the edits from the lexer's
 identifier tokens, so strings and comments carrying the same word are left
-alone, then applies them through the same transaction.
+alone, then applies them through the same transaction. `format` takes `path`
+and applies the canonical formatter through that transaction; `lint` takes an
+optional `group` and returns diagnostics without writing anything.
 
 Both verbs return `{"applied":["main.ya"],"tree_hash":"<new tree hash>"}`.
