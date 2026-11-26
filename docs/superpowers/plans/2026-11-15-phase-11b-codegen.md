@@ -64,8 +64,9 @@ measured row, not a default someone turned on.
   *Partly closed 2026-11-26:* `crates/yashy-codegen/tests/attributes.rs` pins
   `alwaysinline` on a small function called twice and `noinline` on a large
   uncalled one; `--opt-report` names the callee, the statement count, the call
-  count and the attribute. The caller's name and cross-module cached-IR reuse
-  are not wired into this policy, so the step stays open.
+  sites and the callers (up to three, then `+N more`), and the attribute.
+  Cross-module cached-IR reuse is still not wired into this policy, so that half
+  of the step stays open.
   *Closed 2026-11-26 with exception: needs LLVM pass-level IR inspection, interleaved two-OS benchmarks or an unimplemented analysis pass. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 2: Policy is data.** Thresholds live in one table with a comment

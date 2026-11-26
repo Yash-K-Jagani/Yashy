@@ -289,6 +289,40 @@ fn reasons(src: &str) -> Vec<String> {
 }
 
 #[test]
+fn the_inline_note_names_the_callers() {
+    let source = "fn small(int x) -> int {\n    return x + 1;\n}\nfn main() {\n    print(small(1));\n    print(small(2));\n}\n";
+    let mut sources = SourceMap::new();
+    let file = sources.add_file("attributes.ya".to_string(), source.to_string());
+    let tokens = Lexer::new(source)
+        .tokenize()
+        .expect("the fixture's lexer must succeed");
+    let mut parser = Parser::new(tokens, &sources, file);
+    let ast = parser.parse_program().expect("the fixture must parse");
+    let hir = check_program(&ast, &sources, file).expect("the fixture must check");
+    let report = verify(&hir, &VerifyOptions::default());
+    assert_eq!(report.error_count(), 0, "the fixture must verify");
+    let (_, notes) = emit_program_with_notes(
+        &hir,
+        "attributes.ya",
+        CodegenOptions::default(),
+        &report.facts,
+    );
+    let reasons: Vec<String> = notes
+        .functions
+        .iter()
+        .flat_map(|f| f.items.iter())
+        .filter(|item| item.kind == OptKind::Inline)
+        .map(|item| item.reason.clone())
+        .collect();
+    assert!(
+        reasons
+            .iter()
+            .any(|reason| reason.contains("2 call sites from main")),
+        "the inline note must name the caller: {reasons:?}"
+    );
+}
+
+#[test]
 fn every_emitted_attribute_names_the_fact_that_licensed_it() {
     let found = reasons(READ_ONLY);
     assert!(

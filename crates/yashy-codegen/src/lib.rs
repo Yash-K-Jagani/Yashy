@@ -335,37 +335,49 @@ pub fn emit_program_with_entry(
 }
 
 /// Count direct calls to named functions in one expression, for the inliner
-/// policy's caller count. Builtins and indirect calls are not candidates.
-fn count_calls_expr(expr: &HirExpr, out: &mut HashMap<String, usize>) {
+/// policy's caller count, and remember which function made each call.
+/// Builtins and indirect calls are not candidates.
+fn count_calls_expr(expr: &HirExpr, caller: &str, out: &mut HashMap<String, CallSites>) {
     match expr {
         HirExpr::Call { callee, args, .. } => {
             if callee.len() == 1 {
-                *out.entry(callee[0].clone()).or_default() += 1;
+                let sites = out.entry(callee[0].clone()).or_default();
+                sites.count += 1;
+                if !sites.callers.iter().any(|name| name == caller) {
+                    sites.callers.push(caller.to_string());
+                }
             }
             for arg in args {
-                count_calls_expr(arg, out);
+                count_calls_expr(arg, caller, out);
             }
         }
         HirExpr::Binary { lhs, rhs, .. } => {
-            count_calls_expr(lhs, out);
-            count_calls_expr(rhs, out);
+            count_calls_expr(lhs, caller, out);
+            count_calls_expr(rhs, caller, out);
         }
         HirExpr::Unary { operand, .. } | HirExpr::Move(operand, ..) => {
-            count_calls_expr(operand, out)
+            count_calls_expr(operand, caller, out)
         }
         HirExpr::StructLit { fields, .. } => {
             for (_, field, _) in fields {
-                count_calls_expr(field, out);
+                count_calls_expr(field, caller, out);
             }
         }
         HirExpr::FieldAccess { base, .. } | HirExpr::Index { base, .. } => {
-            count_calls_expr(base, out)
+            count_calls_expr(base, caller, out)
         }
         _ => {}
     }
 }
 
-fn count_calls_stmt(stmt: &HirStmt, out: &mut HashMap<String, usize>) {
+/// The call sites of one callee: how many, and which functions made them.
+#[derive(Default)]
+struct CallSites {
+    count: usize,
+    callers: Vec<String>,
+}
+
+fn count_calls_stmt(stmt: &HirStmt, caller: &str, out: &mut HashMap<String, CallSites>) {
     match stmt {
         HirStmt::Var { init, .. }
         | HirStmt::Const { init, .. }
@@ -373,15 +385,20 @@ fn count_calls_stmt(stmt: &HirStmt, out: &mut HashMap<String, usize>) {
         | HirStmt::LetElse { init, .. }
         | HirStmt::Expr(init, ..)
         | HirStmt::Assign { value: init, .. }
-        | HirStmt::Return(Some(init), _) => count_calls_expr(init, out),
-        HirStmt::If { cond, then_block, else_block, .. } => {
-            count_calls_expr(cond, out);
+        | HirStmt::Return(Some(init), _) => count_calls_expr(init, caller, out),
+        HirStmt::If {
+            cond,
+            then_block,
+            else_block,
+            ..
+        } => {
+            count_calls_expr(cond, caller, out);
             for stmt in &then_block.stmts {
-                count_calls_stmt(stmt, out);
+                count_calls_stmt(stmt, caller, out);
             }
             if let Some(else_block) = else_block {
                 for stmt in &else_block.stmts {
-                    count_calls_stmt(stmt, out);
+                    count_calls_stmt(stmt, caller, out);
                 }
             }
         }
@@ -475,22 +492,39 @@ fn emit(
     // The inliner policy is data: one table in `pass.rs`, one attribute and one
     // opt-report note per candidate. A source-level `inline` keyword cannot
     // override it, and a function value parameter stays opaque.
-    let mut callers: HashMap<String, usize> = HashMap::new();
+    let mut callers: HashMap<String, CallSites> = HashMap::new();
     for item in &hir.items {
         if let HirItem::Fn(f) = item {
             for stmt in &f.body.stmts {
-                count_calls_stmt(stmt, &mut callers);
+                count_calls_stmt(stmt, &f.name, &mut callers);
             }
         }
     }
     for item in &hir.items {
         if let HirItem::Fn(f) = item {
             let cost = f.body.stmts.len();
-            let calls = callers.get(&f.name).copied().unwrap_or(0);
+            let sites = callers.get(&f.name);
+            let calls = sites.map(|sites| sites.count).unwrap_or(0);
             let attribute = pass::INLINE_POLICY.attribute(cost, calls);
+            let mut from: Vec<&str> = sites
+                .map(|sites| sites.callers.iter().map(String::as_str).collect())
+                .unwrap_or_default();
+            from.sort_unstable();
+            let from = if from.is_empty() {
+                "no callers".to_string()
+            } else {
+                let shown: Vec<&str> = from.iter().take(3).copied().collect();
+                if from.len() > shown.len() {
+                    format!("{} +{} more", shown.join(", "), from.len() - shown.len())
+                } else {
+                    shown.join(", ")
+                }
+            };
             module.set_inline_attribute(
                 &f.name,
-                format!("inline policy: {cost} statements, {calls} call sites -> {attribute}"),
+                format!(
+                    "inline policy: {cost} statements, {calls} call sites from {from} -> {attribute}"
+                ),
                 attribute,
             );
         }
