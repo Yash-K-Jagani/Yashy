@@ -50,6 +50,7 @@ Codes: `E1701`
 
 Tests:
 
+- `crates/yashy-driver/tests/concurrency_corpus.rs`
 - `crates/yashy-driver/tests/verify.rs`
 - `crates/yashy-verify/tests/async.rs`
 
@@ -59,6 +60,7 @@ Codes: `E1702`
 
 Tests:
 
+- `crates/yashy-driver/tests/concurrency_corpus.rs`
 - `crates/yashy-driver/tests/verify.rs`
 - `crates/yashy-verify/tests/async.rs`
 

@@ -195,6 +195,212 @@ The name is `nth`, not `get`, because every module's items share one root
 scope: `env.get` already owns `get`, and two modules imported together may
 not declare the same name.
 
+## `atomic`
+
+### `Ordering`
+
+```yashy
+enum Ordering
+```
+
+### `AtomicBool.compare_exchange`
+
+```yashy
+fn compare_exchange(AtomicBool self, bool expected, bool desired, Ordering success, Ordering failure) -> bool
+```
+
+### `AtomicBool.load`
+
+```yashy
+fn load(AtomicBool self, Ordering ordering) -> bool
+```
+
+### `AtomicBool.store`
+
+```yashy
+fn store(AtomicBool self, bool value, Ordering ordering) -> void
+```
+
+### `AtomicI64.compare_exchange`
+
+```yashy
+fn compare_exchange(AtomicI64 self, int expected, int desired, Ordering success, Ordering failure) -> int
+```
+
+### `AtomicI64.fetch_add`
+
+```yashy
+fn fetch_add(AtomicI64 self, int value, Ordering ordering) -> int
+```
+
+### `AtomicI64.load`
+
+```yashy
+fn load(AtomicI64 self, Ordering ordering) -> int
+```
+
+### `AtomicI64.store`
+
+```yashy
+fn store(AtomicI64 self, int value, Ordering ordering) -> void
+```
+
+### `AtomicPtr.compare_exchange`
+
+```yashy
+fn compare_exchange(AtomicPtr self, int expected, int desired, Ordering success, Ordering failure) -> int
+```
+
+### `AtomicPtr.load`
+
+```yashy
+fn load(AtomicPtr self, Ordering ordering) -> int
+```
+
+### `AtomicPtr.store`
+
+```yashy
+fn store(AtomicPtr self, int value, Ordering ordering) -> void
+```
+
+### `AtomicU64.compare_exchange`
+
+```yashy
+fn compare_exchange(AtomicU64 self, int expected, int desired, Ordering success, Ordering failure) -> int
+```
+
+### `AtomicU64.fetch_add`
+
+```yashy
+fn fetch_add(AtomicU64 self, int value, Ordering ordering) -> int
+```
+
+### `AtomicU64.load`
+
+```yashy
+fn load(AtomicU64 self, Ordering ordering) -> int
+```
+
+### `AtomicU64.store`
+
+```yashy
+fn store(AtomicU64 self, int value, Ordering ordering) -> void
+```
+
+### `atomic_bool`
+
+```yashy
+fn atomic_bool(bool initial) -> AtomicBool
+```
+
+### `atomic_i64`
+
+```yashy
+fn atomic_i64(int initial) -> AtomicI64
+```
+
+Allocate an atomic slot with its initial value.
+
+### `atomic_ptr`
+
+```yashy
+fn atomic_ptr(int initial) -> AtomicPtr
+```
+
+### `atomic_u64`
+
+```yashy
+fn atomic_u64(int initial) -> AtomicU64
+```
+
+### `AtomicBool`
+
+```yashy
+struct AtomicBool
+```
+
+Atomic boolean. Stored as 0 or 1 in an atomic slot.
+
+### `AtomicI64`
+
+```yashy
+struct AtomicI64
+```
+
+### `AtomicPtr`
+
+```yashy
+struct AtomicPtr
+```
+
+An atomic opaque handle. A generic `AtomicPtr[T]` needs a phantom type
+parameter, which the language does not have; the handle is an int slot.
+
+### `AtomicU64`
+
+```yashy
+struct AtomicU64
+```
+
+Atomic unsigned 64-bit value. Yashy's `int` carries the bit pattern; the
+operations never interpret the sign.
+
+## `cancel`
+
+### `Ordering`
+
+```yashy
+enum Ordering
+```
+
+### `Token.cancel`
+
+```yashy
+fn cancel(Token self) -> void
+```
+
+### `Token.cancelled`
+
+```yashy
+fn cancelled(Token self) -> bool
+```
+
+### `token`
+
+```yashy
+fn token() -> Token
+```
+
+### `AtomicBool`
+
+```yashy
+struct AtomicBool
+```
+
+### `AtomicI64`
+
+```yashy
+struct AtomicI64
+```
+
+### `AtomicPtr`
+
+```yashy
+struct AtomicPtr
+```
+
+### `AtomicU64`
+
+```yashy
+struct AtomicU64
+```
+
+### `Token`
+
+```yashy
+struct Token
+```
+
 ## `casing`
 
 ### `eq_ignore_ascii_case`
@@ -1634,6 +1840,20 @@ struct Mime
 
 A parsed media type, without parameters.
 
+## `mpmc`
+
+### `consume`
+
+```yashy
+fn consume(Channel[int] jobs, int count) -> int
+```
+
+### `produce`
+
+```yashy
+fn produce(Channel[int] jobs, int base, int count) -> void
+```
+
 ## `normalize`
 
 ### `eq_ignore_case`
@@ -1905,6 +2125,48 @@ fn platform() -> Platform
 ```
 
 The operating system this executable is running on.
+
+## `par_iter`
+
+### `collect`
+
+```yashy
+fn collect([]int values, int workers) -> []int
+```
+
+Collect into a slice in input order; this is `map` with the identity.
+
+### `filter`
+
+```yashy
+fn filter([]int values, int workers, fn(int) -> bool keep) -> []int
+```
+
+Keep the elements that satisfy `keep`, preserving input order.
+
+### `fold`
+
+```yashy
+fn fold([]int values, int workers, int initial, fn(int, int) -> int combine) -> int
+```
+
+Reduce the elements with `combine`, starting from `initial`.
+
+### `map`
+
+```yashy
+fn map([]int values, int workers, fn(int) -> int transform) -> []int
+```
+
+Apply `transform` to each element and return results in input order.
+
+### `sum`
+
+```yashy
+fn sum([]int values, int workers) -> int
+```
+
+Sum the elements. This is the sequential reference for a parallel fold.
 
 ## `path`
 
@@ -2214,6 +2476,43 @@ struct Match
 struct Regex
 ```
 
+## `select`
+
+### `first`
+
+```yashy
+fn first(Channel[int] left, Channel[int] right) -> int
+```
+
+### `try_first`
+
+```yashy
+fn try_first(Channel[int] left, Channel[int] right) -> int
+```
+
+A non-blocking two-case select: the declared order is still the priority,
+but a channel with nothing queued is skipped instead of waited on.
+
+### `try_with_timeout`
+
+```yashy
+fn try_with_timeout(Channel[int] left, Channel[int] right, Channel[int] tick) -> int
+```
+
+The non-blocking form of `with_timeout`: neither data channel nor the tick
+channel is allowed to block. Returns `-1` when all three are empty.
+
+### `with_timeout`
+
+```yashy
+fn with_timeout(Channel[int] left, Channel[int] right, Channel[int] tick) -> int
+```
+
+A two-case select with a timeout tick. The tick channel is checked only
+after both data cases, so data wins a tie by declared order. When no data
+is queued, the tick is polled without blocking; a tick of `n` returns `-n`,
+so a positive tick is the one that can be told apart from "nothing".
+
 ## `semver`
 
 ### `SemverError`
@@ -2322,6 +2621,137 @@ fn to_bytes(string text) -> []char
 ```
 
 The UTF-8 bytes of a string as `[]char`.
+
+## `sync`
+
+### `Ordering`
+
+```yashy
+enum Ordering
+```
+
+### `Barrier.wait`
+
+```yashy
+fn wait(Barrier self) -> int
+```
+
+### `Condvar.generation`
+
+```yashy
+fn generation(Condvar self) -> int
+```
+
+### `Condvar.signal`
+
+```yashy
+fn signal(Condvar self) -> void
+```
+
+### `Condvar.wait`
+
+```yashy
+fn wait(Condvar self, int observed) -> void
+```
+
+### `Once.enter`
+
+```yashy
+fn enter(Once self) -> bool
+```
+
+### `RwLock.read`
+
+```yashy
+fn read(RwLock self) -> void
+```
+
+### `RwLock.unlock`
+
+```yashy
+fn unlock(RwLock self) -> void
+```
+
+### `RwLock.write`
+
+```yashy
+fn write(RwLock self) -> void
+```
+
+### `barrier`
+
+```yashy
+fn barrier(int parties) -> Barrier
+```
+
+### `condvar`
+
+```yashy
+fn condvar() -> Condvar
+```
+
+### `once`
+
+```yashy
+fn once() -> Once
+```
+
+### `rwlock`
+
+```yashy
+fn rwlock() -> RwLock
+```
+
+### `AtomicBool`
+
+```yashy
+struct AtomicBool
+```
+
+### `AtomicI64`
+
+```yashy
+struct AtomicI64
+```
+
+### `AtomicPtr`
+
+```yashy
+struct AtomicPtr
+```
+
+### `AtomicU64`
+
+```yashy
+struct AtomicU64
+```
+
+### `Barrier`
+
+```yashy
+struct Barrier
+```
+
+### `Condvar`
+
+```yashy
+struct Condvar
+```
+
+### `Once`
+
+```yashy
+struct Once
+```
+
+One-time initialization. The state is an atomic, so exactly one caller
+runs the initializer and the others wait for its release store.
+
+### `RwLock`
+
+```yashy
+struct RwLock
+```
 
 ## `term`
 
