@@ -1074,12 +1074,14 @@ in the workspace.
 
 ## `yashyc mcp --root <dir>`
 
-JSON-RPC 2.0 over stdio with seven tools: `check`, `build`, `test`,
-`verify`, `explain`, `context`, `index`. Every tool returns the schema-v1
-payload the CLI returns; a tool error is `code: -32000` with the diagnostic
-array in `data`. No tool accepts a path outside `--root` (refused with
-`-32001`), no tool accepts a shell string, and `build` writes only under
-`<root>/.yashy/` and the requested output.
+JSON-RPC 2.0 over stdio with nine tools: `check`, `build`, `test`,
+`verify`, `explain`, `context`, `index`, `edit` and `refactor`. Every tool
+returns the schema-v1 payload the CLI returns; a tool error is `code: -32000`
+with the diagnostic array in `data`. No tool accepts a path outside `--root`
+(refused with `-32001`), no tool accepts a shell string, and `build` writes only
+under `<root>/.yashy/` and the requested output. The two mutation verbs apply
+hash-checked, all-or-nothing patches and re-check the tree before committing;
+see [MCP](mcp.md).
 
 ## `yashyc run --sandbox [--allow-read <path>] [--allow-write <path>] [--time <ms>] [--memory <mb>]`
 

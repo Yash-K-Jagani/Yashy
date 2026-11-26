@@ -79,12 +79,12 @@ fn request(id: i64, method: &str, params: &str) -> String {
 }
 
 #[test]
-fn initialize_advertises_exactly_the_seven_tools() {
+fn initialize_advertises_the_compiler_and_edit_tools() {
     let dir = workspace_dir();
     let mut mcp = Mcp::start(&dir);
     let response = mcp.call(&request(1, "initialize", "{}"));
     for tool in [
-        "check", "build", "test", "verify", "explain", "context", "index",
+        "check", "build", "test", "verify", "explain", "context", "index", "edit", "refactor",
     ] {
         assert!(
             response.contains(&format!(r#""name":"{tool}""#)),
@@ -151,6 +151,27 @@ fn an_unknown_method_is_minus_32601() {
     let mut mcp = Mcp::start(&dir);
     let response = mcp.call(&request(5, "nope", "{}"));
     assert!(response.contains("-32601"), "method not found:\n{response}");
+}
+
+#[test]
+fn refactor_renames_a_function_and_every_call_site() {
+    let dir = common::work_dir("mcp-refactor-rename");
+    common::write(
+        &dir,
+        "main.ya",
+        "fn double(int x) -> int { return x * 2; }\nfn main() { print(double(3)); }\n",
+    );
+    let mut mcp = Mcp::start(&dir);
+    let response = mcp.call(&request(
+        7,
+        "tools/call",
+        r#"{"name":"refactor","arguments":{"path":"main.ya","from":"double","to":"twice"}}"#,
+    ));
+    assert!(response.contains("\"applied\""), "{response}");
+    let source = std::fs::read_to_string(dir.join("main.ya")).unwrap();
+    assert!(source.contains("fn twice"), "{source}");
+    assert!(source.contains("twice(3)"), "{source}");
+    assert!(!source.contains("double"), "{source}");
 }
 
 #[test]

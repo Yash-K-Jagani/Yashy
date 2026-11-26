@@ -9,11 +9,13 @@
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 
-use yashy_common::{FileId, Json, SourceMap};
 use yashy_common::json_rpc::{self, Value};
+use yashy_common::{FileId, Json, SourceMap, Span};
 
 /// The seven tools, in a stable order.
-pub const TOOLS: [&str; 7] = ["check", "build", "test", "verify", "explain", "context", "index"];
+pub const TOOLS: [&str; 9] = [
+    "check", "build", "test", "verify", "explain", "context", "index", "edit", "refactor",
+];
 
 /// A tool error: JSON-RPC `code: -32000` with the diagnostic array in `data`.
 pub fn tool_error(id: Value, diagnostics: Vec<yashy_common::Diagnostic>) -> Value {
@@ -24,10 +26,7 @@ pub fn tool_error(id: Value, diagnostics: Vec<yashy_common::Diagnostic>) -> Valu
                 ("message", json_rpc::string(&diagnostic.message)),
                 (
                     "code",
-                    diagnostic
-                        .code
-                        .map(json_rpc::string)
-                        .unwrap_or(Value::Null),
+                    diagnostic.code.map(json_rpc::string).unwrap_or(Value::Null),
                 ),
             ])
         })
@@ -138,11 +137,146 @@ pub fn handle(root: &Path, request: &Value) -> Value {
     }
 }
 
+fn check_text(path: &Path, text: &str) -> Result<(), Vec<String>> {
+    let mut sources = SourceMap::new();
+    match crate::pipeline::check_and_verify(
+        &mut sources,
+        path,
+        text.to_string(),
+        false,
+        &yashy_verify::VerifyOptions {
+            contracts: yashy_verify::ContractMode::Enforce,
+        },
+        1,
+    ) {
+        Ok(_) => Ok(()),
+        Err(diagnostics) => Err(diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.clone())
+            .collect()),
+    }
+}
+
+fn parse_patch(value: &Value) -> Result<crate::edit::Patch, String> {
+    let expected_tree_hash = value
+        .get("expected_tree_hash")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let mut edits = Vec::new();
+    for item in value.get("edits").and_then(Value::as_array).unwrap_or(&[]) {
+        let file = item
+            .get("file")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let span = item.get("span").ok_or("an edit needs a span")?;
+        let start = span.get("start").and_then(Value::as_i64).unwrap_or(-1);
+        let end = span.get("end").and_then(Value::as_i64).unwrap_or(-1);
+        if start < 0 || end < start {
+            return Err("an edit span must have non-negative start and end".into());
+        }
+        edits.push(crate::edit::Edit {
+            file,
+            span: Span::new(start as u32, end as u32),
+            expected_hash: item
+                .get("expected_hash")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            replacement: item
+                .get("replacement")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            rationale: item
+                .get("rationale")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+        });
+    }
+    Ok(crate::edit::Patch {
+        edits,
+        expected_tree_hash,
+    })
+}
+
+fn call_edit_tool(root: &Path, id: Value, name: &str, arguments: Option<&Value>) -> Value {
+    let arguments = match arguments {
+        Some(arguments) => arguments,
+        None => return error(id, -32602, "edit and refactor need arguments"),
+    };
+    let patch = if name == "edit" {
+        match arguments.get("patch") {
+            Some(value) => match parse_patch(value) {
+                Ok(patch) => patch,
+                Err(message) => return error(id, -32602, &message),
+            },
+            None => return error(id, -32602, "`edit` needs a patch"),
+        }
+    } else {
+        let shown = arguments.get("path").and_then(Value::as_str).unwrap_or("");
+        let path = match contain(root, shown) {
+            Ok(path) => path,
+            Err(message) => return error(id, -32001, &message),
+        };
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(io_error) => return error(id, -32001, &format!("{shown}: {io_error}")),
+        };
+        let from = arguments.get("from").and_then(Value::as_str).unwrap_or("");
+        let to = arguments.get("to").and_then(Value::as_str).unwrap_or("");
+        if from.is_empty() || from == to {
+            return error(id, -32602, "`refactor` needs a `from` and a different `to`");
+        }
+        let mut edits = match crate::edit::rename_tokens(&text, from, to, "rename") {
+            Ok(edits) => edits,
+            Err(edit_error) => return error(id, -32001, &edit_error.message()),
+        };
+        if edits.is_empty() {
+            return error(id, -32001, &format!("no token named `{from}` in {shown}"));
+        }
+        let hash = match crate::edit::file_hash(&path) {
+            Ok(hash) => hash,
+            Err(edit_error) => return error(id, -32001, &edit_error.message()),
+        };
+        for edit in &mut edits {
+            edit.file = shown.to_string();
+            edit.expected_hash = hash.clone();
+        }
+        let tree = match crate::edit::tree_hash(root) {
+            Ok(tree) => tree,
+            Err(edit_error) => return error(id, -32001, &edit_error.message()),
+        };
+        crate::edit::Patch {
+            edits,
+            expected_tree_hash: tree,
+        }
+    };
+    match crate::edit::apply_patch(root, &patch, check_text) {
+        Ok(applied) => {
+            let applied: Vec<Value> = applied.into_iter().map(json_rpc::string).collect();
+            let tree = crate::edit::tree_hash(root)
+                .map(json_rpc::string)
+                .unwrap_or(Value::Null);
+            ok(
+                id,
+                json_rpc::object([("applied", Value::Arr(applied)), ("tree_hash", tree)]),
+            )
+        }
+        Err(edit_error) => error(id, -32001, &edit_error.message()),
+    }
+}
+
 fn call_tool(root: &Path, id: Value, name: &str, params: Option<&Value>) -> Value {
     if !TOOLS.contains(&name) {
         return error(id, -32602, &format!("unknown tool `{name}`"));
     }
     let arguments = params.and_then(|params| params.get("arguments"));
+    if name == "edit" || name == "refactor" {
+        return call_edit_tool(root, id, name, arguments);
+    }
     let path_text = arguments
         .and_then(|arguments| arguments.get("path"))
         .and_then(Value::as_str)
@@ -181,10 +315,7 @@ fn call_tool(root: &Path, id: Value, name: &str, params: Option<&Value>) -> Valu
                                 ("message", json_rpc::string(&diagnostic.message)),
                                 (
                                     "code",
-                                    diagnostic
-                                        .code
-                                        .map(json_rpc::string)
-                                        .unwrap_or(Value::Null),
+                                    diagnostic.code.map(json_rpc::string).unwrap_or(Value::Null),
                                 ),
                             ])
                         })
@@ -221,10 +352,7 @@ fn call_tool(root: &Path, id: Value, name: &str, params: Option<&Value>) -> Valu
             }
         }
         "index" => match crate::index::build_index(root) {
-            Ok(model) => ok(
-                id,
-                json_rpc::string(crate::index::to_json(&model).render()),
-            ),
+            Ok(model) => ok(id, json_rpc::string(crate::index::to_json(&model).render())),
             Err(message) => error(id, -32001, &message),
         },
         _ => error(id, -32602, "unreachable tool"),
