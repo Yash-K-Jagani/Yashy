@@ -155,6 +155,204 @@ fn a_folded_layout_query_emits_the_same_literal_as_a_written_number() {
     );
 }
 
+#[cfg(test)]
+mod ir_cross_check {
+    use super::*;
+    use std::collections::HashMap;
+
+    /// One type as the IR declares it: its element spellings in order.
+    fn definitions(ir: &str) -> HashMap<String, Vec<String>> {
+        let mut out = HashMap::new();
+        for line in ir.lines() {
+            let line = line.trim();
+            let Some((name, rest)) = line.split_once(" = type { ") else {
+                continue;
+            };
+            let Some(body) = rest.strip_suffix(" }") else {
+                continue;
+            };
+            out.insert(name.to_string(), split_top_level(body));
+        }
+        out
+    }
+
+    /// Split a `{ ... }` body on the commas that are not inside brackets.
+    fn split_top_level(body: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut depth = 0usize;
+        let mut start = 0usize;
+        for (index, ch) in body.char_indices() {
+            match ch {
+                '[' | '{' | '(' => depth += 1,
+                ']' | '}' | ')' => depth = depth.saturating_sub(1),
+                ',' if depth == 0 => {
+                    out.push(body[start..index].trim().to_string());
+                    start = index + 1;
+                }
+                _ => {}
+            }
+        }
+        let last = body[start..].trim();
+        if !last.is_empty() {
+            out.push(last.to_string());
+        }
+        out
+    }
+
+    fn align_up(value: usize, align: usize) -> usize {
+        if align <= 1 {
+            value
+        } else {
+            (value + align - 1) / align * align
+        }
+    }
+
+    /// `(size, align)` of an LLVM type spelling, computed with the C aggregate
+    /// rules the target uses, not by asking the layout table.
+    fn size_align(
+        spelling: &str,
+        defs: &HashMap<String, Vec<String>>,
+        seen: &mut Vec<String>,
+    ) -> (usize, usize) {
+        let (size, align, _) = layout_of(spelling, defs, seen);
+        (size, align)
+    }
+
+    /// `(size, align, offsets)` of an LLVM type spelling.
+    fn layout_of(
+        spelling: &str,
+        defs: &HashMap<String, Vec<String>>,
+        seen: &mut Vec<String>,
+    ) -> (usize, usize, Vec<usize>) {
+        let spelling = spelling.trim();
+        if let Some(inner) = spelling.strip_prefix('[') {
+            let (count, rest) = inner.split_once(" x ").expect("an array is `[N x T]`");
+            let count: usize = count.trim().parse().expect("the array length is a number");
+            let rest = rest.strip_suffix(']').expect("the array is closed");
+            let (size, align, _) = layout_of(rest, defs, seen);
+            return (size * count, align, Vec::new());
+        }
+        if let Some(inner) = spelling.strip_prefix('{') {
+            let inner = inner
+                .strip_suffix('}')
+                .expect("the literal struct is closed");
+            return struct_layout(&split_top_level(inner), defs, seen);
+        }
+        if spelling.starts_with('%') {
+            assert!(
+                !seen.contains(&spelling.to_string()),
+                "the IR types are not recursive through `{spelling}`"
+            );
+            let fields = defs
+                .get(spelling)
+                .unwrap_or_else(|| panic!("no definition for `{spelling}`"));
+            seen.push(spelling.to_string());
+            let found = struct_layout(fields, defs, seen);
+            seen.pop();
+            return found;
+        }
+        let scalar = match spelling {
+            "i1" | "i8" => (1, 1),
+            "i16" => (2, 2),
+            "i32" | "float" => (4, 4),
+            "i64" | "double" | "ptr" => (8, 8),
+            other if other.ends_with('*') => (8, 8),
+            other => panic!("the test does not know the IR type `{other}`"),
+        };
+        (scalar.0, scalar.1, Vec::new())
+    }
+
+    fn struct_layout(
+        fields: &[String],
+        defs: &HashMap<String, Vec<String>>,
+        seen: &mut Vec<String>,
+    ) -> (usize, usize, Vec<usize>) {
+        let mut offsets = Vec::new();
+        let mut size = 0usize;
+        let mut align = 1usize;
+        for field in fields {
+            let (field_size, field_align) = size_align(field, defs, seen);
+            size = align_up(size, field_align);
+            offsets.push(size);
+            size += field_size;
+            align = align.max(field_align);
+        }
+        (align_up(size, align), align, offsets)
+    }
+
+    fn ir_body(ir: &str, name: &str) -> Vec<String> {
+        let defs = definitions(ir);
+        let spelling = format!("%struct.{name}");
+        defs.get(&spelling)
+            .or_else(|| defs.get(&format!("%enum.{name}")))
+            .unwrap_or_else(|| panic!("the backend must define `{spelling}`:\n{ir}"))
+            .clone()
+    }
+
+    /// The numbers in the report must be the numbers in the IR. The walk is
+    /// re-derived here from the emitted aggregate, so agreeing with itself is
+    /// not enough to pass.
+    #[test]
+    fn every_declared_type_matches_the_ir_aggregate() {
+        let src = "repr(C) struct Pair { a: u8, b: i32 }\n\
+                   struct Inner { tag: char, value: int }\n\
+                   struct Outer { inner: Inner, flag: bool, tail: char }\n\
+                   enum Shape { Dot, Line(int), Box { w: int, h: int } }\n\
+                   struct Item { name: char, shape: Shape, count: int }\n\
+                   struct Table { items: [int; 3], flag: bool, item: Item }\n\
+                   fn main() {\n\
+                       let p = Pair { a: 1 as u8, b: 2 as i32 };\n\
+                       let t = Table {\n\
+                           items: [1, 2, 3],\n\
+                           flag: true,\n\
+                           item: Item { name: 'x', shape: Shape.Line(2), count: 3 },\n\
+                       };\n\
+                       let o = Outer { inner: Inner { tag: 'x', value: 3 }, flag: true, tail: 'y' };\n\
+                       print(t.item.count + o.inner.value);\n\
+                   }";
+        let program = check(src);
+        let decls = yashy_driver::layout::HirDecls::from_program(&program);
+        let ir = yashy_codegen::emit_program(
+            &program,
+            "main",
+            Default::default(),
+            &yashy_common::ProofFacts::empty(),
+        );
+
+        for (name, found, _) in yashy_driver::layout::all(&decls) {
+            let fields = ir_body(&ir, &name);
+            let defs = definitions(&ir);
+            let mut seen = Vec::new();
+            let from_ir = struct_layout(&fields, &defs, &mut seen);
+            assert_eq!(
+                from_ir,
+                (found.size, found.align, found.offsets),
+                "the report and the IR disagree about `{name}`"
+            );
+        }
+    }
+
+    /// Padding is a fact about the aggregate, not a second walk: a `repr(C)`
+    /// struct pins the C rule (1 byte, 3 of padding, then 4 bytes).
+    #[test]
+    fn padding_is_the_bytes_no_field_occupies() {
+        let src = "repr(C) struct Pair { a: u8, b: i32 }\n\
+                   struct Notes { flag: bool, value: char }\n\
+                   fn main() {\n\
+                       let p = Pair { a: 1 as u8, b: 2 as i32 };\n\
+                       let n = Notes { flag: true, value: 'x' };\n\
+                   }";
+        let program = check(src);
+        let decls = yashy_driver::layout::HirDecls::from_program(&program);
+        assert_eq!(yashy_driver::layout::padding_bytes("Pair", &decls), 3);
+        assert_eq!(yashy_driver::layout::padding_bytes("Notes", &decls), 0);
+        assert_eq!(
+            yashy_driver::layout::field_sizes("Pair", &decls),
+            vec![1, 4]
+        );
+    }
+}
+
 #[test]
 fn a_const_generic_query_emits_the_instantiated_literal() {
     let src = "struct Buffer[const N: int] { data: [int; N] }\n\

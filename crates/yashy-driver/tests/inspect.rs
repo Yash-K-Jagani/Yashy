@@ -217,6 +217,24 @@ fn inspect_layout_reports_size_alignment_and_fields() {
     assert!(stdout.contains("\"align\": 8"), "{stdout}");
     assert!(stdout.contains("\"field\": \"x\""), "{stdout}");
     assert!(stdout.contains("\"field\": \"y\""), "{stdout}");
+    // A type the report cannot improve on: no padding, no niche, nothing saved.
+    assert!(stdout.contains("\"padding\": 0"), "{stdout}");
+    assert!(stdout.contains("\"saved\": 0"), "{stdout}");
+    assert!(stdout.contains("\"niche\": null"), "{stdout}");
+
+    // Every declared type is reported from the same walk, so `--all` cannot
+    // disagree with the single-type answer.
+    let all = run(&dir, &["inspect", "--layout", "--all", "--json", "main.ya"]);
+    assert!(
+        all.status.success(),
+        "{}",
+        String::from_utf8_lossy(&all.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&all.stdout);
+    assert!(stdout.contains("\"types\""), "{stdout}");
+    assert!(stdout.contains("\"type\": \"Point\""), "{stdout}");
+    assert!(stdout.contains("\"padding\": 0"), "{stdout}");
+    assert!(stdout.contains("\"niche\": null"), "{stdout}");
 
     // The same facts are part of the symbol itself, so one `inspect --json`
     // call answers a function or a type.

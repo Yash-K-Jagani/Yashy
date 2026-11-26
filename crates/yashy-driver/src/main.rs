@@ -2775,83 +2775,24 @@ fn inspect_cmd(args: &[String]) -> ExitCode {
             return exit_code(EXIT_OK);
         }
         if layout_all {
-            let rows: Vec<Json> = yashy_driver::layout::all(&decls)
-                .into_iter()
-                .map(|(name, found, names)| {
-                    let mut entry = Json::object();
-                    entry.set("type", Json::string(&name));
-                    entry.set("size", Json::number(found.size as i64));
-                    entry.set("align", Json::number(found.align as i64));
-                    let offsets: Vec<Json> = found
-                        .offsets
-                        .iter()
-                        .enumerate()
-                        .map(|(index, offset)| {
-                            let mut field = Json::object();
-                            field.set("offset", Json::number(*offset as i64));
-                            if let Some(label) = names.get(index) {
-                                field.set("field", Json::string(label));
-                            }
-                            field
-                        })
-                        .collect();
-                    entry.set("fields", Json::array(offsets));
-                    entry
-                })
-                .collect();
-            let mut report = Json::object();
-            report.set("schema_version", Json::number(1));
-            report.set("tool", Json::string("inspect --layout"));
-            report.set("types", Json::array(rows));
-            println!("{}", report.render());
+            println!("{}", yashy_driver::layout::json_report_all(&decls).render());
             return exit_code(EXIT_OK);
         }
         let Some(type_name) = operands.get(1) else {
             return usage_error("`inspect --layout` needs a type name, or `--all`");
         };
-        let Some(found) = yashy_driver::layout::find(type_name, &decls) else {
+        if yashy_driver::layout::find(type_name, &decls).is_none() {
             eprintln!("error: no layout for `{type_name}`");
             return exit_code(EXIT_USAGE);
-        };
-        let names = decls.field_names(type_name);
+        }
         if !json {
-            let fields: Vec<String> = found
-                .offsets
-                .iter()
-                .enumerate()
-                .map(|(index, offset)| match names.get(index) {
-                    Some(label) => format!("{label}@{offset}"),
-                    None => format!("field{index}@{offset}"),
-                })
-                .collect();
-            println!(
-                "{type_name} size={} align={} fields={}",
-                found.size,
-                found.align,
-                fields.join(", ")
-            );
+            let line = yashy_driver::layout::human_line(type_name, &decls)
+                .expect("the type was found above");
+            println!("{line}");
             return exit_code(EXIT_OK);
         }
-        let mut report = Json::object();
-        report.set("schema_version", Json::number(1));
-        report.set("tool", Json::string("inspect --layout"));
-        report.set("type", Json::string(type_name));
-        report.set("size", Json::number(found.size as i64));
-        report.set("align", Json::number(found.align as i64));
-        let offsets: Vec<Json> = found
-            .offsets
-            .iter()
-            .enumerate()
-            .map(|(index, offset)| {
-                let mut entry = Json::object();
-                entry.set("offset", Json::number(*offset as i64));
-                if let Some(name) = names.get(index) {
-                    entry.set("field", Json::string(name));
-                }
-                entry
-            })
-            .collect();
-        report.set("fields", Json::array(offsets));
+        let report = yashy_driver::layout::json_report(type_name, &decls)
+            .expect("the type was found above");
         println!("{}", report.render());
         return exit_code(EXIT_OK);
     }

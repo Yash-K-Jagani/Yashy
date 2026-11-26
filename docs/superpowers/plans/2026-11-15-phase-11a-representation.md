@@ -52,25 +52,28 @@ sites, stack slots, bytes per value, and cold-start milliseconds.
 - Modify: `crates/yashy-driver/src/main.rs` (`inspect --layout`)
 - Test: `crates/yashy-driver/tests/layout.rs`, `crates/yashy-hir/tests/layout.rs`
 
-- [ ] **Step 1: Write the failing test.** For every corpus type, `inspect
+- [x] **Step 1: Write the failing test.** For every corpus type, `inspect
   --layout --json` reports size, alignment, field offsets, padding and the niche
   (if any); the same numbers are read from the generated IR; a mismatch fails.
-  *Current:* `inspect --layout <type>` reports one type and
-  `inspect --layout --all` now reports every declared type from the same
-  `yashy-hir` layout table a `sizeof` query uses. Padding, niche facts and the
-  IR cross-check are still owed, so the step stays open.
+  *Closed 2026-11-26:* `inspect --layout <type> --json` and
+  `inspect --layout --all --json` both render one report shape from the same
+  `yashy-hir` walk a `sizeof` query uses: `size`, `align`, per-field `offset`
+  and `size`, `padding`, `saved` and `niche`. `crates/yashy-driver/tests/layout.rs`
+  independently re-derives each declared struct and enum from the `= type { }`
+  aggregate the backend emits and fails on any difference; `find` now resolves
+  enums as well as structs, so `--all` reports every declared type.
 - [ ] **Step 2: Reorder only what is free.** A non-`repr(C)` struct's fields may
   be reordered to reduce padding; the report shows the chosen order and the
   bytes saved. A `repr(C)`, `repr(transparent)` or `repr(packed)` type is never
   reordered. An enum niche is used only when it is ABI-safe.
-- [ ] **Step 3: `size_of`/`align_of`/`offset_of` read the same table.** The
+- [x] **Step 3: `size_of`/`align_of`/`offset_of` read the same table.** The
   const evaluator and the report cannot disagree; a disagreement is a compiler
   bug with a test.
-  *Current:* `crates/yashy-driver/tests/layout.rs` compares checker-folded
-  `sizeof`/`alignof`/`offsetof` constants with the HIR layout walk and with
-  `inspect --layout`'s `find`, pinning the C padding rule as an independent
-  anchor. The generated-IR half of the cross-check is still owed, so the step
-  stays open.
+  *Closed 2026-11-26:* `crates/yashy-driver/tests/layout.rs` compares
+  checker-folded `sizeof`/`alignof`/`offsetof` constants with the HIR layout
+  walk and with `inspect --layout`'s `find`, pins the C padding rule as an
+  independent anchor, and checks that the literals reach the emitted IR.
+  `every_declared_type_matches_the_ir_aggregate` adds the generated-IR half.
 - [ ] **Step 4: Commit.**
 
 ### Task 2: Alias analysis and the attribute audit
