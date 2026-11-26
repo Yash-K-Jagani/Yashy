@@ -96,7 +96,7 @@ fn alloc_report_names_the_site_of_every_allocation() {
     common::write(
         &dir,
         "main.ya",
-        "fn main() {\n    let buf = alloc(16);\n    buf.free();\n    print(\"done\");\n}\n",
+        "fn give() -> *mut int {\n    let buf = alloc(16);\n    return buf;\n}\nfn main() {\n    let p = give();\n    p.free();\n    print(\"done\");\n}\n",
     );
     let (code, stdout, stderr) = run(&[
         "profile",
@@ -114,6 +114,14 @@ fn alloc_report_names_the_site_of_every_allocation() {
         stdout.contains("\"live_allocations\": 0"),
         "the program frees its buffer: {stdout}"
     );
+    for field in [
+        "\"count\": 1",
+        "\"bytes\": 128",
+        "\"size_class\"",
+        "\"call_path\"",
+    ] {
+        assert!(stdout.contains(field), "missing {field}: {stdout}");
+    }
 }
 
 #[test]

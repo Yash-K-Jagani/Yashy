@@ -1164,9 +1164,11 @@ through `YASHY_DEBUG=1`.
 
 `profile --alloc-report <file.ya>` builds with debug info, runs with the
 runtime's event trace enabled and reports every allocation site with a byte
-count and a source span, plus the blocks still live at exit. A deliberate leak
-needs `--no-verify`, because a verified program cannot leak; the build is then
-stamped unverified as usual. See [profiling](profiling.md).
+count, a source span, a display `size_class` (a power-of-two bucket up to 4096
+bytes, then `large` — not a claim about the allocator's own classes) and the
+bounded `call_path` recorded with the event, plus the blocks still live at exit.
+A deliberate leak needs `--no-verify`, because a verified program cannot leak;
+the build is then stamped unverified as usual. See [profiling](profiling.md).
 
 ## `yashyc coverage <file.ya>` / `coverage --tests [<dir>] [--json] [--format lcov|json|sarif] [--fail-under <pct>]`
 

@@ -6700,40 +6700,73 @@ fn alloc_report(input: PathBuf, no_verify: bool) -> ExitCode {
             _ => {}
         }
     }
-    let mut by_site: std::collections::BTreeMap<&str, (u64, i64)> =
+    #[derive(Default)]
+    struct SiteFacts {
+        count: u64,
+        bytes: i64,
+        classes: std::collections::BTreeSet<String>,
+        paths: std::collections::BTreeSet<String>,
+    }
+
+    /// A display bucket, not a claim about the allocator's own size classes.
+    fn size_class(bytes: i64) -> String {
+        if bytes > 4096 {
+            return "large".to_string();
+        }
+        let mut class = 8i64;
+        while class < bytes {
+            class *= 2;
+        }
+        class.to_string()
+    }
+
+    fn record_site<'a>(
+        map: &mut std::collections::BTreeMap<&'a str, SiteFacts>,
+        event: &'a trace::Event,
+    ) {
+        let entry = map.entry(event.span.as_str()).or_default();
+        entry.count += 1;
+        entry.bytes += event.size;
+        entry.classes.insert(size_class(event.size));
+        let path = if event.stack.is_empty() {
+            "?".to_string()
+        } else {
+            event.stack.join(" <- ")
+        };
+        entry.paths.insert(path);
+    }
+
+    let mut by_site: std::collections::BTreeMap<&str, SiteFacts> =
         std::collections::BTreeMap::new();
     for event in live.values() {
-        let entry = by_site.entry(event.span.as_str()).or_insert((0, 0));
-        entry.0 += 1;
-        entry.1 += event.size;
+        record_site(&mut by_site, event);
     }
-    let mut all_by_site: std::collections::BTreeMap<&str, (u64, i64)> =
+    let mut all_by_site: std::collections::BTreeMap<&str, SiteFacts> =
         std::collections::BTreeMap::new();
     for event in events.iter().filter(|event| event.kind == "alloc") {
-        let entry = all_by_site.entry(event.span.as_str()).or_insert((0, 0));
-        entry.0 += 1;
-        entry.1 += event.size;
+        record_site(&mut all_by_site, event);
     }
-    let allocations: Vec<Json> = all_by_site
-        .into_iter()
-        .map(|(span, (count, bytes))| {
-            let mut site = Json::object();
-            site.set("span", Json::string(span));
-            site.set("count", Json::number(count as i64));
-            site.set("bytes", Json::number(bytes));
-            site
-        })
-        .collect();
-    let sites: Vec<Json> = by_site
-        .into_iter()
-        .map(|(span, (count, bytes))| {
-            let mut site = Json::object();
-            site.set("span", Json::string(span));
-            site.set("count", Json::number(count as i64));
-            site.set("bytes", Json::number(bytes));
-            site
-        })
-        .collect();
+    let render_sites = |map: std::collections::BTreeMap<&str, SiteFacts>| -> Vec<Json> {
+        map.into_iter()
+            .map(|(span, facts)| {
+                let mut site = Json::object();
+                site.set("span", Json::string(span));
+                site.set("count", Json::number(facts.count as i64));
+                site.set("bytes", Json::number(facts.bytes));
+                site.set(
+                    "size_class",
+                    Json::array(facts.classes.into_iter().map(Json::string).collect()),
+                );
+                site.set(
+                    "call_path",
+                    Json::array(facts.paths.into_iter().map(Json::string).collect()),
+                );
+                site
+            })
+            .collect()
+    };
+    let allocations = render_sites(all_by_site);
+    let sites = render_sites(by_site);
 
     let mut report = Json::object();
     report.set("schema_version", Json::number(1));
