@@ -827,7 +827,8 @@ dropped:
   stale-revision detector remain owed. MCP now runs under a strict-by-default
   policy file and a hash-chained, rotating audit log verified by
   `yashyc agent audit --verify`; `require_approval` spends a tree-, patch- and
-  verb-bound token once. Token/wall/output budgets and session-key signatures
+  verb-bound token once. `max_wall_ms`, `max_tokens` and `max_output_bytes`
+  are session-wide caps enforced before the next call; session-key signatures
   remain owed.
 - Phase 14: self-host differential, reproducible bootstrap, normative spec,
   conformance suite, release/tag gates, channels, advisory feed,

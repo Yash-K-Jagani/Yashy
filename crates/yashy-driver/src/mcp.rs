@@ -112,6 +112,12 @@ pub struct Session {
     pub root: PathBuf,
     pub policy: crate::agent::AgentPolicy,
     pub audit: crate::agent::AuditLog,
+    /// Milliseconds spent in tool calls so far.
+    pub spent_ms: u64,
+    /// Request+response bytes divided by four, rounded up.
+    pub spent_tokens: u64,
+    /// Response bytes produced so far.
+    pub spent_output: u64,
 }
 
 impl Session {
@@ -124,6 +130,9 @@ impl Session {
             root: root.to_path_buf(),
             policy,
             audit,
+            spent_ms: 0,
+            spent_tokens: 0,
+            spent_output: 0,
         })
     }
 }
@@ -219,7 +228,10 @@ pub fn handle(session: &mut Session, request: &Value) -> Value {
                 ),
             )]),
         ),
-        "resources/list" => ok(id, json_rpc::object([("resources", crate::mcp_extras::list_resources())])),
+        "resources/list" => ok(
+            id,
+            json_rpc::object([("resources", crate::mcp_extras::list_resources())]),
+        ),
         "resources/read" => {
             let uri = request
                 .get("params")
@@ -231,7 +243,10 @@ pub fn handle(session: &mut Session, request: &Value) -> Value {
                 None => error(id, -32002, &format!("unknown resource `{uri}`")),
             }
         }
-        "prompts/list" => ok(id, json_rpc::object([("prompts", crate::mcp_extras::list_prompts())])),
+        "prompts/list" => ok(
+            id,
+            json_rpc::object([("prompts", crate::mcp_extras::list_prompts())]),
+        ),
         "prompts/get" => {
             let params = request.get("params");
             let name = params
@@ -265,6 +280,39 @@ pub fn handle(session: &mut Session, request: &Value) -> Value {
                 return refusal(id, -32602, crate::agent::POLICY_DENIED, &reason);
             }
             let paths = request_paths(params);
+            // Budgets are session-wide and only ever narrowed by policy. A
+            // breach stops the next call before it runs and names the limit.
+            let request_bytes = json_rpc::to_string(request).len() as u64;
+            let budget_reason = session
+                .policy
+                .max_wall_ms
+                .filter(|limit| session.spent_ms >= *limit)
+                .map(|limit| format!("wall budget of {limit} ms is exhausted"))
+                .or_else(|| {
+                    session
+                        .policy
+                        .max_tokens
+                        .filter(|limit| session.spent_tokens >= *limit)
+                        .map(|limit| format!("token budget of {limit} is exhausted"))
+                })
+                .or_else(|| {
+                    session
+                        .policy
+                        .max_output_bytes
+                        .filter(|limit| session.spent_output >= *limit)
+                        .map(|limit| format!("output budget of {limit} bytes is exhausted"))
+                });
+            if let Some(reason) = budget_reason {
+                if let Err(message) = session.audit.record(
+                    &name,
+                    "refused",
+                    Some(crate::agent::POLICY_DENIED),
+                    &reason,
+                ) {
+                    return refusal(id, -32005, crate::agent::AUDIT_FAILURE, &message);
+                }
+                return refusal(id, -32002, crate::agent::POLICY_DENIED, &reason);
+            }
             let refusal_reason = if !session.policy.allows(&name) {
                 Some(format!("policy denies tool `{name}`"))
             } else if let Some(hit) = session.policy.protected_hit(&paths) {
@@ -325,7 +373,16 @@ pub fn handle(session: &mut Session, request: &Value) -> Value {
                 }
                 return refusal(id, -32002, diagnostic, &reason);
             }
+            let started = std::time::Instant::now();
             let response = call_tool(&session.root, id.clone(), &name, params);
+            let response_bytes = json_rpc::to_string(&response).len() as u64;
+            session.spent_ms = session
+                .spent_ms
+                .saturating_add(started.elapsed().as_millis() as u64);
+            session.spent_tokens = session
+                .spent_tokens
+                .saturating_add(request_bytes.saturating_add(response_bytes).div_ceil(4));
+            session.spent_output = session.spent_output.saturating_add(response_bytes);
             let outcome = if response.get("error").is_some() {
                 "error"
             } else {

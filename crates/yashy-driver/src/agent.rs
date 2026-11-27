@@ -58,6 +58,12 @@ pub struct AgentPolicy {
     pub max_edits: Option<usize>,
     /// Verbs that need a short-lived token before they may run.
     pub require_approval: Vec<String>,
+    /// Stop the session after this many milliseconds of tool time.
+    pub max_wall_ms: Option<u64>,
+    /// Stop the session after this many tokens (bytes/4, rounded up).
+    pub max_tokens: Option<u64>,
+    /// Stop the session after this many output bytes from tools.
+    pub max_output_bytes: Option<u64>,
     /// Rotate the active segment before an append would exceed this size.
     pub audit_max_bytes: u64,
 }
@@ -72,6 +78,9 @@ impl Default for AgentPolicy {
             protected_paths: Vec::new(),
             max_edits: None,
             require_approval: Vec::new(),
+            max_wall_ms: None,
+            max_tokens: None,
+            max_output_bytes: None,
             audit_max_bytes: 1024 * 1024,
         }
     }
@@ -126,6 +135,9 @@ impl AgentPolicy {
                     }
                     policy.require_approval = verbs;
                 }
+                "max_wall_ms" => policy.max_wall_ms = Some(positive(key, value)? as u64),
+                "max_tokens" => policy.max_tokens = Some(positive(key, value)? as u64),
+                "max_output_bytes" => policy.max_output_bytes = Some(positive(key, value)? as u64),
                 "audit_max_bytes" => policy.audit_max_bytes = positive(key, value)? as u64,
                 other => return Err(format!("unknown policy key `{other}`")),
             }
@@ -184,6 +196,13 @@ impl AgentPolicy {
                     .collect(),
             ),
         );
+        let budget_field = |value: Option<u64>| match value {
+            Some(number) => Json::number(number as i64),
+            None => Json::Null,
+        };
+        root.set("max_wall_ms", budget_field(self.max_wall_ms));
+        root.set("max_tokens", budget_field(self.max_tokens));
+        root.set("max_output_bytes", budget_field(self.max_output_bytes));
         root.set("audit_max_bytes", Json::number(self.audit_max_bytes as i64));
         root
     }

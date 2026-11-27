@@ -56,3 +56,12 @@ a token byte-reproducible for tests; without it the current clock is used.
 
 Still owed: token, wall-clock and output budgets counted by the harness;
 session-key signatures on log entries.
+
+## Budgets
+
+`max_wall_ms`, `max_tokens` and `max_output_bytes` cap a session. Milliseconds
+are spent inside tool calls; tokens are request-plus-response bytes divided by
+four, rounded up; output bytes are the responses themselves. A limit is
+refused with `E1807` before the next tool runs, and the refusal is an audit
+entry. Budgets are session-wide, so an agent cannot raise its own by editing a
+policy file (the file is protected).

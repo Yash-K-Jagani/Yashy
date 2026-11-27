@@ -230,3 +230,34 @@ fn policy_command_prints_the_effective_policy() {
     assert!(stdout.contains("\"check\""), "{stdout}");
     assert!(stdout.contains("\"max_edits\": 3"), "{stdout}");
 }
+
+#[test]
+fn budgets_are_parsed_from_the_policy() {
+    let policy = yashy_driver::agent::AgentPolicy::parse(
+        "allow_verbs = [\"check\"]\nmax_wall_ms = 100\nmax_tokens = 50\nmax_output_bytes = 20\n",
+    )
+    .expect("budgets parse");
+    assert_eq!(policy.max_wall_ms, Some(100));
+    assert_eq!(policy.max_tokens, Some(50));
+    assert_eq!(policy.max_output_bytes, Some(20));
+    let json = policy.to_json().render();
+    assert!(json.contains("\"max_wall_ms\": 100"), "{json}");
+    assert!(json.contains("\"max_tokens\": 50"), "{json}");
+    assert!(json.contains("\"max_output_bytes\": 20"), "{json}");
+    let rejected = yashy_driver::agent::AgentPolicy::parse("max_tokens = 0\n");
+    assert!(rejected.is_err(), "a non-positive cap is refused");
+}
+
+#[test]
+fn an_output_budget_stops_the_next_call() {
+    let dir = workspace("agent-policy-output-budget", Some("max_output_bytes = 1\n"));
+    let mut mcp = Mcp::start(&dir);
+    let first = mcp.call(&r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"check","arguments":{"path":"main.ya"}}}"#);
+    assert!(first.contains("\"result\""), "{first}");
+    let second = mcp.call(&r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"check","arguments":{"path":"main.ya"}}}"#);
+    assert!(second.contains("-32002"), "{second}");
+    assert!(
+        second.contains("output budget of 1 bytes is exhausted"),
+        "{second}"
+    );
+}
