@@ -218,16 +218,20 @@ crate; the `Lint` interface below is the implemented one.
   `explain --json` record and the all-codes envelope, and
   `error_examples.rs` checks that each transcript's
   `path:line:column` names the line it echoes, so the example a page shows and
-  the example its transcript describes cannot drift apart. Running the example
-  through the checker and asserting the code is still owed.
+  the example its transcript describes cannot drift apart.
+  *Closed 2026-11-27:* `yashyc conformance` runs every page's `yashy` example
+  through the checker and reports which pages reproduce their own code with
+  the diagnostic span; `crates/yashy-driver/tests/conformance.rs` pins the
+  report and the `--fail-under` gate. Pages that do not reproduce their code
+  are named as mismatches, so the evidence gap is visible rather than silent.
 - [x] **Step 2: Make the catalog generated.** `yashyc explain --all --json` is
   the machine form; a code without a page fails the build.
   *Current:* `docs/errors.md` is committed and `error_examples.rs` compares its
   table byte for byte with the registry (id, link and `title`, in registry
   order) and refuses an orphan page, so the table and the pages are checked
-  against one source. The table is rendered by the test's expectation rather
-  than written by `explain --all`; a `yashyc`-driven regeneration is the
-  remaining half.
+  against one source. `yashyc explain --all --catalog` now renders the whole
+  page from the registry, replacing the table in place; the test runs the CLI
+  and compares its output with the committed page.
 - [x] **Step 3: Rule ids.** Every code names the rule it enforces
   (`OWN-3`, `ALIAS-2`, `DET-4`, …) through `codes::rule_for`; `explain --json`
   and `explain --all --json` carry a `rule` field, and a unit test refuses an

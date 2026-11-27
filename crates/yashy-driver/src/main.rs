@@ -4355,12 +4355,14 @@ fn display_test_path(path: &Path) -> String {
 fn explain(args: &[String]) -> ExitCode {
     let mut json = false;
     let mut all = false;
+    let mut catalog = false;
     let mut code: Option<&str> = None;
 
     for argument in args {
         match argument.as_str() {
             "--json" => json = true,
             "--all" => all = true,
+            "--catalog" => catalog = true,
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown option `{other}`"));
             }
@@ -4373,6 +4375,42 @@ fn explain(args: &[String]) -> ExitCode {
         }
     }
 
+    if catalog && !all {
+        return usage_error("`--catalog` needs `--all`");
+    }
+    if all && catalog {
+        let path = Path::new("docs/errors.md");
+        let document = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(error) => {
+                eprintln!("error: {}: {error}", path.display());
+                return exit_code(EXIT_USAGE);
+            }
+        };
+        let rows: Vec<String> = codes::CODES
+            .iter()
+            .map(|entry| {
+                format!(
+                    "| [{}](errors/{}.md) | {} |",
+                    entry.id, entry.id, entry.title
+                )
+            })
+            .collect();
+        let mut lines: Vec<String> = document.lines().map(str::to_string).collect();
+        let Some(start) = lines
+            .iter()
+            .position(|line| line.trim() == "| Code | Meaning |")
+        else {
+            return usage_error("docs/errors.md has no `| Code | Meaning |` table");
+        };
+        let mut end = start + 2;
+        while end < lines.len() && lines[end].starts_with('|') {
+            end += 1;
+        }
+        lines.splice(start + 2..end, rows);
+        println!("{}", lines.join("\n"));
+        return exit_code(EXIT_OK);
+    }
     if all {
         if code.is_some() {
             return usage_error("`--all` cannot be combined with a code");

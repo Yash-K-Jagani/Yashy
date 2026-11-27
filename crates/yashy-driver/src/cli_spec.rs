@@ -136,8 +136,8 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "explain",
         summary: "print the long-form page for an error code",
-        usage: "yashyc explain [--all] [--json] <code>",
-        flags: &["--all", "--json"],
+        usage: "yashyc explain [--all [--catalog]] [--json] <code>",
+        flags: &["--all", "--catalog", "--json"],
         takes_path: false,
     },
     CommandSpec {

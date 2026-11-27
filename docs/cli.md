@@ -585,7 +585,7 @@ and exits `1`; without it the command exits `0` even when it reports a lint.
 `--list --json` is the machine form and `--docs` renders [lints.md](lints.md),
 which a test compares byte for byte with the committed page.
 
-## `yashyc explain <code> [--json]`
+## `yashyc explain <code> [--json] [--all [--catalog]]`
 
 Prints the long-form catalog page for an error code: the cause, a minimal
 example, and the fix. The pages are embedded in the binary, so the command
@@ -594,6 +594,7 @@ works offline.
 ```text
 yashyc explain E0100
 yashyc explain --json E0100
+yashyc explain --all --catalog > docs/errors.md
 ```
 
 The human form is the Markdown page verbatim. The JSON form is a separate
@@ -618,7 +619,11 @@ An unknown code is a usage error (`2`). When the code is a near miss, the
 message names the nearest known code, for example
 ``unknown error code `E010`; did you mean `E0100`?``. With `--json`, an unknown
 code still writes that human message to stderr; the JSON envelope is for a
-catalog entry that exists.
+catalog entry that exists. With `--all --catalog`, the whole catalog page is
+rendered from the registry: only the `| Code | Meaning |` table is regenerated,
+and everything else in `docs/errors.md` is preserved byte for byte. A test runs
+the command and compares it with the committed page, so the page is generated
+from one source rather than hand-maintained.
 
 ## Colour and width
 

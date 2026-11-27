@@ -228,3 +228,27 @@ fn every_page_belongs_to_a_code() {
         );
     }
 }
+
+#[test]
+fn explain_all_catalog_regenerates_the_committed_page() {
+    use std::process::Command;
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let output = Command::new(env!("CARGO_BIN_EXE_yashyc"))
+        .args(["explain", "--all", "--catalog"])
+        .current_dir(&root)
+        .output()
+        .expect("the CLI must run");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let rendered = String::from_utf8_lossy(&output.stdout);
+    let expected = include_str!("../../../docs/errors.md");
+    assert_eq!(
+        rendered.trim_end().replace("\r\n", "\n"),
+        expected.trim_end().replace("\r\n", "\n"),
+        "docs/errors.md is stale; regenerate it with `yashyc explain --all --catalog`"
+    );
+}

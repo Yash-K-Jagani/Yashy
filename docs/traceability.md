@@ -593,6 +593,7 @@ Codes: `E1808`
 Tests:
 
 - `crates/yashy-driver/tests/capabilities.rs`
+- `crates/yashy-driver/tests/runtime_capabilities.rs`
 
 ## `RANGE-1`
 
@@ -830,6 +831,7 @@ Codes: `E0100`
 Tests:
 
 - `crates/yashy-driver/tests/agents.rs`
+- `crates/yashy-driver/tests/conformance.rs`
 - `crates/yashy-driver/tests/diagnostics_json.rs`
 - `crates/yashy-driver/tests/e2e.rs`
 - `crates/yashy-driver/tests/explain.rs`
