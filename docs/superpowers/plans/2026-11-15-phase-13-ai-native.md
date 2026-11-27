@@ -112,7 +112,9 @@ agent run reproducible.
   paths are canonicalised and contained before any read or write.
 
 - [x] **Step 5: Commit.**
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 ### Task 2: The semantic graph
 
@@ -132,13 +134,17 @@ agent run reproducible.
   capability read, assert the graph carries each symbol's type, its effects, its
   contract, its ownership facts, its unsafe sites and its capability reads, and
   that a rename moves every incoming edge.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 2: One model, rendered twice.** `index --json`, `context`, `doc`,
   the LSP and the MCP server read the same graph. The human rendering is
   generated from the JSON; a divergence is a test failure. Schema v1 fields are
   frozen; new fields are additive.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 3: The graph is queryable.** `graph --json --from <symbol> --depth N
   --edges calls,owns,raises` answers "what can this function touch, allocate and
@@ -152,10 +158,14 @@ agent run reproducible.
 - [x] **Step 4: Byte-stable.** Two runs produce byte-identical JSON on both
   OSes: sorted keys, sorted ids, no addresses, no timestamps, no hash-map order.
   A diff of the graph is a diff of the program.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 5: Commit.**
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 ### Task 3: Context packs
 
@@ -224,27 +234,37 @@ agent run reproducible.
   forking a process, writing past the size limit, and reading `/proc/self/mem`.
   Assert each is refused with a distinct code, on both OSes, and that the corpus
   reports zero escapes.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 2: Default-deny, positively named.** A capability is a named path
   or a named feature; absence is denial. Both OSes implement the same model
   (job object and restricted token on Windows, `rlimit`/`seccomp`-class limits and
   path checks on Linux) or the sandbox is not shipped. A platform that cannot
   enforce a limit says so in `doctor` and refuses the verb rather than pretending.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 3: Limits are enforced, not requested.** The wall clock kills the
   child, memory is capped, output is truncated with a marker, and a process
   count is capped. `--json` reports which limit fired.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 4: The compiler verbs are the whole surface.** `check`, `build`,
   `test`, `verify`, `explain`, `context`, `index`, `doc`, `bench`, `profile`,
   `run`, `fix`, `format`, `lint`. Anything else is refused by name.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 5: Commit.**
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 ### Task 5: Agent benchmark v2
 
@@ -263,28 +283,38 @@ agent run reproducible.
   leak with `defer`, add a CLI flag, add a migration, split a module, fix a
   diagnostic. Each has machine checks, not a prose rubric. A deliberately wrong
   solution fails the check; a correct one passes.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 2: Deterministic and comparable.** The benchmark runs under
   `--deterministic` with a fixed clock and seed, records the graph revision, the
   tool calls, the edits and the token counts, and two runs of the same solution
   produce the same trace. A score without a trace is not a result.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 3: The benchmark is a regression gate, not a leaderboard.** It
   runs on the repo's own fixtures, needs no network, and a drop of more than the
   recorded threshold fails CI. No private model is required to run it.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 4: Held-out tasks and cost are part of the result.** A held-out
   set the implementation never sees is scored separately; every run reports
   tokens, tool calls, wall time, edits, refused calls and unsafe additions, so a
   cheap wrong answer and an expensive right one are distinguishable. A task that
   passes only by disabling verification is scored as a failure.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 5: Commit.**
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 ### Task 6: Agent docs and provenance
 
@@ -298,21 +328,29 @@ agent run reproducible.
   module map, identity rules, the diagnostics an agent will hit — and an
   `llms.txt` index; both are byte-stable and both are checked in CI. A symbol
   doc page includes its type, effects, contracts, ownership and unsafe sites.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 2: Provenance is recorded, not inferred.** Every applied edit
   carries the session id, the tool, the span, the before/after hash and the
   rationale; `yashyc trace --edits` renders it; a commit can be annotated with
   the session that produced it. No hidden attribution and no automatic commit.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 3: Docs are generated from the compiler's tables.** `docs/` pages
   for the stdlib come from `yashyc doc`; a hand-edited generated page fails the
   docs test. `AGENTS.md` names the rules that actually exist.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 4: Commit.**
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 ### Task 7: The BPE gate over the whole surface
 
@@ -325,20 +363,28 @@ agent run reproducible.
   set and a 1 MB corpus of tutorial, stdlib and example source with three
   tokenizers (`o200k`, `cl100k`, a Llama-family vocab). Assert 100% of keywords
   and operators are one token and ≥ 97% of lexical tokens are one token.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 2: The formatter never splits a keyword.** A round-trip over the
   corpus preserves token boundaries; `tokens --bpe --json` reports per-keyword
   and per-file numbers so a regression names the file.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 3: A rejected spelling is recorded.** `docs/bpe.md` lists every
   candidate considered, its measurement and the decision. No aesthetic rule
   without a number.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 4: Commit.**
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 ### Task 8: Agent policy, audit and approval
 
@@ -360,37 +406,49 @@ agent run reproducible.
   verb that exceeds `max_wall` is refused before it runs. A destructive patch
   without an approval token is held as a plan; the same patch with a valid token
   applies once and the token cannot be replayed.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 2: Policy is the product's, not the agent's.** The policy file is
   read from the workspace root, is itself protected, and a change to it is an
   audited event that a session cannot self-approve. Precedence is one rule:
   policy denies, then sandbox denies, then the verb runs. A missing policy is
   the strict default, never "allow all".
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 3: The audit log is tamper-evident.** Entries are append-only
   JSONL, hash-chained (`prev_hash`), signed by the session key, redacted by the
   same rules as a trace, and rotated with a size cap. `yashyc agent audit
   --verify` detects a removed or reordered entry and names the first bad seq. A
   refused call is an entry; a silent call is a bug.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 4: Approval is a capability, not a prompt.** `plan` returns the
   diff, the affected symbols, the capabilities and the exact verbs; `approve`
   mints a short-lived token bound to the tree hash, the patch hash and the verb
   set. A token from one tree cannot apply to another; an expired token is
   refused; a replay is refused and logged.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 5: Budgets are enforced, not suggested.** Token, edit, wall-clock
   and output budgets are counted by the harness, reported in `--json`, and a
   breach stops the session with a diagnostic. An agent cannot raise its own
   budget; only the policy can.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 6: Commit.**
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 ### Task 9: Semantic review, impact and a stable SDK
 
@@ -411,7 +469,9 @@ agent run reproducible.
   test is summarized as four semantic changes with spans, a breaking-API flag and
   the exact impacted tests. A purely internal rename reports no public break and
   a bounded impact. `yashyc review --json` and the human rendering agree.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 2: Review reads the graph, not the diff.** Changes are classified
   by symbol and kind (signature, behaviour, effect, contract, capability,
@@ -419,31 +479,41 @@ agent run reproducible.
   visibility model. A diff that touches only comments is reported as no semantic
   change. Impact reuses the Phase 9 impacted-test graph and names every test,
   package, example and doc page to re-run.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 3: The SDK is the one embedding surface.** A Rust crate exposes the
   seven compiler verbs, review, impact and the graph with a stable typed API and
   one error type; the CLI, LSP, MCP and the test harness call the same crate, so
   there is no second pipeline. The SDK is `#![forbid(unsafe_code)]` and has a
   semver policy from the first release.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 4: MCP is complete, not just verbs.** Tools carry annotations
   (`readOnly`, `destructive`, `idempotent`), structured content and a result
   schema; resources expose the graph, diagnostics and docs; prompts are versioned
   templates shipped by the compiler; long operations support progress and
   cancellation. A cancelled tool stops work and leaves no partial edit.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 5: Untrusted text is labelled, never obeyed.** A file, an issue
   body, a dependency README or a tool result that contains instructions is marked
   `untrusted` in the structured output, and a prompt-injection fixture asserts
   that the harness never turns it into a policy change, a verb or a path. The
   label travels with the content into context packs.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 - [x] **Step 6: Commit.**
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
+  remaining obligations are carried in `docs/gates.md`, which names the owner
+  and the condition that closes each one; none is silently dropped.*
 
 ## Gates
 
