@@ -237,3 +237,84 @@ fn code_actions_offer_a_real_edit_for_a_removed_keyword() {
         "the replacement must be `let`: {rendered}"
     );
 }
+
+#[test]
+fn pull_diagnostics_carry_a_stable_result_id() {
+    let uri = path_to_uri(&std::env::temp_dir().join("lsp-results.ya"));
+    let text = "fn main() { let int x = \"three\"; }\n";
+    let messages = vec![
+        did_open(&uri, text),
+        request(1, "textDocument/diagnostic", at(&uri, 0, 0, &[])),
+        request(2, "textDocument/diagnostic", at(&uri, 0, 0, &[])),
+    ];
+    let replies = run(messages);
+    let result = |id: i64| {
+        replies
+            .iter()
+            .find(|reply| reply.get("id").and_then(Value::as_i64) == Some(id))
+            .and_then(|reply| reply.get("result"))
+            .expect("diagnostic answers")
+    };
+    let first_id = result(1)
+        .get("resultId")
+        .and_then(Value::as_str)
+        .expect("a resultId")
+        .to_string();
+    assert_eq!(first_id.len(), 16, "a hexadecimal id: {first_id}");
+    let second_id = result(2)
+        .get("resultId")
+        .and_then(Value::as_str)
+        .expect("a resultId");
+    assert_eq!(second_id, first_id, "the same text has the same id");
+    assert!(
+        result(1)
+            .get("items")
+            .and_then(Value::as_array)
+            .is_some_and(|items| !items.is_empty()),
+        "the first request carries the diagnostics"
+    );
+}
+
+#[test]
+fn a_previous_result_id_skips_unchanged_items() {
+    let uri = path_to_uri(&std::env::temp_dir().join("lsp-results-cached.ya"));
+    let text = "fn main() { let int x = \"three\"; }\n";
+    // Learn the id from a first session, then send it as `previousResultId`.
+    let first = run(vec![
+        did_open(&uri, text),
+        request(1, "textDocument/diagnostic", at(&uri, 0, 0, &[])),
+    ]);
+    let id = first
+        .iter()
+        .find(|reply| reply.get("id").and_then(Value::as_i64) == Some(1))
+        .and_then(|reply| reply.get("result"))
+        .and_then(|result| result.get("resultId"))
+        .and_then(Value::as_str)
+        .expect("a resultId")
+        .to_string();
+    let second = run(vec![
+        did_open(&uri, text),
+        request(
+            2,
+            "textDocument/diagnostic",
+            at(&uri, 0, 0, &[("previousResultId", string(&id))]),
+        ),
+    ]);
+    let result = second
+        .iter()
+        .find(|reply| reply.get("id").and_then(Value::as_i64) == Some(2))
+        .and_then(|reply| reply.get("result"))
+        .expect("diagnostic answers");
+    assert_eq!(
+        result.get("resultId").and_then(Value::as_str),
+        Some(id.as_str()),
+        "the id is unchanged"
+    );
+    assert!(
+        result
+            .get("items")
+            .and_then(Value::as_array)
+            .is_some_and(|items| items.is_empty()),
+        "unchanged items are omitted"
+    );
+}

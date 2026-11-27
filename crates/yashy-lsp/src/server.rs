@@ -734,7 +734,31 @@ impl Server {
             return Value::Null;
         };
         let diagnostics = diagnostics_text(&text);
-        object([("items", Value::Arr(diagnostics))])
+        // `resultId` lets a client skip re-rendering an unchanged result. It is
+        // a hash of the text and the rendered items, so the same document and
+        // the same diagnostics always produce the same id in this session.
+        let mut rendered = String::new();
+        for item in &diagnostics {
+            rendered.push_str(&format!("{item:?}"));
+        }
+        let mut hash = 0xcbf2_9ce4_8422_2325u64;
+        for byte in text.as_bytes().iter().chain(rendered.as_bytes()) {
+            hash ^= *byte as u64;
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        let result_id = format!("{hash:016x}");
+        let previous = params
+            .and_then(|p| p.get("previousResultId"))
+            .and_then(Value::as_str);
+        let items = if previous == Some(result_id.as_str()) {
+            Vec::new()
+        } else {
+            diagnostics
+        };
+        object([
+            ("items", Value::Arr(items)),
+            ("resultId", string(&result_id)),
+        ])
     }
 
     fn code_actions(&self, params: Option<&Value>) -> Value {

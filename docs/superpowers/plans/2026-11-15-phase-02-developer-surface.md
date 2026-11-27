@@ -98,9 +98,11 @@ is `tests/conformance.rs`, not a directory of `.jsonrpc` files.
   `WorkspaceEdit` with LSP ranges.
 - [x] **Step 4: Pull and push diagnostics.** Keep push diagnostics for
   compatibility; add `textDocument/diagnostic`.
-  *Current:* both are answered over stdio. Semantic tokens are sent in LSP's
-  delta encoding (`delta_line`/`delta_start`), so that half of the original
-  "still open" note was false; pull-diagnostic `resultId`s are not emitted.
+  *Closed 2026-11-27:* both are answered over stdio. Semantic tokens are sent in
+  LSP's delta encoding (`delta_line`/`delta_start`). Pull diagnostics carry a
+  stable 16-hex-digit `resultId` derived from the document text and the rendered
+  items; a request with the matching `previousResultId` omits unchanged items.
+  `crates/yashy-lsp/tests/conformance.rs` pins both.
 - [x] **Step 5: Two clients, one transcript.** Wire the VS Code and Neovim
   clients (Task 9 owns their packaging, grammar and debug adapters) and run the
   same transcript through both.
