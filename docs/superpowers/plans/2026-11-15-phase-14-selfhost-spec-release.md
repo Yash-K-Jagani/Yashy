@@ -364,7 +364,13 @@ end stays the reference for the 2.0 release (design call 7).
   target and toolchain; the dashboard page is generated from it and shows the
   row, the baseline and the delta. A row that regresses more than its budget
   fails CI; a row without history is marked "new", never "green".
-  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *Partly closed 2026-11-27:* `crates/yashy-driver/src/dashboard.rs` keeps
+  benchmark rows keyed by compiler, target, toolchain and benchmark key,
+  renders a Markdown table with the baseline, current value and delta, and
+  fails `--check` only when a row regresses past its budget. A first row is
+  "new", never "green". `yashyc bench dashboard` reads the history and the
+  driver tests pin both paths. Deriving the history from CI uploads and wiring
+  the check into the release gate are still owed.
 
 - [x] **Step 5: Commit.**
   *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*

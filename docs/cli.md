@@ -505,7 +505,7 @@ errors such as a missing toolchain. `--list` and `--json` cannot be combined. A
 failing test makes the command exit `1`; a setup problem exits `2`; a directory
 that cannot be created exits `3`.
 
-## `yashyc bench [--json] [--list] [--check-baseline <file>] [--thresholds <file>] [file]`
+## `yashyc bench [--json] [--list] [--check-baseline <file>] [--thresholds <file>] [file] | bench dashboard [--history <file>] [--append <measurement>] [--check] [--json]`
 
 Reads the `key=value` rows a benchmark script wrote and prints them, or emits
 the same rows in a schema-v1 envelope as `rows`. The default file is
@@ -519,6 +519,14 @@ is either the row file itself (default) or `--thresholds <file>`; an exact
 `*_run_ms`) and a `default=` line. `--json` emits the comparison as `comparison`.
 A key missing from the baseline is reported with a zero base rather than
 skipped: a new row is a new claim.
+
+`yashyc bench dashboard` reads a JSON history whose rows name the compiler,
+target, toolchain, benchmark key, value and budget. It renders a Markdown table
+with the baseline, current value and percentage delta; `--check` exits `1` when
+a row regresses past its budget. The first observation for a key is `new`, not
+`green`: a single measurement cannot prove stability. `--json` emits the rows
+in a schema-v1 envelope. A missing history file starts empty, so the first run
+records rather than fails.
 
 `yashyc bench --measure <file.ya>` builds the program and measures it: warmup
 runs, N iterations, an optional `--compare <binary>` interleaved so machine

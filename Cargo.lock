@@ -64,6 +64,7 @@ version = "1.0.0"
 name = "yashy-driver"
 version = "1.0.0"
 dependencies = [
+ "yashy-bench",
  "yashy-cache",
  "yashy-codegen",
  "yashy-common",

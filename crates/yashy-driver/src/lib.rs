@@ -22,6 +22,7 @@ pub mod conformance;
 pub mod coverage;
 pub mod daemon;
 pub mod daemon_protocol;
+pub mod dashboard;
 pub mod debug;
 pub mod debug_info;
 pub mod doc;

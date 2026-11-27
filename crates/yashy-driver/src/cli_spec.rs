@@ -256,11 +256,14 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "bench",
         summary: "measure a program or compare benchmark rows",
-        usage: "yashyc bench [--json] [--list] [--check-baseline <file>] [--thresholds <file>] [--measure <file.ya>] [file]",
+        usage: "yashyc bench [--json] [--list] [--check-baseline <file>] [--thresholds <file>] [--measure <file.ya>] [file] | bench dashboard [--history <file>] [--append <measurement>] [--check] [--json]",
         flags: &[
             "--json",
             "--list",
             "--check-baseline",
+            "--history",
+            "--append",
+            "--check",
             "--thresholds",
             "--measure",
             "--compare",

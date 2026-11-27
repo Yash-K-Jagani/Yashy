@@ -1429,8 +1429,103 @@ fn inspect_rc_cmd(source: &Path, json: bool) -> ExitCode {
 /// Reads the `key=value` rows a benchmark script wrote and renders them. It
 /// deliberately measures nothing: a claim without a row is not a claim this
 /// repository accepts (see `docs/bench-policy.md`).
+fn dashboard_cmd(args: &[String]) -> ExitCode {
+    let mut history_path = PathBuf::from("benchmarks/history.json");
+    let mut append_path: Option<PathBuf> = None;
+    let mut check = false;
+    let mut json = false;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--check" => check = true,
+            "--json" => json = true,
+            "--history" | "--append" => {
+                if index + 1 >= args.len() {
+                    return usage_error(&format!("`{}` needs a value", args[index]));
+                }
+                let value = PathBuf::from(&args[index + 1]);
+                if args[index] == "--history" {
+                    history_path = value;
+                } else {
+                    append_path = Some(value);
+                }
+                index += 1;
+            }
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `bench dashboard`"))
+            }
+            other => history_path = PathBuf::from(other),
+        }
+        index += 1;
+    }
+    let mut history = match yashy_driver::dashboard::load(&history_path) {
+        Ok(history) => history,
+        Err(message) => {
+            eprintln!("error: {message}");
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    if let Some(path) = append_path {
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(error) => {
+                eprintln!("error: {}: {error}", path.display());
+                return exit_code(EXIT_USAGE);
+            }
+        };
+        let measurement = match yashy_bench::Measurement::parse(&text) {
+            Ok(measurement) => measurement,
+            Err(error) => {
+                eprintln!("error: {}: {error}", path.display());
+                return exit_code(EXIT_USAGE);
+            }
+        };
+        let key = args
+            .iter()
+            .position(|arg| arg == "--key")
+            .and_then(|at| args.get(at + 1))
+            .cloned()
+            .unwrap_or_else(|| "bench".to_string());
+        let value = measurement.number("median").or_else(|| measurement.number("value")).unwrap_or(0.0);
+        history.append(yashy_driver::dashboard::Row {
+            compiler: measurement
+                .get("compiler_hash")
+                .or_else(|| measurement.get("compiler"))
+                .unwrap_or("unknown")
+                .to_string(),
+            target: measurement.get("target").unwrap_or("host").to_string(),
+            toolchain: measurement
+                .get("toolchain")
+                .unwrap_or("clang")
+                .to_string(),
+            key,
+            value,
+            budget_pct: 5.0,
+        });
+        if let Err(message) = yashy_driver::dashboard::save(&history_path, &history) {
+            eprintln!("error: {message}");
+            return exit_code(EXIT_COMPILE_ERROR);
+        }
+    }
+    if json {
+        println!("{}", history.to_json().render());
+    } else {
+        print!("{}", history.render());
+    }
+    if check && !history.is_green() {
+        eprintln!("error: a benchmark row regressed past its budget");
+        exit_code(EXIT_COMPILE_ERROR)
+    } else {
+        exit_code(EXIT_OK)
+    }
+}
+
 fn bench_cmd(args: &[String]) -> ExitCode {
     use yashy_driver::bench;
+
+    if args.first().map(String::as_str) == Some("dashboard") {
+        return dashboard_cmd(&args[1..]);
+    }
 
     let mut json = false;
     let mut list = true;
