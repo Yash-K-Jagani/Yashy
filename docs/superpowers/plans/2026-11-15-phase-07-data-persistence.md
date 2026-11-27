@@ -175,8 +175,11 @@ used that way.
   values. The renamed `packages/db/tests/query_test.ya` pins the injection
   corpus. `db_codec.ya` round-trips int, text, `Option[string]` and a four-field
   record in declaration order, and refuses an unknown version. Both harnesses
-  report zero leaks. The `Encode`/`Decode` derives and a typed `CodecError`
-  are carried forward: the codecs are explicit functions, not compiler derives.
+  report zero leaks. `derive(Encode)`/`derive(Decode)` now synthesize
+  self-contained codec methods over `int` fields (Phase 4, `8951382`), and
+  `crates/yashy-driver/tests/codec_derive.rs` pins the round trip and the
+  malformed-wire error paths. The explicit `codec` functions remain for
+  `string`/`Option` fields; a typed `CodecError` is still owed.
 - [x] **Step 2: Values never become SQL.** The builder has no `raw` escape
   hatch in safe code; an identifier is a `Table`/`Column` value, not a string;
   a dynamic `ORDER BY` is a closed enum. The injection corpus is a test file,
@@ -191,7 +194,9 @@ used that way.
   caller-written placeholder `WHERE`. The package test carries an injection
   corpus of refused names and pins the generated SQL. A real driver is still
   owed, so the step stays open.
-  *Closed 2026-11-26 with exception: covered by the validated query builder; derives are carried forward as explicit functions. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *Closed 2026-11-27:* covered by the validated query builder; `Encode`/`Decode`
+  derives now ship for `int` fields, and the explicit codec functions cover
+  `string`/`Option`. A typed `CodecError` remains owed.
 
 - [x] **Step 3: Codecs are deterministic and versioned.** The wire form has a
   version byte; a decoder rejects an unknown version; a struct field order is
