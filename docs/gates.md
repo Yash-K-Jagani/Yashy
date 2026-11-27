@@ -721,9 +721,10 @@ claimed green here.
   deletions, with `find_text` generating seeded string inputs; the
   `p9-properties` harness proves the minimum is one byte with zero leaks. The
   failure's source file/line still needs runtime support.
-- **Generic mocks bounded by `Recorder`** — owner: compiler/core. Needs trait
-  bounds; the concrete mock is tested. Closes when a generic helper can accept
-  any `Recorder` implementation.
+- **Generic mocks bounded by `Recorder`** — **closed 2026-11-27.**
+  `packages/test/src/mock.ya` now has `record_pair[T: Recorder]`, and
+  `crates/yashy-sema/tests/trait_bounds.rs` pins that a bounded parameter may
+  call the trait method while an unbounded one is refused at the call site.
 - **Real call graph for `--affected`** — **closed 2026-11-26.**
   `affected::CallGraph` adds function-declaration and call edges to the import
   walk: a test is selected when any file reachable from it through calls and
