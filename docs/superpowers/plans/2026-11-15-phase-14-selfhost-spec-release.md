@@ -390,7 +390,12 @@ end stays the reference for the 2.0 release (design call 7).
   advisory with a bad signature or an unknown schema is refused. A migration
   guide's code blocks compile under both the old and the new compiler and its
   claims match `yashyc migrate --dry-run`.
-  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *Partly closed 2026-11-27:* `docs/migrate/1.0-to-2.0.md` and
+  `docs/migrate/2.0-to-2027.md` are tested programs: `crates/yashy-driver/tests/migrate_docs.rs`
+  extracts every `yashy` block, checks it with the shipping compiler and
+  compares the `edition` claim with `yashyc migrate --dry-run`. The advisory
+  half is a signed feed (`yashyc advisory --check`); running it against a real
+  resolved lockfile is still owed.
 
 - [x] **Step 2: Advisories are a signed feed, not a web page.** The format is
   a small, versioned JSON document signed by the release key; the feed is
