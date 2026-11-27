@@ -35,6 +35,14 @@ pub fn record(Mock mock, string name, string args) -> Mock {
     };
 }
 
+/// Hand a recorder to code that knows only the requirement, not the mock.
+/// The bound is checked at the call site, so the body needs no concrete type.
+pub fn record_pair[T: Recorder](T recorder, string first, string second) {
+    let local = recorder;
+    local.record(first, "");
+    local.record(second, "");
+}
+
 /// The recorded log, in call order.
 pub fn log(Mock mock) -> string {
     return mock.calls;

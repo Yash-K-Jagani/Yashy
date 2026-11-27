@@ -91,7 +91,10 @@ what keeps a 138-week programme honest.
   its own log; `new`, `record`, `log`, `called` and `count` are plain functions,
   so two tests cannot share state. The package test pins the call order, and
   `Mock` now implements a `Recorder` trait so a test can hand it to code that
-  asks for that trait. A generic helper bounded by `Recorder` is still owed.
+  asks for that trait. `mock.record_pair[T: Recorder]` is a generic helper whose
+  bound is checked at the call site; `crates/yashy-sema/tests/trait_bounds.rs`
+  pins both that a bounded parameter may call the method and that an unbounded
+  one may not. No generic helper remains owed here.
 - [x] **Step 5: The runner protocol is stable.** `test --json` emits one event
   per test start/end with name, status, duration, stdout and a failure message;
   the harness attributes stdout and exit codes to the test that produced them.
