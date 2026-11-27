@@ -426,6 +426,13 @@ folded into the IR cache key rather than resolver inputs.
   HIR call-site check and `--print-capabilities` are implemented; the runtime
   handle that repeats the grant when the operation executes is still later-phase
   work.
+  *Closed 2026-11-27:* generated code calls `yashy_capability_init` at entry
+  with the resolved grant names when a manifest declares `[capabilities]`, and
+  the runtime handle repeats the check where the operation executes: a denied
+  `fs.read`/`fs.write` faults with a deterministic message and a denied `env`
+  reads as unset. The handle is permissive until initialized, so a program with
+  no declaration keeps its old behaviour. Clock, process and FFI operations are
+  still checked at the call site only.
 - [x] **Step 5: Commit.**
 
 ### Task 11: Build provenance and attestations
@@ -636,6 +643,6 @@ ok  14 packages, 0 unsigned, 0 policy violations
 | 7.1 / 7.3 | Cross-OS install test and a caching Action | Manifests for five channels, a thin `setup-yashy` action with a version/OS/arch cache step, a verifying self-update with rollback; the cross-OS matrix and cold-install timing are CI/release work | Run the matrix when CI is unblocked |
 | 8.1 / 8.2 | Tested workspace, service and native templates | Three templates ship with smoke tests and README files; the shared root manifest exists and members read and write the root lock; the native template is a `-sys` package with `bindings.ya`, a checked `safe.ya` wrapper, a vendored `fixture.c`, and a test that calls into C through a file `link` clause | Run the template builds in the cross-OS CI matrix |
 | 9.1 / 9.3 | Signed, precompiled stdlib with a versioned cache key | The stdlib has a versioned package manifest; its version and canonical hash are part of the IR cache key and are written to `[stdlib]` in the lock; a lock that disagrees with the tree is refused (E1802); a clean-checkout "no recheck" timing is CI work | Sign the stdlib in the release |
-| 10.1 / 10.4 | Call-site and runtime capability enforcement, policy table | `[capabilities]`, the HIR call-site check (E1808), the transitive `audit --capabilities` union in human and JSON form, `add --allow`, `--print-capabilities`, and the full `[audit]` policy fields are implemented; the runtime handle is not | Enforce the grant in the runtime handle |
+| 10.1 / 10.4 | Call-site and runtime capability enforcement, policy table | `[capabilities]`, the HIR call-site check (E1808), the transitive `audit --capabilities` union in human and JSON form, `add --allow`, `--print-capabilities`, and the full `[audit]` policy fields are implemented; the runtime handle repeats the filesystem and environment grants at execution. Clock, process and FFI grants are still call-site only | Extend the handle to clock, process and FFI operations |
 | 11.1 / 11.3 | Provenance produced by the build and verified by rebuild | In-toto/SLSA v1 statement, signed by the same `publish --key-id` invocation that writes the tarball, named in the registry entry, plus subject/material digest checks and `--rebuild` verification; `attest` remains available for an artifact built elsewhere | Distinguish an unknown builder in the policy |
 | 12.1 / 12.3 | Full package surface with reversible mutations | `tree` marks duplicates with their locked versions and features; `vendor` supports offline fetch; `info` reports size, signature, provenance and native libraries; `outdated` classifies major/minor/patch changes; `yank` records a reason with a backup | No known gap; `yank` is covered by `registry.rs` unit tests rather than a CLI test |

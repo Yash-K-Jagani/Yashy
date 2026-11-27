@@ -57,8 +57,12 @@ use yashy_sema::{HirExpr, HirFn, HirItem, HirProgram, HirStmt, TypeKind};
 /// The default is deliberately the semantics-preserving one: the IR does not
 /// depend on which machine the program is built for, and every floating-point
 /// operation rounds exactly as the source spells it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodegenOptions {
+    /// Capability grants to install at program entry, as a comma-separated
+    /// name list. `None` leaves the runtime handle permissive, which is what a
+    /// program with no `[capabilities]` declaration has always done.
+    pub capabilities: Option<String>,
     /// Allow floating-point contraction.
     ///
     /// This is small in the IR — the `contract` fast-math flag on a floating
@@ -123,6 +127,7 @@ impl Default for CodegenOptions {
     /// landed and neither changes what a program prints.
     fn default() -> Self {
         CodegenOptions {
+            capabilities: None,
             fp_contract: false,
             escape: false,
             facts: true,
@@ -198,7 +203,7 @@ fn emit_units_inner(
     debug_locations: bool,
 ) -> Vec<String> {
     (0..units.len())
-        .map(|index| emit_unit_at(hir, units, index, options, facts, debug_locations))
+        .map(|index| emit_unit_at(hir, units, index, options.clone(), facts, debug_locations))
         .collect()
 }
 
@@ -439,6 +444,10 @@ fn emit(
     module.set_target(options.target);
     module.set_fp_contract(options.fp_contract);
     module.set_report(record);
+    if let Some(grants) = &options.capabilities {
+        let name = module.intern_string(grants.as_bytes());
+        module.set_capability_global(format!("{name}.data"));
+    }
     // The registered passes, in their one order. A pass reads its switch from
     // `options`, so disabling one changes only what that pass contributes.
     {

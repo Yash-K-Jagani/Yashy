@@ -417,6 +417,19 @@ unsigned long long yashy_str_hash(const yashy_str *s);
 char *yashy_str_cstr(const yashy_str *s);
 const char *yashy_str_ptr(const yashy_str *s);
 
+/* ---- Capability handle ----------------------------------------------------
+ *
+ * A manifest that declares `[capabilities]` makes generated code call
+ * `yashy_capability_init` once at entry with the resolved grants as a
+ * comma-separated string. Before init the handle is permissive; after it only
+ * named capabilities are granted. `yashy_capability_has` answers whether one
+ * is granted, and `yashy_capability_deny` stops the process with a
+ * deterministic message naming the capability.
+ */
+void yashy_capability_init(const char *grants_csv);
+int yashy_capability_has(const char *name);
+void yashy_capability_deny(const char *name);
+
 /* Reads one line from standard input without its terminator, as a string the
  * caller *owns* (refcount 1). At end of input it returns NULL, which the
  * compiler turns into `None`; an empty line returns an empty string, so the two

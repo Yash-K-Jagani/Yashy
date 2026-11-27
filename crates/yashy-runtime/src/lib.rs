@@ -531,6 +531,17 @@ unsafe extern "C" {
     /// or answers 0 when `s` denotes none.
     pub fn yashy_parse_f64(s: *const YashyStr, out: *mut c_double) -> c_longlong;
 
+    /// Initialize the capability handle with a comma-separated grant list.
+    /// Before this call the handle is permissive, so the handle is opt-in: a
+    /// program whose manifest declares no capabilities keeps its old behaviour.
+    pub fn yashy_capability_init(grants_csv: *const c_char);
+
+    /// Whether `name` is one of the granted capabilities.
+    pub fn yashy_capability_has(name: *const c_char) -> c_int;
+
+    /// Stop the process with a deterministic message naming `name`.
+    pub fn yashy_capability_deny(name: *const c_char);
+
     /// Writes the whole file at `path` through `out` as a fresh owned string and
     /// answers 0, or answers `1 + variant_index` when it cannot be opened or
     /// read. `path` is a NUL-terminated C string.

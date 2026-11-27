@@ -881,6 +881,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         let code = match check_main_exists(&hir.items) {
             Ok(()) => {
                 let options = CodegenOptions {
+                    capabilities: None,
                     fp_contract: fast_math,
                     escape,
                     facts,
@@ -910,6 +911,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         let code = match check_main_exists(&hir.items) {
             Ok(()) => {
                 let options = CodegenOptions {
+                    capabilities: None,
                     fp_contract: fast_math,
                     escape,
                     facts,
@@ -933,6 +935,21 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         return BuildOutcome { code, timings };
     }
 
+    // A manifest that declares capabilities installs the same resolved grants
+    // at run time that the HIR call-site check enforced at build time. Computed
+    // before the front-end-only verbs so `--emit-ir` shows the same IR a build
+    // would compile.
+    let capabilities = manifest.as_ref().and_then(|manifest| {
+        let resolved = yashy_driver::policy::resolve(manifest, &[]);
+        let mut names: Vec<String> = resolved
+            .granted
+            .entries()
+            .iter()
+            .map(|(name, _)| (*name).to_string())
+            .collect();
+        names.sort();
+        (!names.is_empty()).then(|| names.join(","))
+    });
     // `--emit-ir` is a pure front-end operation, so it deliberately does not
     // require an LLVM toolchain: dumping IR is exactly what you want to do on a
     // machine where the backend cannot run yet.
@@ -940,6 +957,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         let code = match check_main_exists(&hir.items) {
             Ok(()) => {
                 let options = CodegenOptions {
+                    capabilities: capabilities.clone(),
                     fp_contract: fast_math,
                     escape,
                     facts,
@@ -1005,6 +1023,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     let output = output.unwrap_or_else(|| default_output(&input));
     let opt = resolve_opt(command, release, opt);
     let options = BuildOptions {
+        capabilities,
         features: selected_features,
         debug_info,
         opt,

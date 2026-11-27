@@ -33,7 +33,7 @@ fn lower_twice(src: &str, options: CodegenOptions) -> (String, String) {
         "the fixture must verify: {:?}",
         report.diagnostics
     );
-    let first = emit_program(&hir, "pass_order.ya", options, &report.facts);
+    let first = emit_program(&hir, "pass_order.ya", options.clone(), &report.facts);
     let second = emit_program(&hir, "pass_order.ya", options, &report.facts);
     (first, second)
 }

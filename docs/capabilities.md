@@ -38,7 +38,24 @@ program is built, not only when the linker or a sandbox refuses it.
 
 A `[audit]` policy can narrow them further: `allow-capabilities`, `deny-capabilities`, `max-transitive`, `deny-licenses`, `deny-registries` and `require-provenance` all produce E1807 findings from `yashyc audit`.
 
+## Enforcement at both ends
+
+`yashyc build --print-capabilities` prints the resolved set and stops. When a
+manifest declares `[capabilities]`, the build refuses a call that needs a grant
+it did not declare with E1808. The same resolved set is installed once at
+program entry through `yashy_capability_init`, so the runtime repeats the check
+where the operation executes: a file read without `fs.read` is refused even if
+the IR was hand-written around the front end, and a missing `env` grant reads as
+an unset variable rather than a value. A program with no declaration skips the
+call entirely and keeps the historical permissive behaviour.
+
+The handle is process-global and off until initialized. It stores at most
+sixteen names; the closed capability set is smaller than that, so a manifest
+cannot overflow it. `yashyc run --sandbox` adds OS-level path, time and memory
+limits on top — the capability handle decides *what* the program may touch, the
+sandbox decides *where* and *for how long*.
+
 The same names are used by the checker's call-site rule, the Phase 13 sandbox,
-and the Phase 10 trace redactor. Enforcement is still split: this phase adds
-the declaration model, policy ceiling and audit view; the runtime handle that
-repeats the check at the call site lands with those phases.
+and the Phase 10 trace redactor. Clock, process and FFI operations are still
+checked at the call site only; the handle covers the filesystem and environment
+operations today.

@@ -44,6 +44,7 @@ extern char *realpath(const char *path, char *resolved_path);
 static const char *yashy_str_data(const yashy_str *s);
 long long yashy_now_ms(void);
 static void yashy_rc_flush(void);
+int yashy_capability_has(const char *name);
 
 /* ---- Runtime event trace -------------------------------------------------
  *
@@ -1742,6 +1743,9 @@ static int yashy_errno_to_io_error(int err) {
 /* Read a file as an owned string. `*out` is written only on success, so a
  * caller never has to release a value it did not receive. */
 long long yashy_read_file(const char *path, yashy_str **out) {
+    if (!yashy_capability_has("fs.read")) {
+        yashy_capability_deny("fs.read");
+    }
     if (path == NULL || out == NULL) {
         return 1 + 4; /* Other */
     }
@@ -1787,6 +1791,9 @@ long long yashy_read_file(const char *path, yashy_str **out) {
  * variant_index` on failure. `bytes` is lent: the function reads them and
  * keeps no pointer, so the caller still owns the string. */
 long long yashy_write_file(const char *path, const char *bytes, long long len) {
+    if (!yashy_capability_has("fs.write")) {
+        yashy_capability_deny("fs.write");
+    }
     if (path == NULL || len < 0) {
         return 1 + 4; /* Other */
     }
@@ -1904,6 +1911,9 @@ long long yashy_write_bytes(const char *path, const char *bytes, long long len) 
  * set -- an empty variable is set, and reads as `Some("")` -- and 0 when it is
  * not, which the compiler turns into `None`. */
 int yashy_getenv(const char *name, yashy_str **out) {
+    if (!yashy_capability_has("env")) {
+        return 0; /* an ungranted read is indistinguishable from an unset name */
+    }
     if (name == NULL || out == NULL) {
         return 0;
     }
@@ -2828,6 +2838,71 @@ void yashy_slice_slice_strings(yashy_slice *out, yashy_slice *source,
 /* The debug dump hook every panic path shares: `YASHY_DEBUG=1` prints the
  * live tasks before the process ends. Evaluated on the cold path only;
  * without the variable this is one `getenv` and nothing else. */
+static void yashy_debug_dump_if_enabled(void);
+
+/* ---- Capability handle ---------------------------------------------------
+ *
+ * A manifest that declares `[capabilities]` makes the compiler emit one
+ * `yashy_capability_init` call at program entry with the resolved grant names
+ * as a comma-separated string. Until that call happens the handle is
+ * permissive, so a program built without a declaration keeps the behaviour it
+ * always had. After it, only named capabilities are granted, and an operation
+ * that needs a missing one is refused where the runtime performs it -- not
+ * only at the HIR call site, so an IR hand-written around the front end cannot
+ * exceed the grant either.
+ *
+ * The table is small and fixed: a program can name at most
+ * `YASHY_CAPABILITY_MAX` grants, which is well above the closed capability
+ * name set in `yashy-manifest`. Names point into the static global the compiler
+ * emitted, so no allocation or cleanup is needed.
+ */
+#define YASHY_CAPABILITY_MAX 16
+static const char *yashy_capability_grants[YASHY_CAPABILITY_MAX];
+static int yashy_capability_count = -1; /* -1: not initialized, permissive */
+
+void yashy_capability_init(const char *csv) {
+    yashy_capability_count = 0;
+    if (csv == NULL) {
+        return;
+    }
+    const char *cursor = csv;
+    while (*cursor != '\0' && yashy_capability_count < YASHY_CAPABILITY_MAX) {
+        yashy_capability_grants[yashy_capability_count++] = cursor;
+        const char *comma = strchr(cursor, ',');
+        if (comma == NULL) {
+            break;
+        }
+        cursor = comma + 1;
+    }
+}
+
+int yashy_capability_has(const char *name) {
+    if (yashy_capability_count < 0) {
+        return 1;
+    }
+    if (name == NULL) {
+        return 0;
+    }
+    size_t length = strlen(name);
+    for (int index = 0; index < yashy_capability_count; ++index) {
+        const char *grant = yashy_capability_grants[index];
+        const char *comma = strchr(grant, ',');
+        size_t granted = comma != NULL ? (size_t)(comma - grant) : strlen(grant);
+        if (granted == length && strncmp(grant, name, length) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+void yashy_capability_deny(const char *name) {
+    fflush(stdout);
+    fprintf(stderr, "capability denied: %s\n", name != NULL ? name : "<unknown>");
+    yashy_debug_dump_if_enabled();
+    fflush(stderr);
+    exit(1);
+}
+
 static void yashy_debug_dump_if_enabled(void) {
     const char *requested = getenv("YASHY_DEBUG");
     if (requested != NULL && requested[0] == '1') {

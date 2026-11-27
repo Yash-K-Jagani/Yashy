@@ -772,13 +772,17 @@ fn cache_extras(options: &BuildOptions) -> Vec<(&'static str, String)> {
         .unwrap_or_else(|| "none".to_string());
     extras.push(("lock", lock));
     extras.push(("features", String::new()));
+    let capabilities = options
+        .capabilities
+        .clone()
+        .unwrap_or_else(|| "permissive".to_string());
+    extras.push(("capabilities", capabilities));
 
     for name in ["YASHY_SANITIZE", "YASHY_DETERMINISTIC", "SOURCE_DATE_EPOCH"] {
         if let Ok(value) = std::env::var(name) {
             extras.push((name, value));
         }
     }
-    let _ = options;
     extras
 }
 
@@ -1076,13 +1080,7 @@ fn fnv1a_tool(state: &mut u64, tool: &Path) {
 /// compile flags (machine tier, sanitizer, coverage, reproducibility) and the
 /// tool's identity are the rest: two objects that differ in any of those are
 /// different objects.
-fn module_object_key(
-    ir: &str,
-    target: &str,
-    opt: OptLevel,
-    tool: &Path,
-    flags: &[String],
-) -> u64 {
+fn module_object_key(ir: &str, target: &str, opt: OptLevel, tool: &Path, flags: &[String]) -> u64 {
     let mut state = FNV_OFFSET_BASIS;
     fnv1a(&mut state, ir.as_bytes());
     fnv1a(&mut state, target.as_bytes());
@@ -1102,7 +1100,11 @@ fn module_object_key(
 /// generated code, so they belong to every object; the link-time profile flags
 /// do not, which is one reason a profile-guided build stays on the
 /// whole-program path.
-fn module_compile_flags(options: &BuildOptions, target: &str, toolchain: &Toolchain) -> Vec<String> {
+fn module_compile_flags(
+    options: &BuildOptions,
+    target: &str,
+    toolchain: &Toolchain,
+) -> Vec<String> {
     let sanitize = std::env::var("YASHY_SANITIZE").ok();
     let mut flags: Vec<String> = sanitizer_flags(sanitize.as_deref())
         .iter()
@@ -1120,7 +1122,11 @@ fn module_compile_flags(options: &BuildOptions, target: &str, toolchain: &Toolch
             .map(|flag| flag.to_string()),
     );
     flags.extend(reproducibility_flags(options, target));
-    flags.extend(opaque_pointers_args(toolchain).iter().map(|flag| flag.to_string()));
+    flags.extend(
+        opaque_pointers_args(toolchain)
+            .iter()
+            .map(|flag| flag.to_string()),
+    );
     flags
 }
 
@@ -1195,7 +1201,13 @@ fn compile_units(
     let cache_dir = runtime_cache_dir()?;
     let flags = module_compile_flags(options, target, toolchain);
     let compiled = in_parallel(ir_paths.len(), options.jobs, |index| {
-        let key = module_object_key(&ir_texts[index], target, options.opt, &toolchain.llc, &flags);
+        let key = module_object_key(
+            &ir_texts[index],
+            target,
+            options.opt,
+            &toolchain.llc,
+            &flags,
+        );
         cached_module_object(
             &cache_dir,
             &ir_paths[index],
@@ -1233,6 +1245,10 @@ fn compile_units(
 /// exact-semantics build.
 #[derive(Debug, Clone)]
 pub struct BuildOptions {
+    /// Capability grants from `[capabilities]`, installed by generated code at
+    /// entry. `None` leaves the runtime handle permissive so a program with no
+    /// declaration keeps its old behaviour.
+    pub capabilities: Option<String>,
     /// Selected cargo-style features; part of the IR cache key and exposed as
     /// `feature:<name>` cfg keys.
     pub features: std::collections::BTreeSet<String>,
@@ -1317,6 +1333,7 @@ pub struct BuildOptions {
 impl Default for BuildOptions {
     fn default() -> Self {
         Self {
+            capabilities: None,
             features: std::collections::BTreeSet::new(),
             debug_info: false,
             opt: OptLevel::default(),
@@ -2020,6 +2037,7 @@ pub fn compile_hir_timed(
         Vec::new()
     };
     let codegen_options = CodegenOptions {
+        capabilities: options.capabilities.clone(),
         fp_contract: options.fast_math,
         escape: options.escape,
         facts: options.facts,
@@ -2060,7 +2078,7 @@ pub fn compile_hir_timed(
                     vec![text]
                 } else {
                     in_parallel(units.len(), options.jobs, |index| {
-                        yashy_codegen::emit_unit(hir, &units, index, codegen_options, facts)
+                        yashy_codegen::emit_unit(hir, &units, index, codegen_options.clone(), facts)
                     })
                 }
             });

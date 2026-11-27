@@ -237,6 +237,8 @@ pub struct Module {
     struct_field_order: HashMap<String, Vec<usize>>,
     /// The LLVM function attribute and its report reason, keyed by Yashy name.
     inline_attributes: HashMap<String, (String, &'static str)>,
+    /// The capability grant string global, when the program declared grants.
+    capability_global: Option<String>,
     /// The index the next `@__lambda_N` will use.
     ///
     /// A lambda has no name in the source, so the backend gives it one: the
@@ -306,6 +308,7 @@ impl Module {
             struct_field_names: HashMap::new(),
             struct_field_order: HashMap::new(),
             inline_attributes: HashMap::new(),
+            capability_global: None,
             next_lambda: 0,
             captures: Vec::new(),
             atomic_strings: false,
@@ -706,6 +709,16 @@ impl Module {
         name
     }
 
+    /// Record the byte-array global that names the program's capability
+    /// grants, and return its name for the entry call.
+    pub fn set_capability_global(&mut self, name: String) {
+        self.capability_global = Some(name);
+    }
+
+    pub fn capability_global(&self) -> Option<&str> {
+        self.capability_global.as_deref()
+    }
+
     /// Turn literal interning on or off; see [`crate::pass::apply_intern`].
     ///
     /// Off means every call gets its own global, so two identical literals are
@@ -768,7 +781,8 @@ impl Module {
 
     /// Record the LLVM function attribute and report reason chosen by policy.
     pub fn set_inline_attribute(&mut self, name: &str, reason: String, attribute: &'static str) {
-        self.inline_attributes.insert(name.to_string(), (reason, attribute));
+        self.inline_attributes
+            .insert(name.to_string(), (reason, attribute));
     }
 
     /// The inliner policy's attribute for `name`, or `""` when none was chosen.
@@ -1194,6 +1208,7 @@ impl Module {
         // a program that exits early does not rewrite every golden file; an
         // unused `declare` is legal IR.
         out.push_str("declare void @yashy_exit(i64)\n");
+        out.push_str("declare void @yashy_capability_init(i8*)\n");
         for (bytes, name) in self
             .strings
             .iter()

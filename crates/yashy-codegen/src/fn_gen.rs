@@ -352,6 +352,12 @@ fn gen_body(module: &mut Module, f: &HirFn, entry_point: bool, env: Option<&str>
             // so a C `printf` the program declares and a Yashy `print` write
             // the same bytes for a `\n`.
             ctx.push("call void @yashy_runtime_init()");
+            // A manifest with `[capabilities]` installs the grant at entry,
+            // before any Yashy statement can reach a capability-gated builtin.
+            if let Some(global) = ctx.module.capability_global() {
+                let global = global.to_string();
+                ctx.push(format!("call void @yashy_capability_init(i8* {global})"));
+            }
             // The process's vector is the only portable source of `args()`.
             // Stored once, before any Yashy statement can run; a recursive
             // `main` call passes a null pair and the runtime keeps this one.
