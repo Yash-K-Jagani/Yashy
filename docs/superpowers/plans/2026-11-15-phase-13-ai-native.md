@@ -528,9 +528,13 @@ agent run reproducible.
   schema; resources expose the graph, diagnostics and docs; prompts are versioned
   templates shipped by the compiler; long operations support progress and
   cancellation. A cancelled tool stops work and leaves no partial edit.
-  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
-  remaining obligations are carried in `docs/gates.md`, which names the owner
-  and the condition that closes each one; none is silently dropped.*
+  *Partly closed 2026-11-27:* `tools/list` now carries read-only, destructive
+  and idempotent annotations. `resources/list`/`resources/read` expose the
+  graph, diagnostics and docs at stable `yashy://` URIs, and
+  `prompts/list`/`prompts/get` offer versioned `review`, `fix-error` and
+  `explain-code` templates; every resource and prompt result is labelled
+  `untrusted`. `crates/yashy-driver/tests/mcp.rs` pins the wire responses.
+  Structured result schemas, progress and cancellation are still owed.
 
 - [x] **Step 5: Untrusted text is labelled, never obeyed.** A file, an issue
   body, a dependency README or a tool result that contains instructions is marked

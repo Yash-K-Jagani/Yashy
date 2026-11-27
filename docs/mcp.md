@@ -76,3 +76,20 @@ count. If the log cannot be written, the call is refused with `-32005` and
 names the first bad sequence number; the human form prints
 `N entries  chain ok  first bad: none`. `yashyc agent policy [--json]` prints
 the effective policy. See [Agent policy](agent-policy.md) for the file's keys.
+
+## Resources, prompts and annotations
+
+`tools/list` annotates each verb: read-only verbs carry `readOnlyHint` and
+`idempotentHint`, mutations carry `destructiveHint`. `tools/call` still enforces
+the policy before any tool runs.
+
+`resources/list` exposes three stable URIs: `yashy://graph` (the compiler's
+index model), `yashy://diagnostics` (the messages from checking every workspace
+program) and `yashy://docs` (the public-surface model). `resources/read` wraps
+every body with `untrusted: true`: source text may contain instructions, and a
+client must never turn content into a verb or a policy change.
+
+`prompts/list` offers versioned templates (`review`, `fix-error`,
+`explain-code`); `prompts/get` fills them from arguments and marks the result
+untrusted for the same reason. Prompts are shipped by the compiler, not learned
+from a workspace.

@@ -39,6 +39,7 @@ pub mod layout;
 pub mod lint;
 pub mod mcp;
 pub mod migrate;
+pub mod mcp_extras;
 pub mod modules;
 pub mod opt_report;
 pub mod outline;

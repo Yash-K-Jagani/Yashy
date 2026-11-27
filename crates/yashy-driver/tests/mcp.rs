@@ -263,3 +263,48 @@ fn an_unknown_tool_is_minus_32602() {
         "invalid params for an unknown tool:\n{response}"
     );
 }
+
+#[test]
+fn tools_list_carries_annotations() {
+    let dir = workspace_dir();
+    let mut mcp = Mcp::start(&dir);
+    let response = mcp.call(&request(1, "tools/list", "{}"));
+    assert!(response.contains("readOnlyHint"), "{response}");
+    assert!(response.contains("destructiveHint"), "{response}");
+    assert!(response.contains("idempotentHint"), "{response}");
+    assert!(response.contains("\"name\":\"edit\""), "{response}");
+}
+
+#[test]
+fn resources_expose_graph_and_docs_as_untrusted_data() {
+    let dir = workspace_dir();
+    let mut mcp = Mcp::start(&dir);
+    let list = mcp.call(&request(1, "resources/list", "{}"));
+    assert!(list.contains("yashy://graph"), "{list}");
+    assert!(list.contains("yashy://docs"), "{list}");
+    assert!(list.contains("yashy://diagnostics"), "{list}");
+    let graph = mcp.call(&request(2, "resources/read", "{\"uri\":\"yashy://graph\"}"));
+    assert!(graph.contains("\"untrusted\":true"), "{graph}");
+    assert!(graph.contains("symbols"), "{graph}");
+    let unknown = mcp.call(&request(3, "resources/read", "{\"uri\":\"yashy://nope\"}"));
+    assert!(unknown.contains("-32002"), "{unknown}");
+}
+
+#[test]
+fn prompts_are_versioned_and_never_obey_workspace_text() {
+    let dir = workspace_dir();
+    let mut mcp = Mcp::start(&dir);
+    let list = mcp.call(&request(1, "prompts/list", "{}"));
+    assert!(list.contains("\"review\""), "{list}");
+    assert!(list.contains("\"version\":\"1\""), "{list}");
+    let prompt = mcp.call(&request(
+        2,
+        "prompts/get",
+        "{\"name\":\"fix-error\",\"arguments\":{\"code\":\"E0100\",\"path\":\"main.ya\"}}",
+    ));
+    assert!(prompt.contains("E0100"), "{prompt}");
+    assert!(prompt.contains("\"untrusted\":true"), "{prompt}");
+    assert!(prompt.contains("untrusted data"), "{prompt}");
+    let unknown = mcp.call(&request(3, "prompts/get", "{\"name\":\"nope\"}"));
+    assert!(unknown.contains("-32002"), "{unknown}");
+}

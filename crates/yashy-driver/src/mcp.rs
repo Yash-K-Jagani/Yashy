@@ -202,6 +202,47 @@ pub fn handle(session: &mut Session, request: &Value) -> Value {
                 ),
             ]),
         ),
+        "tools/list" => ok(
+            id,
+            json_rpc::object([(
+                "tools",
+                Value::Arr(
+                    TOOLS
+                        .iter()
+                        .map(|tool| {
+                            json_rpc::object([
+                                ("name", json_rpc::string(*tool)),
+                                ("annotations", crate::mcp_extras::annotations(tool)),
+                            ])
+                        })
+                        .collect(),
+                ),
+            )]),
+        ),
+        "resources/list" => ok(id, json_rpc::object([("resources", crate::mcp_extras::list_resources())])),
+        "resources/read" => {
+            let uri = request
+                .get("params")
+                .and_then(|params| params.get("uri"))
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            match crate::mcp_extras::read_resource(&session.root, uri) {
+                Some(value) => ok(id, value),
+                None => error(id, -32002, &format!("unknown resource `{uri}`")),
+            }
+        }
+        "prompts/list" => ok(id, json_rpc::object([("prompts", crate::mcp_extras::list_prompts())])),
+        "prompts/get" => {
+            let params = request.get("params");
+            let name = params
+                .and_then(|params| params.get("name"))
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            match crate::mcp_extras::get_prompt(name, params.and_then(|p| p.get("arguments"))) {
+                Some(value) => ok(id, value),
+                None => error(id, -32002, &format!("unknown prompt `{name}`")),
+            }
+        }
         "tools/call" => {
             let params = request.get("params");
             let name = params
