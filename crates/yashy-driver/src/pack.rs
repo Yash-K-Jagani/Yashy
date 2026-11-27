@@ -66,6 +66,9 @@ pub struct Excerpt {
     pub end: usize,
     pub text: String,
     pub hash: String,
+    /// Fixed relevance score: lower is more relevant. Ties break by file,
+    /// byte span and reason, never by iteration order.
+    pub score: u8,
     pub reason: String,
 }
 
@@ -112,6 +115,7 @@ impl Pack {
                         entry.set("end", Json::number(excerpt.end as i64));
                         entry.set("text", Json::string(&excerpt.text));
                         entry.set("hash", Json::string(&excerpt.hash));
+                        entry.set("score", Json::number(excerpt.score as i64));
                         entry.set("reason", Json::string(&excerpt.reason));
                         entry
                     })
@@ -198,7 +202,14 @@ fn lines_at(text: &str, start: u32, end: u32) -> (usize, usize, String) {
     (from, to, text[from..to].to_string())
 }
 
-fn excerpt(root: &Path, file: &str, start: u32, end: u32, reason: &str) -> Option<Excerpt> {
+fn excerpt(
+    root: &Path,
+    file: &str,
+    start: u32,
+    end: u32,
+    score: u8,
+    reason: &str,
+) -> Option<Excerpt> {
     let text = file_text(root, file);
     if text.is_empty() {
         return None;
@@ -217,6 +228,7 @@ fn excerpt(root: &Path, file: &str, start: u32, end: u32, reason: &str) -> Optio
         end: to,
         hash: hash_bytes(body.as_bytes()),
         text: body,
+        score,
         reason: reason.to_string(),
     })
 }
@@ -243,6 +255,7 @@ fn candidates(root: &Path, model: &IndexModel, req: &PackRequest) -> Vec<Excerpt
             end: diagnostic.len(),
             text: format!("{diagnostic}\n"),
             hash: hash_bytes(diagnostic.as_bytes()),
+            score: 0,
             reason: "the diagnostic that caused this pack".to_string(),
         });
     }
@@ -252,6 +265,7 @@ fn candidates(root: &Path, model: &IndexModel, req: &PackRequest) -> Vec<Excerpt
             &target.file,
             target.span.start,
             target.span.end,
+            1,
             "the focus symbol",
         ) {
             out.push(piece);
@@ -267,6 +281,7 @@ fn candidates(root: &Path, model: &IndexModel, req: &PackRequest) -> Vec<Excerpt
                     end: text.len(),
                     hash: hash_bytes(text.as_bytes()),
                     text: format!("{text}\n"),
+                    score: 2,
                     reason: "a test that calls the focus symbol".to_string(),
                 });
             }
@@ -280,6 +295,7 @@ fn candidates(root: &Path, model: &IndexModel, req: &PackRequest) -> Vec<Excerpt
                     end: text.len(),
                     hash: hash_bytes(text.as_bytes()),
                     text: format!("{text}\n"),
+                    score: 2,
                     reason: "a test that calls the focus symbol".to_string(),
                 });
             }
@@ -293,6 +309,7 @@ fn candidates(root: &Path, model: &IndexModel, req: &PackRequest) -> Vec<Excerpt
                         end: symbol.span.end as usize,
                         text: format!("{}: {docs}\n", symbol.name),
                         hash: hash_bytes(docs.as_bytes()),
+                        score: 3,
                         reason: "documentation on a symbol in the workspace".to_string(),
                     });
                 }
@@ -309,6 +326,7 @@ fn candidates(root: &Path, model: &IndexModel, req: &PackRequest) -> Vec<Excerpt
                     end: symbol.span.end as usize,
                     text: format!("docs: {docs}\n"),
                     hash: hash_bytes(docs.as_bytes()),
+                    score: 2,
                     reason: "documentation for the symbol in the diagnostic".to_string(),
                 });
             }
@@ -323,6 +341,7 @@ fn candidates(root: &Path, model: &IndexModel, req: &PackRequest) -> Vec<Excerpt
                         end: text.len(),
                         hash: hash_bytes(text.as_bytes()),
                         text: format!("{text}\n"),
+                        score: 1,
                         reason: "a changed file".to_string(),
                     });
                 }
@@ -340,6 +359,7 @@ fn candidates(root: &Path, model: &IndexModel, req: &PackRequest) -> Vec<Excerpt
                             end: text.len(),
                             hash: hash_bytes(text.as_bytes()),
                             text: format!("{text}\n"),
+                            score: 2,
                             reason: "a caller of a changed function".to_string(),
                         });
                     }
@@ -379,7 +399,9 @@ pub fn context_pack(root: &Path, req: &PackRequest) -> Result<Pack, String> {
     signatures.sort();
     signatures.dedup();
     let mut candidates = candidates(root, &model, req);
-    candidates.sort_by(|a, b| (&a.file, a.start, &a.reason).cmp(&(&b.file, b.start, &b.reason)));
+    candidates.sort_by(|a, b| {
+        (a.score, &a.file, a.start, &a.reason).cmp(&(b.score, &b.file, b.start, &b.reason))
+    });
     let mut pack = Pack {
         mode: req.mode,
         focus: req.focus.clone(),

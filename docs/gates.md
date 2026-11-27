@@ -817,8 +817,9 @@ dropped:
 - Phase 13: remaining refactor operations, generic graph, scored ranking for
   packs, sandbox limits, agent benchmark, provenance, BPE policy, tamper-evident
   audit log, SDK. Structured focus/diff/tests/docs/error packs shipped under
-  `yashyc context --mode`; the 50k-line fixture and an external-tokenizer count
-  remain owed.
+  `yashyc context --mode`, with a stable model revision; the 50k-line fixture,
+  an external-tokenizer count, graph-distance/edit-recency ranking and a
+  stale-revision detector remain owed.
 - Phase 14: self-host differential, reproducible bootstrap, normative spec,
   conformance suite, editions, release/tag gates, channels, advisory feed,
   contributor process.

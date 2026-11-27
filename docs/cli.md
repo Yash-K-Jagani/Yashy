@@ -1091,8 +1091,10 @@ in the workspace.
 index model. `focus` adds the covering tests, `diff` reads the files named by
 `--changed <a,b>` and their callers, `tests` returns the covering tests, `docs`
 returns documented symbols, and `error` includes `--diagnostic <text>` and the
-symbol's docs. The cut is deterministic and names every omitted excerpt in
-`dropped` with its reason. A pack is data: the caller decides how to prompt.
+symbol's docs. Each excerpt carries a fixed relevance score; excerpts are
+ordered by score, file and span before the budget cut. The cut names every
+omitted excerpt in `dropped` with its reason. A pack is data: the caller decides
+how to prompt.
 
 ## `yashyc mcp --root <dir>`
 

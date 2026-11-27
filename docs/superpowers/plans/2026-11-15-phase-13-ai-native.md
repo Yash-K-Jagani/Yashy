@@ -185,12 +185,13 @@ agent run reproducible.
   break by symbol id. The token count uses the same tokenizer the BPE gate uses,
   so a pack's size is measured, not estimated. No model-specific prompt text in
   the tool.
-  *Closed 2026-11-26:* candidates are sorted by file, byte span and reason,
-  then cut by the documented four-bytes-per-token estimator; ties cannot depend
-  on hash-map order and a cut names what it dropped. Ranking by graph distance,
-  edit recency and diagnostic proximity is not implemented, and the BPE gate's
-  external vocabularies are still not vendored, so a measured token count is
-  still owed.
+  *Closed 2026-11-26:* every excerpt carries a fixed score (diagnostic, focus
+  and changed file first; callers and coverers next; docs last) and candidates
+  are sorted by score, file, byte span and reason, then cut by the documented
+  four-bytes-per-token estimator. Ties cannot depend on hash-map order and a cut
+  names what it dropped. Ranking by graph distance and edit recency is not
+  implemented, and the BPE gate's external vocabularies are still not vendored,
+  so a measured token count is still owed.
 
 - [x] **Step 3: A pack is a value, not a conversation.** The tool returns
   structured excerpts with paths, spans and hashes; the caller decides how to
@@ -450,7 +451,7 @@ agent run reproducible.
 |---|---|---|
 | Edits | `cargo test -p yashy-driver --test edit --test mcp` | stale hash, overlap and out-of-workspace edits refused; rollback is byte-identical; no shell |
 | Graph | `cargo test -p yashy-driver --test semantic --test index` | every 2.0 form carries type/effects/contract/ownership; JSON byte-stable |
-| Context | `cargo test -p yashy-driver --test pack` | every mode ≤ 8k tokens; omissions named; stale revision detected |
+| Context | `cargo test -p yashy-driver --test pack --test context` | every mode reports its own token count and the budget it was cut to; omissions named; the pack names a stable model revision. A separate stale-revision *detector* is still owed |
 | Sandbox | `cargo test -p yashy-driver --test sandbox_escape --test sandbox_limits` | zero escapes on both OSes; every limit fires with a code |
 | Benchmark | `yashyc agent bench --check-baseline` | 10 tasks; checks pass/fail as intended; deterministic trace; no regression |
 | Policy/audit | `cargo test -p yashy-driver --test agent_policy --test audit_log --test approval` | denied verb refused; protected path refused; audit chain verifies; token cannot be replayed |

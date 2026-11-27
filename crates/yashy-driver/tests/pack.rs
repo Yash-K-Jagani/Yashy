@@ -55,6 +55,7 @@ fn a_focus_pack_returns_structured_excerpts_and_a_revision() {
         "\"excerpts\"",
         "\"file\"",
         "\"hash\"",
+        "\"score\"",
         "\"revision\"",
         "\"signatures\"",
     ] {
