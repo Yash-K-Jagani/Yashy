@@ -71,6 +71,32 @@ fn every_passing_case_names_its_own_code() {
 }
 
 #[test]
+fn a_parser_stage_code_page_reproduces_its_code() {
+    // `repr(C) fn` is refused by the parser, before sema runs. The runner must
+    // keep that diagnostic instead of reporting the page as producing nothing.
+    let (_, stdout, _) = run(&["conformance", "--json"]);
+    let value = yashy_common::json_rpc::parse(&stdout).expect("valid JSON report");
+    let cases = value
+        .get("cases")
+        .and_then(yashy_common::json_rpc::Value::as_array)
+        .expect("cases array");
+    let case = cases
+        .iter()
+        .find(|case| {
+            case.get("rule")
+                .and_then(yashy_common::json_rpc::Value::as_str)
+                == Some("E0106")
+        })
+        .expect("E0106 has a page");
+    assert_eq!(
+        case.get("status")
+            .and_then(yashy_common::json_rpc::Value::as_str),
+        Some("pass"),
+        "{case:?}"
+    );
+}
+
+#[test]
 fn a_floor_can_turn_the_report_into_a_gate() {
     let (ok, _, _) = run(&["conformance", "--fail-under", "100"]);
     assert!(

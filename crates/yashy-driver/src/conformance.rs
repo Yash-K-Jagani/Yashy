@@ -132,13 +132,35 @@ fn example(page: &str) -> Option<String> {
 fn check_example(source: &str) -> Vec<(String, u32, u32)> {
     let mut sources = SourceMap::new();
     let file = sources.add_file("example.ya", source.to_string());
-    let Ok(tokens) = Lexer::new(source).tokenize() else {
-        return Vec::new();
+    // A page's example may be rejected before sema runs: `repr(C) fn` is a
+    // parser diagnostic, and discarding it would report the page as producing
+    // nothing. The lexer's and parser's own codes are evidence too.
+    let tokens = match Lexer::with_file(source, file).tokenize() {
+        Ok(tokens) => tokens,
+        Err(diagnostics) => return codes_of(&diagnostics),
     };
-    let mut parser = Parser::new(tokens, &sources, file);
-    let Ok(program) = parser.parse_program() else {
-        return Vec::new();
+    let mut parser = Parser::new(tokens.clone(), &sources, file);
+    let program = match parser.parse_program() {
+        Ok(program) => program,
+        Err(diagnostics) => return codes_of(&diagnostics),
     };
+    // Macros expand before parsing, and `cfg` is decided before resolution.
+    // A page for `E1600` or `E2202` is only evidence if the runner does what
+    // the real pipeline does, so both stages run here too.
+    let (expanded, _map) = yashy_expand::expand_tokens(&program.items, &sources, file, &tokens);
+    let tokens = match expanded {
+        Ok(tokens) => tokens,
+        Err(diagnostic) => return codes_of(&[diagnostic]),
+    };
+    let mut program = match Parser::new(tokens, &sources, file).parse_program() {
+        Ok(program) => program,
+        Err(diagnostics) => return codes_of(&diagnostics),
+    };
+    let set = crate::cfg::CfgSet::for_target(yashy_codegen::host_target_triple(), false);
+    let cfg_diagnostics = crate::cfg::filter(&mut program, &set, file);
+    if !cfg_diagnostics.is_empty() {
+        return codes_of(&cfg_diagnostics);
+    }
     let hir = match check_program_with(&program, &sources, file, CheckOptions::default()) {
         Ok(hir) => hir,
         Err(diagnostics) => return codes_of(&diagnostics),
