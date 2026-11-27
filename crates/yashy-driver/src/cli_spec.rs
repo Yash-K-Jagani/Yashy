@@ -357,8 +357,16 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "context",
         summary: "assemble a task-sized context bundle",
-        usage: "yashyc context [--json] [--task <name>] [--budget <n>] [path]",
-        flags: &["--json", "--task", "--budget"],
+        usage: "yashyc context [--json] [--task <name>] [--budget <n>] [--mode <focus|diff|tests|docs|error>] [--focus <symbol>] [--changed <a,b>] [--diagnostic <text>] [path]",
+        flags: &[
+            "--json",
+            "--task",
+            "--budget",
+            "--mode",
+            "--focus",
+            "--changed",
+            "--diagnostic",
+        ],
         takes_path: false,
     },
     CommandSpec {

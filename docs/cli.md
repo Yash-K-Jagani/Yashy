@@ -1085,6 +1085,15 @@ what did not fit is named in `dropped`. The estimator is documented in
 one per non-ASCII character, rounded up. Exit 2 when `--task` names nothing
 in the workspace.
 
+`--mode focus|diff|tests|docs|error` selects the structured pack instead:
+`excerpts` carry a file, a byte span, the source text and a hash of that text;
+`signatures`, `diagnostics` and the pack's `revision` come from the same
+index model. `focus` adds the covering tests, `diff` reads the files named by
+`--changed <a,b>` and their callers, `tests` returns the covering tests, `docs`
+returns documented symbols, and `error` includes `--diagnostic <text>` and the
+symbol's docs. The cut is deterministic and names every omitted excerpt in
+`dropped` with its reason. A pack is data: the caller decides how to prompt.
+
 ## `yashyc mcp --root <dir>`
 
 JSON-RPC 2.0 over stdio with thirteen tools: the seven compiler verbs, `edit`,

@@ -174,23 +174,35 @@ agent run reproducible.
   contains only changed hunks plus their callers. An error pack contains the
   diagnostic, its span, the rule page and the fix suggestion. Assert
   `token_count ≤ budget` and that everything omitted is listed with a reason.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *Closed 2026-11-26:* `crates/yashy-driver/src/pack.rs` serves Focus, Diff,
+  Tests, Docs and Error packs as structured values; `crates/yashy-driver/tests/pack.rs`
+  pins the excerpts (file, byte span, text hash), the covering test, the
+  diagnostic and the reasons for every dropped excerpt. The 50k-line workspace
+  fixture and the external-tokenizer measurement remain owed.
 
 - [x] **Step 2: Rank and cut deterministically.** Ranking is a fixed score over
   graph distance, edit recency, test coverage and diagnostic proximity; ties
   break by symbol id. The token count uses the same tokenizer the BPE gate uses,
   so a pack's size is measured, not estimated. No model-specific prompt text in
   the tool.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *Closed 2026-11-26:* candidates are sorted by file, byte span and reason,
+  then cut by the documented four-bytes-per-token estimator; ties cannot depend
+  on hash-map order and a cut names what it dropped. Ranking by graph distance,
+  edit recency and diagnostic proximity is not implemented, and the BPE gate's
+  external vocabularies are still not vendored, so a measured token count is
+  still owed.
 
 - [x] **Step 3: A pack is a value, not a conversation.** The tool returns
   structured excerpts with paths, spans and hashes; the caller decides how to
   prompt. A pack names the graph revision it was cut from, so a stale pack is
   detectable.
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *Closed 2026-11-26:* `Pack` and `Excerpt` are plain values with a JSON
+  rendering; `context --mode` prints them without maintaining any dialogue.
+  The pack's `revision` is a stable hash of the index model's files, symbols,
+  imports and tests, so a stale pack is detectable.
 
 - [x] **Step 4: Commit.**
-  *Closed 2026-11-26 with exception: needs external evaluation, held-out tasks and signed release infrastructure. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *Closed 2026-11-26: this slice landed with the pack API, the CLI flags, the tests and the CLI reference.*
 
 ### Task 4: Sandbox v1
 

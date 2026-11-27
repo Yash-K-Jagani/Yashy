@@ -36,6 +36,7 @@ pub mod migrate;
 pub mod modules;
 pub mod opt_report;
 pub mod outline;
+pub mod pack;
 pub mod pipeline;
 pub mod pkg_cmd;
 pub mod playground;

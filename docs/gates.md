@@ -814,8 +814,11 @@ dropped:
   sysroot discovery, ThinLTO without a C driver, sanitizers, installer matrix.
 - Phase 12: WASM/cross targets, JS bridge, bindgen, C++ interop, SIMD, dlopen,
   shared-library ABI, `-sys` convention, embedding matrix.
-- Phase 13: remaining refactor operations, generic graph, focus packs, sandbox limits,
-  agent benchmark, provenance, BPE policy, tamper-evident audit log, SDK.
+- Phase 13: remaining refactor operations, generic graph, scored ranking for
+  packs, sandbox limits, agent benchmark, provenance, BPE policy, tamper-evident
+  audit log, SDK. Structured focus/diff/tests/docs/error packs shipped under
+  `yashyc context --mode`; the 50k-line fixture and an external-tokenizer count
+  remain owed.
 - Phase 14: self-host differential, reproducible bootstrap, normative spec,
   conformance suite, editions, release/tag gates, channels, advisory feed,
   contributor process.

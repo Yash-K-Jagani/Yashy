@@ -6529,12 +6529,53 @@ fn search_cmd(args: &[String]) -> ExitCode {
 fn context_cmd(args: &[String]) -> ExitCode {
     let mut json = false;
     let mut task: Option<String> = None;
+    let mut focus: Option<String> = None;
+    let mut mode: Option<yashy_driver::pack::PackMode> = None;
+    let mut changed: Vec<String> = Vec::new();
+    let mut diagnostic: Option<String> = None;
     let mut budget: usize = 8000;
     let mut input: Option<PathBuf> = None;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
             "--json" => json = true,
+            "--mode" => {
+                if i + 1 >= args.len() {
+                    return usage_error("`--mode` needs a value");
+                }
+                match yashy_driver::pack::PackMode::parse(&args[i + 1]) {
+                    Some(parsed) => mode = Some(parsed),
+                    None => {
+                        return usage_error("unknown pack mode; use focus, diff, tests, docs or error")
+                    }
+                }
+                i += 1;
+            }
+            "--focus" => {
+                if i + 1 >= args.len() {
+                    return usage_error("`--focus` needs a value");
+                }
+                focus = Some(args[i + 1].clone());
+                i += 1;
+            }
+            "--changed" => {
+                if i + 1 >= args.len() {
+                    return usage_error("`--changed` needs a value");
+                }
+                changed = args[i + 1]
+                    .split(',')
+                    .map(str::to_string)
+                    .filter(|name| !name.is_empty())
+                    .collect();
+                i += 1;
+            }
+            "--diagnostic" => {
+                if i + 1 >= args.len() {
+                    return usage_error("`--diagnostic` needs a value");
+                }
+                diagnostic = Some(args[i + 1].clone());
+                i += 1;
+            }
             "--task" => {
                 if i + 1 >= args.len() {
                     return usage_error("`--task` needs a value");
@@ -6568,6 +6609,39 @@ fn context_cmd(args: &[String]) -> ExitCode {
         return usage_error("`context` needs `--task \"...\"`");
     };
     let root = input.unwrap_or_else(|| PathBuf::from("."));
+    if let Some(mode) = mode {
+        let request = yashy_driver::pack::PackRequest {
+            focus: focus.unwrap_or_else(|| task.clone()),
+            mode,
+            budget,
+            changed,
+            diagnostic,
+        };
+        return match yashy_driver::pack::context_pack(&root, &request) {
+            Ok(pack) => {
+                if json {
+                    println!("{}", pack.to_json().render());
+                } else {
+                    println!("# Pack: {} / {}", pack.mode.as_str(), pack.focus);
+                    println!("revision {}", pack.revision);
+                    for excerpt in &pack.excerpts {
+                        println!(
+                            "\n## {} ({}:{}..{})\n{}",
+                            excerpt.reason, excerpt.file, excerpt.start, excerpt.end, excerpt.text
+                        );
+                    }
+                    for dropped in &pack.dropped {
+                        println!("dropped {}: {}", dropped.file, dropped.reason);
+                    }
+                }
+                exit_code(EXIT_OK)
+            }
+            Err(message) => {
+                eprintln!("error: {message}");
+                exit_code(EXIT_USAGE)
+            }
+        };
+    }
     match yashy_driver::context::build_context(&root, &task, budget, None) {
         Ok(pack) => {
             if json {
