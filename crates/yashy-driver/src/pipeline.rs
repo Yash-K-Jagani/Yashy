@@ -602,7 +602,7 @@ fn fnv1a(state: &mut u64, bytes: &[u8]) {
 /// source cannot: the same runtime compiled by a *different* `clang` is a
 /// different object, and an in-place toolchain upgrade should not silently
 /// reuse what the previous one emitted.
-pub(crate) fn runtime_cache_key(tool: &Path, triple: &str, opt: OptLevel) -> u64 {
+pub(crate) fn runtime_cache_key(tool: &Path, triple: &str, opt: OptLevel, pic: bool) -> u64 {
     let mut state = FNV_OFFSET_BASIS;
     fnv1a(&mut state, RUNTIME_C_SOURCE.as_bytes());
     fnv1a(&mut state, HASHMAP_C_SOURCE.as_bytes());
@@ -616,6 +616,7 @@ pub(crate) fn runtime_cache_key(tool: &Path, triple: &str, opt: OptLevel) -> u64
     fnv1a(&mut state, UNICODE_DATA_HEADER.as_bytes());
     fnv1a(&mut state, triple.as_bytes());
     fnv1a(&mut state, opt.flag().as_bytes());
+    fnv1a(&mut state, if pic { b"pic" } else { b"exe" });
     fnv1a(&mut state, tool.to_string_lossy().as_bytes());
     if let Ok(modified) = fs::metadata(tool).and_then(|meta| meta.modified()) {
         if let Ok(since_epoch) = modified.duration_since(std::time::UNIX_EPOCH) {
@@ -1249,6 +1250,8 @@ pub struct BuildOptions {
     /// entry. `None` leaves the runtime handle permissive so a program with no
     /// declaration keeps its old behaviour.
     pub capabilities: Option<String>,
+    /// Emit a shared library instead of an executable.
+    pub shared: bool,
     /// Selected cargo-style features; part of the IR cache key and exposed as
     /// `feature:<name>` cfg keys.
     pub features: std::collections::BTreeSet<String>,
@@ -1333,6 +1336,7 @@ pub struct BuildOptions {
 impl Default for BuildOptions {
     fn default() -> Self {
         Self {
+            shared: false,
             capabilities: None,
             features: std::collections::BTreeSet::new(),
             debug_info: false,
@@ -2232,7 +2236,7 @@ pub fn compile_hir_timed(
         None
     } else {
         runtime_cache_dir().and_then(|cache_dir| {
-            let key = runtime_cache_key(&toolchain.llc, target, options.opt);
+            let key = runtime_cache_key(&toolchain.llc, target, options.opt, options.shared);
             let runtime = cached_runtime_object(
                 &cache_dir,
                 &runtime_source,
@@ -2242,7 +2246,13 @@ pub fn compile_hir_timed(
                 target,
                 options.opt,
                 toolchain,
-                &extra_flags,
+                &{
+                    let mut flags = extra_flags.clone();
+                    if options.shared {
+                        flags.push("-fPIC".to_string());
+                    }
+                    flags
+                },
                 epoch.as_deref(),
             )?;
             let hashmap = cached_runtime_object(
@@ -2254,7 +2264,13 @@ pub fn compile_hir_timed(
                 target,
                 options.opt,
                 toolchain,
-                &extra_flags,
+                &{
+                    let mut flags = extra_flags.clone();
+                    if options.shared {
+                        flags.push("-fPIC".to_string());
+                    }
+                    flags
+                },
                 epoch.as_deref(),
             )?;
             let executor = cached_runtime_object(
@@ -2266,7 +2282,13 @@ pub fn compile_hir_timed(
                 target,
                 options.opt,
                 toolchain,
-                &extra_flags,
+                &{
+                    let mut flags = extra_flags.clone();
+                    if options.shared {
+                        flags.push("-fPIC".to_string());
+                    }
+                    flags
+                },
                 epoch.as_deref(),
             )?;
             let net = cached_runtime_object(
@@ -2278,7 +2300,13 @@ pub fn compile_hir_timed(
                 target,
                 options.opt,
                 toolchain,
-                &extra_flags,
+                &{
+                    let mut flags = extra_flags.clone();
+                    if options.shared {
+                        flags.push("-fPIC".to_string());
+                    }
+                    flags
+                },
                 epoch.as_deref(),
             )?;
             let platform = cached_runtime_object(
@@ -2290,7 +2318,13 @@ pub fn compile_hir_timed(
                 target,
                 options.opt,
                 toolchain,
-                &extra_flags,
+                &{
+                    let mut flags = extra_flags.clone();
+                    if options.shared {
+                        flags.push("-fPIC".to_string());
+                    }
+                    flags
+                },
                 epoch.as_deref(),
             )?;
             Some((runtime, hashmap, executor, net, platform))
@@ -2335,6 +2369,9 @@ pub fn compile_hir_timed(
             &runtime_dir,
             extra,
         );
+        if std::env::var("YASHY_DEBUG_LINK").is_ok() {
+            eprintln!("LINK: {}", args.join(" "));
+        }
         timed(timings, "link", || {
             run_tool(toolchain, &args, entry_name, what, epoch.as_deref())
         })
@@ -2417,6 +2454,9 @@ fn link_arguments(
     extra: &[String],
 ) -> Vec<String> {
     let mut args: Vec<String> = vec![options.opt.flag().to_string(), format!("--target={target}")];
+    if options.shared {
+        args.push("-shared".to_string());
+    }
     // The differential sanitizer corpus is the one caller that wants
     // instrumentation, and it says so in the environment rather than in the
     // language's CLI: `YASHY_SANITIZE=1` links the generated program with ASan
@@ -3277,21 +3317,21 @@ mod tests {
     #[test]
     fn the_cache_key_covers_everything_the_object_depends_on() {
         let tool = PathBuf::from("/toolchain/clang");
-        let key = runtime_cache_key(&tool, "x86_64-pc-windows-gnu", OptLevel::Full);
+        let key = runtime_cache_key(&tool, "x86_64-pc-windows-gnu", OptLevel::Full, false);
 
         assert_eq!(
             key,
-            runtime_cache_key(&tool, "x86_64-pc-windows-gnu", OptLevel::Full),
+            runtime_cache_key(&tool, "x86_64-pc-windows-gnu", OptLevel::Full, false),
             "the same inputs must address the same object"
         );
         assert_ne!(
             key,
-            runtime_cache_key(&tool, "x86_64-pc-windows-gnu", OptLevel::None),
+            runtime_cache_key(&tool, "x86_64-pc-windows-gnu", OptLevel::None, false),
             "a different optimization level is a different object"
         );
         assert_ne!(
             key,
-            runtime_cache_key(&tool, "x86_64-unknown-linux-gnu", OptLevel::Full),
+            runtime_cache_key(&tool, "x86_64-unknown-linux-gnu", OptLevel::Full, false),
             "a different target is a different object"
         );
         assert_ne!(
@@ -3299,7 +3339,8 @@ mod tests {
             runtime_cache_key(
                 &PathBuf::from("/other/clang"),
                 "x86_64-pc-windows-gnu",
-                OptLevel::Full
+                OptLevel::Full,
+                false
             ),
             "a different toolchain is a different object"
         );

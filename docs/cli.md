@@ -20,11 +20,14 @@ Compiles one program to a native executable.
 yashyc build main.ya
 yashyc build main.ya -o wordcount --release
 yashyc build main.ya --emit-ir
+yashyc build lib.ya --emit=cdylib --header lib.h -o libdemo.so
 ```
 
 | Option | Meaning |
 |---|---|
 | `-o <path>` | Output path. Default: the source's stem beside the source. |
+| `--emit=exe\|cdylib` | Executable (default) or a shared library. A library links with `-shared` and position-independent runtime objects. |
+| `--header <path>` | Write a C header from the checked public functions. Functions without a C-compatible signature are named in a comment, never guessed at. |
 | `-O0` ... `-O3` | Optimization level passed to `clang`. Default `-O2`. |
 | `--release` | Compile out `debug_assert`; default optimization becomes `-O3` unless `-O` is given, and link with ThinLTO. |
 | `--no-lto` | Link without ThinLTO. Only for attributing a suspected LTO-only miscompile; see [ThinLTO and `--pgo`](#thinlto-and---pgo). |

@@ -15,6 +15,7 @@ pub mod audit;
 pub mod approval;
 pub mod bench;
 pub mod capability_check;
+pub mod c_header_emit;
 pub mod cfg;
 pub mod cli_spec;
 pub mod context;

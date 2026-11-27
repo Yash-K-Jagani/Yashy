@@ -35,6 +35,8 @@ pub const COMMANDS: &[CommandSpec] = &[
             "--jobs",
             "--target",
             "--emit-ir",
+            "--emit",
+            "--header",
             "--opt-report",
             "--stack-report",
             "--no-verify",

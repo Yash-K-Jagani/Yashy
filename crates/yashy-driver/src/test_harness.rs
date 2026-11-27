@@ -698,7 +698,7 @@ fn link_harness(
     // runtime once per harness link.
     let mut runtime_inputs: Vec<PathBuf> = Vec::new();
     if let Some(cache_dir) = crate::pipeline::runtime_cache_dir() {
-        let key = crate::pipeline::runtime_cache_key(&toolchain.llc, target, *opt);
+        let key = crate::pipeline::runtime_cache_key(&toolchain.llc, target, *opt, false);
         let sources: [(&str, &str); 5] = [
             (RUNTIME_SOURCE_NAME, "runtime"),
             (HASHMAP_SOURCE_NAME, "hashmap"),

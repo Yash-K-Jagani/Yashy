@@ -396,6 +396,8 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     let mut input: Option<PathBuf> = None;
     let mut output: Option<PathBuf> = None;
     let mut emit_ir = false;
+    let mut header: Option<PathBuf> = None;
+    let mut shared = false;
     let mut timings_flag = false;
     let mut no_verify = false;
     let mut deny_warnings = env::var("YASHY_DENY_WARNINGS").ok().as_deref() == Some("1");
@@ -469,6 +471,39 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         match argument.as_str() {
             "--print-capabilities" => print_capabilities = true,
             "--emit-ir" => emit_ir = true,
+            "--header" => {
+                if let Some(value) = args.next() {
+                    header = Some(PathBuf::from(value));
+                } else {
+                    return stopped(usage_error("`--header` needs a file path"));
+                }
+            }
+            other if other.starts_with("--emit=") => {
+                match other.trim_start_matches("--emit=") {
+                    "cdylib" => shared = true,
+                    "exe" => shared = false,
+                    other => {
+                        return stopped(usage_error(&format!(
+                            "unknown emit kind `{other}`; use `exe` or `cdylib`"
+                        )))
+                    }
+                }
+            }
+            "--emit" => {
+                if let Some(value) = args.next() {
+                    match value.as_str() {
+                        "cdylib" => shared = true,
+                        "exe" => shared = false,
+                        other => {
+                            return stopped(usage_error(&format!(
+                                "unknown emit kind `{other}`; use `exe` or `cdylib`"
+                            )))
+                        }
+                    }
+                } else {
+                    return stopped(usage_error("`--emit` needs a kind"));
+                }
+            }
             "--timings" => timings_flag = true,
             "--debug-info" => debug_info = true,
             "--features" => match args.next() {
@@ -854,6 +889,26 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         }
     }
 
+    if let Some(path) = &header {
+        let root = input
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let mut public = std::collections::BTreeSet::new();
+        if let Ok(model) = yashy_driver::index::build_index(root) {
+            for symbol in &model.symbols {
+                if symbol.kind == "fn" && symbol.is_public() {
+                    public.insert(symbol.name.clone());
+                }
+            }
+        }
+        let text = yashy_driver::c_header_emit::header(&hir, &public);
+        if let Err(error) = fs::write(path, text) {
+            eprintln!("error: {}: {error}", path.display());
+            return stopped(exit_code(EXIT_COMPILE_ERROR));
+        }
+    }
+
     // Apply the warning policy: --allow suppresses, --deny upgrades to errors.
     if allow_warnings {
         report
@@ -1025,6 +1080,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     let output = output.unwrap_or_else(|| default_output(&input));
     let opt = resolve_opt(command, release, opt);
     let options = BuildOptions {
+        shared,
         capabilities,
         features: selected_features,
         debug_info,

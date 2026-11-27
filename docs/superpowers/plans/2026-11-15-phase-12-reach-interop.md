@@ -322,7 +322,13 @@ having before the AI phase writes documentation about the language.
   version macro come from the same typed model that emits the object. A layout
   change changes the header; `--header --check` fails in CI when a checked-in
   header drifts.
-  *Closed 2026-11-26 with exception: needs WASM/cross targets, bindgen and OS-specific toolchains unavailable here. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *Partly closed 2026-11-27:* `crates/yashy-driver/src/c_header_emit.rs`
+  renders a header from checked HIR and the index's visibility: C-compatible
+  top-level `pub fn`s get declarations using the backend's `yashy_fn_` symbols,
+  and functions without a C representation are named in an `excluded` comment.
+  `yashyc build --header <file>` writes it, and `crates/yashy-driver/tests/library.rs`
+  pins both the included and excluded cases. A version macro, ownership
+  annotations beyond the comment, and `--header --check` are still owed.
 
 - [x] **Step 3: Symbols are versioned and hidden by default.** Only the export
   list is visible; everything else is internal. The shared object carries a
