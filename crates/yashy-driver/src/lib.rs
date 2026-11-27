@@ -11,6 +11,7 @@ pub mod addr;
 pub mod affected;
 pub mod agent;
 pub mod audit;
+pub mod approval;
 pub mod bench;
 pub mod capability_check;
 pub mod cfg;

@@ -372,8 +372,17 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "agent",
         summary: "read the agent policy and verify the audit chain",
-        usage: "yashyc agent <audit|policy> [--verify] [--json] [--root <dir>]",
-        flags: &["--verify", "--json", "--root"],
+        usage: "yashyc agent <audit|policy|plan|approve> [--verify] [--json] [--root <dir>] [--tree <hash>] [--patch <file>] [--verbs <a,b>] [--ttl <seconds>] [--nonce <text>]",
+        flags: &[
+            "--verify",
+            "--json",
+            "--root",
+            "--tree",
+            "--patch",
+            "--verbs",
+            "--ttl",
+            "--nonce",
+        ],
         takes_path: false,
     },
     CommandSpec {

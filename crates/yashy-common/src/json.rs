@@ -53,6 +53,17 @@ impl Json {
         Json::Array(values)
     }
 
+    /// A field of an object, by name. Any other shape has no fields.
+    pub fn get(&self, key: &str) -> Option<&Json> {
+        match self {
+            Json::Object(fields) => fields
+                .iter()
+                .find(|(name, _)| name == key)
+                .map(|(_, value)| value),
+            _ => None,
+        }
+    }
+
     /// Adds a field to an object.
     ///
     /// # Panics
@@ -284,6 +295,15 @@ mod tests {
             object.render(),
             "{\n  \"values\": [\n    1,\n    \"two\"\n  ]\n}"
         );
+    }
+
+    #[test]
+    fn get_reads_a_field_from_an_object_only() {
+        let mut object = Json::object();
+        object.set("a", Json::number(7));
+        assert_eq!(object.get("a"), Some(&Json::number(7)));
+        assert_eq!(object.get("b"), None);
+        assert_eq!(Json::array(vec![]).get("a"), None);
     }
 
     #[test]

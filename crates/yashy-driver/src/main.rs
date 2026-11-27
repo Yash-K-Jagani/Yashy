@@ -6660,22 +6660,113 @@ fn context_cmd(args: &[String]) -> ExitCode {
 }
 
 /// `yashyc mcp --root <dir>`: the MCP server on stdio.
+fn agent_plan(root: &Path, patch_file: &str) -> Result<Json, String> {
+    use yashy_common::json_rpc::{self, Value};
+    let text = std::fs::read_to_string(root.join(patch_file))
+        .or_else(|_| std::fs::read_to_string(patch_file))
+        .map_err(|error| format!("{patch_file}: {error}"))?;
+    let patch = json_rpc::parse(&text).map_err(|error| format!("{patch_file}: {error}"))?;
+    let mut files = Vec::new();
+    let mut replacements = Vec::new();
+    for edit in patch
+        .get_path(&["edits"])
+        .and_then(Value::as_array)
+        .unwrap_or(&[])
+    {
+        let file = edit.get("file").and_then(Value::as_str).unwrap_or("");
+        let start = edit
+            .get_path(&["span", "start"])
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
+            .max(0) as usize;
+        let end = edit
+            .get_path(&["span", "end"])
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
+            .max(0) as usize;
+        let replacement = edit
+            .get("replacement")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let source = std::fs::read_to_string(root.join(file)).unwrap_or_default();
+        let before = source.get(start..end.min(source.len())).unwrap_or("");
+        replacements.push(replacement.clone());
+        let mut entry = Json::object();
+        entry.set("file", Json::string(file));
+        entry.set("before", Json::string(before.trim()));
+        entry.set("after", Json::string(replacement.trim()));
+        entry.set(
+            "lines_added",
+            Json::number(replacement.lines().count() as i64),
+        );
+        entry.set("lines_removed", Json::number(before.lines().count() as i64));
+        files.push(entry);
+    }
+    let touched = replacements.join("\n");
+    let symbols: Vec<Json> = match yashy_driver::index::build_index(root) {
+        Ok(model) => model
+            .symbols
+            .iter()
+            .filter(|symbol| touched.contains(&symbol.name))
+            .map(|symbol| Json::string(&symbol.name))
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+    let capabilities: Vec<Json> = std::fs::read_to_string(root.join("yashy.toml"))
+        .ok()
+        .and_then(|text| yashy_manifest::Manifest::parse(&text).ok())
+        .and_then(|manifest| manifest.capabilities)
+        .map(|set| {
+            set.entries()
+                .iter()
+                .map(|(name, _)| Json::string(*name))
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut plan = Json::object();
+    plan.set("schema_version", Json::number(1));
+    plan.set("tool", Json::string("yashyc"));
+    plan.set("verbs", Json::array(vec![Json::string("edit")]));
+    plan.set("files", Json::array(files));
+    plan.set("symbols", Json::array(symbols));
+    plan.set("capabilities", Json::array(capabilities));
+    Ok(plan)
+}
+
 fn agent_cmd(args: &[String]) -> ExitCode {
     let Some(subcommand) = args.first() else {
-        return usage_error("`agent` needs a subcommand: `audit` or `policy`");
+        return usage_error("`agent` needs a subcommand: `audit`, `policy`, `plan` or `approve`");
     };
     let mut json = false;
     let mut root = PathBuf::from(".");
+    let mut tree: Option<String> = None;
+    let mut patch: Option<String> = None;
+    let mut verbs: Option<String> = None;
+    let mut ttl: u64 = 300;
+    let mut nonce: Option<String> = None;
     let mut index = 1;
     while index < args.len() {
         match args[index].as_str() {
             "--json" => json = true,
             "--verify" => {}
-            "--root" => {
+            "--root" | "--tree" | "--patch" | "--verbs" | "--ttl" | "--nonce" => {
                 if index + 1 >= args.len() {
-                    return usage_error("`--root` needs a value");
+                    return usage_error(&format!("`{}` needs a value", args[index]));
                 }
-                root = PathBuf::from(&args[index + 1]);
+                let value = args[index + 1].clone();
+                match args[index].as_str() {
+                    "--root" => root = PathBuf::from(value),
+                    "--tree" => tree = Some(value),
+                    "--patch" => patch = Some(value),
+                    "--verbs" => verbs = Some(value),
+                    "--ttl" => match value.parse::<u64>() {
+                        Ok(parsed) => ttl = parsed,
+                        Err(_) => return usage_error("`--ttl` needs a whole number of seconds"),
+                    },
+                    "--nonce" => nonce = Some(value),
+                    _ => unreachable!(),
+                }
                 index += 1;
             }
             other if other.starts_with('-') => {
@@ -6736,6 +6827,14 @@ fn agent_cmd(args: &[String]) -> ExitCode {
                             .map_or("none".to_string(), |limit| limit.to_string())
                     );
                     println!("audit max bytes: {}", policy.audit_max_bytes);
+                    println!(
+                        "require approval: {}",
+                        if policy.require_approval.is_empty() {
+                            "none".to_string()
+                        } else {
+                            policy.require_approval.join(", ")
+                        }
+                    );
                 }
                 exit_code(EXIT_OK)
             }
@@ -6744,6 +6843,96 @@ fn agent_cmd(args: &[String]) -> ExitCode {
                 exit_code(EXIT_USAGE)
             }
         },
+        "plan" => {
+            let Some(patch_file) = patch else {
+                return usage_error("`plan` needs a patch file: `--patch <file>`");
+            };
+            match agent_plan(&root, &patch_file) {
+                Ok(plan) => {
+                    if json {
+                        println!("{}", plan.render());
+                    } else {
+                        let files = plan.get("files").map_or(0, |value| match value {
+                            Json::Array(items) => items.len(),
+                            _ => 0,
+                        });
+                        println!("plan: {files} files, verbs {}", "edit");
+                        if let Some(Json::Array(items)) = plan.get("symbols") {
+                            let names: Vec<String> = items
+                                .iter()
+                                .filter_map(|item| match item {
+                                    Json::String(name) => Some(name.clone()),
+                                    _ => None,
+                                })
+                                .collect();
+                            println!("symbols: {}", names.join(", "));
+                        }
+                    }
+                    exit_code(EXIT_OK)
+                }
+                Err(message) => {
+                    eprintln!("error: {message}");
+                    exit_code(EXIT_USAGE)
+                }
+            }
+        }
+        "approve" => {
+            let Some(patch_file) = patch else {
+                return usage_error("`approve` needs a patch file: `--patch <file>`");
+            };
+            let patch_text = match std::fs::read_to_string(root.join(&patch_file))
+                .or_else(|_| std::fs::read_to_string(&patch_file))
+            {
+                Ok(text) => text,
+                Err(error) => {
+                    eprintln!("error: {patch_file}: {error}");
+                    return exit_code(EXIT_USAGE);
+                }
+            };
+            let patch_value = match yashy_common::json_rpc::parse(&patch_text) {
+                Ok(value) => value,
+                Err(error) => {
+                    eprintln!("error: {patch_file}: {error}");
+                    return exit_code(EXIT_USAGE);
+                }
+            };
+            let tree = match tree {
+                Some(tree) => tree,
+                None => match yashy_driver::edit::tree_hash(&root) {
+                    Ok(tree) => tree,
+                    Err(error) => {
+                        eprintln!("error: {}", error.message());
+                        return exit_code(EXIT_USAGE);
+                    }
+                },
+            };
+            let names: Vec<String> = verbs
+                .unwrap_or_else(|| "edit".to_string())
+                .split(',')
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .map(str::to_string)
+                .collect();
+            let nonce = nonce.unwrap_or_else(|| yashy_driver::approval::now_unix_ms().to_string());
+            match yashy_driver::approval::mint(&root, &tree, &patch_value, names, ttl, &nonce) {
+                Ok((token, approval)) => {
+                    if json {
+                        println!("{}", approval.to_json(&token).render());
+                    } else {
+                        println!("approved {token}");
+                        println!("tree {}", approval.tree_hash);
+                        println!("patch {}", approval.patch_hash);
+                        println!("verbs {}", approval.verbs.join(", "));
+                        println!("expires {}", approval.expires_unix_ms);
+                    }
+                    exit_code(EXIT_OK)
+                }
+                Err(message) => {
+                    eprintln!("error: {message}");
+                    exit_code(EXIT_USAGE)
+                }
+            }
+        }
         other => usage_error(&format!("unknown `agent` subcommand `{other}`")),
     }
 }

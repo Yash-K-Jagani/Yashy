@@ -1107,7 +1107,7 @@ under `<root>/.yashy/` and the requested output. The mutating verbs apply
 hash-checked, all-or-nothing patches and re-check the tree before committing;
 see [MCP](mcp.md) and [Agent policy](agent-policy.md).
 
-## `yashyc agent <audit|policy> [--verify] [--json] [--root <dir>]`
+## `yashyc agent <audit|policy|plan|approve> [--verify] [--json] [--root <dir>]`
 
 `agent audit --verify` recomputes the hash chain of
 `.yashy/audit/session.jsonl` (and its rotated segments) and names the first
@@ -1115,8 +1115,15 @@ entry that does not belong. The human form prints `N entries  chain ok  first
 bad: none`; a broken chain exits 1 with `E1804` and the first bad `seq`. The
 human `agent policy` form prints the effective `allow` set, `protected`,
 `max edits` and `audit max bytes`; `--json` emits the same facts as a
-schema-v1 object. A policy that cannot be parsed is a usage error, never a
-silent default.
+schema-v1 object. The human form also names `require approval`. A policy that
+cannot be parsed is a usage error, never a silent default.
+
+`agent plan --patch <file>` writes nothing: it reports the files and edits a
+patch would make, the symbols its replacements name, the capabilities declared
+by `yashy.toml`, and the verb set. `agent approve --patch <file> [--tree <hash>]
+[--verbs <a,b>] [--ttl <seconds>] [--nonce <text>]` writes a short-lived token
+under `.yashy/approvals/` bound to the tree, the canonical patch, the verbs and
+the expiry; an MCP session spends it once. See [Agent policy](agent-policy.md).
 
 ## `yashyc run --sandbox [--allow-read <path>] [--allow-write <path>] [--time <ms>] [--memory <mb>]`
 

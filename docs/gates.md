@@ -821,8 +821,9 @@ dropped:
   an external-tokenizer count, graph-distance/edit-recency ranking and a
   stale-revision detector remain owed. MCP now runs under a strict-by-default
   policy file and a hash-chained, rotating audit log verified by
-  `yashyc agent audit --verify`; approval tokens, token/wall/output budgets
-  and session-key signatures remain owed.
+  `yashyc agent audit --verify`; `require_approval` spends a tree-, patch- and
+  verb-bound token once. Token/wall/output budgets and session-key signatures
+  remain owed.
 - Phase 14: self-host differential, reproducible bootstrap, normative spec,
   conformance suite, release/tag gates, channels, advisory feed,
   contributor process. Editions are partly shipped: the closed key set and

@@ -44,6 +44,9 @@ pub const READ_ONLY_VERBS: [&str; 9] = [
     "check", "build", "test", "verify", "explain", "context", "index", "lint", "doc",
 ];
 
+/// The verbs that change source, and the only verbs an approval can name.
+pub const MUTATING_VERBS: [&str; 4] = ["edit", "refactor", "format", "fix"];
+
 /// The policy an MCP session runs under.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AgentPolicy {
@@ -53,6 +56,8 @@ pub struct AgentPolicy {
     pub protected_paths: Vec<String>,
     /// The largest patch, in edits, one call may carry.
     pub max_edits: Option<usize>,
+    /// Verbs that need a short-lived token before they may run.
+    pub require_approval: Vec<String>,
     /// Rotate the active segment before an append would exceed this size.
     pub audit_max_bytes: u64,
 }
@@ -66,6 +71,7 @@ impl Default for AgentPolicy {
                 .collect(),
             protected_paths: Vec::new(),
             max_edits: None,
+            require_approval: Vec::new(),
             audit_max_bytes: 1024 * 1024,
         }
     }
@@ -109,6 +115,17 @@ impl AgentPolicy {
                 }
                 "protected_paths" => policy.protected_paths = string_array(key, value)?,
                 "max_edits" => policy.max_edits = Some(positive(key, value)? as usize),
+                "require_approval" => {
+                    let verbs = string_array(key, value)?;
+                    for verb in &verbs {
+                        if !MUTATING_VERBS.contains(&verb.as_str()) {
+                            return Err(format!(
+                                "`require_approval` names non-mutating verb `{verb}`"
+                            ));
+                        }
+                    }
+                    policy.require_approval = verbs;
+                }
                 "audit_max_bytes" => policy.audit_max_bytes = positive(key, value)? as u64,
                 other => return Err(format!("unknown policy key `{other}`")),
             }
@@ -157,6 +174,15 @@ impl AgentPolicy {
                 Some(limit) => Json::number(limit as i64),
                 None => Json::Null,
             },
+        );
+        root.set(
+            "require_approval",
+            Json::array(
+                self.require_approval
+                    .iter()
+                    .map(|verb| Json::string(verb))
+                    .collect(),
+            ),
         );
         root.set("audit_max_bytes", Json::number(self.audit_max_bytes as i64));
         root
@@ -632,6 +658,14 @@ mod tests {
     fn an_unknown_key_is_refused_rather_than_ignored() {
         let error = AgentPolicy::parse("allowed = [\"check\"]\n").unwrap_err();
         assert!(error.contains("unknown policy key `allowed`"), "{error}");
+    }
+
+    #[test]
+    fn approval_only_names_mutating_verbs() {
+        let policy = AgentPolicy::parse("require_approval = [\"edit\", \"fix\"]\n").unwrap();
+        assert_eq!(policy.require_approval, vec!["edit", "fix"]);
+        let error = AgentPolicy::parse("require_approval = [\"check\"]\n").unwrap_err();
+        assert!(error.contains("non-mutating verb `check`"), "{error}");
     }
 
     #[test]

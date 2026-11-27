@@ -246,6 +246,44 @@ pub fn handle(session: &mut Session, request: &Value) -> Value {
                 }
                 return refusal(id, -32002, diagnostic, &reason);
             }
+            // An approval is consumed before the verb runs, so a failed or
+            // replayed call cannot spend the same token twice.
+            let approval_error = if session
+                .policy
+                .require_approval
+                .iter()
+                .any(|verb| verb == &name)
+            {
+                let patch = params
+                    .and_then(|params| params.get("arguments"))
+                    .and_then(|arguments| arguments.get("patch"))
+                    .unwrap_or(&Value::Null);
+                let tree = crate::edit::tree_hash(&session.root).unwrap_or_default();
+                let token = params
+                    .and_then(|params| params.get("arguments"))
+                    .and_then(|arguments| arguments.get("approval"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                if token.is_empty() {
+                    Some(format!("approval token is required for `{name}`"))
+                } else {
+                    crate::approval::consume(&session.root, token, &tree, patch, &name).err()
+                }
+            } else {
+                None
+            };
+            if let Some(message) = approval_error {
+                let reason = format!("approval refused for `{name}`: {message}");
+                let diagnostic = crate::agent::POLICY_DENIED;
+                if let Err(audit_error) =
+                    session
+                        .audit
+                        .record(&name, "refused", Some(diagnostic), &reason)
+                {
+                    return refusal(id, -32005, crate::agent::AUDIT_FAILURE, &audit_error);
+                }
+                return refusal(id, -32002, diagnostic, &reason);
+            }
             let response = call_tool(&session.root, id.clone(), &name, params);
             let outcome = if response.get("error").is_some() {
                 "error"

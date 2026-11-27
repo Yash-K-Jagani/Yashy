@@ -409,9 +409,10 @@ agent run reproducible.
   *Closed 2026-11-26:* `mcp::handle` refuses a verb that `allow_verbs` does
   not name, a request that names a path under `protected_paths`, and a patch
   over `max_edits`, before the tool runs. Each refusal is `-32002` with
-  `E1807` in `error.data.code` and one audit entry. `max_wall`, token and
-  output budgets, and the approval token, remain owed; `run` is not an MCP
-  verb, so a policy cannot refuse it there.
+  `E1807` in `error.data.code` and one audit entry. `require_approval`
+  consumes a token before a mutating verb runs, so a destructive patch
+  without one is held as a plan. `max_wall`, token and output budgets remain
+  owed; `run` is not an MCP verb, so a policy cannot refuse it there.
 
 - [x] **Step 2: Policy is the product's, not the agent's.** The policy file is
   read from the workspace root, is itself protected, and a change to it is an
@@ -446,9 +447,14 @@ agent run reproducible.
   mints a short-lived token bound to the tree hash, the patch hash and the verb
   set. A token from one tree cannot apply to another; an expired token is
   refused; a replay is refused and logged.
-  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
-  remaining obligations are carried in `docs/gates.md`, which names the owner
-  and the condition that closes each one; none is silently dropped.*
+  *Closed 2026-11-27:* `yashyc agent plan --patch <file>` reports the files,
+  edits, affected symbols, capabilities and the exact verb set without
+  writing. `yashyc agent approve` mints a token bound to the tree hash, a
+  canonical patch fingerprint, the verb set and an expiry; the MCP session
+  consumes it once before the verb runs. A token for another tree, patch or
+  verb and an expired or replayed token are refused with `E1807` and logged.
+  Approval for `format` and `fix` is bound to the tree and verb only, since
+  their patches are generated inside the tool.
 
 - [x] **Step 5: Budgets are enforced, not suggested.** Token, edit, wall-clock
   and output budgets are counted by the harness, reported in `--json`, and a

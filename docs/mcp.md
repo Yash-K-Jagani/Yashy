@@ -45,6 +45,7 @@ allow_verbs = ["check", "build", "edit"]
 protected_paths = ["yashy.lock", ".github/**"]
 max_edits = 20
 audit_max_bytes = 1048576
+require_approval = ["edit"]
 ```
 
 A missing file is the strict default: the verbs that do not change the source
@@ -56,7 +57,9 @@ widen the policy. `protected_paths` uses `*` (no `/`), `**` (any run) and `?`;
 `.yashy/policy.toml` is always protected, so a session cannot edit the policy it
 runs under. A request that names a protected path is refused with JSON-RPC
 `-32002` and the diagnostic code `E1807`; so is a patch with more edits than
-`max_edits`. The refusal happens before the tool runs.
+`max_edits`. The refusal happens before the tool runs. A verb named in
+`require_approval` also needs a token from `yashyc agent approve`, spent before
+the verb runs and refused on replay.
 
 Every call appends one line to `.yashy/audit/session.jsonl` with `seq`, `tool`,
 `outcome`, `code`, `detail`, `prev_hash` and `hash`. The hash is SHA-256 over
