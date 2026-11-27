@@ -160,8 +160,11 @@ sites, stack slots, bytes per value, and cold-start milliseconds.
   by the report, and `stack_alloc` is refused when it reaches a return, a
   field store or a task/channel argument. Per-function stack depth is now
   accounted by the verifier: `stack_alloc` bytes are summed per function and a
-  total above `STACK_LIMIT` is a diagnostic with a span. Recursion depth is
-  still not accounted, so that half remains an exception.
+  total above `STACK_LIMIT` is a diagnostic with a span. Recursion depth is now
+  accounted too: the `stack_depth` pass builds the call graph from checked HIR
+  and reports `E1202` when a call cycle contains a function that reserves
+  `stack_alloc` bytes. The diagnostic names the cycle and points at the first
+  reservation; a recursion that reserves nothing is accepted.
 
 - [x] **Step 3: Commit.**
 

@@ -14,5 +14,6 @@ pub mod inventory;
 pub mod leak;
 pub mod overflow;
 pub mod params;
+pub mod stack_depth;
 pub mod typestate;
 pub mod warnings;

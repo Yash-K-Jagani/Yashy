@@ -805,8 +805,8 @@ The following groups remain unimplemented and are tracked in those plans, not
 dropped:
 
 - Phase 11A: inline string ABI, 1M-key map row, three-feature re-measurement,
-  two-OS startup gate, per-function stack-depth accounting, allocator interface
-  and runtime size classes.
+  two-OS startup gate, allocator interface
+  and runtime size classes. Recursion-depth accounting now ships as `E1202`.
 - Phase 11B: LLVM pass-level vector IR assertions, loop-check hoisting,
   interleaved two-OS benchmark rows, bounds/SROA/GVN/loop passes, PGO profile,
   ThinLTO/BOLT, per-module incremental link, distributed cache, opt-report v2.

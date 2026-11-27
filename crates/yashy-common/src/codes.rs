@@ -106,6 +106,8 @@ pub const PARTIAL_MOVE: &str = "E1002";
 pub const CONTRACT: &str = "E1100";
 /// Checked integer arithmetic is provably out of range.
 pub const OVERFLOW: &str = "E1201";
+/// Recursive calls reserve stack bytes that cannot fit a bounded frame.
+pub const STACK_OVERFLOW: &str = "E1202";
 /// A grapheme index is provably out of range.
 pub const GRAPHEME_OOB: &str = "E1200";
 /// A declared effect is exceeded by the body.
@@ -490,6 +492,12 @@ pub const CODES: &[Code] = &[
         title: "provable integer overflow",
         summary: "Checked integer arithmetic always overflows.",
         page: include_str!("../../../docs/errors/E1201.md"),
+    },
+    Code {
+        id: STACK_OVERFLOW,
+        title: "recursive stack reservation",
+        summary: "A recursive call cycle reserves stack_alloc bytes that cannot fit a bounded frame.",
+        page: include_str!("../../../docs/errors/E1202.md"),
     },
     Code {
         id: EFFECT,
@@ -978,6 +986,7 @@ pub fn rule_for(id: &str) -> &'static str {
         CONTRACT => "CONTRACT-1",
         GRAPHEME_OOB => "RUNTIME-1",
         OVERFLOW => "RUNTIME-2",
+        STACK_OVERFLOW => "RUNTIME-3",
         EFFECT => "EFFECT-1",
         UNSAFE_CALL => "EFFECT-2",
         NONDETERMINISTIC_PURE => "DET-1",

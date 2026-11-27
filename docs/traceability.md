@@ -621,6 +621,14 @@ Tests:
 - `crates/yashy-driver/tests/verify.rs`
 - `crates/yashy-verify/tests/overflow.rs`
 
+## `RUNTIME-3`
+
+Codes: `E1202`
+
+Tests:
+
+- `crates/yashy-verify/tests/stack_depth.rs`
+
 ## `SANDBOX-1`
 
 Codes: `E1900`

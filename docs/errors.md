@@ -65,6 +65,7 @@ the declaration or import involved when that is not obvious.
 | [E1005](errors/E1005.md) | owning pointer copied without move |
 | [E1100](errors/E1100.md) | undischarged contract |
 | [E1201](errors/E1201.md) | provable integer overflow |
+| [E1202](errors/E1202.md) | recursive stack reservation |
 | [E1300](errors/E1300.md) | effect exceeded |
 | [E1301](errors/E1301.md) | unsafe call in a declared function |
 | [E1302](errors/E1302.md) | nondeterministic pure function |

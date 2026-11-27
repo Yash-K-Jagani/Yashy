@@ -137,6 +137,7 @@ pub fn verify(hir: &HirProgram, options: &VerifyOptions) -> VerifyReport {
         &mut diagnostics,
     );
     pass::typestate::check(hir, &mut diagnostics);
+    pass::stack_depth::check(hir, &mut diagnostics);
     let mut facts = ProofFacts::empty();
     for ob in &obligations {
         if !ob.established {
