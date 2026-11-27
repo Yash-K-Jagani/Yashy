@@ -310,10 +310,13 @@ impl Resolver<'_> {
             Dependency::Path { path } => {
                 let root = lexical_absolute(&base.join(path));
                 if !root.is_dir() {
-                    return Err(ResolveError::offline(format!(
-                        "`{name}` is a path dependency at `{}`, which is not a directory",
-                        root.display()
-                    )));
+                    return Err(ResolveError::new(
+                        yashy_common::codes::DEPENDENCY_SOURCE_MISSING,
+                        format!(
+                            "`{name}` is a path dependency at `{}`, which is not a directory",
+                            root.display()
+                        ),
+                    ));
                 }
                 Ok((
                     root,

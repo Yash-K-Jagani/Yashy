@@ -91,6 +91,7 @@ the declaration or import involved when that is not obvious.
 | [E1808](errors/E1808.md) | capability not granted |
 | [E1807](errors/E1807.md) | package policy denial |
 | [E1809](errors/E1809.md) | registry index mismatch |
+| [E1810](errors/E1810.md) | dependency source missing |
 | [E1900](errors/E1900.md) | sandbox capability denied |
 | [E1901](errors/E1901.md) | sandbox limit breached |
 | [E1500](errors/E1500.md) | unknown trait |

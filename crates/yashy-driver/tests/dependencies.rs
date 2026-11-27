@@ -340,3 +340,25 @@ fn offline_with_a_warm_store_builds() {
     assert!(run.status.success(), "the built program must pass");
     assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "git-ok");
 }
+
+#[test]
+fn a_missing_path_dependency_has_its_own_code() {
+    let dir = work_dir("dep-missing-path");
+    common::write(
+        &dir,
+        "yashy.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n\
+         [dependencies.lib]\npath = \"missing\"\n",
+    );
+    common::write(&dir, "main.ya", "fn main() { }\n");
+    let output = cli(
+        &dir,
+        &work_dir("dep-missing-path-store"),
+        &["build", "main.ya"],
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("E1810"), "{stderr}");
+    assert!(stderr.contains("not a directory"), "{stderr}");
+    assert!(stderr.contains("docs:"), "{stderr}");
+}

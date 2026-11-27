@@ -524,6 +524,14 @@ Tests:
 
 - `crates/yashy-driver/tests/sbom.rs`
 
+## `PKG-11`
+
+Codes: `E1810`
+
+Tests:
+
+- `crates/yashy-driver/tests/dependencies.rs`
+
 ## `PKG-2`
 
 Codes: `E1801`
@@ -585,6 +593,7 @@ Tests:
 - `crates/yashy-common/tests/catalog.rs`
 - `crates/yashy-driver/tests/agent_policy.rs`
 - `crates/yashy-driver/tests/approval.rs`
+- `crates/yashy-driver/tests/injection.rs`
 
 ## `PKG-9`
 
@@ -840,6 +849,7 @@ Tests:
 - `crates/yashy-driver/tests/playground.rs`
 - `crates/yashy-driver/tests/terminal.rs`
 - `crates/yashy-parser/tests/tuples.rs`
+- `crates/yashy-sdk/tests/sdk.rs`
 - `crates/yashy-sema/tests/async_effect.rs`
 - `crates/yashy-sema/tests/chained.rs`
 - `crates/yashy-sema/tests/defaults.rs`

@@ -96,10 +96,12 @@ folded into the IR cache key rather than resolver inputs.
   cycle, a yanked pin and a lock mismatch each get a code, a suggestion where
   one exists, and a `--json` form. No solver backtracking loop is unbounded:
   the search is capped and reports the cap.
-  *Current:* the existing catalog codes are reused (`E1800` manifest, `E1801`
-  cycle, `E1802` lock, `E1803` offline); no new per-case codes were added.
-  The DFS is capped at 4096 package visits and reports the cap as a manifest
-  error. There is no solver backtracking loop to bound.
+  *Partly closed 2026-11-27:* the existing catalog codes cover manifest,
+  cycle, lock and offline failures, and `E1810` now names a missing dependency
+  source distinctly from a store miss; its page and dependency test pin the
+  code. The DFS is capped at 4096 package visits and reports the cap as a
+  manifest error. There is no solver backtracking loop to bound. Feeding the
+  resolved features and target into index selection is still owed.
 - [x] **Step 4: Commit.**
 
 ### Task 2: Workspaces

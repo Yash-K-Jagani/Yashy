@@ -118,6 +118,8 @@ pub const UNSAFE_CALL: &str = "E1301";
 pub const NONDETERMINISTIC_PURE: &str = "E1302";
 /// A resource is released twice, or released in the wrong state.
 pub const DOUBLE_CLOSE: &str = "E1400";
+/// A package in the dependency graph cannot be located in its declared source.
+pub const DEPENDENCY_SOURCE_MISSING: &str = "E1810";
 /// A sandbox capability is denied: the program tried to touch a path, the
 /// network or a child process outside its capability set.
 pub const SANDBOX_DENIED: &str = "E1900";
@@ -650,6 +652,12 @@ pub const CODES: &[Code] = &[
         page: include_str!("../../../docs/errors/E1809.md"),
     },
     Code {
+        id: DEPENDENCY_SOURCE_MISSING,
+        title: "dependency source missing",
+        summary: "A dependency's declared path or lock entry does not name a readable package directory.",
+        page: include_str!("../../../docs/errors/E1810.md"),
+    },
+    Code {
         id: SANDBOX_DENIED,
         title: "sandbox capability denied",
         summary: "A sandboxed program touched a path, the network or a child process outside its capability set.",
@@ -1041,6 +1049,7 @@ pub fn rule_for(id: &str) -> &'static str {
         POLICY_DENIED => "PKG-8",
         CAPABILITY_DENIED => "PKG-9",
         REGISTRY_INDEX_MISMATCH => "PKG-10",
+        DEPENDENCY_SOURCE_MISSING => "PKG-11",
         SANDBOX_DENIED => "SANDBOX-1",
         SANDBOX_LIMIT => "SANDBOX-2",
         UNUSED_BINDING => "LINT-1",
