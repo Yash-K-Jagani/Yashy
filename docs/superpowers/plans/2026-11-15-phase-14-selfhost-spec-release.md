@@ -351,7 +351,13 @@ end stays the reference for the 2.0 release (design call 7).
   versioned tree; the current version is a pointer; a removed page gets a
   redirect with the reason and the replacement. A docs build fails when a code
   sample in the reference does not compile under the versioned compiler.
-  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *Partly closed 2026-11-27:* `yashyc doc --versioned [--version <v>]`
+  writes the same compiler-owned model into `docs/versioned/<version>/`, keeps
+  other version trees, updates a `current` pointer and records moved pages in
+  `redirects.json`. `crates/yashy-driver/tests/docs_versioned.rs` pins the
+  two-version case. A docs build that compiles every code sample under the
+  versioned compiler, and publishing those trees with a release, are still
+  owed.
 
 - [x] **Step 4: The benchmark dashboard is a fact, not a screenshot.** Every
   merged benchmark row is appended to a JSON history keyed by compiler hash,

@@ -213,8 +213,16 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "doc",
         summary: "render the documentation tables",
-        usage: "yashyc doc [--json] [--serve]",
-        flags: &["--json", "--serve", "--port"],
+        usage: "yashyc doc [--json] [--serve] [--versioned [--version <v>]] [path]",
+        flags: &[
+            "--json",
+            "--serve",
+            "--port",
+            "--private",
+            "--out",
+            "--versioned",
+            "--version",
+        ],
         takes_path: false,
     },
     CommandSpec {

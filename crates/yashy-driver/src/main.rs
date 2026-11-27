@@ -7976,6 +7976,8 @@ fn doc_cmd(args: &[String]) -> ExitCode {
     let mut serve = false;
     let mut port = 0u16;
     let mut out_dir: Option<PathBuf> = None;
+    let mut versioned = false;
+    let mut version: Option<String> = None;
     let mut input: Option<PathBuf> = None;
     let mut i = 0;
     while i < args.len() {
@@ -7991,6 +7993,14 @@ fn doc_cmd(args: &[String]) -> ExitCode {
                     Ok(port) => port,
                     Err(_) => return usage_error("`--port` needs a number from 0 to 65535"),
                 };
+                i += 1;
+            }
+            "--versioned" => versioned = true,
+            "--version" => {
+                if i + 1 >= args.len() {
+                    return usage_error("`--version` needs a value");
+                }
+                version = Some(args[i + 1].clone());
                 i += 1;
             }
             "--out" => {
@@ -8013,6 +8023,34 @@ fn doc_cmd(args: &[String]) -> ExitCode {
         i += 1;
     }
     let root = input.unwrap_or_else(|| PathBuf::from("."));
+    if versioned {
+        if json {
+            return usage_error("`--versioned` writes files; `--json` is not a file write");
+        }
+        let model = match yashy_driver::doc::build_doc(&root, private) {
+            Ok(model) => model,
+            Err(message) => {
+                eprintln!("error: {message}");
+                return exit_code(EXIT_USAGE);
+            }
+        };
+        let label = version.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+        match yashy_driver::versioned::write(&root, &label, &model) {
+            Ok(report) => {
+                println!(
+                    "wrote version {} ({} modules) to {}",
+                    report.version,
+                    report.modules,
+                    report.directory.display()
+                );
+                return exit_code(EXIT_OK);
+            }
+            Err(message) => {
+                eprintln!("error: {message}");
+                return exit_code(EXIT_COMPILE_ERROR);
+            }
+        }
+    }
     if serve {
         match yashy_driver::doc_server::bind(&root, private, port) {
             Ok((listener, model, chosen)) => {

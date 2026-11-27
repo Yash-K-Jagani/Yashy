@@ -1213,7 +1213,7 @@ interpreter for the whole language: FFI, `unsafe`, imports, `async`, threads and
 filesystem writes are refused with a pointer to `yashyc run`. State is retained
 as source text, so a declaration that fails to check is never added.
 
-## `yashyc doc [path] [--out DIR] [--json] [--private] [--serve] [--port <n>]`
+## `yashyc doc [path] [--out DIR] [--json] [--private] [--serve] [--port <n>] [--versioned [--version <v>]]`
 
 Renders the public surface from the compiler's own tables into `target/doc/`
 (one Markdown file per module plus `index.md`). A private item appears only
@@ -1227,6 +1227,14 @@ asks the OS for a free port and prints the chosen URL; the loop never binds a
 wildcard address and has no write route. The routes are `/` (index), `/json`,
 `/search?q=...` and `/<module>.md`; everything else is a `404`. A docs server
 that could edit the project would be a different, much more dangerous program.
+
+`--versioned` writes the same model into `docs/versioned/<version>/` instead of
+`target/doc/`, with a `manifest.json` naming the compiler and module count. The
+default version is the compiler's own; `--version` selects another spelling.
+Other version trees are left untouched, `docs/versioned/current` points at the
+last tree written, and `docs/versioned/redirects.json` records pages that moved.
+`--json` cannot be combined with `--versioned`: one is a write, the other a
+print.
 
 ## `yashyc lsp`
 

@@ -68,6 +68,7 @@ pub mod differential;
 pub mod dev;
 pub mod openapi;
 pub mod record;
+pub mod versioned;
 pub mod watch;
 pub mod workspace;
 
