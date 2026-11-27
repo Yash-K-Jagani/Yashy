@@ -557,6 +557,7 @@ Codes: `E1804`
 
 Tests:
 
+- `crates/yashy-driver/tests/agent_policy.rs`
 - `crates/yashy-driver/tests/audit.rs`
 
 ## `PKG-6`
@@ -582,6 +583,8 @@ Codes: `E1807`
 Tests:
 
 - `crates/yashy-common/tests/catalog.rs`
+- `crates/yashy-driver/tests/agent_policy.rs`
+- `crates/yashy-driver/tests/approval.rs`
 
 ## `PKG-9`
 
@@ -823,6 +826,7 @@ Tests:
 - `crates/yashy-driver/tests/e2e.rs`
 - `crates/yashy-driver/tests/explain.rs`
 - `crates/yashy-driver/tests/mcp.rs`
+- `crates/yashy-driver/tests/pack.rs`
 - `crates/yashy-driver/tests/playground.rs`
 - `crates/yashy-driver/tests/terminal.rs`
 - `crates/yashy-parser/tests/tuples.rs`

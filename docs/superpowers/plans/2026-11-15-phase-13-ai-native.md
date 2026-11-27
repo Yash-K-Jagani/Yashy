@@ -488,9 +488,13 @@ agent run reproducible.
   test is summarized as four semantic changes with spans, a breaking-API flag and
   the exact impacted tests. A purely internal rename reports no public break and
   a bounded impact. `yashyc review --json` and the human rendering agree.
-  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
-  remaining obligations are carried in `docs/gates.md`, which names the owner
-  and the condition that closes each one; none is silently dropped.*
+  *Closed 2026-11-27:* `yashyc review --baseline <index.json>` classifies
+  signature, effect, contract, ownership and behaviour changes with spans
+  and a public-break flag; capability, unsafe and test deltas and a risk
+  label come from the same `Review` value that renders the human form.
+  `crates/yashy-driver/tests/review.rs` pins the public break, the
+  comment-only no-op, the private rename and the deltas. The SDK wrapper
+  and a git-aware baseline are still owed.
 
 - [x] **Step 2: Review reads the graph, not the diff.** Changes are classified
   by symbol and kind (signature, behaviour, effect, contract, capability,
@@ -498,9 +502,13 @@ agent run reproducible.
   visibility model. A diff that touches only comments is reported as no semantic
   change. Impact reuses the Phase 9 impacted-test graph and names every test,
   package, example and doc page to re-run.
-  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
-  remaining obligations are carried in `docs/gates.md`, which names the owner
-  and the condition that closes each one; none is silently dropped.*
+  *Closed 2026-11-27:* the comparison reads the compiler's index model, not
+  a textual diff; public/private comes from the symbol's `visibility`. A
+  documentation-only change is not reported at all. `yashyc impact` fans
+  changed symbols out to tests (calls, declaring file, removed tests),
+  packages (root manifest and workspace members), examples and docs pages;
+  `crates/yashy-driver/tests/impact.rs` pins each. MCP resources/prompts and
+  the SDK are still owed.
 
 - [x] **Step 3: The SDK is the one embedding surface.** A Rust crate exposes the
   seven compiler verbs, review, impact and the graph with a stable typed API and

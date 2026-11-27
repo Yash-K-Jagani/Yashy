@@ -77,6 +77,10 @@ pub struct IndexModel {
     pub symbols: Vec<Symbol>,
     pub imports: Vec<ImportEdge>,
     pub tests: Vec<TestProgram>,
+    /// The capability names declared by the root manifest, sorted. Part of
+    /// the model so a review can compare two revisions without reading a
+    /// second file.
+    pub capabilities: Vec<String>,
 }
 
 /// The effects a `pure` check reads: nothing but this.
@@ -608,12 +612,7 @@ pub fn build_index(root: &Path) -> Result<IndexModel, String> {
                     // the span and, for a type, its `derive` clause. The HIR
                     // path renders the same facts from the checked program,
                     // so a file that does not check is indexed, not skipped.
-                    fn walk(
-                        item: &Item,
-                        pubbed: bool,
-                        path: &Path,
-                        out: &mut Vec<Symbol>,
-                    ) {
+                    fn walk(item: &Item, pubbed: bool, path: &Path, out: &mut Vec<Symbol>) {
                         let (pubbed, item) = match item {
                             Item::Public { item, .. } => (true, item.as_ref()),
                             Item::Effect { item, .. }
@@ -673,6 +672,20 @@ pub fn build_index(root: &Path) -> Result<IndexModel, String> {
         .symbols
         .sort_by(|a, b| (&a.file, a.span.start).cmp(&(&b.file, b.span.start)));
     model.files.sort();
+    model.capabilities = std::fs::read_to_string(root.join("yashy.toml"))
+        .ok()
+        .and_then(|text| yashy_manifest::Manifest::parse(&text).ok())
+        .and_then(|manifest| manifest.capabilities)
+        .map(|set| {
+            let mut names: Vec<String> = set
+                .entries()
+                .iter()
+                .map(|(name, _)| name.to_string())
+                .collect();
+            names.sort();
+            names
+        })
+        .unwrap_or_default();
     Ok(model)
 }
 
@@ -773,6 +786,16 @@ pub fn to_json(model: &IndexModel) -> Json {
                     );
                     entry
                 })
+                .collect(),
+        ),
+    );
+    root.set(
+        "capabilities",
+        Json::array(
+            model
+                .capabilities
+                .iter()
+                .map(|name| Json::string(name))
                 .collect(),
         ),
     );

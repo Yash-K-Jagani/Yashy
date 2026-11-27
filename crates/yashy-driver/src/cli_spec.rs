@@ -370,6 +370,20 @@ pub const COMMANDS: &[CommandSpec] = &[
         takes_path: false,
     },
     CommandSpec {
+        name: "review",
+        summary: "classify semantic changes against a recorded index",
+        usage: "yashyc review --baseline <index.json> [--json] [path]",
+        flags: &["--baseline", "--json"],
+        takes_path: false,
+    },
+    CommandSpec {
+        name: "impact",
+        summary: "name the work to re-run after semantic changes",
+        usage: "yashyc impact --baseline <index.json> [--json] [path]",
+        flags: &["--baseline", "--json"],
+        takes_path: false,
+    },
+    CommandSpec {
         name: "agent",
         summary: "read the agent policy and verify the audit chain",
         usage: "yashyc agent <audit|policy|plan|approve> [--verify] [--json] [--root <dir>] [--tree <hash>] [--patch <file>] [--verbs <a,b>] [--ttl <seconds>] [--nonce <text>]",

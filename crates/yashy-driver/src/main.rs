@@ -261,6 +261,8 @@ fn dispatch(args: &[String]) -> ExitCode {
         "graph" => graph_cmd(rest),
         "search" => search_cmd(rest),
         "context" => context_cmd(rest),
+        "review" => review_cmd(rest),
+        "impact" => impact_cmd(rest),
         "mcp" => mcp_cmd(rest),
         "agent" => agent_cmd(rest),
         "lsp" => lsp_cmd(rest),
@@ -6660,6 +6662,92 @@ fn context_cmd(args: &[String]) -> ExitCode {
 }
 
 /// `yashyc mcp --root <dir>`: the MCP server on stdio.
+fn review_command_args(args: &[String], command: &str) -> Result<(PathBuf, String, bool), ExitCode> {
+    let mut root = PathBuf::from(".");
+    let mut baseline: Option<String> = None;
+    let mut json = false;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--json" => json = true,
+            "--baseline" => {
+                if index + 1 >= args.len() {
+                    return Err(usage_error("`--baseline` needs an index JSON file"));
+                }
+                baseline = Some(args[index + 1].clone());
+                index += 1;
+            }
+            other if other.starts_with('-') => {
+                return Err(usage_error(&format!("unknown option `{other}` for `{command}`")))
+            }
+            other => root = PathBuf::from(other),
+        }
+        index += 1;
+    }
+    let Some(file) = baseline else {
+        return Err(usage_error(&format!(
+            "`{command}` needs `--baseline <index.json>`"
+        )));
+    };
+    let text = match std::fs::read_to_string(&file) {
+        Ok(text) => text,
+        Err(error) => {
+            eprintln!("error: {file}: {error}");
+            return Err(exit_code(EXIT_USAGE));
+        }
+    };
+    Ok((root, text, json))
+}
+
+fn review_cmd(args: &[String]) -> ExitCode {
+    let (root, baseline, json) = match review_command_args(args, "review") {
+        Ok(values) => values,
+        Err(code) => return code,
+    };
+    match yashy_driver::review::review(&root, &baseline) {
+        Ok(review) => {
+            if json {
+                println!("{}", review.to_json().render());
+            } else {
+                print!("{}", review.render_human());
+            }
+            exit_code(EXIT_OK)
+        }
+        Err(message) => {
+            eprintln!("error: {message}");
+            exit_code(EXIT_USAGE)
+        }
+    }
+}
+
+fn impact_cmd(args: &[String]) -> ExitCode {
+    let (root, baseline, json) = match review_command_args(args, "impact") {
+        Ok(values) => values,
+        Err(code) => return code,
+    };
+    let review = match yashy_driver::review::review(&root, &baseline) {
+        Ok(review) => review,
+        Err(message) => {
+            eprintln!("error: {message}");
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    match yashy_driver::impact::impact(&root, &baseline, &review) {
+        Ok(impact) => {
+            if json {
+                println!("{}", impact.to_json().render());
+            } else {
+                print!("{}", impact.render_human());
+            }
+            exit_code(EXIT_OK)
+        }
+        Err(message) => {
+            eprintln!("error: {message}");
+            exit_code(EXIT_USAGE)
+        }
+    }
+}
+
 fn agent_plan(root: &Path, patch_file: &str) -> Result<Json, String> {
     use yashy_common::json_rpc::{self, Value};
     let text = std::fs::read_to_string(root.join(patch_file))

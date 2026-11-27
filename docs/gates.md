@@ -816,7 +816,9 @@ dropped:
   shared-library ABI, `-sys` convention, embedding matrix.
 - Phase 13: remaining refactor operations, generic graph, scored ranking for
   packs, sandbox limits, agent benchmark, provenance, BPE policy, SDK.
-  Structured focus/diff/tests/docs/error packs shipped under
+  `yashyc review` and `yashyc impact` ship semantic classification and
+  re-run fan-out from an index snapshot; the SDK and git-aware baselines
+  remain owed. Structured focus/diff/tests/docs/error packs shipped under
   `yashyc context --mode`, with a stable model revision; the 50k-line fixture,
   an external-tokenizer count, graph-distance/edit-recency ranking and a
   stale-revision detector remain owed. MCP now runs under a strict-by-default

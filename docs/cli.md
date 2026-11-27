@@ -1096,6 +1096,21 @@ ordered by score, file and span before the budget cut. The cut names every
 omitted excerpt in `dropped` with its reason. A pack is data: the caller decides
 how to prompt.
 
+## `yashyc review --baseline <index.json> [--json] [path]`
+
+Compares a snapshot made by `yashyc index --json` with the workspace and
+classifies changes by symbol and kind: signature, effect, contract, ownership
+or behaviour. `public_break` is true only when a `pub` symbol's contract with
+its callers changed; a comment-only edit reports no changes. The same `Review`
+value renders the human list of changes with spans and the schema-v1 JSON with
+`capability_delta`, `unsafe_delta`, `test_delta` and `risk`.
+
+## `yashyc impact --baseline <index.json> [--json] [path]`
+
+Names the tests, packages, examples and docs a review's changed symbols reach.
+It reports the work to re-run and does not run it; an empty review gives an
+empty impact. See [Semantic review](review.md).
+
 ## `yashyc mcp --root <dir>`
 
 JSON-RPC 2.0 over stdio with thirteen tools: the seven compiler verbs, `edit`,
