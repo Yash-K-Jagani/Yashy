@@ -1101,6 +1101,17 @@ ordered by score, file and span before the budget cut. The cut names every
 omitted excerpt in `dropped` with its reason. A pack is data: the caller decides
 how to prompt.
 
+## `yashyc advisory --check <feed.json> [--keyring <file>] [--package <name> --version <v>] [--json]`
+
+Reads a signed advisory feed and checks a package version against its ranges.
+The feed carries its own canonical signed body, a schema version and an
+Ed25519 signature with a key id; `--keyring` supplies `id hex-public-key` lines
+(one per line, `#` comments allowed). A bad signature, unknown schema or
+unparseable range is refused before any match is reported. With `--package`
+and `--version`, an affected version exits 1 and names the advisory, the range
+and the fixed version; `--json` carries the same advisories in
+`affected`. Without them, the command lists the feed.
+
 ## `yashyc conformance [--all] [--json] [--fail-under <pct>] [path]`
 
 Runs the `yashy` block on every page under `docs/errors` through the checker

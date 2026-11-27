@@ -370,6 +370,13 @@ pub const COMMANDS: &[CommandSpec] = &[
         takes_path: false,
     },
     CommandSpec {
+        name: "advisory",
+        summary: "check a signed advisory feed against a package version",
+        usage: "yashyc advisory --check <feed.json> [--keyring <file>] [--package <name> --version <v>] [--json]",
+        flags: &["--check", "--feed", "--keyring", "--package", "--version", "--json"],
+        takes_path: false,
+    },
+    CommandSpec {
         name: "conformance",
         summary: "run every error page's example through the checker",
         usage: "yashyc conformance [--all] [--json] [--fail-under <pct>] [path]",

@@ -9,6 +9,7 @@
 
 pub mod addr;
 pub mod affected;
+pub mod advisory;
 pub mod agent;
 pub mod audit;
 pub mod approval;

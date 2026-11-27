@@ -264,6 +264,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "review" => review_cmd(rest),
         "impact" => impact_cmd(rest),
         "conformance" => conformance_cmd(rest),
+        "advisory" => advisory_cmd(rest),
         "mcp" => mcp_cmd(rest),
         "agent" => agent_cmd(rest),
         "lsp" => lsp_cmd(rest),
@@ -6798,6 +6799,126 @@ fn impact_cmd(args: &[String]) -> ExitCode {
                 print!("{}", impact.render_human());
             }
             exit_code(EXIT_OK)
+        }
+        Err(message) => {
+            eprintln!("error: {message}");
+            exit_code(EXIT_USAGE)
+        }
+    }
+}
+
+fn advisory_cmd(args: &[String]) -> ExitCode {
+    let mut feed_path: Option<String> = None;
+    let mut package: Option<String> = None;
+    let mut version: Option<String> = None;
+    let mut keyring_path: Option<String> = None;
+    let mut json = false;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--json" => json = true,
+            "--check" | "--feed" | "--package" | "--version" | "--keyring" => {
+                if index + 1 >= args.len() {
+                    return usage_error(&format!("`{}` needs a value", args[index]));
+                }
+                let value = args[index + 1].clone();
+                match args[index].as_str() {
+                    "--check" | "--feed" => feed_path = Some(value),
+                    "--package" => package = Some(value),
+                    "--version" => version = Some(value),
+                    "--keyring" => keyring_path = Some(value),
+                    _ => unreachable!(),
+                }
+                index += 1;
+            }
+            other => return usage_error(&format!("unknown argument `{other}` for `advisory`")),
+        }
+        index += 1;
+    }
+    let Some(feed_path) = feed_path else {
+        return usage_error("`advisory` needs `--check <feed.json>`");
+    };
+    let text = match std::fs::read_to_string(&feed_path) {
+        Ok(text) => text,
+        Err(error) => {
+            eprintln!("error: {feed_path}: {error}");
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    let feed = match yashy_driver::advisory::Feed::parse(&text) {
+        Ok(feed) => feed,
+        Err(message) => {
+            eprintln!("error: {message}");
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    if let Some(path) = &keyring_path {
+        let keys = match yashy_driver::advisory::load_keyring(Path::new(path)) {
+            Ok(keys) => keys,
+            Err(message) => {
+                eprintln!("error: {message}");
+                return exit_code(EXIT_USAGE);
+            }
+        };
+        if let Err(error) = feed.verify(&keys) {
+            eprintln!("error: advisory feed signature: {error}");
+            return exit_code(EXIT_COMPILE_ERROR);
+        }
+    }
+    let (package, version) = match (package, version) {
+        (Some(package), Some(version)) => (package, version),
+        _ => {
+            if json {
+                println!("{}", feed.to_json().render());
+            } else {
+                println!("advisories: {}", feed.advisories.len());
+                for advisory in &feed.advisories {
+                    println!(
+                        "  {} {} {} fixed in {}",
+                        advisory.id, advisory.package, advisory.range, advisory.fixed
+                    );
+                }
+            }
+            return exit_code(EXIT_OK);
+        }
+    };
+    match feed.matches(&package, &version) {
+        Ok(matches) if matches.is_empty() => {
+            if json {
+                let mut root = Json::object();
+                root.set("schema_version", Json::number(1));
+                root.set("tool", Json::string("yashyc"));
+                root.set("affected", Json::array(Vec::new()));
+                println!("{}", root.render());
+            } else {
+                println!("advisories: none for {package} {version}");
+            }
+            exit_code(EXIT_OK)
+        }
+        Ok(matches) => {
+            if json {
+                let mut root = Json::object();
+                root.set("schema_version", Json::number(1));
+                root.set("tool", Json::string("yashyc"));
+                root.set(
+                    "affected",
+                    Json::array(matches.iter().map(|advisory| advisory.to_json()).collect()),
+                );
+                println!("{}", root.render());
+            } else {
+                for advisory in matches {
+                    eprintln!(
+                        "error[{}]: {} {} is affected by {} ({}); fixed in {}",
+                        advisory.severity,
+                        package,
+                        version,
+                        advisory.id,
+                        advisory.range,
+                        advisory.fixed
+                    );
+                }
+            }
+            exit_code(EXIT_COMPILE_ERROR)
         }
         Err(message) => {
             eprintln!("error: {message}");

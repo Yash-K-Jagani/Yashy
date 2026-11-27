@@ -384,7 +384,14 @@ end stays the reference for the 2.0 release (design call 7).
   a small, versioned JSON document signed by the release key; the feed is
   fetched only with the `net` capability and cached offline. A project can pin
   the feed and fail closed; `--offline` uses the cache and says how old it is.
-  *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
+  *Partly closed 2026-11-27:* `crates/yashy-driver/src/advisory.rs` parses a
+  versioned feed with its canonical signed body, verifies the Ed25519 signature
+  against an explicit keyring, and matches package versions against version
+  ranges. `yashyc advisory --check` refuses an affected version with the
+  advisory id, range and fix, and refuses a forged feed before matching; the
+  driver test pins both paths and the JSON form. Fetching a feed over the
+  network with the `net` capability, pinning and offline age reporting are
+  still owed.
 
 - [x] **Step 3: Migration guides are tested programs.** Each edition pair has
   a guide whose snippets are compiled, whose before/after is produced by

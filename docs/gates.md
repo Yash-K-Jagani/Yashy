@@ -831,9 +831,11 @@ dropped:
   remain owed.
 - Phase 14: self-host differential, reproducible bootstrap, normative spec,
   conformance suite, release/tag gates, channels, advisory feed,
-  contributor process. `yashyc conformance` now runs every error page's
+  contributor process. `yashyc conformance` runs every error page's
   example and names the pages whose examples do not reproduce their own code;
-  the hundred-percent gate stays open until those pages are fixed. Editions are partly shipped: the closed key set and
+  the hundred-percent gate stays open until those pages are fixed. A signed
+  advisory feed now ships through `yashyc advisory --check`; fetching it over
+  the network with the `net` capability, pinning and offline age are still owed. Editions are partly shipped: the closed key set and
   `yashyc migrate` exist, while the multi-edition reader and source rewriting
   remain owed.
 
