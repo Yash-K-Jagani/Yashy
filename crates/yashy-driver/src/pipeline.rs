@@ -2446,6 +2446,7 @@ fn link_arguments(
     );
     args.extend(reproducibility_flags(&options, target));
     args.extend(reproducible_linker_flags(&options, target));
+    args.extend(fast_linker_flags(toolchain, options.reproducible));
     // The generated IR uses the opaque-pointer spelling (`ptr`). The helper
     // asks the toolchain its version and supplies the one flag clang 14 and 15
     // need; clang 16 made the mode the default and clang 17 removed the switch.
@@ -2805,6 +2806,21 @@ fn reproducibility_flags(options: &BuildOptions, target: &str) -> Vec<String> {
     flags
 }
 
+/// The fast linker a detected toolchain offers, when the build is not
+/// reproducible. A reproducible build must not depend on which linker happens
+/// to be installed; the probe in `toolchain::detect_linker` already proved the
+/// flag works with this clang.
+fn fast_linker_flags(toolchain: &Toolchain, reproducible: bool) -> Vec<String> {
+    if reproducible {
+        return Vec::new();
+    }
+    match toolchain.linker {
+        Linker::Mold => vec!["-fuse-ld=mold".to_string()],
+        Linker::Lld => vec!["-fuse-ld=lld".to_string()],
+        Linker::System => Vec::new(),
+    }
+}
+
 /// The reproducible-build flags that only a link can take.
 ///
 /// Apple's `ld` derives the 16-byte `LC_UUID` load command from its own
@@ -2978,10 +2994,11 @@ fn write_or_report(path: &Path, bytes: &[u8], entry_name: &str) -> Result<(), Ve
 #[cfg(test)]
 mod tests {
     use super::{
-        cached_runtime_object, clear_profiles, first_meaningful_line, fnv1a, instrumented_output,
-        merge_profiles, missing_library, opaque_pointers_args_for, parse_clang_major, pgo_dir,
-        platform_library_flags, reproducible_linker_flags, runtime_cache_dir, runtime_cache_key,
-        sanitizer_flags, BuildOptions, CpuTarget, OptLevel, FNV_OFFSET_BASIS,
+        cached_runtime_object, clear_profiles, fast_linker_flags, first_meaningful_line, fnv1a,
+        instrumented_output, merge_profiles, missing_library, opaque_pointers_args_for,
+        parse_clang_major, pgo_dir, platform_library_flags, reproducible_linker_flags,
+        runtime_cache_dir, runtime_cache_key, sanitizer_flags, BuildOptions, CpuTarget, OptLevel,
+        FNV_OFFSET_BASIS,
     };
     use crate::toolchain::Toolchain;
     use std::fs;
@@ -3026,6 +3043,20 @@ mod tests {
             opaque_pointers_args_for("clang", None).is_empty(),
             "an unreadable version gets no flag"
         );
+    }
+
+    #[test]
+    fn a_detected_fast_linker_is_used_only_for_ordinary_builds() {
+        let mut tool = fake_toolchain(Path::new("clang"));
+        assert!(fast_linker_flags(&tool, false).is_empty(), "system linker");
+        tool.linker = Linker::Lld;
+        assert_eq!(fast_linker_flags(&tool, false), ["-fuse-ld=lld"]);
+        assert!(
+            fast_linker_flags(&tool, true).is_empty(),
+            "a reproducible build must not depend on the installed linker"
+        );
+        tool.linker = Linker::Mold;
+        assert_eq!(fast_linker_flags(&tool, false), ["-fuse-ld=mold"]);
     }
 
     #[test]

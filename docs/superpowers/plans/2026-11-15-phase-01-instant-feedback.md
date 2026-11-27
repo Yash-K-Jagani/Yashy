@@ -263,7 +263,7 @@ a claim that is not true.
 
 | Task | Claimed | Shipped | Follow-up |
 |---|---|---|---|
-| 4.3 | The fast linker is used when present | `lld`/`mold`/`ld64.lld` are not selected: the measured difference is inside the noise (4%) and `docs/performance-improvements.md` item 4 records the no | Revisit only with a benchmark row that shows a win |
+| 4.3 | The fast linker is used when present | `toolchain::detect_linker` probes `mold` then `lld`; `pipeline::fast_linker_flags` passes the proven `-fuse-ld=` flag on ordinary builds and no flag on reproducible ones. A unit test pins both paths. The historical 4% measurement inside noise is recorded in `docs/performance-improvements.md` item 4 | A two-OS benchmark row that shows a win beyond noise |
 | 6.2 | Compile rows gate at 20% on the normalized ratio | `fib_compile_ratio` (Yashy's compile over clang's in the same run) is a `Kind::Ratio` row gated at 20%, and `fib_wrap_ratio` keeps its absolute 1.20 bound; raw `*_compile_ms` rows are a 100% tripwire for shared-runner noise | Nothing outstanding |
 | Gates | All acceptance commands run and pass on Windows and Linux | Driver checks are green with the documented runtime build-script detach; the runtime build script and freshly linked binaries are blocked by Windows Application Control, so the full workspace check and runtime gates are CI-only | CI is deferred by the project owner; re-run the full gate set when CI is unblocked |
 
