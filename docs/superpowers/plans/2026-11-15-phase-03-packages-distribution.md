@@ -413,19 +413,17 @@ folded into the IR cache key rather than resolver inputs.
   violation is a code with the dependency path (`app -> http -> tls`), and
   `--json` is the CI form. The default policy is strict: unsigned, unprovenanced
   and capability-undeclared packages are refused, not warned about.
-  *Current:* `[audit]` carries the license/package allowlists and
-  `require-signatures`; capability names are one closed table. Denied authors,
-  transitive depth/size caps and provenance requirements are not in the policy
-  yet; the default remains permissive until they land.
+  *Closed 2026-11-27:* `[audit]` carries the license and package allowlists,
+  capability ceiling, `deny-licenses`, `deny-registries`, `max-transitive`,
+  `require-signatures` and `require-provenance`. The audit enforces each of
+  them with a code and the dependency path, and `capabilities.rs` pins the
+  parsed policy. Denied *authors* are still not a field: the package model
+  has no author fact to compare against.
 - [x] **Step 4: A capability is enforced where it is used.** The check is at the
   call site in HIR and repeated by the runtime handle that performs the
   operation, so a build that bypassed the front end still cannot exceed the
   grant. `--print-capabilities` prints the resolved set, and a build with no
   declaration is a program that can compute but not touch the world.
-  *Current:* the declaration model and audit view are in place; the HIR
-  HIR call-site check and `--print-capabilities` are implemented; the runtime
-  handle that repeats the grant when the operation executes is still later-phase
-  work.
   *Closed 2026-11-27:* generated code calls `yashy_capability_init` at entry
   with the resolved grant names when a manifest declares `[capabilities]`, and
   the runtime handle repeats the check where the operation executes: a denied
