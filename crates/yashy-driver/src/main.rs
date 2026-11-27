@@ -263,6 +263,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "context" => context_cmd(rest),
         "review" => review_cmd(rest),
         "impact" => impact_cmd(rest),
+        "conformance" => conformance_cmd(rest),
         "mcp" => mcp_cmd(rest),
         "agent" => agent_cmd(rest),
         "lsp" => lsp_cmd(rest),
@@ -6759,6 +6760,54 @@ fn impact_cmd(args: &[String]) -> ExitCode {
                 print!("{}", impact.render_human());
             }
             exit_code(EXIT_OK)
+        }
+        Err(message) => {
+            eprintln!("error: {message}");
+            exit_code(EXIT_USAGE)
+        }
+    }
+}
+
+fn conformance_cmd(args: &[String]) -> ExitCode {
+    let mut root = PathBuf::from(".");
+    let mut json = false;
+    let mut fail_under: Option<u64> = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--json" => json = true,
+            "--all" => {}
+            "--fail-under" => {
+                if index + 1 >= args.len() {
+                    return usage_error("`--fail-under` needs a percentage");
+                }
+                match args[index + 1].parse::<u64>() {
+                    Ok(parsed) if parsed <= 100 => fail_under = Some(parsed),
+                    _ => return usage_error("`--fail-under` needs a percentage from 0 to 100"),
+                }
+                index += 1;
+            }
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `conformance`"))
+            }
+            other => root = PathBuf::from(other),
+        }
+        index += 1;
+    }
+    match yashy_driver::conformance::run(&root) {
+        Ok(report) => {
+            if json {
+                println!("{}", report.to_json().render());
+            } else {
+                print!("{}", report.render_human());
+            }
+            let total = report.cases.len().max(1);
+            let percent = (report.passed * 100 / total) as u64;
+            if fail_under.is_some_and(|floor| percent < floor) {
+                exit_code(EXIT_COMPILE_ERROR)
+            } else {
+                exit_code(EXIT_OK)
+            }
         }
         Err(message) => {
             eprintln!("error: {message}");

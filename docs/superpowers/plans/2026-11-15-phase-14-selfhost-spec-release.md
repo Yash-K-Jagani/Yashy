@@ -146,7 +146,12 @@ end stays the reference for the 2.0 release (design call 7).
   aliasing, determinism, layout and effects pages, each linking rule ids to
   diagnostic pages; `tests/docs.rs` checks every page's local links. The
   grammar, types, items, patterns and other chapters, the generated EBNF and
-  the `yashyc conformance` parser gate are still owed, so the step stays open.
+  the full normative corpus is still owed, so the step stays open.
+  *2026-11-27:* `yashyc conformance` now runs the `yashy` example on every
+  `docs/errors/<code>.md` page through the checker and reports which pages
+  reproduce their own code with the diagnostic span; the driver test pins the
+  report and the optional `--fail-under` gate. The hundred-percent gate stays
+  open while pages need example fixes.
   *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 2: The memory model is specified, not described.** Provenance,

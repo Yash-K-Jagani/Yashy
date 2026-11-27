@@ -370,6 +370,13 @@ pub const COMMANDS: &[CommandSpec] = &[
         takes_path: false,
     },
     CommandSpec {
+        name: "conformance",
+        summary: "run every error page's example through the checker",
+        usage: "yashyc conformance [--all] [--json] [--fail-under <pct>] [path]",
+        flags: &["--all", "--json", "--fail-under"],
+        takes_path: false,
+    },
+    CommandSpec {
         name: "review",
         summary: "classify semantic changes against a recorded index",
         usage: "yashyc review --baseline <index.json> [--json] [path]",

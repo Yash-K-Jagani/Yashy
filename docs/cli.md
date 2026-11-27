@@ -1096,6 +1096,17 @@ ordered by score, file and span before the budget cut. The cut names every
 omitted excerpt in `dropped` with its reason. A pack is data: the caller decides
 how to prompt.
 
+## `yashyc conformance [--all] [--json] [--fail-under <pct>] [path]`
+
+Runs the `yashy` block on every page under `docs/errors` through the checker
+and reports whether the compiler produced the code in the page's filename.
+`--json` carries one case per page with `status` (`pass`, `mismatch` or
+`without-example`), the expected code, every code actually produced and the
+span of the first match. It is a report by default; `--fail-under <pct>` turns
+it into a gate for a threshold the project is willing to hold. A page whose
+example does not reproduce its own code is named as a mismatch rather than
+silently skipped.
+
 ## `yashyc review --baseline <index.json> [--json] [path]`
 
 Compares a snapshot made by `yashyc index --json` with the workspace and
