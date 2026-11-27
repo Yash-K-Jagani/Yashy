@@ -9,6 +9,7 @@ members = [
     "crates/yashy-sema",
     "crates/yashy-codegen",
     "crates/yashy-driver",
+    "crates/yashy-sdk",
     "crates/yashy-runtime",
     "crates/yashy-fmt",
     "crates/yashy-lsp",

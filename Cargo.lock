@@ -172,6 +172,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "yashy-sdk"
+version = "1.0.0"
+dependencies = [
+ "yashy-common",
+ "yashy-driver",
+ "yashy-verify",
+]
+
+[[package]]
 name = "yashy-sema"
 version = "1.0.0"
 dependencies = [

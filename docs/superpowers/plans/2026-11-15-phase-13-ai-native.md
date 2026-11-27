@@ -515,9 +515,13 @@ agent run reproducible.
   one error type; the CLI, LSP, MCP and the test harness call the same crate, so
   there is no second pipeline. The SDK is `#![forbid(unsafe_code)]` and has a
   semver policy from the first release.
-  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
-  remaining obligations are carried in `docs/gates.md`, which names the owner
-  and the condition that closes each one; none is silently dropped.*
+  *Partly closed 2026-11-27:* `crates/yashy-sdk` is a workspace crate with
+  `check`, `verify`, `build`, `index`, `review`, `impact`, `context`, `explain`
+  and `workspace_root`. Every call is a thin adapter over `yashy-driver`, the
+  crate is `#![forbid(unsafe_code)]`, and `crates/yashy-sdk/tests/sdk.rs` pins the
+  JSON shape and agreement between the SDK and the driver pipeline. The CLI,
+  LSP and MCP server still call `yashy-driver` directly, so the SDK is not yet
+  the single embedding surface; `docs/sdk.md` names that remaining half.
 
 - [x] **Step 4: MCP is complete, not just verbs.** Tools carry annotations
   (`readOnly`, `destructive`, `idempotent`), structured content and a result

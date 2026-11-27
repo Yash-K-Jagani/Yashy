@@ -1,0 +1,9 @@
+[package]
+name = "yashy-sdk"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+yashy-common = { path = "../yashy-common" }
+yashy-driver = { path = "../yashy-driver" }
+yashy-verify = { path = "../yashy-verify" }
