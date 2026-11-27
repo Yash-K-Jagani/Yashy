@@ -13,3 +13,4 @@ group with `--group <correctness|style|complexity|perf|security|deprecated>`.
 | `LINT-SWITCH` | style | a long `if`/`else if` chain over one value reads better as `switch` | rewrite the chain as `switch value { case ... -> ... }` |
 | `LINT-WHILE` | correctness | `while true` without a `break` never ends | add a `break` exit, or use a bounded `for` loop |
 | `LINT-RESULT` | correctness | a fallible call's `Result` is ignored | propagate it with `?` or handle it with `switch`/`match` |
+| `LINT-CONDWAIT` | correctness | `wait` outside a predicate loop can miss a wake-up | wrap `wait` in `while condition { ... }` and re-check the predicate after each wake |

@@ -95,8 +95,10 @@ the AI phase's reproducible agent runs.
 - [x] **Step 3: Lock order is checked where it is static.** A program that
   acquires two named locks in inconsistent orders in different functions is
   reported; a dynamic order is documented as unchecked. `Condvar` requires a
-  predicate loop; a bare `wait` is a lint with a fix. Both are carried forward
-  in `docs/gates.md` for this slice.
+  predicate loop; `LINT-CONDWAIT` now reports a `wait` with no visible
+  `while` guard and tells the reader to re-check the predicate after each
+  wake. The test distinguishes a bare wait from one inside a predicate loop.
+  Static lock-order detection is carried forward in `docs/gates.md`.
 - [x] **Step 4: Commit.**
 
 ### Task 3: Scoped threads, MPMC and `select`

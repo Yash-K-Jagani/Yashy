@@ -78,7 +78,10 @@ fn the_var_lint_carries_a_machine_applicable_fix() {
     let output = run(&dir, &["lint", "--json", "main.ya"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("\"replacement\": \"let\""), "{stdout}");
-    assert!(stdout.contains("\"applicability\": \"machine-applicable\""), "{stdout}");
+    assert!(
+        stdout.contains("\"applicability\": \"machine-applicable\""),
+        "{stdout}"
+    );
 }
 
 #[test]
@@ -117,4 +120,27 @@ fn a_handled_result_is_not_linted() {
     let output = run(&dir, &["lint", "--json", "main.ya"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(!stdout.contains("LINT-RESULT"), "{stdout}");
+}
+
+#[test]
+fn a_bare_condvar_wait_is_advised_and_a_predicate_loop_is_not() {
+    let dir = work_dir("lint-condwait");
+    write(
+        &dir,
+        "bare.ya",
+        "import sync;\nfn main() {\n    let cv = sync.condvar();\n    cv.wait(0);\n}\n",
+    );
+    let output = run(&dir, &["lint", "--json", "bare.ya"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("LINT-CONDWAIT"), "{stdout}");
+
+    write(
+        &dir,
+        "guarded.ya",
+        "import sync;\nfn main() {\n    let cv = sync.condvar();\n    while cv.generation() == 0 {\n        cv.wait(0);\n    }\n}\n",
+    );
+    let output = run(&dir, &["lint", "--json", "guarded.ya"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains("LINT-CONDWAIT"), "{stdout}");
 }

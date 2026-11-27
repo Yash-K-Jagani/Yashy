@@ -91,6 +91,12 @@ pub const LINTS: &[Lint] = &[
         message: "a fallible call's `Result` is ignored",
         hint: "propagate it with `?` or handle it with `switch`/`match`",
     },
+    Lint {
+        code: "LINT-CONDWAIT",
+        group: LintGroup::Correctness,
+        message: "`wait` outside a predicate loop can miss a wake-up",
+        hint: "wrap `wait` in `while condition { ... }` and re-check the predicate after each wake",
+    },
 ];
 
 /// Run every lint over `source`.
@@ -170,6 +176,24 @@ pub fn check_filtered(source: &str, file: FileId, group: Option<LintGroup>) -> V
                         if !handled {
                             out.push(make(lint, file, start, start + fallible.len()));
                         }
+                    }
+                }
+            }
+            "LINT-CONDWAIT" => {
+                for (start, _) in find_word(source, "wait") {
+                    // A wait is sound when the enclosing `while` re-checks the
+                    // predicate after the wake. We look back on the same line
+                    // and the previous two for `while`; a dynamic wait with no
+                    // visible loop is reported as advice, never an error.
+                    let line_start = source[..start].rfind('\n').map_or(0, |at| at + 1);
+                    let before = &source[..line_start];
+                    let recent = before
+                        .rsplit('\n')
+                        .take(3)
+                        .any(|line| line.trim_start().starts_with("while "));
+                    let same_line = source[line_start..start].contains("while ");
+                    if !recent && !same_line {
+                        out.push(make(lint, file, start, start + 6));
                     }
                 }
             }
