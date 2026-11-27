@@ -45,6 +45,23 @@ fn typed_collections() {
     const indexed_items = indexed.items;
     indexed_items.free();
 
+    let reversed = Vec { items: []int { 7, 8, 9 } };
+    for item in reversed.rev() {
+        print("reversed ${item}");
+    }
+    const reversed_items = reversed.items;
+    reversed_items.free();
+
+    let left = Vec { items: []int { 1, 2 } };
+    let right = []int { 3, 4 };
+    let pairs = left.zip(right);
+    for (number, other) in pairs {
+        print("zipped ${number} ${other}");
+    }
+    const left_items = left.items;
+    left_items.free();
+    right.free();
+
     let s = Set { items: []string {} };
     s.insert("alpha");
     s.insert("beta");

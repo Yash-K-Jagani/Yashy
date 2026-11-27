@@ -9,6 +9,11 @@ sorted 2 4 9
 vec 3 20 30 2
 enumerated 0 5
 enumerated 1 6
+reversed 9
+reversed 8
+reversed 7
+zipped 1 3
+zipped 2 4
 set 2 alpha beta true
 deque 1 3 1 3 1
 map 2 9 a 9 b

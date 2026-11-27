@@ -449,8 +449,9 @@ is a capability rather than an ambient read.
   pins it. The free callback adapters stay for callers that want them.
   `Chain[T]` is now a cursor too: `chain_of(left, right)` implements `Iterator`,
   and `stdlib/iter_adapters.ya` pins a two-slice chain and an empty-first-slice
-  chain. Still owed here: `xs.zip(ys)` / `xs.rev()` method
-  spellings on a raw slice and a 10,000-element timing assertion. The typed
+  chain. `Vec[T].rev()` and `Vec[T].zip(other)` now give the method spelling on a
+  typed vector, with `stdlib/collections.ya` pinning both. Still owed: the
+  raw-slice method spelling and a 10,000-element timing assertion. The typed
   `Set` is an insertion-ordered linear-scan array, so the timing assertion
   would currently be false; both rows are dated exceptions in `docs/gates.md`
   with owners and closing conditions. Closed with those carried-forward

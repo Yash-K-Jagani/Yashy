@@ -366,6 +366,17 @@ impl Vec[T] {
         return enumerate_of(self.items);
     }
 
+    /// Walk the elements back to front.
+    pub fn rev(self) -> Rev[T] {
+        return rev_of(self.items);
+    }
+
+    /// Pair each element with one from `other`, in both slices' order.
+    /// The method form pairs equal element types; `zip_of` is the generic form.
+    pub fn zip(self, []T other) -> Zip[T, T] {
+        return zip_of(self.items, other);
+    }
+
     /// Release the backing array. The vector must not be used afterwards.
     pub fn free(self) {
         const items = self.items;
