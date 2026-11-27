@@ -117,6 +117,26 @@ fn method(method_name: &str, params: Vec<Param>, ret: &str, stmts: Vec<Stmt>, sp
     }
 }
 
+/// A method whose return type is a structured type expression.
+fn method_typed(
+    method_name: &str,
+    params: Vec<Param>,
+    ret: TypeExpr,
+    stmts: Vec<Stmt>,
+    span: Span,
+) -> Item {
+    Item::Fn {
+        name: method_name.to_string(),
+        type_params: Vec::new(),
+        params,
+        ret: Some(ret),
+        requires: Vec::new(),
+        ensures: Vec::new(),
+        body: Block { stmts, span },
+        span,
+    }
+}
+
 /// Wrap a single expression as the body of a generated method.
 fn returning(body: Expr, span: Span) -> Vec<Stmt> {
     vec![Stmt::Return(Some(body), span)]
@@ -416,6 +436,13 @@ fn expand_enum(
             ));
             continue;
         }
+        if matches!(derive.as_str(), "Encode" | "Decode") {
+            errors.push((
+                span,
+                format!("cannot derive `{derive}` on an enum; codec derives are struct-only"),
+            ));
+            continue;
+        }
         let supported_derive = matches!(derive.as_str(), "Debug" | "Eq" | "Hash");
         if !supported_derive {
             errors.push((
@@ -491,6 +518,184 @@ fn expand_enum(
             span,
         });
     }
+}
+
+/// Build an `Encode`/`Decode` pair over the struct's `int` fields.
+///
+/// The wire form is the field values in declaration order, separated by `:`.
+/// `Encode` calls `str_from_i64` on each field; `Decode` splits the wire, parses
+/// each part with `parse_i64`, and builds the struct only when every part is a
+/// whole number. Neither method depends on a package, so a derive works in a
+/// project that has no codec dependency.
+fn codec_methods(name: &str, fields: &[FieldDef], span: Span) -> Vec<Item> {
+    let mut wire = Expr::Literal(
+        Literal::Str(StringLit {
+            bytes: Vec::new(),
+            value: String::new(),
+        }),
+        span,
+    );
+    for (index, field_def) in fields.iter().enumerate() {
+        if index > 0 {
+            wire = binary(BinOp::Add, wire, text(":".to_string(), span), span);
+        }
+        let value = call(
+            "str_from_i64",
+            vec![field(ident_expr("self", span), &field_def.name, span)],
+            span,
+        );
+        wire = binary(BinOp::Add, wire, value, span);
+    }
+    let encode = method(
+        "encode",
+        vec![receiver(span)],
+        "string",
+        returning(wire, span),
+        span,
+    );
+
+    let parts = Stmt::Let {
+        name: "parts".to_string(),
+        ty: Some(TypeExpr::Slice(
+            Box::new(TypeExpr::Name("string".to_string(), span)),
+            span,
+        )),
+        init: Expr::MethodCall {
+            receiver: Box::new(ident_expr("wire", span)),
+            method: "split".to_string(),
+            args: vec![text(":".to_string(), span)],
+            span,
+        },
+        span,
+    };
+    let count_stmt = Stmt::If {
+        init: None,
+        cond: binary(
+            BinOp::Ne,
+            Expr::MethodCall {
+                receiver: Box::new(ident_expr("parts", span)),
+                method: "len".to_string(),
+                args: Vec::new(),
+                span,
+            },
+            integer(fields.len() as i64, span),
+            span,
+        ),
+        then_block: Block {
+            stmts: returning(
+                call(
+                    "Err",
+                    vec![text("codec: wrong field count".to_string(), span)],
+                    span,
+                ),
+                span,
+            ),
+            span,
+        },
+        else_block: None,
+        span,
+    };
+
+    // Build the nested if-lets from the inside out: the innermost body
+    // constructs the struct, and each enclosing layer binds one parsed field.
+    let mut body = returning(
+        call(
+            "Ok",
+            vec![Expr::StructLit {
+                path: vec![name.to_string()],
+                fields: fields
+                    .iter()
+                    .enumerate()
+                    .map(|(index, field)| {
+                        (
+                            field.name.clone(),
+                            ident_expr(&format!("field_{index}"), span),
+                            span,
+                        )
+                    })
+                    .collect(),
+                spread: None,
+                span,
+            }],
+            span,
+        ),
+        span,
+    );
+    let bad_field = || {
+        returning(
+            call(
+                "Err",
+                vec![text("codec: bad field".to_string(), span)],
+                span,
+            ),
+            span,
+        )
+    };
+    let if_let_some = |binding: &str, value: Expr, then: Vec<Stmt>| -> Vec<Stmt> {
+        vec![Stmt::IfLet {
+            pattern: Pattern::TupleVariant {
+                path: vec!["Some".to_string()],
+                args: vec![Pattern::Binding {
+                    name: binding.to_string(),
+                    span,
+                }],
+                span,
+            },
+            value,
+            then_block: Block { stmts: then, span },
+            else_block: Some(Block {
+                stmts: bad_field(),
+                span,
+            }),
+            span,
+        }]
+    };
+    for index in (0..fields.len()).rev() {
+        let part = format!("part_{index}");
+        let binding = format!("field_{index}");
+        let parsed = Expr::MethodCall {
+            receiver: Box::new(ident_expr(&part, span)),
+            method: "parse_i64".to_string(),
+            args: Vec::new(),
+            span,
+        };
+        body = if_let_some(&binding, parsed, body);
+        let indexed = Expr::Index {
+            base: Box::new(ident_expr("parts", span)),
+            index: Box::new(integer(index as i64, span)),
+            span,
+        };
+        body = if_let_some(&part, indexed, body);
+    }
+    let mut stmts = vec![parts, count_stmt];
+    stmts.extend(body);
+    // A final unreachable return satisfies the checker's control-flow walk: an
+    // if-let with an else that returns is sound, but the walk does not prove it.
+    stmts.push(Stmt::Return(
+        Some(call(
+            "Err",
+            vec![text("codec: bad field".to_string(), span)],
+            span,
+        )),
+        span,
+    ));
+    let decode = method_typed(
+        "decode",
+        vec![Param {
+            name: "wire".to_string(),
+            ty: TypeExpr::Name("string".to_string(), span),
+            span,
+            default: None,
+        }],
+        TypeExpr::Result(
+            Box::new(TypeExpr::Name(name.to_string(), span)),
+            Box::new(TypeExpr::Name("string".to_string(), span)),
+            span,
+        ),
+        stmts,
+        span,
+    );
+    vec![encode, decode]
 }
 
 /// Return the program with one synthesized impl per derive name. Errors name
@@ -671,6 +876,32 @@ pub fn expand(program: &Program) -> Result<Program, Vec<(Span, String)>> {
                                     stmts,
                                     *span,
                                 )],
+                                span: *span,
+                            });
+                        }
+                        "Encode" | "Decode" => {
+                            if let Some(unsupported) = fields.iter().find(|field| !supported(field))
+                            {
+                                errors.push((
+                                    unsupported.span,
+                                    format!(
+                                        "cannot derive `{derive}`: field `{}` is not an `int`",
+                                        unsupported.name
+                                    ),
+                                ));
+                                continue;
+                            }
+                            let mut methods = codec_methods(name, fields, *span);
+                            let chosen = if derive == "Encode" {
+                                vec![methods.remove(0)]
+                            } else {
+                                vec![methods.remove(1)]
+                            };
+                            added.push(Item::Impl {
+                                type_name: name.clone(),
+                                trait_name: None,
+                                type_params: Vec::new(),
+                                methods: chosen,
                                 span: *span,
                             });
                         }

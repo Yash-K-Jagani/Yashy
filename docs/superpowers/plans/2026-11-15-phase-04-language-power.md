@@ -221,14 +221,21 @@ verifier proved. That is what lets Phase 11B optimise without guessing.
   by `crates/yashy-sema/tests/derive.rs`, the generated methods are named in
   `crates/yashy-driver/tests/index.rs`, and e2e programs run all three. A second
   expansion of one declaration produces the same typed program. `Encode` and
-  `Decode` are still owed (they need Phase 7's codec interface).
+  `Decode` now synthesize `encode() -> string` and
+  `decode(string) -> Result[Self, string]` over `int` fields; the wire form is
+  values in declaration order separated by `:`, and a malformed wire is an error
+  value. `crates/yashy-sema/tests/codec_derive.rs` and
+  `crates/yashy-driver/tests/codec_derive.rs` pin the round trip.
 - [x] **Step 2: Derives are compiler-known, not macros.** Each derive is a built-in expansion over HIR with a stable order: fields in declaration order, variants in declaration order, no hash-map iteration. `derive(Debug)` renders a stable, readable form; `Encode`/`Decode` use the Phase 7 codec interface.
   *Current:* expansion synthesizes AST methods in declaration order, with no
   hash-map iteration, so `Debug` renders fields in source order, `Eq` compares
   them pairwise and `Hash` folds them with a fixed integer polynomial. Enum
   variants expand as a `switch self` with one arm per variant in declaration
-  order. `Encode`/`Decode` are still owed; they need Phase 7's codec interface,
-  so the codec half of the step stays open.
+  order. `Encode`/`Decode` synthesize a self-contained codec: `encode` calls
+  `str_from_i64` on each field and `decode` splits the wire, parses each part and
+  builds the struct only when every part is a whole number. No package is
+  required, so a derive works in a project with no codec dependency. Codec
+  derives on enums are refused with a named diagnostic.
 - [x] **Step 3: Capture modes are in the type.** A closure writes `move` / value / by-pointer captures; the closure's type records each captured binding and its mode, the verifier sees every capture, and a `move` closure cannot outlive a value it moved. A capture mode that cannot be honoured is a diagnostic, not a silent copy.
   *Current:* `move |x| ...` parses as a lambda with `CaptureMode::Move`; the
   checker marks each captured binding moved at the point the environment is
@@ -754,7 +761,7 @@ does not build on a claim that is not true.
 | 1.1-1.4, 1.6 | User generic traits, associated types, default methods, supertraits | `E1511`: a trait has no type parameters, no `type` item, no default body and no supertrait list; the impl surface (completeness, coherence, one impl per trait-and-type, static dispatch, no vtable) is what exists | Not a Phase 4 gap. §4.2 of the 2.0 design makes `Iterator[T]` the one compiler-known generic trait and keeps user generic traits excluded; reopening it needs a design-record change first |
 | 2.1, 2.3, 2.4 | `pub(crate)` / `pub(super)` / `pub(in path)` lattice, `pub use` re-exports | `pub(crate)` parses; `pub(super)` and `pub(in path)` are refused by the parser with a diagnostic naming the limitation; there is no `pub use`; visibility is the binary `pub`-vs-module-private model with the declaration's file as the module | §4.2 records the binary model: this compiler's crate is its whole program, so there is no `super` to compare a use site against. Reopen only with a module-graph design |
 | 5.1-5.6 | `unsafe` gates deref and pointer arithmetic; `Option[*const T]` null niche; alias corpus per rule | `unsafe { }` parses, checks, is inventoried and gates both `alloc_uninit` (`E1405`) and C-pointer dereference (`E1406`, ALIAS-2). ALIAS-1, ALIAS-3 and ALIAS-5 have codes. Pointer arithmetic is still ungated. A pointer `Option` crosses C as a nullable pointer (`null_ffi.ya`); inside Yashy it keeps the tagged aggregate, and there is no `null` literal. `crates/yashy-verify/tests/unsafe.rs` pins the inventory | Owed work, not excluded: pointer arithmetic, ALIAS-4 and a call-site null-to-`Some` diagnostic |
-| 4.1, 4.2 | Deterministic derive impls, visible in `index`, field-bound diagnostics | `derive(Debug, Eq, Hash)` expands to inherent methods in declaration order for both `struct` and `enum`, visible as functions in the index; an unsupported field or unknown derive is refused with the field/name it concerns, and a second expansion of one declaration gives the same typed program. Enum Debug/Eq/Hash derives now ship; `Encode`/`Decode` are still owed | Owed work: `Encode`/`Decode` and Phase 7's codec interface |
+| 4.1, 4.2 | Deterministic derive impls, visible in `index`, field-bound diagnostics | `derive(Debug, Eq, Hash)` expands to inherent methods in declaration order for both `struct` and `enum`, visible as functions in the index; an unsupported field or unknown derive is refused with the field/name it concerns, and a second expansion of one declaration gives the same typed program. Enum Debug/Eq/Hash and struct Encode/Decode derives now ship | Codec derives are struct-only; non-`int` fields are named and refused |
 | 6.5, 7.1-7.5 | `size_of[T]()` bracket spelling; `const N` parameters | Both spellings fold from the shared layout table; `const N` is a monomorph key and substitutes into array lengths, including values named by a checked `const int`. The bracket call is `size_of[Buffer[16]]()`. | A full const expression such as `Buffer[1 + 2]` is still not a const-argument spelling; the checker/layout/IR agreement is pinned by `crates/yashy-driver/tests/layout.rs` |
 | 8.1, 8.2 | `Range[T]` value type with `start`/`end`/`len`/`is_empty`/`contains`/`step_by` | `..` and `..=` build a two-field `Range` value; the five methods lower to field reads and comparisons, and `step_by` is a stride on a counted `for` loop. A float bound is `E1518`. | The value is monomorphic over `int` rather than a generic `Range[T]`; `Set[int]` membership is still owed |
 | 9.1, 9.4, 9.5 | Compile-time/run-time differential test, evaluator consumes typed HIR | The evaluator now consumes typed HIR (with an AST fallback and a differential oracle in `hir_const_eval.rs`) and folds arithmetic, `if`, `let`/assignment, loops, fixed arrays, switch and nested calls; `const_assert` rejects a false compile-time fact; the table's IR-literal assertion is pinned by `crates/yashy-driver/tests/const_fn_ir.rs`. `const_fn_differential.ya` pairs folded and run-time bodies for a loop, branching, a switch, nested calls and conversions, but a `const fn` itself cannot be called at run time (E1524) | The typed-HIR path is proven equal to the AST path; the `--emit-ir` folded-constant source span is still owed |
