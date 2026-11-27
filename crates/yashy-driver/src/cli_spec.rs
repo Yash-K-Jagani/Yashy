@@ -370,6 +370,13 @@ pub const COMMANDS: &[CommandSpec] = &[
         takes_path: false,
     },
     CommandSpec {
+        name: "agent",
+        summary: "read the agent policy and verify the audit chain",
+        usage: "yashyc agent <audit|policy> [--verify] [--json] [--root <dir>]",
+        flags: &["--verify", "--json", "--root"],
+        takes_path: false,
+    },
+    CommandSpec {
         name: "lock",
         summary: "verify the project lock file",
         usage: "yashyc lock --check [path]",

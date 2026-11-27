@@ -26,7 +26,19 @@ fn workspace_dir() -> PathBuf {
         "bad.ya",
         "fn main() {\n    let int x = \"three\";\n}\n",
     );
+    allow_every_verb(&dir);
     dir
+}
+
+/// A policy that names every verb, for tests that exercise a tool rather than
+/// the strict default that `agent_policy.rs` pins on its own.
+fn allow_every_verb(dir: &Path) {
+    common::write(
+        dir,
+        ".yashy/policy.toml",
+        "allow_verbs = [\"check\", \"build\", \"test\", \"verify\", \"explain\", \
+         \"context\", \"index\", \"edit\", \"refactor\", \"format\", \"lint\", \"fix\", \"doc\"]\n",
+    );
 }
 
 struct Mcp {
@@ -162,6 +174,7 @@ fn refactor_renames_a_function_and_every_call_site() {
         "main.ya",
         "fn double(int x) -> int { return x * 2; }\nfn main() { print(double(3)); }\n",
     );
+    allow_every_verb(&dir);
     let mut mcp = Mcp::start(&dir);
     let response = mcp.call(&request(
         7,
@@ -193,6 +206,7 @@ fn lint_reports_diagnostics_without_mutating() {
 fn format_applies_through_the_edit_transaction() {
     let dir = common::work_dir("mcp-format");
     common::write(&dir, "main.ya", "fn main(){print(1);}");
+    allow_every_verb(&dir);
     let mut mcp = Mcp::start(&dir);
     let response = mcp.call(&request(
         9,
@@ -209,6 +223,7 @@ fn format_applies_through_the_edit_transaction() {
 fn fix_applies_machine_applicable_suggestions() {
     let dir = common::work_dir("mcp-fix");
     common::write(&dir, "main.ya", "fn main() { var int x = 1; }\n");
+    allow_every_verb(&dir);
     let mut mcp = Mcp::start(&dir);
     let response = mcp.call(&request(
         10,

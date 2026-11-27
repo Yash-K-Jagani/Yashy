@@ -1103,9 +1103,20 @@ JSON-RPC 2.0 over stdio with thirteen tools: the seven compiler verbs, `edit`,
 returns the schema-v1 payload the CLI returns; a tool error is `code: -32000`
 with the diagnostic array in `data`. No tool accepts a path outside `--root`
 (refused with `-32001`), no tool accepts a shell string, and `build` writes only
-under `<root>/.yashy/` and the requested output. The two mutation verbs apply
+under `<root>/.yashy/` and the requested output. The mutating verbs apply
 hash-checked, all-or-nothing patches and re-check the tree before committing;
-see [MCP](mcp.md).
+see [MCP](mcp.md) and [Agent policy](agent-policy.md).
+
+## `yashyc agent <audit|policy> [--verify] [--json] [--root <dir>]`
+
+`agent audit --verify` recomputes the hash chain of
+`.yashy/audit/session.jsonl` (and its rotated segments) and names the first
+entry that does not belong. The human form prints `N entries  chain ok  first
+bad: none`; a broken chain exits 1 with `E1804` and the first bad `seq`. The
+human `agent policy` form prints the effective `allow` set, `protected`,
+`max edits` and `audit max bytes`; `--json` emits the same facts as a
+schema-v1 object. A policy that cannot be parsed is a usage error, never a
+silent default.
 
 ## `yashyc run --sandbox [--allow-read <path>] [--allow-write <path>] [--time <ms>] [--memory <mb>]`
 

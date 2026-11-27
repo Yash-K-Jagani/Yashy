@@ -1,0 +1,40 @@
+# Agent policy
+
+An MCP session runs under a policy file at `<workspace>/.yashy/policy.toml`.
+The file belongs to the workspace, not to the agent: an MCP session cannot edit
+it, and an unknown key or verb refuses the whole session at start.
+
+```toml
+allow_verbs = ["check", "build", "test", "verify", "explain",
+               "context", "index", "edit", "refactor", "format",
+               "lint", "fix", "doc"]
+protected_paths = ["yashy.lock", ".github/**"]
+max_edits = 20
+audit_max_bytes = 1048576
+```
+
+- `allow_verbs` is the complete set of verbs the session may call. The names
+  are the MCP tool names; there is no shell verb and no `run` verb.
+- `protected_paths` is a list of globs. `*` matches within one path component,
+  `**` across components, and `?` matches one character. The policy file itself
+  is always protected, whether or not a pattern names it.
+- `max_edits` caps the number of edits in one patch. The patch is refused
+  before it is parsed or applied.
+- `audit_max_bytes` is the size cap on the active audit segment.
+
+A missing file is the strict default: `check`, `build`, `test`, `verify`,
+`explain`, `context`, `index`, `lint` and `doc` are allowed; `edit`, `refactor`,
+`format` and `fix` are refused. Verb names a policy does not know are an error,
+not an empty grant.
+
+A refusal is JSON-RPC `-32002` with `E1807` in `error.data.code`; a path outside
+the workspace is `-32001`; an unwritable audit log is `-32005` with `E1804`.
+Precedence is policy, then path containment, then the tool.
+
+`yashyc agent policy [--json] [--root <dir>]` prints the effective policy.
+`yashyc agent audit --verify [--json] [--root <dir>]` verifies the hash chain;
+see [MCP](mcp.md) for the log's shape and rotation window.
+
+Still owed: a short-lived approval token bound to the tree, patch and verb set;
+token, wall-clock and output budgets counted by the harness; session-key
+signatures on log entries.

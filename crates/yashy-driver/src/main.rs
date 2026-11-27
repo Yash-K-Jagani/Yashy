@@ -262,6 +262,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "search" => search_cmd(rest),
         "context" => context_cmd(rest),
         "mcp" => mcp_cmd(rest),
+        "agent" => agent_cmd(rest),
         "lsp" => lsp_cmd(rest),
         "doc" => doc_cmd(rest),
         "profile" => profile_cmd(rest),
@@ -6659,6 +6660,94 @@ fn context_cmd(args: &[String]) -> ExitCode {
 }
 
 /// `yashyc mcp --root <dir>`: the MCP server on stdio.
+fn agent_cmd(args: &[String]) -> ExitCode {
+    let Some(subcommand) = args.first() else {
+        return usage_error("`agent` needs a subcommand: `audit` or `policy`");
+    };
+    let mut json = false;
+    let mut root = PathBuf::from(".");
+    let mut index = 1;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--json" => json = true,
+            "--verify" => {}
+            "--root" => {
+                if index + 1 >= args.len() {
+                    return usage_error("`--root` needs a value");
+                }
+                root = PathBuf::from(&args[index + 1]);
+                index += 1;
+            }
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `agent`"))
+            }
+            other => return usage_error(&format!("unexpected extra argument `{other}`")),
+        }
+        index += 1;
+    }
+    match subcommand.as_str() {
+        "audit" => {
+            let verification = yashy_driver::agent::AuditLog::verify(&root);
+            if json {
+                println!("{}", verification.to_json().render());
+            } else if verification.ok {
+                println!(
+                    "{} entries  chain ok  first bad: none",
+                    verification.entries
+                );
+            } else {
+                match verification.first_bad_seq {
+                    Some(seq) => eprintln!(
+                        "error[{}]: {}  first bad seq: {seq}",
+                        yashy_driver::agent::AUDIT_FAILURE,
+                        verification.message
+                    ),
+                    None => eprintln!(
+                        "error[{}]: {}",
+                        yashy_driver::agent::AUDIT_FAILURE,
+                        verification.message
+                    ),
+                }
+            }
+            if verification.ok {
+                exit_code(EXIT_OK)
+            } else {
+                exit_code(EXIT_COMPILE_ERROR)
+            }
+        }
+        "policy" => match yashy_driver::agent::AgentPolicy::load(&root) {
+            Ok(policy) => {
+                if json {
+                    println!("{}", policy.to_json().render());
+                } else {
+                    println!("allow: {}", policy.allow.join(", "));
+                    println!(
+                        "protected: {}",
+                        if policy.protected_paths.is_empty() {
+                            "none".to_string()
+                        } else {
+                            policy.protected_paths.join(", ")
+                        }
+                    );
+                    println!(
+                        "max edits: {}",
+                        policy
+                            .max_edits
+                            .map_or("none".to_string(), |limit| limit.to_string())
+                    );
+                    println!("audit max bytes: {}", policy.audit_max_bytes);
+                }
+                exit_code(EXIT_OK)
+            }
+            Err(message) => {
+                eprintln!("error: {message}");
+                exit_code(EXIT_USAGE)
+            }
+        },
+        other => usage_error(&format!("unknown `agent` subcommand `{other}`")),
+    }
+}
+
 fn mcp_cmd(args: &[String]) -> ExitCode {
     let mut root = PathBuf::from(".");
     let mut i = 0;

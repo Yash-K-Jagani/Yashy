@@ -106,8 +106,84 @@ pub fn contain(root: &Path, path: &str) -> Result<PathBuf, String> {
     Ok(candidate)
 }
 
+/// One MCP connection: the workspace, the policy it runs under, and the audit
+/// log every call appends to.
+pub struct Session {
+    pub root: PathBuf,
+    pub policy: crate::agent::AgentPolicy,
+    pub audit: crate::agent::AuditLog,
+}
+
+impl Session {
+    /// Open a session for `root`. A policy or audit directory that cannot be
+    /// read is an error: the session must not start ungoverned.
+    pub fn open(root: &Path) -> Result<Session, String> {
+        let policy = crate::agent::AgentPolicy::load(root)?;
+        let audit = crate::agent::AuditLog::open(root, policy.audit_max_bytes)?;
+        Ok(Session {
+            root: root.to_path_buf(),
+            policy,
+            audit,
+        })
+    }
+}
+
+/// Every path a request body names: the top-level `path`, and each edit's
+/// `file` inside a patch. The policy compares these without running the tool.
+fn request_paths(params: Option<&Value>) -> Vec<String> {
+    let mut out = Vec::new();
+    let Some(arguments) = params.and_then(|params| params.get("arguments")) else {
+        return out;
+    };
+    if let Some(path) = arguments.get("path").and_then(Value::as_str) {
+        out.push(path.to_string());
+    }
+    if let Some(edits) = arguments
+        .get_path(&["patch", "edits"])
+        .and_then(Value::as_array)
+    {
+        for edit in edits {
+            if let Some(file) = edit.get("file").and_then(Value::as_str) {
+                out.push(file.to_string());
+            }
+        }
+    }
+    out
+}
+
+fn patch_edit_count(params: Option<&Value>) -> usize {
+    params
+        .and_then(|params| params.get("arguments"))
+        .and_then(|arguments| arguments.get_path(&["patch", "edits"]))
+        .and_then(Value::as_array)
+        .map_or(0, |edits| edits.len())
+}
+
+/// A refusal that names a diagnostic code in `error.data` as well as its
+/// JSON-RPC code, so an agent can branch on the rule rather than the prose.
+fn refusal(id: Value, code: i64, diagnostic: &str, message: &str) -> Value {
+    json_rpc::object([
+        ("jsonrpc", json_rpc::string("2.0")),
+        ("id", id),
+        (
+            "error",
+            json_rpc::object([
+                ("code", Value::Num(code as f64)),
+                (
+                    "message",
+                    json_rpc::string(format!("{message} ({diagnostic})")),
+                ),
+                (
+                    "data",
+                    json_rpc::object([("code", json_rpc::string(diagnostic))]),
+                ),
+            ]),
+        ),
+    ])
+}
+
 /// One request, answered. Never panics on a malformed request.
-pub fn handle(root: &Path, request: &Value) -> Value {
+pub fn handle(session: &mut Session, request: &Value) -> Value {
     let id = request.get("id").cloned().unwrap_or(Value::Null);
     let method = request.get("method").and_then(Value::as_str).unwrap_or("");
     match method {
@@ -131,8 +207,59 @@ pub fn handle(root: &Path, request: &Value) -> Value {
             let name = params
                 .and_then(|params| params.get("name"))
                 .and_then(Value::as_str)
-                .unwrap_or("");
-            call_tool(root, id, name, params)
+                .unwrap_or("")
+                .to_string();
+            // An unknown verb is a bad request, not a policy question, but it
+            // is still a call and must still be audited.
+            if !TOOLS.contains(&name.as_str()) {
+                let reason = format!("unknown tool `{name}`");
+                if let Err(message) = session.audit.record(
+                    &name,
+                    "refused",
+                    Some(crate::agent::POLICY_DENIED),
+                    &reason,
+                ) {
+                    return refusal(id, -32005, crate::agent::AUDIT_FAILURE, &message);
+                }
+                return refusal(id, -32602, crate::agent::POLICY_DENIED, &reason);
+            }
+            let paths = request_paths(params);
+            let refusal_reason = if !session.policy.allows(&name) {
+                Some(format!("policy denies tool `{name}`"))
+            } else if let Some(hit) = session.policy.protected_hit(&paths) {
+                Some(format!("policy protects path `{hit}`"))
+            } else {
+                session.policy.max_edits.and_then(|limit| {
+                    let edits = patch_edit_count(params);
+                    (edits > limit)
+                        .then(|| format!("patch has {edits} edits; policy allows {limit}"))
+                })
+            };
+            if let Some(reason) = refusal_reason {
+                let diagnostic = crate::agent::POLICY_DENIED;
+                if let Err(message) =
+                    session
+                        .audit
+                        .record(&name, "refused", Some(diagnostic), &reason)
+                {
+                    return refusal(id, -32005, crate::agent::AUDIT_FAILURE, &message);
+                }
+                return refusal(id, -32002, diagnostic, &reason);
+            }
+            let response = call_tool(&session.root, id.clone(), &name, params);
+            let outcome = if response.get("error").is_some() {
+                "error"
+            } else {
+                "ok"
+            };
+            let detail = format!("{} {}", name, paths.join(" "));
+            if let Err(message) = session
+                .audit
+                .record(&name, outcome, None, detail.trim_end())
+            {
+                return refusal(id, -32005, crate::agent::AUDIT_FAILURE, &message);
+            }
+            response
         }
         _ => error(id, -32601, &format!("unknown method `{method}`")),
     }
@@ -519,6 +646,8 @@ fn call_tool(root: &Path, id: Value, name: &str, params: Option<&Value>) -> Valu
 /// Serve one connection: a loop over stdin lines, each at most 1 MiB, until
 /// the client closes the connection or sends `shutdown`.
 pub fn serve(root: &Path) -> std::io::Result<()> {
+    let mut session = Session::open(root)
+        .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
@@ -547,7 +676,7 @@ pub fn serve(root: &Path) -> std::io::Result<()> {
         if request.get("method").and_then(Value::as_str) == Some("shutdown") {
             return Ok(());
         }
-        let response = handle(root, &request);
+        let response = handle(&mut session, &request);
         writeln!(out, "{}", json_rpc::to_string(&response))?;
         out.flush()?;
     }

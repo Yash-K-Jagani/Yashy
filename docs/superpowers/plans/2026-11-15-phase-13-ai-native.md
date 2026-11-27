@@ -406,27 +406,40 @@ agent run reproducible.
   verb that exceeds `max_wall` is refused before it runs. A destructive patch
   without an approval token is held as a plan; the same patch with a valid token
   applies once and the token cannot be replayed.
-  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
-  remaining obligations are carried in `docs/gates.md`, which names the owner
-  and the condition that closes each one; none is silently dropped.*
+  *Closed 2026-11-26:* `mcp::handle` refuses a verb that `allow_verbs` does
+  not name, a request that names a path under `protected_paths`, and a patch
+  over `max_edits`, before the tool runs. Each refusal is `-32002` with
+  `E1807` in `error.data.code` and one audit entry. `max_wall`, token and
+  output budgets, and the approval token, remain owed; `run` is not an MCP
+  verb, so a policy cannot refuse it there.
 
 - [x] **Step 2: Policy is the product's, not the agent's.** The policy file is
   read from the workspace root, is itself protected, and a change to it is an
   audited event that a session cannot self-approve. Precedence is one rule:
   policy denies, then sandbox denies, then the verb runs. A missing policy is
   the strict default, never "allow all".
-  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
-  remaining obligations are carried in `docs/gates.md`, which names the owner
-  and the condition that closes each one; none is silently dropped.*
+  *Closed 2026-11-26:* the policy is read from `<root>/.yashy/policy.toml`,
+  an unknown key or verb refuses the session at start, and the policy file
+  itself is always protected so a session cannot widen its own mandate. A
+  missing policy is the strict default: the nine non-mutating verbs are
+  allowed and `edit`, `refactor`, `format` and `fix` are refused. Precedence
+  is policy first, then containment, then the tool; there is no sandbox
+  policy layer inside MCP because MCP has no shell or `run` verb.
 
 - [x] **Step 3: The audit log is tamper-evident.** Entries are append-only
   JSONL, hash-chained (`prev_hash`), signed by the session key, redacted by the
   same rules as a trace, and rotated with a size cap. `yashyc agent audit
   --verify` detects a removed or reordered entry and names the first bad seq. A
   refused call is an entry; a silent call is a bug.
-  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
-  remaining obligations are carried in `docs/gates.md`, which names the owner
-  and the condition that closes each one; none is silently dropped.*
+  *Closed 2026-11-26:* `agent::AuditLog` appends one compact JSON object per
+  call with `seq`, `prev_hash` and a SHA-256 `hash`, redacts secret-looking
+  keys, rotates at `audit_max_bytes` into at most five segments, and keeps
+  the hash continuous across rotation. `yashyc agent audit --verify` names
+  the first bad seq with `E1804`, in human and JSON form; every allowed,
+  refused and failed call is an entry, and an unwritable log refuses the
+  call. Session-key signatures are still owed: the chain proves that an
+  entry was not removed or reordered, not that a whole chain was not
+  rewritten by someone with write access to the workspace.
 
 - [x] **Step 4: Approval is a capability, not a prompt.** `plan` returns the
   diff, the affected symbols, the capabilities and the exact verbs; `approve`

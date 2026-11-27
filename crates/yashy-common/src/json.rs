@@ -93,6 +93,45 @@ impl Json {
         out
     }
 
+    /// The one-line form used by JSONL records: the same values, no whitespace
+    /// between tokens, and one line per value.
+    pub fn render_compact(&self) -> String {
+        let mut out = String::new();
+        self.write_compact(&mut out);
+        out
+    }
+
+    fn write_compact(&self, out: &mut String) {
+        match self {
+            Json::Null => out.push_str("null"),
+            Json::Bool(value) => out.push_str(if *value { "true" } else { "false" }),
+            Json::Number(value) => out.push_str(&value.to_string()),
+            Json::String(value) => write_string(out, value),
+            Json::Array(values) => {
+                out.push('[');
+                for (index, value) in values.iter().enumerate() {
+                    if index > 0 {
+                        out.push(',');
+                    }
+                    value.write_compact(out);
+                }
+                out.push(']');
+            }
+            Json::Object(fields) => {
+                out.push('{');
+                for (index, (key, value)) in fields.iter().enumerate() {
+                    if index > 0 {
+                        out.push(',');
+                    }
+                    write_string(out, key);
+                    out.push(':');
+                    value.write_compact(out);
+                }
+                out.push('}');
+            }
+        }
+    }
+
     fn write(&self, out: &mut String, indent: usize) {
         match self {
             Json::Null => out.push_str("null"),
@@ -245,5 +284,21 @@ mod tests {
             object.render(),
             "{\n  \"values\": [\n    1,\n    \"two\"\n  ]\n}"
         );
+    }
+
+    #[test]
+    fn the_compact_form_is_one_line_and_parses_back() {
+        let mut object = Json::object();
+        object.set("seq", Json::number(1));
+        object.set("detail", Json::string("a \"quoted\"\nline"));
+        object.set("code", Json::Null);
+        let compact = object.render_compact();
+        assert_eq!(
+            compact,
+            "{\"seq\":1,\"detail\":\"a \\\"quoted\\\"\\nline\",\"code\":null}"
+        );
+        assert!(!compact.contains('\n'));
+        let parsed = crate::json_rpc::parse(&compact).expect("compact JSON parses");
+        assert_eq!(parsed.get("seq").and_then(|seq| seq.as_i64()), Some(1));
     }
 }

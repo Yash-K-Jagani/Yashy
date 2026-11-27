@@ -815,14 +815,19 @@ dropped:
 - Phase 12: WASM/cross targets, JS bridge, bindgen, C++ interop, SIMD, dlopen,
   shared-library ABI, `-sys` convention, embedding matrix.
 - Phase 13: remaining refactor operations, generic graph, scored ranking for
-  packs, sandbox limits, agent benchmark, provenance, BPE policy, tamper-evident
-  audit log, SDK. Structured focus/diff/tests/docs/error packs shipped under
+  packs, sandbox limits, agent benchmark, provenance, BPE policy, SDK.
+  Structured focus/diff/tests/docs/error packs shipped under
   `yashyc context --mode`, with a stable model revision; the 50k-line fixture,
   an external-tokenizer count, graph-distance/edit-recency ranking and a
-  stale-revision detector remain owed.
+  stale-revision detector remain owed. MCP now runs under a strict-by-default
+  policy file and a hash-chained, rotating audit log verified by
+  `yashyc agent audit --verify`; approval tokens, token/wall/output budgets
+  and session-key signatures remain owed.
 - Phase 14: self-host differential, reproducible bootstrap, normative spec,
-  conformance suite, editions, release/tag gates, channels, advisory feed,
-  contributor process.
+  conformance suite, release/tag gates, channels, advisory feed,
+  contributor process. Editions are partly shipped: the closed key set and
+  `yashyc migrate` exist, while the multi-edition reader and source rewriting
+  remain owed.
 
 ## Running the runner
 
