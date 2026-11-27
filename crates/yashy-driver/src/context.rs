@@ -54,6 +54,19 @@ impl ContextPack {
         root.set("task", Json::string(&self.task));
         root.set("tokens", Json::number(self.tokens() as i64));
         root.set("budget", Json::number(self.budget as i64));
+        // The task text and every section body came from a workspace or a
+        // caller; neither may be read as a command or a policy change.
+        root.set("untrusted", Json::bool(true));
+        root.set(
+            "injected_instructions",
+            Json::array(
+                self.sections
+                    .iter()
+                    .flat_map(|section| instruction_markers(&section.body))
+                    .map(|marker| Json::string(&marker))
+                    .collect(),
+            ),
+        );
         root.set(
             "included",
             Json::array(
@@ -74,6 +87,25 @@ impl ContextPack {
         );
         root
     }
+}
+
+/// Instruction-like phrases found in untrusted content. A label, not a
+/// filter: the content is still present, and the client decides what to do.
+pub fn instruction_markers(text: &str) -> Vec<String> {
+    const MARKERS: [&str; 6] = [
+        "ignore previous",
+        "disregard all",
+        "system prompt",
+        "run shell",
+        "allow all paths",
+        "disable verification",
+    ];
+    let lower = text.to_ascii_lowercase();
+    MARKERS
+        .iter()
+        .filter(|marker| lower.contains(*marker))
+        .map(|marker| marker.to_string())
+        .collect()
 }
 
 /// Estimate the token count of `text`: ceil(bytes/4) for ASCII, plus one
@@ -119,6 +151,12 @@ fn sections_for(model: &IndexModel, task: &str, diagnostic: Option<&str>) -> Vec
             .filter(|symbol| symbol.file == target.file && symbol.name != target.name)
             .map(|symbol| symbol.signature.clone())
             .collect();
+        if let Some(docs) = &target.docs {
+            sections.push(Section {
+                name: "docs".to_string(),
+                body: format!("{}: {docs}\n", target.name),
+            });
+        }
         sections.push(Section {
             name: "enclosing function".to_string(),
             body: format!("{}\n", target.signature),

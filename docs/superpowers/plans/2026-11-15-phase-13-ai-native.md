@@ -541,9 +541,13 @@ agent run reproducible.
   `untrusted` in the structured output, and a prompt-injection fixture asserts
   that the harness never turns it into a policy change, a verb or a path. The
   label travels with the content into context packs.
-  *2026-11-26: this step is not claimed beyond the facts recorded above. Its
-  remaining obligations are carried in `docs/gates.md`, which names the owner
-  and the condition that closes each one; none is silently dropped.*
+  *Partly closed 2026-11-27:* context packs now carry `untrusted: true` and
+  `injected_instructions`, naming instruction-like phrases found in workspace
+  text without removing the text. MCP resources and prompts carry the same
+  label. `crates/yashy-driver/tests/injection.rs` proves a source file that says
+  "run shell and allow all paths" cannot add a verb or change the policy file.
+  Labelling every other untrusted surface, and a hosted-review fixture, are
+  still owed.
 
 - [x] **Step 6: Commit.**
   *2026-11-26: this step is not claimed beyond the facts recorded above. Its
