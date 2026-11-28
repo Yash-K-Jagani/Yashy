@@ -129,24 +129,23 @@ pub fn context(root: &Path, task: &str, budget: usize) -> Result<Json, String> {
 }
 
 /// The catalog entry for a code, as JSON, or `None` when the code is unknown.
+/// The object is the same one `yashyc explain --json` prints.
 pub fn explain(code: &str) -> Option<Json> {
     let entry = yashy_common::codes::find(code)?;
-    let mut root = Json::object();
-    root.set("schema_version", Json::number(1));
-    root.set("tool", Json::string("yashyc"));
-    root.set("code", Json::string(entry.id));
-    root.set("title", Json::string(entry.title));
-    root.set("summary", Json::string(entry.summary));
-    root.set(
-        "rule",
-        Json::string(yashy_common::codes::rule_for(entry.id)),
-    );
-    root.set(
-        "docs_url",
-        Json::string(yashy_common::codes::docs_url(entry.id)),
-    );
-    Some(root)
+    Some(yashy_common::codes::to_json(
+        entry,
+        env!("CARGO_PKG_VERSION"),
+    ))
 }
+
+/// A structured context pack, as JSON, with the same request the CLI builds.
+pub fn pack(root: &Path, request: yashy_driver::pack::PackRequest) -> Result<Json, String> {
+    yashy_driver::pack::context_pack(root, &request).map(|pack| pack.to_json())
+}
+
+/// The verbs whose JSON is produced by exactly the same function in the CLI
+/// and in this crate. A client can use either without drifting from the other.
+pub const PARITY_VERBS: [&str; 3] = ["explain", "index", "context"];
 
 /// The workspace root for a path: the nearest ancestor with `yashy.toml`.
 pub fn workspace_root(path: &Path) -> PathBuf {

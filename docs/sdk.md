@@ -25,13 +25,18 @@ The verbs:
 | `index(root)` | `yashyc index --json` |
 | `review(root, baseline)` | `yashyc review --json` |
 | `impact(root, baseline)` | `yashyc impact --json` |
-| `context(root, task, budget)` | `yashyc context --json` |
+| `context(root, task, budget)` | `yashyc context --json` (the task-shaped view) |
+| `pack(root, request)` | `yashyc context --json --mode <mode>` |
 | `explain(code)` | `yashyc explain --json` |
 
 Every JSON value uses the CLI's schema-v1 envelope. `CheckResult` carries the
-typed diagnostics and renders them to the same JSON the CLI prints. `build`
-takes the driver's `BuildOptions` verbatim, so flags such as `--release` and
-`--target` mean the same thing in both surfaces.
+typed diagnostics and a compact client view of them; the CLI's full check
+envelope is produced by the driver. `build` takes the driver's `BuildOptions`
+verbatim, so flags such as `--release` and `--target` mean the same thing in
+both surfaces. `PARITY_VERBS` names the three calls (`explain`, `index`,
+`context --mode`) whose JSON is built by the very same driver function in the
+SDK and in the CLI; `crates/yashy-sdk/tests/sdk.rs` compares the two outputs
+byte-for-value.
 
 `workspace_root(path)` walks up to the nearest `yashy.toml`, which is how a
 client finds the workspace a source file belongs to.

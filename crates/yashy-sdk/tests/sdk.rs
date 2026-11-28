@@ -4,6 +4,51 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+
+/// The CLI this workspace built. Cargo only sets `CARGO_BIN_EXE_*` for a
+/// package's own binaries, so an SDK integration test finds it in the target
+/// directory (or takes an explicit `YASHYC` from the caller).
+fn yashyc() -> PathBuf {
+    if let Ok(path) = std::env::var("YASHYC") {
+        return PathBuf::from(path);
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let target = std::env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join("target"));
+    let debug = target.join("debug");
+    let candidates = if cfg!(windows) {
+        [debug.join("yashyc.exe"), debug.join("yashyc")]
+    } else {
+        [debug.join("yashyc"), debug.join("yashyc.exe")]
+    };
+    for candidate in candidates {
+        if candidate.is_file() {
+            return candidate;
+        }
+    }
+    panic!("build the yashyc binary before running SDK parity tests");
+}
+
+fn cli_json(dir: &Path, args: &[&str]) -> yashy_common::json_rpc::Value {
+    let output = Command::new(yashyc())
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("the CLI must run");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8_lossy(&output.stdout);
+    yashy_common::json_rpc::parse(&text).expect("the CLI printed JSON")
+}
+
+fn parsed(text: &str) -> yashy_common::json_rpc::Value {
+    yashy_common::json_rpc::parse(text).expect("a JSON value")
+}
 
 fn work_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("yashy-sdk-{}-{name}", std::process::id()));
@@ -97,4 +142,40 @@ fn context_and_workspace_root_use_the_same_workspace() {
     let rendered = pack.render();
     assert!(rendered.contains("schema_version"), "{rendered}");
     assert!(rendered.contains("included"), "{rendered}");
+}
+
+#[test]
+fn the_cli_and_sdk_render_the_same_index_explain_and_pack_answers() {
+    let dir = work_dir("parity");
+    let root = dir.to_str().unwrap();
+    assert_eq!(
+        cli_json(&dir, &["index", "--json", root]),
+        parsed(&yashy_sdk::index(&dir).expect("an index").render()),
+        "index is one model whatever the caller"
+    );
+    assert_eq!(
+        cli_json(&dir, &["explain", "--json", "E0100"]),
+        parsed(
+            &yashy_sdk::explain("E0100")
+                .expect("a catalog entry")
+                .render()
+        ),
+        "explain is one catalog object"
+    );
+    let request = yashy_driver::pack::PackRequest {
+        focus: "fix add".to_string(),
+        mode: yashy_driver::pack::PackMode::Focus,
+        budget: 8000,
+        changed: Vec::new(),
+        diagnostic: None,
+    };
+    assert_eq!(
+        cli_json(
+            &dir,
+            &["context", "--json", "--task", "fix add", "--mode", "focus", root]
+        ),
+        parsed(&yashy_sdk::pack(&dir, request).expect("a pack").render()),
+        "a context pack is one value"
+    );
+    assert_eq!(yashy_sdk::PARITY_VERBS.len(), 3);
 }

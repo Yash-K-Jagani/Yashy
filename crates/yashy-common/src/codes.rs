@@ -8,6 +8,8 @@
 //! The long-form page is embedded with [`include_str!`], so the catalog is
 //! available offline and a code without a page does not compile.
 
+use crate::Json;
+
 /// One entry in the error catalog.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Code {
@@ -937,6 +939,25 @@ pub fn find(id: &str) -> Option<&'static Code> {
 pub fn closest(id: &str) -> Option<&'static Code> {
     let candidate = crate::closest(id, CODES.iter().map(|code| code.id))?;
     find(&candidate)
+}
+
+/// The schema-v1 object behind `yashyc explain --json` and `sdk::explain`.
+///
+/// Both render this one value, so a library client and the command line cannot
+/// grow different fields for the same code.
+pub fn to_json(entry: &Code, yashy_version: &str) -> Json {
+    let mut root = Json::object();
+    root.set("schema_version", Json::number(1));
+    root.set("tool", Json::string("explain"));
+    root.set("yashy_version", Json::string(yashy_version));
+    root.set("success", Json::bool(true));
+    root.set("code", Json::string(entry.id));
+    root.set("title", Json::string(entry.title));
+    root.set("summary", Json::string(entry.summary));
+    root.set("rule", Json::string(rule_for(entry.id)));
+    root.set("page", Json::string(entry.page));
+    root.set("docs_url", Json::string(docs_url(entry.id)));
+    root
 }
 
 /// The public catalog page for a code.

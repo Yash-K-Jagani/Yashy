@@ -535,9 +535,13 @@ agent run reproducible.
   `check`, `verify`, `build`, `index`, `review`, `impact`, `context`, `explain`
   and `workspace_root`. Every call is a thin adapter over `yashy-driver`, the
   crate is `#![forbid(unsafe_code)]`, and `crates/yashy-sdk/tests/sdk.rs` pins the
-  JSON shape and agreement between the SDK and the driver pipeline. The CLI,
-  LSP and MCP server still call `yashy-driver` directly, so the SDK is not yet
-  the single embedding surface; `docs/sdk.md` names that remaining half.
+  JSON shape and agreement between the SDK and the driver pipeline. `explain`
+  and the CLI now render one catalog object from `yashy_common::codes::to_json`,
+  and the SDK adds `pack(root, request)` for the CLI's `--mode` packs;
+  `PARITY_VERBS` names `explain`, `index` and `context --mode`, whose JSON
+  `crates/yashy-sdk/tests/sdk.rs` compares against the CLI byte-for-value. The
+  CLI, LSP and MCP server still call `yashy-driver` directly, so the SDK is not
+  yet the single embedding surface; `docs/sdk.md` names that remaining half.
 
 - [x] **Step 4: MCP is complete, not just verbs.** Tools carry annotations
   (`readOnly`, `destructive`, `idempotent`), structured content and a result

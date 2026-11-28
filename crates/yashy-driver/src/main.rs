@@ -4678,18 +4678,10 @@ fn explain(args: &[String]) -> ExitCode {
 /// The `explain --json` envelope: schema v1, the catalog entry, and the same
 /// `docs_url` a rendered diagnostic uses.
 fn print_explain_json(code: &codes::Code) {
-    let mut report = Json::object();
-    report.set("schema_version", Json::number(1));
-    report.set("tool", Json::string("explain"));
-    report.set("yashy_version", Json::string(env!("CARGO_PKG_VERSION")));
-    report.set("success", Json::bool(true));
-    report.set("code", Json::string(code.id));
-    report.set("title", Json::string(code.title));
-    report.set("summary", Json::string(code.summary));
-    report.set("rule", Json::string(codes::rule_for(code.id)));
-    report.set("page", Json::string(code.page));
-    report.set("docs_url", Json::string(codes::docs_url(code.id)));
-    println!("{}", report.render());
+    println!(
+        "{}",
+        codes::to_json(code, env!("CARGO_PKG_VERSION")).render()
+    );
 }
 
 /// `yashyc task <name>`: run a named sequence of compiler verbs.

@@ -822,9 +822,10 @@ dropped:
   packs, sandbox limits, agent benchmark, provenance, BPE policy, SDK.
   `yashyc review` and `yashyc impact` ship semantic classification and
   re-run fan-out from an index snapshot; git-aware baselines remain owed.
-  `crates/yashy-sdk` now wraps the driver verbs for library clients, but the
-  CLI, LSP and MCP still call `yashy-driver` directly, so the SDK-as-single-surface
-  row stays open. Structured focus/diff/tests/docs/error packs shipped under
+  `crates/yashy-sdk` now wraps the driver verbs for library clients, with
+  CLI/SDK JSON parity gated for `explain`, `index` and structured packs, but
+  the CLI, LSP and MCP still call `yashy-driver` directly, so the
+  SDK-as-single-surface row stays open. Structured focus/diff/tests/docs/error packs shipped under
   `yashyc context --mode`, with a stable model revision; the 50k-line fixture
   and graph-distance/edit-recency ranking are now gated by
   `crates/yashy-driver/tests/pack.rs`, and `context --expect-revision` refuses a
