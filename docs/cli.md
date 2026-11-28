@@ -1123,7 +1123,7 @@ the focus calls; those signatures are charged to the budget before excerpts
 are admitted. The cut names every omitted excerpt in `dropped` with its reason.
 A pack is data: the caller decides how to prompt.
 
-## `yashyc advisory --check <feed.json> [--keyring <file>] [--package <name> --version <v>] [--json]`
+## `yashyc advisory --check <feed.json|url> [--fetch] [--offline] [--pin <sha256>] [--max-age <seconds>] [--keyring <file>] [--package <name> --version <v>] [--json]`
 
 Reads a signed advisory feed and checks a package version against its ranges.
 The feed carries its own canonical signed body, a schema version and an
@@ -1133,6 +1133,14 @@ unparseable range is refused before any match is reported. With `--package`
 and `--version`, an affected version exits 1 and names the advisory, the range
 and the fixed version; `--json` carries the same advisories in
 `affected`. Without them, the command lists the feed.
+
+A URL is never fetched implicitly: `--fetch` fetches it and caches the exact
+bytes under `YASHY_CACHE_DIR/advisories`, while `--offline` reads only a cached
+copy and refuses to fetch. `--pin <sha256>` compares the digest of those bytes
+before parsing or signature verification, so a pinned feed cannot be swapped
+for another signed document. `--max-age <seconds>` refuses a feed older than
+the limit; in `--offline` mode the cache's age is also printed on stderr. The
+JSON form adds `source` with `origin`, `sha256` and `age_seconds`.
 
 ## `yashyc conformance [--all] [--json] [--fail-under <pct>] [path]`
 

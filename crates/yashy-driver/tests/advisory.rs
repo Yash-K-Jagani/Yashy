@@ -5,7 +5,7 @@
 mod common;
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const SEED: [u8; 32] = [9; 32];
@@ -121,6 +121,135 @@ fn a_tampered_feed_is_refused() {
     );
     assert!(!ok, "a forged feed fails: {stderr}");
     assert!(stderr.contains("signature"), "{stderr}");
+}
+
+fn run_cached(dir: &PathBuf, args: &[&str]) -> (bool, String, String) {
+    let output = Command::new(common::yashyc())
+        .args(args)
+        .current_dir(dir)
+        .env("YASHY_CACHE_DIR", dir.join("cache"))
+        .output()
+        .expect("the CLI must run");
+    (
+        output.status.success(),
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
+}
+
+/// A `file://` URL exercises the same `curl` path an HTTPS feed uses without
+/// requiring a network service in the test.
+fn file_url(path: &Path) -> String {
+    let text = path.to_string_lossy().replace('\\', "/");
+    if text.starts_with('/') {
+        format!("file://{text}")
+    } else {
+        format!("file:///{text}")
+    }
+}
+
+#[test]
+fn a_pin_refuses_a_different_document() {
+    let dir = fixture("pin");
+    let digest = yashy_manifest::sha256_hex(&fs::read(dir.join("feed.json")).unwrap());
+    let (ok, _, stderr) = run(
+        &dir,
+        &["advisory", "--check", "feed.json", "--pin", digest.as_str()],
+    );
+    assert!(ok, "the matching pin is accepted: {stderr}");
+    let (ok, _, stderr) = run(
+        &dir,
+        &["advisory", "--check", "feed.json", "--pin", "deadbeef"],
+    );
+    assert!(!ok, "a different digest is refused");
+    assert!(stderr.contains("pin mismatch"), "{stderr}");
+}
+
+#[test]
+fn a_fetched_feed_is_cached_pinned_and_age_checked_offline() {
+    let dir = fixture("cache");
+    let url = file_url(&dir.join("feed.json"));
+    let (ok, _, stderr) = run_cached(
+        &dir,
+        &[
+            "advisory",
+            "--check",
+            url.as_str(),
+            "--fetch",
+            "--keyring",
+            "keys.txt",
+            "--package",
+            "compress",
+            "--version",
+            "2.0.1",
+        ],
+    );
+    assert!(ok, "the fetched feed is usable: {stderr}");
+    let cached =
+        yashy_driver::advisory::cache_path_in(&dir.join("cache").join("advisories"), &url);
+    assert!(cached.is_file(), "the exact bytes are cached");
+    let digest = yashy_manifest::sha256_hex(&fs::read(&cached).unwrap());
+
+    let (ok, stdout, stderr) = run_cached(
+        &dir,
+        &[
+            "advisory",
+            "--check",
+            url.as_str(),
+            "--offline",
+            "--json",
+            "--pin",
+            digest.as_str(),
+        ],
+    );
+    assert!(ok, "the cache answers offline: {stderr}");
+    assert!(stdout.contains("\"sha256\""), "{stdout}");
+    assert!(stdout.contains("\"age_seconds\""), "{stdout}");
+    assert!(stderr.contains("cached"), "{stderr}");
+    assert!(stderr.contains("old"), "{stderr}");
+
+    // A one-second fetch stamp makes the same feed too old for a one-minute
+    // limit, without sleeping or depending on the machine clock.
+    fs::write(cached.with_extension("fetched"), "1").unwrap();
+    let (ok, _, stderr) = run_cached(
+        &dir,
+        &[
+            "advisory",
+            "--check",
+            url.as_str(),
+            "--offline",
+            "--max-age",
+            "60",
+        ],
+    );
+    assert!(!ok, "a stale feed is refused");
+    assert!(stderr.contains("old"), "{stderr}");
+}
+
+#[test]
+fn offline_never_fetches() {
+    let dir = fixture("offline");
+    let url = file_url(&dir.join("feed.json"));
+    let (ok, _, stderr) = run_cached(
+        &dir,
+        &[
+            "advisory",
+            "--check",
+            url.as_str(),
+            "--offline",
+            "--keyring",
+            "keys.txt",
+        ],
+    );
+    assert!(!ok, "an unfetched URL has no offline answer");
+    assert!(stderr.contains("no cached advisory feed"), "{stderr}");
+
+    let (ok, _, stderr) = run_cached(
+        &dir,
+        &["advisory", "--check", url.as_str(), "--fetch", "--offline"],
+    );
+    assert!(!ok, "--offline refuses an explicit fetch too");
+    assert!(stderr.contains("refuses to fetch"), "{stderr}");
 }
 
 #[test]

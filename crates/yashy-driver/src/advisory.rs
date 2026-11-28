@@ -6,12 +6,13 @@
 //! feed without trusting a web page. A project inside an advisory range is
 //! refused with the advisory id, the range and the fix.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use yashy_common::json_rpc::{self, Value};
 use yashy_common::Json;
 use yashy_manifest::signature::{self, Keyring, Signature, VerifyError};
-use yashy_manifest::{Version, VersionReq};
+use yashy_manifest::{sha256_hex, Version, VersionReq};
 
 /// One advisory record.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -230,6 +231,172 @@ pub fn sign_feed(advisories: Vec<Advisory>, key_id: &str, seed: &[u8]) -> Result
     sig.set("bytes", Json::string(encode_hex(&signature.bytes)));
     root.set("signature", sig);
     Ok(root.render())
+}
+
+/// The advisory cache root. The same cache the package store uses, under an
+/// `advisories` directory, so a compiler-wide `YASHY_CACHE_DIR` clears both.
+pub fn cache_dir() -> PathBuf {
+    if let Some(dir) = std::env::var_os("YASHY_CACHE_DIR") {
+        if !dir.is_empty() {
+            return PathBuf::from(dir).join("advisories");
+        }
+    }
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        return PathBuf::from(local).join("yashy").join("advisories");
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        return PathBuf::from(home)
+            .join(".cache")
+            .join("yashy")
+            .join("advisories");
+    }
+    std::env::temp_dir().join("yashy-advisories")
+}
+
+/// The cache file for one feed URL, given the cache root explicitly so a test
+/// can point the CLI and itself at the same private directory.
+pub fn cache_path_in(root: &Path, url: &str) -> PathBuf {
+    let digest = sha256_hex(url.as_bytes());
+    root.join(format!("{}.json", &digest[..16]))
+}
+
+/// Bytes from a local feed or a fetched URL, with the facts a client needs to
+/// decide whether to trust them: the digest it can pin, where they came from
+/// and how old the cache entry is.
+pub struct FeedFile {
+    pub bytes: Vec<u8>,
+    pub origin: String,
+    pub sha256: String,
+    pub age_seconds: Option<u64>,
+}
+
+impl FeedFile {
+    /// The JSON form shared by every `advisory --json` answer.
+    pub fn to_json(&self) -> Json {
+        let mut root = Json::object();
+        root.set("origin", Json::string(&self.origin));
+        root.set("sha256", Json::string(&self.sha256));
+        match self.age_seconds {
+            Some(age) => {
+                root.set("age_seconds", Json::number(age as i64));
+            }
+            None => {
+                root.set("age_seconds", Json::null());
+            }
+        }
+        root
+    }
+}
+
+fn is_url(name: &str) -> bool {
+    ["http://", "https://", "file://"]
+        .iter()
+        .any(|prefix| name.starts_with(*prefix))
+}
+
+fn now_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or(0)
+}
+
+/// Resolve a feed source under the caller's network and freshness policy.
+///
+/// Fetching is explicit: a URL is only fetched when `--fetch` is given, and
+/// `--offline` refuses even then. There is no implicit network call behind a
+/// check, and no silent fallback from a cache miss to a fetch. The pin is
+/// checked over the exact bytes, before parsing or signature verification,
+/// so a pinned client cannot be served a different document with a valid
+/// signature from another key.
+pub fn load_feed(
+    name: &str,
+    fetch: bool,
+    offline: bool,
+    pin: Option<&str>,
+    max_age: Option<u64>,
+) -> Result<FeedFile, String> {
+    let root = cache_dir();
+    let (bytes, origin, dated) = if is_url(name) {
+        let cached = cache_path_in(&root, name);
+        let stamp = cached.with_extension("fetched");
+        if fetch {
+            if offline {
+                return Err(format!("`--offline` refuses to fetch {name}"));
+            }
+            let bytes = crate::registry::fetch_url(name)
+                .map_err(|error| format!("cannot fetch {name}: {error}"))?;
+            std::fs::create_dir_all(&root)
+                .map_err(|error| format!("cannot create {}: {error}", root.display()))?;
+            std::fs::write(&cached, &bytes)
+                .map_err(|error| format!("cannot cache {}: {error}", cached.display()))?;
+            std::fs::write(&stamp, now_seconds().to_string())
+                .map_err(|error| format!("cannot date {}: {error}", stamp.display()))?;
+            (bytes, format!("fetched {name}"), Some(stamp))
+        } else if cached.is_file() {
+            (
+                std::fs::read(&cached).map_err(|error| format!("{}: {error}", cached.display()))?,
+                format!("cached {name}"),
+                Some(stamp),
+            )
+        } else if offline {
+            return Err(format!(
+                "no cached advisory feed for {name}; fetch it before going offline"
+            ));
+        } else {
+            return Err(format!(
+                "{name} is a URL: pass `--fetch` to fetch it, or `--offline` to use the cache"
+            ));
+        }
+    } else {
+        let path = Path::new(name);
+        let bytes = std::fs::read(path).map_err(|error| format!("{name}: {error}"))?;
+        // A local file can carry a fetch stamp beside it, which is how a
+        // checked-out mirror records when it was refreshed. Without one, the
+        // file's own mtime is the age.
+        let stamp = path.with_extension("fetched");
+        let dated = if stamp.is_file() { Some(stamp) } else { None };
+        (bytes, format!("local {name}"), dated)
+    };
+    let sha256 = sha256_hex(&bytes);
+    if let Some(pin) = pin {
+        if pin != sha256 {
+            return Err(format!(
+                "advisory feed pin mismatch: expected `{pin}`, fetched `{sha256}`"
+            ));
+        }
+    }
+    let modified = if let Some(stamp) = &dated {
+        std::fs::read_to_string(stamp)
+            .ok()
+            .and_then(|text| text.trim().parse::<u64>().ok())
+    } else if !is_url(name) {
+        std::fs::metadata(name)
+            .ok()
+            .and_then(|meta| meta.modified().ok())
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map(|elapsed| elapsed.as_secs())
+    } else {
+        None
+    };
+    let age_seconds = modified.and_then(|then| now_seconds().checked_sub(then));
+    if let Some(limit) = max_age {
+        match age_seconds {
+            Some(age) if age > limit => {
+                return Err(format!(
+                    "advisory feed is {age}s old (max {limit}s); fetch it again"
+                ))
+            }
+            Some(_) => {}
+            None => return Err("cannot determine the advisory feed age".to_string()),
+        }
+    }
+    Ok(FeedFile {
+        bytes,
+        origin,
+        sha256,
+        age_seconds,
+    })
 }
 
 #[cfg(test)]

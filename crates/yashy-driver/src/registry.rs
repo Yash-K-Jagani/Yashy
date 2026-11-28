@@ -288,7 +288,7 @@ pub fn yank(
 ///
 /// A machine without `curl` gets a message that names it, rather than a
 /// silent fallback to something that is not secure.
-fn fetch_url(url: &str) -> Result<Vec<u8>, RegistryError> {
+pub(crate) fn fetch_url(url: &str) -> Result<Vec<u8>, RegistryError> {
     let program = if cfg!(windows) { "curl.exe" } else { "curl" };
     let mut command = Command::new(program);
     command.args(["--fail", "--silent", "--show-error", "--location"]);

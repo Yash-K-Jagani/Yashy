@@ -408,9 +408,14 @@ end stays the reference for the 2.0 release (design call 7).
   against an explicit keyring, and matches package versions against version
   ranges. `yashyc advisory --check` refuses an affected version with the
   advisory id, range and fix, and refuses a forged feed before matching; the
-  driver test pins both paths and the JSON form. Fetching a feed over the
-  network with the `net` capability, pinning and offline age reporting are
-  still owed.
+  driver test pins both paths and the JSON form. Fetching is now explicit:
+  `--fetch <url>` uses the registry's `curl` path and caches the exact bytes
+  under `YASHY_CACHE_DIR/advisories`; `--offline` reads only that cache and
+  refuses to fetch; `--pin <sha256>` checks the bytes before parsing or
+  signature verification; `--max-age <seconds>` refuses a stale feed, and the
+  offline age is printed and included in the JSON `source`. A real HTTPS feed
+  and a manifest-declared `net` capability still need external infrastructure;
+  the tests drive the same fetch path through a local `file://` URL.
 
 - [x] **Step 3: Migration guides are tested programs.** Each edition pair has
   a guide whose snippets are compiled, whose before/after is produced by
@@ -444,7 +449,7 @@ end stays the reference for the 2.0 release (design call 7).
 | Channels | `cargo test -p yashy-driver --test channel` | nightly/beta/stable/pinned coexist; a channel is a signed pointer; a missing version names install |
 | Versioned docs | `cargo test -p yashy-driver --test docs_versioned` | versioned tree generated; redirects resolve; samples compile under that version |
 | Benchmark dashboard | `yashyc bench dashboard --check` | history keyed by compiler/target/toolchain; regression fails; a new row is not green |
-| Advisories | `cargo test -p yashy-driver --test advisory` | signed feed; range match refused; bad schema refused; offline age reported |
+| Advisories | `cargo test -p yashy-driver --test advisory` | signed feed; range match refused; bad schema refused; pin mismatch refused; explicit fetch cached; offline age reported |
 | Migration docs | `cargo test -p yashy-driver --test migrate_docs` | snippets compile on both versions; claims match `migrate --dry-run` |
 | No regression | `cargo test --workspace` | green on Windows and Linux (and macOS once claimed) |
 | No P0 | `docs/triage.md` | no P0 |

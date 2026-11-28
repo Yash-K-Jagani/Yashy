@@ -387,8 +387,8 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "advisory",
         summary: "check a signed advisory feed against a package version",
-        usage: "yashyc advisory --check <feed.json> [--keyring <file>] [--package <name> --version <v>] [--json]",
-        flags: &["--check", "--feed", "--keyring", "--package", "--version", "--json"],
+        usage: "yashyc advisory --check <feed.json|url> [--fetch] [--offline] [--pin <sha256>] [--max-age <seconds>] [--keyring <file>] [--package <name> --version <v>] [--json]",
+        flags: &["--check", "--feed", "--fetch", "--offline", "--pin", "--max-age", "--keyring", "--package", "--version", "--json"],
         takes_path: false,
     },
     CommandSpec {

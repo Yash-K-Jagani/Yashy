@@ -7073,10 +7073,31 @@ fn advisory_cmd(args: &[String]) -> ExitCode {
     let mut version: Option<String> = None;
     let mut keyring_path: Option<String> = None;
     let mut json = false;
+    let mut offline = false;
+    let mut fetch = false;
+    let mut pin: Option<String> = None;
+    let mut max_age: Option<u64> = None;
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
             "--json" => json = true,
+            "--offline" => offline = true,
+            "--fetch" => fetch = true,
+            "--pin" | "--max-age" => {
+                if index + 1 >= args.len() {
+                    return usage_error(&format!("`{}` needs a value", args[index]));
+                }
+                let value = args[index + 1].clone();
+                match args[index].as_str() {
+                    "--pin" => pin = Some(value),
+                    "--max-age" => match value.parse::<u64>() {
+                        Ok(parsed) => max_age = Some(parsed),
+                        Err(_) => return usage_error("`--max-age` needs a whole number"),
+                    },
+                    _ => unreachable!(),
+                }
+                index += 1;
+            }
             "--check" | "--feed" | "--package" | "--version" | "--keyring" => {
                 if index + 1 >= args.len() {
                     return usage_error(&format!("`{}` needs a value", args[index]));
@@ -7098,10 +7119,33 @@ fn advisory_cmd(args: &[String]) -> ExitCode {
     let Some(feed_path) = feed_path else {
         return usage_error("`advisory` needs `--check <feed.json>`");
     };
-    let text = match std::fs::read_to_string(&feed_path) {
+    let loaded = match yashy_driver::advisory::load_feed(
+        &feed_path,
+        fetch,
+        offline,
+        pin.as_deref(),
+        max_age,
+    ) {
+        Ok(loaded) => loaded,
+        Err(message) => {
+            eprintln!("error: {message}");
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    if offline {
+        eprintln!(
+            "advisory feed: {} ({} old)",
+            loaded.origin,
+            loaded
+                .age_seconds
+                .map(|age| format!("{age}s"))
+                .unwrap_or_else(|| "unknown age".to_string())
+        );
+    }
+    let text = match std::str::from_utf8(&loaded.bytes) {
         Ok(text) => text,
-        Err(error) => {
-            eprintln!("error: {feed_path}: {error}");
+        Err(_) => {
+            eprintln!("error: {feed_path} is not UTF-8 JSON");
             return exit_code(EXIT_USAGE);
         }
     };
@@ -7129,7 +7173,9 @@ fn advisory_cmd(args: &[String]) -> ExitCode {
         (Some(package), Some(version)) => (package, version),
         _ => {
             if json {
-                println!("{}", feed.to_json().render());
+                let mut document = feed.to_json();
+                document.set("source", loaded.to_json());
+                println!("{}", document.render());
             } else {
                 println!("advisories: {}", feed.advisories.len());
                 for advisory in &feed.advisories {
@@ -7149,6 +7195,7 @@ fn advisory_cmd(args: &[String]) -> ExitCode {
                 root.set("schema_version", Json::number(1));
                 root.set("tool", Json::string("yashyc"));
                 root.set("affected", Json::array(Vec::new()));
+                root.set("source", loaded.to_json());
                 println!("{}", root.render());
             } else {
                 println!("advisories: none for {package} {version}");
@@ -7164,6 +7211,7 @@ fn advisory_cmd(args: &[String]) -> ExitCode {
                     "affected",
                     Json::array(matches.iter().map(|advisory| advisory.to_json()).collect()),
                 );
+                root.set("source", loaded.to_json());
                 println!("{}", root.render());
             } else {
                 for advisory in matches {

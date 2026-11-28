@@ -842,8 +842,10 @@ dropped:
   example and names the pages whose examples do not reproduce their own code;
   all source pages now reproduce their code, and `--fail-under 100` passes
   with sixteen non-source codes listed with their own harnesses. A signed
-  advisory feed now ships through `yashyc advisory --check`; fetching it over
-  the network with the `net` capability, pinning and offline age are still owed. Editions are partly shipped: the closed key set and
+  advisory feed now ships through `yashyc advisory --check`, with an explicit
+  `--fetch` cached under `YASHY_CACHE_DIR`, a `--pin` over the exact bytes and
+  an offline age check; a real HTTPS feed and a manifest-declared `net`
+  capability still need external infrastructure. Editions are partly shipped: the closed key set and
   `yashyc migrate` exist, while the multi-edition reader and source rewriting
   remain owed.
 
