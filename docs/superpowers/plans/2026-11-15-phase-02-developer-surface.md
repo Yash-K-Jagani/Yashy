@@ -227,9 +227,12 @@ crate; the `Lint` interface below is the implemented one.
   report and the `--fail-under` gate. The runner now keeps the lexer's and
   parser's diagnostics (a `repr(C) fn` page is a parser case), expands macros
   and applies `cfg` before resolution, so it follows the same front end as a
-  real check instead of dropping a page's evidence. It moved the report from
-  53 to 66 passing cases. Pages that still do not reproduce their code are
-  named as mismatches, so the evidence gap is visible rather than silent.
+  real check instead of dropping a page's evidence. It also runs the warning
+  pass and stages `// name.ya` blocks as separate files for module rules. The
+  drifted error-page snippets were corrected against the checker: the report
+  is now 94 passing source cases and zero mismatches. Sixteen codes whose
+  evidence is a manifest, sandbox run or toolchain probe name their own
+  harness in the JSON report, so `--fail-under 100` is a real source gate.
 - [x] **Step 2: Make the catalog generated.** `yashyc explain --all --json` is
   the machine form; a code without a page fails the build.
   *Current:* `docs/errors.md` is committed and `error_examples.rs` compares its

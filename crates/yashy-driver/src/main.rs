@@ -478,17 +478,15 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
                     return stopped(usage_error("`--header` needs a file path"));
                 }
             }
-            other if other.starts_with("--emit=") => {
-                match other.trim_start_matches("--emit=") {
-                    "cdylib" => shared = true,
-                    "exe" => shared = false,
-                    other => {
-                        return stopped(usage_error(&format!(
-                            "unknown emit kind `{other}`; use `exe` or `cdylib`"
-                        )))
-                    }
+            other if other.starts_with("--emit=") => match other.trim_start_matches("--emit=") {
+                "cdylib" => shared = true,
+                "exe" => shared = false,
+                other => {
+                    return stopped(usage_error(&format!(
+                        "unknown emit kind `{other}`; use `exe` or `cdylib`"
+                    )))
                 }
-            }
+            },
             "--emit" => {
                 if let Some(value) = args.next() {
                     match value.as_str() {
@@ -1542,7 +1540,10 @@ fn dashboard_cmd(args: &[String]) -> ExitCode {
             .and_then(|at| args.get(at + 1))
             .cloned()
             .unwrap_or_else(|| "bench".to_string());
-        let value = measurement.number("median").or_else(|| measurement.number("value")).unwrap_or(0.0);
+        let value = measurement
+            .number("median")
+            .or_else(|| measurement.number("value"))
+            .unwrap_or(0.0);
         history.append(yashy_driver::dashboard::Row {
             compiler: measurement
                 .get("compiler_hash")
@@ -1550,10 +1551,7 @@ fn dashboard_cmd(args: &[String]) -> ExitCode {
                 .unwrap_or("unknown")
                 .to_string(),
             target: measurement.get("target").unwrap_or("host").to_string(),
-            toolchain: measurement
-                .get("toolchain")
-                .unwrap_or("clang")
-                .to_string(),
+            toolchain: measurement.get("toolchain").unwrap_or("clang").to_string(),
             key,
             value,
             budget_pct: 5.0,
@@ -1682,7 +1680,7 @@ fn bench_cmd(args: &[String]) -> ExitCode {
         }
     }
     if let Some(source) = measure_source {
-        use yashy_driver::bench_measure::{measure, baseline_text, to_json, MeasureOptions};
+        use yashy_driver::bench_measure::{baseline_text, measure, to_json, MeasureOptions};
         let options = MeasureOptions {
             source,
             compare: compare_binary,
@@ -3040,8 +3038,8 @@ fn inspect_cmd(args: &[String]) -> ExitCode {
             println!("{line}");
             return exit_code(EXIT_OK);
         }
-        let report = yashy_driver::layout::json_report(type_name, &decls)
-            .expect("the type was found above");
+        let report =
+            yashy_driver::layout::json_report(type_name, &decls).expect("the type was found above");
         println!("{}", report.render());
         return exit_code(EXIT_OK);
     }
@@ -3702,7 +3700,10 @@ fn dev_cmd(args: &[String]) -> ExitCode {
     }
     let path = path.unwrap_or_else(|| PathBuf::from("."));
     let (root, only) = if path.is_file() {
-        (path.parent().unwrap_or(Path::new(".")).to_path_buf(), Some(path))
+        (
+            path.parent().unwrap_or(Path::new(".")).to_path_buf(),
+            Some(path),
+        )
     } else {
         (path, None)
     };
@@ -6624,7 +6625,9 @@ fn graph_cmd(args: &[String]) -> ExitCode {
         return usage_error("`--from` is a JSON query; it cannot be combined with `--dot`");
     }
     if from.is_none() && !edges.is_empty() {
-        return usage_error("`--edges` filters a `--from` query; it does nothing on the full graph");
+        return usage_error(
+            "`--edges` filters a `--from` query; it does nothing on the full graph",
+        );
     }
     let root = input.unwrap_or_else(|| PathBuf::from("."));
     match yashy_driver::outline::load(&root) {
@@ -6759,7 +6762,9 @@ fn context_cmd(args: &[String]) -> ExitCode {
                 match yashy_driver::pack::PackMode::parse(&args[i + 1]) {
                     Some(parsed) => mode = Some(parsed),
                     None => {
-                        return usage_error("unknown pack mode; use focus, diff, tests, docs or error")
+                        return usage_error(
+                            "unknown pack mode; use focus, diff, tests, docs or error",
+                        )
                     }
                 }
                 i += 1;
@@ -6872,7 +6877,10 @@ fn context_cmd(args: &[String]) -> ExitCode {
 }
 
 /// `yashyc mcp --root <dir>`: the MCP server on stdio.
-fn review_command_args(args: &[String], command: &str) -> Result<(PathBuf, String, bool), ExitCode> {
+fn review_command_args(
+    args: &[String],
+    command: &str,
+) -> Result<(PathBuf, String, bool), ExitCode> {
     let mut root = PathBuf::from(".");
     let mut baseline: Option<String> = None;
     let mut json = false;
@@ -6888,7 +6896,9 @@ fn review_command_args(args: &[String], command: &str) -> Result<(PathBuf, Strin
                 index += 1;
             }
             other if other.starts_with('-') => {
-                return Err(usage_error(&format!("unknown option `{other}` for `{command}`")))
+                return Err(usage_error(&format!(
+                    "unknown option `{other}` for `{command}`"
+                )))
             }
             other => root = PathBuf::from(other),
         }
@@ -7111,8 +7121,7 @@ fn conformance_cmd(args: &[String]) -> ExitCode {
             } else {
                 print!("{}", report.render_human());
             }
-            let total = report.cases.len().max(1);
-            let percent = (report.passed * 100 / total) as u64;
+            let percent = report.percent();
             if fail_under.is_some_and(|floor| percent < floor) {
                 exit_code(EXIT_COMPILE_ERROR)
             } else {

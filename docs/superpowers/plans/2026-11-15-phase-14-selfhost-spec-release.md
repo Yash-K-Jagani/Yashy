@@ -150,8 +150,10 @@ end stays the reference for the 2.0 release (design call 7).
   *2026-11-27:* `yashyc conformance` now runs the `yashy` example on every
   `docs/errors/<code>.md` page through the checker and reports which pages
   reproduce their own code with the diagnostic span; the driver test pins the
-  report and the optional `--fail-under` gate. The hundred-percent gate stays
-  open while pages need example fixes.
+  report and the optional `--fail-under` gate. Every source page now
+  reproduces its code, so the hundred-percent gate passes; sixteen codes whose
+  evidence is a manifest, sandbox run or toolchain probe are listed with their
+  own harnesses instead of being counted as missing source examples.
   *Closed 2026-11-26 with exception: needs a signed notarised macOS archive, external audit and a release tag. The shipped facts and tests are recorded in the plan above; the exception is named rather than silently dropped.*
 
 - [x] **Step 2: The memory model is specified, not described.** Provenance,

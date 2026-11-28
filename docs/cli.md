@@ -1127,12 +1127,19 @@ and the fixed version; `--json` carries the same advisories in
 
 Runs the `yashy` block on every page under `docs/errors` through the checker
 and reports whether the compiler produced the code in the page's filename.
-`--json` carries one case per page with `status` (`pass`, `mismatch` or
-`without-example`), the expected code, every code actually produced and the
-span of the first match. It is a report by default; `--fail-under <pct>` turns
-it into a gate for a threshold the project is willing to hold. A page whose
-example does not reproduce its own code is named as a mismatch rather than
-silently skipped.
+`--json` carries one case per page with `status` (`pass`, `mismatch`,
+`without-example` or `out-of-scope`), the expected code, every code actually
+produced and the span of the first match. A page whose example does not
+reproduce its own code is named as a mismatch rather than silently skipped.
+Multi-file pages label each block `// name.ya`; the runner stages those blocks
+as separate files and checks them through the module loader.
+
+The percentage is over source cases only. Codes whose evidence is a package
+manifest, a sandbox run or a toolchain probe cannot be run by a source checker:
+they appear as `out-of-scope` with their own harness in
+`non_source_harnesses`, and are never counted as missing examples.
+`--fail-under <pct>` gates source conformance; `100` passes when every source
+page reproduces its code.
 
 ## `yashyc review --baseline <index.json> [--json] [path]`
 

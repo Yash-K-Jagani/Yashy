@@ -530,6 +530,7 @@ Codes: `E1810`
 
 Tests:
 
+- `crates/yashy-driver/tests/conformance.rs`
 - `crates/yashy-driver/tests/dependencies.rs`
 
 ## `PKG-2`
@@ -923,6 +924,7 @@ Codes: `E0106`
 
 Tests:
 
+- `crates/yashy-driver/tests/conformance.rs`
 - `crates/yashy-driver/tests/verify.rs`
 - `crates/yashy-parser/tests/items.rs`
 - `crates/yashy-sema/tests/layout.rs`
@@ -951,6 +953,7 @@ Codes: `E0801`
 
 Tests:
 
+- `crates/yashy-driver/tests/conformance.rs`
 - `crates/yashy-sema/tests/alias.rs`
 - `crates/yashy-sema/tests/visibility.rs`
 
@@ -960,5 +963,6 @@ Codes: `E0802`
 
 Tests:
 
+- `crates/yashy-driver/tests/conformance.rs`
 - `crates/yashy-driver/tests/modules.rs`
 
