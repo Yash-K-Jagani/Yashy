@@ -19,7 +19,7 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "build",
         summary: "compile a program to a binary",
-        usage: "yashyc build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--timings] [--jobs <n>] [--emit=exe|cdylib] [--header <file> [--check]]",
+        usage: "yashyc build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--timings] [--jobs <n>] [--emit=exe|cdylib|staticlib] [--header <file> [--check]]",
         flags: &[
             "-o",
             "-O0",

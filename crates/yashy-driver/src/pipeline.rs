@@ -54,7 +54,7 @@ use yashy_sema::{check_program_with, CheckOptions, HirItem, HirProgram};
 use yashy_verify::{verify, VerifyOptions, VerifyReport};
 
 use crate::modules;
-use crate::toolchain::Toolchain;
+use crate::toolchain::{find_archiver, Archiver, Toolchain};
 
 /// One row of a `--timings` report.
 ///
@@ -711,6 +711,11 @@ pub fn ir_cache_key_with_inputs(
         options.reproducible.to_string(),
         options.target.to_string(),
         options.debug_info.to_string(),
+        // The linked artifact differs by emit kind: an executable, a shared
+        // object and a static archive are not interchangeable, and the binary
+        // cache stores whatever the link produced under this key.
+        options.shared.to_string(),
+        options.static_library.to_string(),
         options
             .features
             .iter()
@@ -1123,6 +1128,9 @@ fn module_compile_flags(
             .map(|flag| flag.to_string()),
     );
     flags.extend(reproducibility_flags(options, target));
+    if options.shared || options.static_library {
+        flags.push("-fPIC".to_string());
+    }
     flags.extend(
         opaque_pointers_args(toolchain)
             .iter()
@@ -1252,6 +1260,14 @@ pub struct BuildOptions {
     pub capabilities: Option<String>,
     /// Emit a shared library instead of an executable.
     pub shared: bool,
+    /// Emit a static archive (`lib<name>.a`, or `.lib` on MSVC) instead of an
+    /// executable.
+    ///
+    /// The archive carries the generated objects and the runtime, so a C or
+    /// C++ program links one file and gets the whole runtime. A library target
+    /// needs no `main`, which is what lets a project publish its `pub fn`s
+    /// without inventing an entry point.
+    pub static_library: bool,
     /// Selected cargo-style features; part of the IR cache key and exposed as
     /// `feature:<name>` cfg keys.
     pub features: std::collections::BTreeSet<String>,
@@ -1337,6 +1353,7 @@ impl Default for BuildOptions {
     fn default() -> Self {
         Self {
             shared: false,
+            static_library: false,
             capabilities: None,
             features: std::collections::BTreeSet::new(),
             debug_info: false,
@@ -2010,8 +2027,13 @@ pub fn compile_hir_timed(
     facts: &yashy_common::ProofFacts,
     timings: &mut Vec<TimingRow>,
 ) -> Result<(), Vec<Diagnostic>> {
-    if let Err(diagnostic) = check_main_exists(&hir.items) {
-        return Err(vec![diagnostic]);
+    // An executable needs an entry point. A library target does not: its
+    // `pub fn`s are the surface, and forcing a `main` would make a C consumer
+    // link one it never calls.
+    if !(options.shared || options.static_library) {
+        if let Err(diagnostic) = check_main_exists(&hir.items) {
+            return Err(vec![diagnostic]);
+        }
     }
 
     // The IR for a program is a pure function of its sources, the codegen
@@ -2232,11 +2254,15 @@ pub fn compile_hir_timed(
         None
     };
     let extra_flags = reproducibility_flags(&options, target);
+    // A shared library needs position-independent code; a static archive does
+    // too, because the C consumer may put it inside one. PIC is a compile-time
+    // property of the objects, so it has to be decided here, not at link time.
+    let pic = options.shared || options.static_library;
     let runtime_objects = if lto {
         None
     } else {
         runtime_cache_dir().and_then(|cache_dir| {
-            let key = runtime_cache_key(&toolchain.llc, target, options.opt, options.shared);
+            let key = runtime_cache_key(&toolchain.llc, target, options.opt, pic);
             let runtime = cached_runtime_object(
                 &cache_dir,
                 &runtime_source,
@@ -2248,7 +2274,7 @@ pub fn compile_hir_timed(
                 toolchain,
                 &{
                     let mut flags = extra_flags.clone();
-                    if options.shared {
+                    if pic {
                         flags.push("-fPIC".to_string());
                     }
                     flags
@@ -2266,7 +2292,7 @@ pub fn compile_hir_timed(
                 toolchain,
                 &{
                     let mut flags = extra_flags.clone();
-                    if options.shared {
+                    if pic {
                         flags.push("-fPIC".to_string());
                     }
                     flags
@@ -2284,7 +2310,7 @@ pub fn compile_hir_timed(
                 toolchain,
                 &{
                     let mut flags = extra_flags.clone();
-                    if options.shared {
+                    if pic {
                         flags.push("-fPIC".to_string());
                     }
                     flags
@@ -2302,7 +2328,7 @@ pub fn compile_hir_timed(
                 toolchain,
                 &{
                     let mut flags = extra_flags.clone();
-                    if options.shared {
+                    if pic {
                         flags.push("-fPIC".to_string());
                     }
                     flags
@@ -2320,7 +2346,7 @@ pub fn compile_hir_timed(
                 toolchain,
                 &{
                     let mut flags = extra_flags.clone();
-                    if options.shared {
+                    if pic {
                         flags.push("-fPIC".to_string());
                     }
                     flags
@@ -2350,6 +2376,34 @@ pub fn compile_hir_timed(
         ) {
             native_inputs = objects;
         }
+    }
+
+    // A static archive is the third emit kind: no linker, no entry point, just
+    // the objects an embedding program links. It is built from the same objects
+    // the executable would use, plus the runtime, so one file is the whole
+    // dependency.
+    if options.static_library {
+        let runtime_sources = [
+            runtime_source.as_path(),
+            hashmap_source.as_path(),
+            executor_source.as_path(),
+            net_source.as_path(),
+            platform_source.as_path(),
+        ];
+        archive_static_library(
+            toolchain,
+            &native_inputs,
+            &runtime_objects,
+            &runtime_sources,
+            &runtime_dir,
+            entry_name,
+            &target,
+            &options,
+            out,
+            epoch.as_deref(),
+            timings,
+        )?;
+        return Ok(());
     }
 
     let link = |extra: &[String],
@@ -2550,6 +2604,187 @@ fn link_arguments(
     }
     args.extend(libraries);
     args
+}
+
+/// Build the static archive for `--emit=staticlib`.
+///
+/// The archive is the generated objects plus the runtime, so a C consumer
+/// links one file and resolves every symbol it needs. An IR input is compiled
+/// to an object here; the per-module path usually hands over objects already,
+/// but the whole-program fallback passes `.ll` files, and an archive cannot
+/// hold those.
+#[allow(clippy::too_many_arguments)]
+fn archive_static_library(
+    toolchain: &Toolchain,
+    native_inputs: &[PathBuf],
+    runtime_objects: &Option<(PathBuf, PathBuf, PathBuf, PathBuf, PathBuf)>,
+    runtime_sources: &[&Path; 5],
+    runtime_dir: &Path,
+    entry_name: &str,
+    target: &str,
+    options: &BuildOptions,
+    out: &Path,
+    epoch: Option<&str>,
+    timings: &mut Vec<TimingRow>,
+) -> Result<(), Vec<Diagnostic>> {
+    // The scratch directory lives beside the output so it shares its
+    // filesystem, and is removed after the archive is written. A failed build
+    // leaves it behind for inspection, which is the same discipline the
+    // profile directory follows.
+    let scratch = out
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(".yashy")
+        .join(format!("staticlib-{}", std::process::id()));
+    ensure_dir(&scratch, entry_name)?;
+    let mut objects: Vec<PathBuf> = Vec::with_capacity(native_inputs.len() + 5);
+    for (index, input) in native_inputs.iter().enumerate() {
+        if input.extension().and_then(|extension| extension.to_str()) == Some("o") {
+            objects.push(input.clone());
+            continue;
+        }
+        let object = scratch.join(format!("unit-{index}.o"));
+        compile_object(
+            toolchain,
+            input,
+            &object,
+            target,
+            options,
+            epoch,
+            entry_name,
+            &[],
+        )?;
+        objects.push(object);
+    }
+    match runtime_objects {
+        Some((runtime, hashmap, executor, net, platform)) => objects.extend([
+            runtime.clone(),
+            hashmap.clone(),
+            executor.clone(),
+            net.clone(),
+            platform.clone(),
+        ]),
+        None => {
+            let include = format!("-I{}", display(runtime_dir));
+            for (index, source) in runtime_sources.iter().enumerate() {
+                let object = scratch.join(format!("runtime-{index}.o"));
+                compile_object(
+                    toolchain,
+                    source,
+                    &object,
+                    target,
+                    options,
+                    epoch,
+                    entry_name,
+                    &[include.clone()],
+                )?;
+                objects.push(object);
+            }
+        }
+    }
+
+    let archiver = find_archiver().ok_or_else(|| {
+        vec![toolchain_diagnostic(
+            entry_name,
+            "cannot find an archiver for `--emit=staticlib`: looked for `llvm-ar`, \
+             `ar` and `lib` on `PATH`; set `YASHY_AR` to one"
+                .to_string(),
+        )]
+    })?;
+    // An existing archive would keep members the new build no longer has:
+    // `ar r` replaces by name and leaves everything else. Removing it first is
+    // what makes the output a function of this build alone.
+    let _ = fs::remove_file(out);
+    let mut command = match &archiver {
+        Archiver::Ar(path) | Archiver::Lib(path) => Command::new(path),
+    };
+    match &archiver {
+        Archiver::Ar(_) => {
+            command.arg("rcs").arg(display(out));
+            for object in &objects {
+                command.arg(display(object));
+            }
+        }
+        Archiver::Lib(_) => {
+            command.arg(format!("/OUT:{}", display(out)));
+            for object in &objects {
+                command.arg(display(object));
+            }
+        }
+    }
+    let result = timed(timings, "link", || command.output());
+    match result {
+        Ok(output) if output.status.success() => {}
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let summary = first_meaningful_line(&stderr).unwrap_or("no output from the tool");
+            return Err(vec![toolchain_diagnostic(
+                entry_name,
+                format!("the archiver could not write {}: {summary}", display(out)),
+            )]);
+        }
+        Err(error) => {
+            return Err(vec![toolchain_diagnostic(
+                entry_name,
+                format!(
+                    "could not run the archiver while writing {}: {error}",
+                    display(out)
+                ),
+            )])
+        }
+    }
+    let _ = fs::remove_dir_all(&scratch);
+    Ok(())
+}
+
+/// Compile one IR or C source to an object for a static archive.
+#[allow(clippy::too_many_arguments)]
+fn compile_object(
+    toolchain: &Toolchain,
+    source: &Path,
+    object: &Path,
+    target: &str,
+    options: &BuildOptions,
+    epoch: Option<&str>,
+    entry_name: &str,
+    extra: &[String],
+) -> Result<(), Vec<Diagnostic>> {
+    let mut command = Command::new(&toolchain.llc);
+    command.args([
+        "-c".to_string(),
+        display(source),
+        "-o".to_string(),
+        display(object),
+        format!("--target={target}"),
+        options.opt.flag().to_string(),
+    ]);
+    command.args(module_compile_flags(options, target, toolchain));
+    command.args(extra.iter().cloned());
+    if let Some(epoch) = epoch {
+        command.env("SOURCE_DATE_EPOCH", epoch);
+    }
+    let output = command.output().map_err(|error| {
+        vec![toolchain_diagnostic(
+            entry_name,
+            format!(
+                "could not run `{}` while compiling a static library: {error}",
+                toolchain.llc.display()
+            ),
+        )]
+    })?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let summary = first_meaningful_line(&stderr).unwrap_or("no output from the tool");
+    Err(vec![toolchain_diagnostic(
+        entry_name,
+        format!(
+            "`{}` could not compile {} for a static library: {summary}",
+            toolchain.llc.display(),
+            display(source)
+        ),
+    )])
 }
 
 /// Where a `--pgo` build keeps the raw counters and the merged profile.

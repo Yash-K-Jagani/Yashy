@@ -21,12 +21,13 @@ yashyc build main.ya
 yashyc build main.ya -o wordcount --release
 yashyc build main.ya --emit-ir
 yashyc build lib.ya --emit=cdylib --header lib.h -o libdemo.so
+yashyc build lib.ya --emit=staticlib
 ```
 
 | Option | Meaning |
 |---|---|
 | `-o <path>` | Output path. Default: the source's stem beside the source. |
-| `--emit=exe\|cdylib` | Executable (default) or a shared library. A library links with `-shared` and position-independent runtime objects. |
+| `--emit=exe\|cdylib\|staticlib` | Executable (default), a shared library, or a static archive. A shared library links with `-shared` and position-independent objects; a static archive is `lib<stem>.a` (`lib<stem>.lib` on Windows) holding the generated objects and the runtime, so a C consumer links one file. A library target needs no `main`. |
 | `--header <path>` | Write a C header from the checked public functions. Functions without a C-compatible signature are named in a comment, never guessed at. The header carries `YASHY_ABI_VERSION`, the `yashy_str` layout, `yashy_str_release`, and an ownership marker on every declaration: `YASHY_OWNED` for a result the caller releases, `YASHY_BORROWED` for one it must not free. A borrowed parameter is `const`. |
 | `--check` | With `--header`, compare the rendered header with the file instead of writing it. Exits `1` and names the regeneration command when the checked-in header has drifted. |
 | `-O0` ... `-O3` | Optimization level passed to `clang`. Default `-O2`. |

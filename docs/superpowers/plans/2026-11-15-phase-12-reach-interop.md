@@ -335,6 +335,15 @@ having before the AI phase writes documentation about the language.
   rendered text with the checked-in file and fails with the regeneration
   command when it has drifted.
 
+  `--emit=staticlib` now ships beside `cdylib`: `yashyc build lib.ya
+  --emit=staticlib` writes `lib<stem>.a` (`lib<stem>.lib` on Windows) holding
+  the generated objects and the runtime, so a C consumer links one file. The
+  emit kind is part of the binary-cache key (an executable, a shared object and
+  an archive are not interchangeable), and a library target no longer needs a
+  `main`. `crates/yashy-driver/tests/library.rs` pins the archive magic, the
+  runtime members and the no-entry-point case. The C/C++ caller, Python and
+  Node harnesses remain the named exception above.
+
 - [x] **Step 3: Symbols are versioned and hidden by default.** Only the export
   list is visible; everything else is internal. The shared object carries a
   SONAME and a version script (ELF), an export table (PE) or an install name

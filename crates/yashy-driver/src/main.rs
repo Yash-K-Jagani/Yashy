@@ -399,6 +399,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     let mut header: Option<PathBuf> = None;
     let mut check_header = false;
     let mut shared = false;
+    let mut static_library = false;
     let mut timings_flag = false;
     let mut no_verify = false;
     let mut deny_warnings = env::var("YASHY_DENY_WARNINGS").ok().as_deref() == Some("1");
@@ -481,22 +482,42 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
                 }
             }
             other if other.starts_with("--emit=") => match other.trim_start_matches("--emit=") {
-                "cdylib" => shared = true,
-                "exe" => shared = false,
+                "cdylib" => {
+                    shared = true;
+                    static_library = false;
+                }
+                "staticlib" => {
+                    shared = false;
+                    static_library = true;
+                }
+                "exe" => {
+                    shared = false;
+                    static_library = false;
+                }
                 other => {
                     return stopped(usage_error(&format!(
-                        "unknown emit kind `{other}`; use `exe` or `cdylib`"
+                        "unknown emit kind `{other}`; use `exe`, `cdylib` or `staticlib`"
                     )))
                 }
             },
             "--emit" => {
                 if let Some(value) = args.next() {
                     match value.as_str() {
-                        "cdylib" => shared = true,
-                        "exe" => shared = false,
+                        "cdylib" => {
+                            shared = true;
+                            static_library = false;
+                        }
+                        "staticlib" => {
+                            shared = false;
+                            static_library = true;
+                        }
+                        "exe" => {
+                            shared = false;
+                            static_library = false;
+                        }
                         other => {
                             return stopped(usage_error(&format!(
-                                "unknown emit kind `{other}`; use `exe` or `cdylib`"
+                                "unknown emit kind `{other}`; use `exe`, `cdylib` or `staticlib`"
                             )))
                         }
                     }
@@ -956,7 +977,11 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     // `--stack-report` is the allocation-only view of the report the emitter
     // already produced. It stops before the linker like `--opt-report`.
     if let Some(as_json) = stack_report_flag {
-        let code = match check_main_exists(&hir.items) {
+        let code = match if shared || static_library {
+            Ok(())
+        } else {
+            check_main_exists(&hir.items)
+        } {
             Ok(()) => {
                 let options = CodegenOptions {
                     capabilities: None,
@@ -986,7 +1011,11 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     // `--opt-report` is a front-end operation like `--emit-ir`: it explains the
     // decisions of one emission and stops, so it needs no linker.
     if let Some(as_json) = opt_report_flag {
-        let code = match check_main_exists(&hir.items) {
+        let code = match if shared || static_library {
+            Ok(())
+        } else {
+            check_main_exists(&hir.items)
+        } {
             Ok(()) => {
                 let options = CodegenOptions {
                     capabilities: None,
@@ -1032,7 +1061,11 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     // require an LLVM toolchain: dumping IR is exactly what you want to do on a
     // machine where the backend cannot run yet.
     if emit_ir {
-        let code = match check_main_exists(&hir.items) {
+        let code = match if shared || static_library {
+            Ok(())
+        } else {
+            check_main_exists(&hir.items)
+        } {
             Ok(()) => {
                 let options = CodegenOptions {
                     capabilities: capabilities.clone(),
@@ -1098,10 +1131,17 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         }
     }
 
-    let output = output.unwrap_or_else(|| default_output(&input));
+    let output = output.unwrap_or_else(|| {
+        if static_library {
+            static_library_output(&input, target)
+        } else {
+            default_output(&input)
+        }
+    });
     let opt = resolve_opt(command, release, opt);
     let options = BuildOptions {
         shared,
+        static_library,
         capabilities,
         features: selected_features,
         debug_info,
@@ -6407,6 +6447,23 @@ fn render(sources: &SourceMap, diagnostics: &[Diagnostic]) -> ExitCode {
         );
     }
     exit_code(EXIT_COMPILE_ERROR)
+}
+
+/// The default static archive path: `lib<stem>.a`, or `lib<stem>.lib` when the
+/// target is Windows.
+///
+/// The `lib` prefix and the archive extension are what every C build system
+/// already looks for, so a `-l<name>` on the consumer's link line finds it
+/// without an `-L` that names the file.
+fn static_library_output(input: &Path, target: &str) -> PathBuf {
+    let stem = input.file_stem().unwrap_or_else(|| OsStr::new("a"));
+    let extension = if target.contains("windows") {
+        "lib"
+    } else {
+        "a"
+    };
+    let name = format!("lib{}.{extension}", stem.to_string_lossy());
+    input.parent().unwrap_or_else(|| Path::new(".")).join(name)
 }
 
 /// `<dir>/<stem>` plus `.exe` on Windows.

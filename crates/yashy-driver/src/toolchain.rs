@@ -7,6 +7,53 @@ use std::path::{Path, PathBuf};
 /// Environment variable that overrides the `llc` lookup entirely.
 pub const LLC_ENV_VAR: &str = "YASHY_LLC";
 
+/// Environment variable that names the archiver `--emit=staticlib` uses.
+pub const AR_ENV_VAR: &str = "YASHY_AR";
+
+/// An archiver located for `--emit=staticlib`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Archiver {
+    /// `llvm-ar`, GNU `ar` or BSD `ar`: `ar rcs <out> <objects...>`.
+    Ar(PathBuf),
+    /// MSVC `lib`: `lib /OUT:<out> <objects...>`.
+    Lib(PathBuf),
+}
+
+/// Locates the archiver for a static library.
+///
+/// `llvm-ar` comes first because it is the one that travels with the LLVM the
+/// compiler already needs and writes both GNU archives and MSVC `.lib` files.
+/// GNU `ar` is the usual fallback on Linux and the BSD one on macOS; MSVC `lib`
+/// is the last resort on a Windows install with no LLVM tools on `PATH`.
+pub(crate) fn find_archiver() -> Option<Archiver> {
+    if let Some(value) = env::var_os(AR_ENV_VAR) {
+        let path = PathBuf::from(value);
+        if is_usable(&path) {
+            return Some(classify_archiver(path));
+        }
+    }
+    for name in ["llvm-ar", "ar", "lib"] {
+        if let Some(path) = which(name) {
+            return Some(classify_archiver(path));
+        }
+    }
+    None
+}
+
+/// MSVC's archiver is the one that spells its arguments differently, so the
+/// decision is made once here rather than at the call site.
+fn classify_archiver(path: PathBuf) -> Archiver {
+    let stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or_default();
+    if stem.eq_ignore_ascii_case("lib") {
+        Archiver::Lib(path)
+    } else {
+        Archiver::Ar(path)
+    }
+}
+
 /// The binaries we know how to drive, in preference order.
 ///
 /// `clang` comes first because the pipeline's single invocation compiles the C
@@ -70,7 +117,11 @@ pub fn detect_linker(clang: &std::path::Path) -> Linker {
         let _ = std::fs::remove_file(&tmp);
         let _ = std::fs::remove_file(&out);
         if status.map(|s| s.success()).unwrap_or(false) {
-            return if flag == "-fuse-ld=mold" { Linker::Mold } else { Linker::Lld };
+            return if flag == "-fuse-ld=mold" {
+                Linker::Mold
+            } else {
+                Linker::Lld
+            };
         }
     }
     Linker::System

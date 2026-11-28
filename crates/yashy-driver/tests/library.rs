@@ -142,10 +142,70 @@ fn a_header_check_without_a_header_is_a_usage_error() {
 }
 
 #[test]
+fn a_static_archive_holds_the_program_and_the_runtime() {
+    let dir = workspace("library-staticlib");
+    let output = Command::new(common::yashyc())
+        .args(["build", "main.ya", "--emit=staticlib"])
+        .current_dir(&dir)
+        .output()
+        .expect("the CLI must run");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // No `-o`: the conventional `lib<stem>.a` beside the source.
+    let archive = dir.join(if cfg!(windows) {
+        "libmain.lib"
+    } else {
+        "libmain.a"
+    });
+    let bytes = fs::read(&archive).expect("the archive exists");
+    assert!(
+        bytes.starts_with(b"!<arch>\n"),
+        "an archive starts with the ar magic"
+    );
+    // The runtime members travel with the generated object, so a C consumer
+    // links one file. A member table that names only the program would be a
+    // link failure the moment the program calls `print`.
+    let members = String::from_utf8_lossy(&bytes);
+    assert!(
+        members.contains("yashy-runtime-") || members.contains("runtime-"),
+        "the runtime is archived too: {members}"
+    );
+}
+
+#[test]
+fn a_static_library_needs_no_entry_point() {
+    let dir = common::work_dir("library-staticlib-no-main");
+    common::write(
+        &dir,
+        "mathx.ya",
+        "pub fn add(int a, int b) -> int {\n    return a + b;\n}\n",
+    );
+    let output = Command::new(common::yashyc())
+        .args(["build", "mathx.ya", "--emit=staticlib"])
+        .current_dir(&dir)
+        .output()
+        .expect("the CLI must run");
+    assert!(
+        output.status.success(),
+        "a library target has no entry point: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let archive = dir.join(if cfg!(windows) {
+        "libmathx.lib"
+    } else {
+        "libmathx.a"
+    });
+    assert!(archive.is_file(), "{}", archive.display());
+}
+
+#[test]
 fn an_unknown_emit_kind_is_a_usage_error() {
     let dir = workspace("library-bad-emit");
     let output = Command::new(common::yashyc())
-        .args(["build", "main.ya", "--emit=staticlib"])
+        .args(["build", "main.ya", "--emit=wasm"])
         .current_dir(&dir)
         .output()
         .expect("the CLI must run");
