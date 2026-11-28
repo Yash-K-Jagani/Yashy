@@ -1031,6 +1031,9 @@ static int yashy_run_impl(char **argv, const char *cwd, char **env, yashy_str **
 
 int yashy_spawn(const char *argv_text, const char *cwd, const char *env_text, yashy_str **out,
                 long long *exit_code, long long *pid_out) {
+    if (!yashy_capability_has("proc")) {
+        yashy_capability_deny("proc");
+    }
     if (argv_text == NULL || cwd == NULL || env_text == NULL || out == NULL ||
         exit_code == NULL || pid_out == NULL || argv_text[0] == '\0') {
         return -1;

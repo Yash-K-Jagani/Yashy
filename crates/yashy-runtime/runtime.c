@@ -2233,6 +2233,12 @@ void yashy_weak_release(long long handle) {
  */
 
 long long yashy_now_ms(void) {
+    /* The clock is a capability: a manifest that installs a grant set must
+     * name `clock` before a program may read wall time. `--deterministic`
+     * still fixes the value once the grant is present. */
+    if (!yashy_capability_has("clock")) {
+        yashy_capability_deny("clock");
+    }
     /* The clock is a capability: `--deterministic` fixes it to the same seed
      * the entropy source and the log sink use. A reader is named in
      * `yashyc trace --events` so a program that looks at the clock can be
