@@ -844,7 +844,8 @@ dropped:
   --key` refuses a rewritten chain.
 - Phase 2 LSP: every feature answers from one source-derived model, and a
   rename whose new name is used in another workspace file is refused;
-  `lint --typed` derives the ignored-Result advice from checked HIR types.
+  `lint --typed` derives the ignored-Result advice from checked HIR types,
+  and scaffold plus first test is bounded at 60 s.
 - Phase 7 codecs: `derive(Decode)` answers with a typed
   `codec.CodecError` (`BadField`, `BadFieldCount`); the explicit string/Option
   codecs still use string errors.

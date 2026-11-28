@@ -29,6 +29,7 @@ fn new_lists_its_templates() {
 #[test]
 fn new_creates_a_project_whose_test_passes() {
     let dir = work_dir("new-bin");
+    let started = std::time::Instant::now();
     let output = new(&dir, &["new", "hello", "--template", "bin"]);
     assert!(
         output.status.success(),
@@ -49,6 +50,11 @@ fn new_creates_a_project_whose_test_passes() {
         tested.status.success(),
         "the new project's first test must pass:\n{}",
         String::from_utf8_lossy(&tested.stdout)
+    );
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(60),
+        "scaffold plus first test must finish inside a minute, took {elapsed:?}"
     );
 }
 
