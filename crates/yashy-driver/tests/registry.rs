@@ -42,12 +42,17 @@ fn write_app(root: &Path) {
 }
 
 fn publish(dir: &Path, package: &Path, registry: &Path) {
-    let output = cli(dir, &dir.join("store"), registry, &[
-        "publish",
-        package.to_str().expect("path text"),
-        "--registry",
-        registry.to_str().expect("registry text"),
-    ]);
+    let output = cli(
+        dir,
+        &dir.join("store"),
+        registry,
+        &[
+            "publish",
+            package.to_str().expect("path text"),
+            "--registry",
+            registry.to_str().expect("registry text"),
+        ],
+    );
     assert!(
         output.status.success(),
         "publish:\n{}",
@@ -65,23 +70,27 @@ fn publish_search_add_and_build() {
     write_app(&app);
     publish(&dir, &package, &registry);
 
-    let search = cli(&dir, &dir.join("store"), &registry, &[
-        "search",
-        "lib",
-        "--registry",
-        registry.to_str().unwrap(),
-    ]);
+    let search = cli(
+        &dir,
+        &dir.join("store"),
+        &registry,
+        &["search", "lib", "--registry", registry.to_str().unwrap()],
+    );
     assert!(search.status.success());
     let text = String::from_utf8_lossy(&search.stdout);
     assert!(text.contains("lib 1.0.0"), "{text}");
 
-    let add = cli(&app, &dir.join("store"), &registry, &[
-        "add",
-        "lib@1.0.0",
-        "--registry",
-        registry.to_str().unwrap(),
-    ]);
-    assert!(add.status.success(), "add:\n{}", String::from_utf8_lossy(&add.stderr));
+    let add = cli(
+        &app,
+        &dir.join("store"),
+        &registry,
+        &["add", "lib@1.0.0", "--registry", registry.to_str().unwrap()],
+    );
+    assert!(
+        add.status.success(),
+        "add:\n{}",
+        String::from_utf8_lossy(&add.stderr)
+    );
     let manifest = fs::read_to_string(app.join("yashy.toml")).expect("manifest");
     assert!(manifest.contains("version = \"1.0.0\""), "{manifest}");
     assert!(app.join("yashy.lock").is_file());
@@ -98,7 +107,11 @@ fn publish_search_add_and_build() {
         &registry,
         &["build", "src/main.ya", "-o", binary.to_str().unwrap()],
     );
-    assert!(build.status.success(), "build:\n{}", String::from_utf8_lossy(&build.stderr));
+    assert!(
+        build.status.success(),
+        "build:\n{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
     let run = launch_output(&binary).expect("run");
     assert!(run.status.success());
     assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "registry-ok");
@@ -112,12 +125,17 @@ fn republishing_a_different_hash_is_refused() {
     write_lib(&package, 41);
     publish(&dir, &package, &registry);
     write_lib(&package, 42);
-    let output = cli(&dir, &dir.join("store"), &registry, &[
-        "publish",
-        package.to_str().unwrap(),
-        "--registry",
-        registry.to_str().unwrap(),
-    ]);
+    let output = cli(
+        &dir,
+        &dir.join("store"),
+        &registry,
+        &[
+            "publish",
+            package.to_str().unwrap(),
+            "--registry",
+            registry.to_str().unwrap(),
+        ],
+    );
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("duplicate registry entry"), "{stderr}");
@@ -145,15 +163,38 @@ fn a_corrupted_tarball_fails_the_hash_check() {
 
     let app = dir.join("app");
     write_app(&app);
-    let add = cli(&app, &dir.join("store"), &registry, &[
-        "add",
-        "lib@1.0.0",
-        "--registry",
-        registry.to_str().unwrap(),
-    ]);
+    let add = cli(
+        &app,
+        &dir.join("store"),
+        &registry,
+        &["add", "lib@1.0.0", "--registry", registry.to_str().unwrap()],
+    );
     assert!(!add.status.success());
     let stderr = String::from_utf8_lossy(&add.stderr);
     assert!(stderr.contains("tree hash"), "{stderr}");
+}
+
+#[test]
+fn a_missing_registry_version_is_e1811() {
+    let dir = work_dir("registry-missing-version");
+    let registry = dir.join("registry");
+    write(
+        &registry,
+        "index.json",
+        "{\"packages\":[{\"name\":\"lib\",\"version\":\"1.0.0\",\"hash\":\"sha256:a\",\"description\":\"\"}]}",
+    );
+    let app = dir.join("app");
+    write(
+        &app,
+        "yashy.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nlib = \"2.0.0\"\n",
+    );
+    write(&app, "src/main.ya", "fn main() { }\n");
+    let output = cli(&app, &dir.join("store"), &registry, &["update"]);
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("E1811"), "{stderr}");
+    assert!(stderr.contains("no non-yanked version"), "{stderr}");
 }
 
 #[test]
@@ -165,12 +206,12 @@ fn a_duplicate_index_entry_names_both() {
         "index.json",
         "{\"packages\":[{\"name\":\"lib\",\"version\":\"1.0.0\",\"hash\":\"sha256:a\",\"description\":\"\"},{\"name\":\"lib\",\"version\":\"1.0.0\",\"hash\":\"sha256:b\",\"description\":\"\"}]}",
     );
-    let output = cli(&dir, &dir.join("store"), &registry, &[
-        "search",
-        "lib",
-        "--registry",
-        registry.to_str().unwrap(),
-    ]);
+    let output = cli(
+        &dir,
+        &dir.join("store"),
+        &registry,
+        &["search", "lib", "--registry", registry.to_str().unwrap()],
+    );
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("lib@1.0.0"), "{stderr}");

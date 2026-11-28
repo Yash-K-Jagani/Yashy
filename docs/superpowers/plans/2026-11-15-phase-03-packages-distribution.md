@@ -100,8 +100,10 @@ folded into the IR cache key rather than resolver inputs.
   cycle, lock and offline failures, and `E1810` now names a missing dependency
   source distinctly from a store miss; its page and dependency test pin the
   code. The DFS is capped at 4096 package visits and reports the cap as a
-  manifest error. There is no solver backtracking loop to bound. Feeding the
-  resolved features and target into index selection is still owed.
+  manifest error. There is no solver backtracking loop to bound. A registry version that
+  matches no requirement (or only yanked ones) is now `E1811` with its own
+  page, catalog row and `registry` test, distinct from a cold store. Feeding
+  the resolved features and target into index selection is still owed.
 - [x] **Step 4: Commit.**
 
 ### Task 2: Workspaces

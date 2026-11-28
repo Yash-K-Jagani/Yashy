@@ -122,6 +122,8 @@ pub const NONDETERMINISTIC_PURE: &str = "E1302";
 pub const DOUBLE_CLOSE: &str = "E1400";
 /// A package in the dependency graph cannot be located in its declared source.
 pub const DEPENDENCY_SOURCE_MISSING: &str = "E1810";
+/// No version of a registry package satisfies the manifest's requirement.
+pub const DEPENDENCY_VERSION_MISSING: &str = "E1811";
 /// A sandbox capability is denied: the program tried to touch a path, the
 /// network or a child process outside its capability set.
 pub const SANDBOX_DENIED: &str = "E1900";
@@ -662,6 +664,12 @@ pub const CODES: &[Code] = &[
         page: include_str!("../../../docs/errors/E1810.md"),
     },
     Code {
+        id: DEPENDENCY_VERSION_MISSING,
+        title: "dependency version not found",
+        summary: "No non-yanked version of a registry package satisfies the manifest's requirement.",
+        page: include_str!("../../../docs/errors/E1811.md"),
+    },
+    Code {
         id: SANDBOX_DENIED,
         title: "sandbox capability denied",
         summary: "A sandboxed program touched a path, the network or a child process outside its capability set.",
@@ -1079,6 +1087,7 @@ pub fn rule_for(id: &str) -> &'static str {
         CAPABILITY_DENIED => "PKG-9",
         REGISTRY_INDEX_MISMATCH => "PKG-10",
         DEPENDENCY_SOURCE_MISSING => "PKG-11",
+        DEPENDENCY_VERSION_MISSING => "PKG-12",
         SANDBOX_DENIED => "SANDBOX-1",
         SANDBOX_LIMIT => "SANDBOX-2",
         UNUSED_BINDING => "LINT-1",

@@ -541,6 +541,14 @@ Tests:
 - `crates/yashy-driver/tests/conformance.rs`
 - `crates/yashy-driver/tests/dependencies.rs`
 
+## `PKG-12`
+
+Codes: `E1811`
+
+Tests:
+
+- `crates/yashy-driver/tests/registry.rs`
+
 ## `PKG-2`
 
 Codes: `E1801`

@@ -36,6 +36,7 @@ const NON_SOURCE: &[(&str, &str)] = &[
     ("E1808", "cargo test -p yashy-driver --test capabilities"),
     ("E1809", "cargo test -p yashy-driver --test registry"),
     ("E1810", "cargo test -p yashy-driver --test dependencies"),
+    ("E1811", "cargo test -p yashy-driver --test dependencies"),
     (
         "E1900",
         "cargo test -p yashy-driver --test runtime_capabilities",

@@ -115,6 +115,12 @@ impl ResolveError {
     fn manifest(message: impl Into<String>) -> ResolveError {
         ResolveError::new(yashy_common::codes::MANIFEST_SYNTAX, message)
     }
+
+    /// No published version satisfies the requirement. This is a resolution
+    /// failure, not a cold store: fetching more bytes cannot create a version.
+    fn version(message: impl Into<String>) -> ResolveError {
+        ResolveError::new(yashy_common::codes::DEPENDENCY_VERSION_MISSING, message)
+    }
 }
 
 impl std::fmt::Display for ResolveError {
@@ -362,7 +368,7 @@ impl Resolver<'_> {
                     crate::registry::lookup_source(&registry, name, &pin)
                         .map_err(|error| ResolveError::offline(error.message))?
                         .ok_or_else(|| {
-                            ResolveError::offline(format!(
+                            ResolveError::version(format!(
                                 "the pinned version `{name}` {pin} is no longer in the registry"
                             ))
                         })?
@@ -375,7 +381,7 @@ impl Resolver<'_> {
                             } else {
                                 ""
                             };
-                            ResolveError::offline(format!(
+                            ResolveError::version(format!(
                                 "no non-yanked version of `{name}` satisfies `{version}` in the registry{hint}"
                             ))
                         })?
