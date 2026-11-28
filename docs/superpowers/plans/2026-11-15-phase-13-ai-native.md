@@ -449,9 +449,14 @@ agent run reproducible.
   the hash continuous across rotation. `yashyc agent audit --verify` names
   the first bad seq with `E1804`, in human and JSON form; every allowed,
   refused and failed call is an entry, and an unwritable log refuses the
-  call. Session-key signatures are still owed: the chain proves that an
-  entry was not removed or reordered, not that a whole chain was not
-  rewritten by someone with write access to the workspace.
+  call. Each entry now also carries an Ed25519 signature over its sequence
+  number and hash, made with a session key read from `YASHY_AGENT_SEED` (never
+  from the workspace) and named by `YASHY_AGENT_KEY_ID`. `agent audit --verify
+  --key <hex-public-key> [--key-id <id>]` verifies every signature after the
+  chain, so a chain rewritten with recomputed hashes is refused. The unit
+  tests pin both a valid signed chain and a rewritten one. A session with no
+  seed still writes unsigned entries for older workspaces; a `--key`
+  verification refuses them.
 
 - [x] **Step 4: Approval is a capability, not a prompt.** `plan` returns the
   diff, the affected symbols, the capabilities and the exact verbs; `approve`

@@ -1190,7 +1190,12 @@ see [MCP](mcp.md) and [Agent policy](agent-policy.md).
 
 `agent audit --verify` recomputes the hash chain of
 `.yashy/audit/session.jsonl` (and its rotated segments) and names the first
-entry that does not belong. The human form prints `N entries  chain ok  first
+entry that does not belong. With `--key <hex-public-key>` it also verifies each
+entry's Ed25519 session signature, so a chain rewritten with recomputed hashes
+is refused; the signing key is read from `YASHY_AGENT_SEED` (hex, 32 bytes) and
+named by `YASHY_AGENT_KEY_ID` or `--key-id` (default `session`), never from the
+workspace. A session without a seed writes unsigned entries, which a
+`--key` verification refuses. The human form prints `N entries  chain ok  first
 bad: none`; a broken chain exits 1 with `E1804` and the first bad `seq`. The
 human `agent policy` form prints the effective `allow` set, `protected`,
 `max edits` and `audit max bytes`; `--json` emits the same facts as a

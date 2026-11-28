@@ -7398,12 +7398,15 @@ fn agent_cmd(args: &[String]) -> ExitCode {
     let mut verbs: Option<String> = None;
     let mut ttl: u64 = 300;
     let mut nonce: Option<String> = None;
+    let mut key: Option<String> = None;
+    let mut key_id: Option<String> = None;
     let mut index = 1;
     while index < args.len() {
         match args[index].as_str() {
             "--json" => json = true,
             "--verify" => {}
-            "--root" | "--tree" | "--patch" | "--verbs" | "--ttl" | "--nonce" => {
+            "--root" | "--tree" | "--patch" | "--verbs" | "--ttl" | "--nonce" | "--key"
+            | "--key-id" => {
                 if index + 1 >= args.len() {
                     return usage_error(&format!("`{}` needs a value", args[index]));
                 }
@@ -7418,6 +7421,8 @@ fn agent_cmd(args: &[String]) -> ExitCode {
                         Err(_) => return usage_error("`--ttl` needs a whole number of seconds"),
                     },
                     "--nonce" => nonce = Some(value),
+                    "--key" => key = Some(value),
+                    "--key-id" => key_id = Some(value),
                     _ => unreachable!(),
                 }
                 index += 1;
@@ -7431,7 +7436,20 @@ fn agent_cmd(args: &[String]) -> ExitCode {
     }
     match subcommand.as_str() {
         "audit" => {
-            let verification = yashy_driver::agent::AuditLog::verify(&root);
+            let verification = match key.as_deref() {
+                Some(hex) => match yashy_driver::agent::public_key_from_hex(hex) {
+                    Ok(bytes) => yashy_driver::agent::AuditLog::verify_signed(
+                        &root,
+                        key_id.as_deref().unwrap_or("session"),
+                        &bytes,
+                    ),
+                    Err(message) => {
+                        eprintln!("error: {message}");
+                        return exit_code(EXIT_USAGE);
+                    }
+                },
+                None => yashy_driver::agent::AuditLog::verify(&root),
+            };
             if json {
                 println!("{}", verification.to_json().render());
             } else if verification.ok {

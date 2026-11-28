@@ -415,7 +415,7 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "agent",
         summary: "read the agent policy and verify the audit chain",
-        usage: "yashyc agent <audit|policy|plan|approve> [--verify] [--json] [--root <dir>] [--tree <hash>] [--patch <file>] [--verbs <a,b>] [--ttl <seconds>] [--nonce <text>]",
+        usage: "yashyc agent <audit|policy|plan|approve> [--verify] [--json] [--root <dir>] [--tree <hash>] [--patch <file>] [--verbs <a,b>] [--ttl <seconds>] [--nonce <text>] [--key <hex-public-key>] [--key-id <id>]",
         flags: &[
             "--verify",
             "--json",
@@ -425,6 +425,8 @@ pub const COMMANDS: &[CommandSpec] = &[
             "--verbs",
             "--ttl",
             "--nonce",
+            "--key",
+            "--key-id",
         ],
         takes_path: false,
     },

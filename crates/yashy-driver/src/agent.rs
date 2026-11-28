@@ -30,6 +30,7 @@
 use std::path::{Path, PathBuf};
 
 use yashy_common::Json;
+use yashy_manifest::signature::{self, Keyring};
 use yashy_manifest::toml::{self, Value};
 
 use crate::mcp::TOOLS;
@@ -273,6 +274,17 @@ pub fn glob_match(pattern: &str, text: &str) -> bool {
     matches(pattern.as_bytes(), text.as_bytes())
 }
 
+/// An Ed25519 signature over the entry's sequence number and hash, made with
+/// the session key. Unlike the hash chain, this cannot be recomputed by
+/// someone who can rewrite the workspace after the session ends.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AuditSignature {
+    pub key_id: String,
+    pub digest: String,
+    /// Raw 64-byte signature in hex.
+    pub bytes: String,
+}
+
 /// One audit entry. The fields are fixed so the hash is over a stable shape.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AuditEntry {
@@ -283,6 +295,7 @@ pub struct AuditEntry {
     pub detail: String,
     pub prev_hash: String,
     pub hash: String,
+    pub signature: Option<AuditSignature>,
 }
 
 impl AuditEntry {
@@ -319,6 +332,19 @@ impl AuditEntry {
         root.set("detail", Json::string(&self.detail));
         root.set("prev_hash", Json::string(&self.prev_hash));
         root.set("hash", Json::string(&self.hash));
+        root.set(
+            "signature",
+            match &self.signature {
+                Some(signature) => {
+                    let mut value = Json::object();
+                    value.set("key_id", Json::string(&signature.key_id));
+                    value.set("digest", Json::string(&signature.digest));
+                    value.set("bytes", Json::string(&signature.bytes));
+                    value
+                }
+                None => Json::Null,
+            },
+        );
         root
     }
 
@@ -329,6 +355,14 @@ impl AuditEntry {
         if seq < 0 {
             return None;
         }
+        let signature = value.get("signature").and_then(|value| {
+            let field = |name: &str| value.get(name).and_then(Value::as_str).map(str::to_string);
+            Some(AuditSignature {
+                key_id: field("key_id")?,
+                digest: field("digest")?,
+                bytes: field("bytes")?,
+            })
+        });
         Some(AuditEntry {
             seq: seq as u64,
             tool: field("tool")?,
@@ -337,12 +371,76 @@ impl AuditEntry {
             detail: field("detail")?,
             prev_hash: field("prev_hash")?,
             hash: field("hash")?,
+            signature,
         })
     }
 }
 
 /// The hash before the first entry: 32 zero bytes in hex.
 pub const GENESIS: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+
+/// The bytes an entry's signature covers: its sequence number and its hash.
+/// The hash already binds every visible field, so signing it is enough.
+fn signed_bytes(seq: u64, hash: &str) -> String {
+    format!("{seq}\n{hash}")
+}
+
+/// The session key lives in the environment, never in the workspace: someone
+/// with write access to the tree must not be able to replace it along with the
+/// log. An unset key leaves older sessions unsigned; a malformed one is a
+/// configuration error rather than a silent downgrade.
+fn session_signer() -> Result<Option<(String, [u8; 32])>, String> {
+    let Some(value) = std::env::var_os("YASHY_AGENT_SEED") else {
+        return Ok(None);
+    };
+    let text = value.to_string_lossy();
+    if text.trim().is_empty() {
+        return Ok(None);
+    }
+    let seed = decode_hex_32(&text).ok_or("YASHY_AGENT_SEED must be 64 hex characters")?;
+    let key_id = std::env::var("YASHY_AGENT_KEY_ID").unwrap_or_else(|_| "session".to_string());
+    Ok(Some((key_id, seed)))
+}
+
+fn decode_hex_32(text: &str) -> Option<[u8; 32]> {
+    if text.len() != 64 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for (index, chunk) in text.as_bytes().chunks(2).enumerate() {
+        let pair = std::str::from_utf8(chunk).ok()?;
+        out[index] = u8::from_str_radix(pair, 16).ok()?;
+    }
+    Some(out)
+}
+
+fn encode_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn decode_hex(text: &str) -> Option<Vec<u8>> {
+    if text.len() % 2 != 0 {
+        return None;
+    }
+    (0..text.len())
+        .step_by(2)
+        .map(|at| u8::from_str_radix(&text[at..at + 2], 16).ok())
+        .collect()
+}
+
+/// Decode the public key passed to `agent audit --verify --key`.
+pub fn public_key_from_hex(text: &str) -> Result<Vec<u8>, String> {
+    decode_hex(text).ok_or_else(|| "the session public key is not hex".to_string())
+}
+
+fn failed(entries: u64, seq: Option<u64>, message: &str) -> AuditVerification {
+    AuditVerification {
+        entries,
+        ok: false,
+        first_bad_seq: seq,
+        message: message.to_string(),
+    }
+}
 
 /// The append-only log for one workspace.
 #[derive(Clone, Debug)]
@@ -352,6 +450,10 @@ pub struct AuditLog {
     max_bytes: u64,
     last_hash: String,
     next_seq: u64,
+    /// The session key and its id, read once when the session opens. A log
+    /// written without one stays unsigned, which is what older workspaces
+    /// contain; verification with a public key refuses those entries.
+    signer: Option<(String, [u8; 32])>,
 }
 
 /// What a verification found.
@@ -436,6 +538,16 @@ impl AuditLog {
     /// Open the log under `root`, continuing the chain from the newest entry
     /// in any existing segment.
     pub fn open(root: &Path, max_bytes: u64) -> Result<Self, String> {
+        Self::open_with_signer(root, max_bytes, session_signer()?)
+    }
+
+    /// The injectable form of [`Self::open`], so a test can sign a session
+    /// without changing the process environment.
+    pub fn open_with_signer(
+        root: &Path,
+        max_bytes: u64,
+        signer: Option<(String, [u8; 32])>,
+    ) -> Result<Self, String> {
         let directory = audit_dir(root);
         std::fs::create_dir_all(&directory)
             .map_err(|error| format!("{}: {error}", directory.display()))?;
@@ -449,6 +561,7 @@ impl AuditLog {
             max_bytes: max_bytes.max(1),
             last_hash,
             next_seq,
+            signer,
         })
     }
 
@@ -470,8 +583,22 @@ impl AuditLog {
             detail,
             prev_hash: self.last_hash.clone(),
             hash: String::new(),
+            signature: None,
         };
         entry.hash = entry.compute_hash();
+        if let Some((key_id, seed)) = &self.signer {
+            let signed = signature::sign(
+                signed_bytes(entry.seq, &entry.hash).as_bytes(),
+                key_id,
+                seed,
+            )
+            .map_err(|error| format!("cannot sign an audit entry: {error}"))?;
+            entry.signature = Some(AuditSignature {
+                key_id: signed.key_id,
+                digest: signed.digest,
+                bytes: encode_hex(&signed.bytes),
+            });
+        }
         let line = format!("{}\n", entry.to_json().render_compact());
         let size = std::fs::metadata(&self.active)
             .map(|metadata| metadata.len())
@@ -605,6 +732,66 @@ impl AuditLog {
             ok: true,
             first_bad_seq: None,
             message: "chain ok".to_string(),
+        }
+    }
+
+    /// Verify the chain and every session signature against a public key.
+    ///
+    /// The chain alone proves that no entry was removed or reordered; it does
+    /// not prove that a whole chain was not rewritten by someone who can write
+    /// the workspace. The signature covers each entry's hash with a key read
+    /// from the process environment, so a rewritten chain cannot be resigned.
+    pub fn verify_signed(root: &Path, key_id: &str, public_key: &[u8]) -> AuditVerification {
+        let chain = Self::verify(root);
+        if !chain.ok {
+            return chain;
+        }
+        let mut keys = Keyring::default();
+        if let Err(error) = keys.insert(key_id, public_key) {
+            return failed(chain.entries, None, &format!("bad session key: {error}"));
+        }
+        let entries = match Self::entries(root) {
+            Ok(entries) => entries,
+            Err(message) => return failed(0, None, &message),
+        };
+        for entry in &entries {
+            let Some(signature) = &entry.signature else {
+                return failed(
+                    chain.entries,
+                    Some(entry.seq),
+                    "entry has no session signature",
+                );
+            };
+            if signature.key_id != key_id {
+                return failed(
+                    chain.entries,
+                    Some(entry.seq),
+                    "entry was signed by another session key",
+                );
+            }
+            let Some(bytes) = decode_hex(&signature.bytes) else {
+                return failed(chain.entries, Some(entry.seq), "signature is not hex");
+            };
+            let parsed = signature::Signature {
+                key_id: signature.key_id.clone(),
+                algorithm: "Ed25519",
+                digest: signature.digest.clone(),
+                bytes,
+            };
+            let signed = signed_bytes(entry.seq, &entry.hash);
+            if let Err(error) = signature::verify(signed.as_bytes(), &parsed, &keys) {
+                return failed(
+                    chain.entries,
+                    Some(entry.seq),
+                    &format!("session signature: {error}"),
+                );
+            }
+        }
+        AuditVerification {
+            entries: chain.entries,
+            ok: true,
+            first_bad_seq: None,
+            message: "chain and signatures ok".to_string(),
         }
     }
 }
@@ -742,6 +929,51 @@ mod tests {
         let verification = AuditLog::verify(&dir);
         assert!(!verification.ok);
         assert_eq!(verification.first_bad_seq, Some(3));
+    }
+
+    #[test]
+    fn a_signed_chain_refuses_a_rewrite_that_recomputes_the_hash() {
+        let dir = std::env::temp_dir().join("yashy-agent-audit-signed");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let seed = [5u8; 32];
+        let mut log =
+            AuditLog::open_with_signer(&dir, 1024, Some(("session".to_string(), seed))).unwrap();
+        log.record("check", "ok", None, "check main.ya").unwrap();
+        log.record("edit", "ok", None, "edit main.ya").unwrap();
+        let public = signature::public_key(&seed).unwrap();
+        let verified = AuditLog::verify_signed(&dir, "session", &public);
+        assert!(verified.ok, "{}", verified.message);
+        assert_eq!(verified.entries, 2);
+
+        // Someone with write access can recompute a hash. They cannot make a
+        // new signature, so verification must still refuse the edited entry.
+        let path = active_path(&dir);
+        let text = std::fs::read_to_string(&path).unwrap();
+        let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+        let value = yashy_common::json_rpc::parse(lines.last().unwrap()).unwrap();
+        let mut entry = AuditEntry::from_json(&value).unwrap();
+        entry.detail = "edit other.ya".to_string();
+        entry.hash = entry.compute_hash();
+        *lines.last_mut().unwrap() = entry.to_json().render_compact();
+        std::fs::write(&path, format!("{}\n", lines.join("\n"))).unwrap();
+        assert!(AuditLog::verify(&dir).ok, "the hash chain was recomputed");
+        let bad = AuditLog::verify_signed(&dir, "session", &public);
+        assert!(!bad.ok);
+        assert_eq!(bad.first_bad_seq, Some(2));
+    }
+
+    #[test]
+    fn an_unsigned_chain_is_refused_when_a_key_is_expected() {
+        let dir = std::env::temp_dir().join("yashy-agent-audit-unsigned");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut log = AuditLog::open_with_signer(&dir, 1024, None).unwrap();
+        log.record("check", "ok", None, "check main.ya").unwrap();
+        let public = signature::public_key(&[7u8; 32]).unwrap();
+        let bad = AuditLog::verify_signed(&dir, "session", &public);
+        assert!(!bad.ok);
+        assert_eq!(bad.first_bad_seq, Some(1));
     }
 
     #[test]
