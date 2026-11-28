@@ -2,6 +2,7 @@
 
 mod common;
 
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -68,6 +69,46 @@ fn a_clean_project_is_ok_in_json() {
     assert!(text.contains("\"schema_version\": 1"));
     assert!(text.contains("\"ok\": true"));
     assert!(text.contains("\"findings\": []"));
+}
+
+#[test]
+fn an_unknown_builder_is_a_provenance_finding() {
+    use std::collections::BTreeMap;
+    let dir = common::work_dir("audit-builder");
+    write(
+        &dir,
+        "yashy.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nlicense = \"MIT\"\n\n\
+         [audit]\nrequire-provenance = true\nallowed-builders = [\"https://ci.example/trusted\"]\n",
+    );
+    let statement = yashy_manifest::provenance::for_artifact(
+        "app.tar.gz",
+        b"artifact",
+        "x86_64-unknown-linux-gnu",
+        "https://evil.example/builder",
+        BTreeMap::new(),
+    );
+    common::write(
+        &dir,
+        "yashy.attestation.json",
+        &format!("{}\n", statement.to_json().render()),
+    );
+    let output = cli(&dir, &["audit", "--json"]);
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "manifest: {}\nattestation: {}\n{all}",
+        fs::read_to_string(dir.join("yashy.toml")).unwrap_or_default(),
+        fs::read_to_string(dir.join("yashy.attestation.json")).unwrap_or_default()
+    );
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.contains("allowed-builders"), "{text}");
+    assert!(text.contains("evil.example"), "{text}");
 }
 
 #[test]

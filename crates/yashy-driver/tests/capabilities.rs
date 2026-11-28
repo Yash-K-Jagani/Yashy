@@ -67,7 +67,8 @@ fn audit_policy_parses_all_fields() {
         "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n\
          [audit]\nallow-capabilities = [\"fs.read\"]\ndeny-capabilities = [\"net\"]\n\
          max-transitive = 8\ndeny-licenses = [\"GPL-3.0\"]\n\
-         deny-registries = [\"untrusted.example\"]\nrequire-provenance = true\n",
+         deny-registries = [\"untrusted.example\"]\nrequire-provenance = true\n\
+          allowed-builders = [\"https://ci.example/trusted\"]\n",
     )
     .expect("full audit policy parses");
     let policy = manifest.audit.unwrap();
@@ -75,6 +76,7 @@ fn audit_policy_parses_all_fields() {
     assert_eq!(policy.deny_capabilities, vec!["net"]);
     assert_eq!(policy.max_transitive, 8);
     assert!(policy.require_provenance);
+    assert_eq!(policy.allowed_builders, vec!["https://ci.example/trusted"]);
 }
 
 #[test]

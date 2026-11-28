@@ -325,6 +325,48 @@ pub fn audit_project_with_feed(
                         ));
                     }
                 }
+                if let Some(policy) = &audit_policy {
+                    if policy.require_provenance && !policy.allowed_builders.is_empty() {
+                        let stored = root.join("main.ya.attestation.json");
+                        let stored = if stored.is_file() {
+                            Some(stored)
+                        } else {
+                            let shared = directory.join("yashy.attestation.json");
+                            shared.is_file().then_some(shared)
+                        };
+                        if let Some(stored) = stored {
+                            match std::fs::read_to_string(&stored)
+                                .map_err(|error| error.to_string())
+                                .and_then(|text| {
+                                    yashy_manifest::provenance::Statement::from_json_text(
+                                        text.as_bytes(),
+                                    )
+                                    .map_err(|error| error.to_string())
+                                }) {
+                                Ok(statement)
+                                    if !policy
+                                        .allowed_builders
+                                        .contains(&statement.predicate.builder) =>
+                                {
+                                    findings.push(finding(
+                                        codes::SBOM_MISMATCH,
+                                        &name,
+                                        format!(
+                                            "builder `{}` is not in the allowed-builders policy",
+                                            statement.predicate.builder
+                                        ),
+                                    ));
+                                }
+                                Err(error) => findings.push(finding(
+                                    codes::SBOM_MISMATCH,
+                                    &name,
+                                    format!("attestation is not readable: {error}"),
+                                )),
+                                _ => {}
+                            }
+                        }
+                    }
+                }
             }
             Err(error) => {
                 findings.push(finding(

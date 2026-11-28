@@ -29,6 +29,9 @@ pub struct AuditPolicy {
     pub deny_registries: Vec<String>,
     /// Whether a signed attestation is required.
     pub require_provenance: bool,
+    /// Builder ids accepted when `require-provenance` is on. Empty means any
+    /// builder with a valid attestation is accepted.
+    pub allowed_builders: Vec<String>,
 }
 
 /// A parsed `yashy.toml`.
@@ -363,8 +366,12 @@ fn parse_audit(root: &toml::Table, document: &Document) -> Result<Option<AuditPo
             }
             ("require-signatures", Value::Bool(value)) => policy.require_signatures = *value,
             ("require-provenance", Value::Bool(value)) => policy.require_provenance = *value,
+            ("allowed-builders", Value::Array(items)) => {
+                policy.allowed_builders = string_array(items, "audit.allowed-builders", document)?;
+            }
             ("allow-capabilities", Value::Array(items)) => {
-                policy.allow_capabilities = string_array(items, "audit.allow-capabilities", document)?;
+                policy.allow_capabilities =
+                    string_array(items, "audit.allow-capabilities", document)?;
             }
             ("deny-capabilities", Value::Array(items)) => {
                 policy.deny_capabilities = string_array(items, "audit.deny-capabilities", document)?;
@@ -384,7 +391,7 @@ fn parse_audit(root: &toml::Table, document: &Document) -> Result<Option<AuditPo
                     line: location.line,
                     column: location.column,
                     message: format!(
-                        "`{key}` is not an audit field; expected `allowed-licenses`, `allowed-packages`, `allow-capabilities`, `deny-capabilities`, `deny-licenses`, `deny-registries`, `max-transitive`, `require-signatures` or `require-provenance`"
+                        "`{key}` is not an audit field; expected `allowed-licenses`, `allowed-packages`, `allow-capabilities`, `deny-capabilities`, `deny-licenses`, `deny-registries`, `max-transitive`, `require-signatures`, `require-provenance` or `allowed-builders`"
                     ),
                 });
             }

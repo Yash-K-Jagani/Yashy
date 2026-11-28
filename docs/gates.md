@@ -850,7 +850,8 @@ dropped:
 - Phase 3 packages: resolver failures now have distinct codes for a missing
   source (`E1810`) and a missing version (`E1811`), and `yank` is driven by a
   CLI test that checks the backup and refuses a repeat, and the runtime handle
-  enforces `clock` and `proc` grants as well as filesystem and environment.
+  enforces `clock` and `proc` grants as well as filesystem and environment,
+  and `allowed-builders` refuses a provenance statement from an unknown builder.
 - Phase 7 codecs: `derive(Decode)` answers with a typed
   `codec.CodecError` (`BadField`, `BadFieldCount`); the explicit string/Option
   codecs still use string errors.
