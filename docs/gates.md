@@ -847,6 +847,8 @@ dropped:
   `lint --typed` derives the ignored-Result advice from checked HIR types,
   and scaffold plus first test is bounded at 60 s; every source code has a
   conformance fixture staged through the real front end.
+- Phase 4 data: `collections.Set[T]` membership is exercised by a worked
+  `Set[int]` stdlib program.
 - Phase 3 packages: resolver failures now have distinct codes for a missing
   source (`E1810`) and a missing version (`E1811`), and `yank` is driven by a
   CLI test that checks the backup and refuses a repeat, and the runtime handle

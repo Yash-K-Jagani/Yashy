@@ -1,0 +1,12 @@
+import collections;
+
+fn main() {
+    let set = collections.Set { items: []int {} };
+    set.insert(2);
+    set.insert(3);
+    set.insert(2);
+    print("len ${set.len()}");
+    print("has 2 ${set.contains(2)}");
+    print("has 9 ${set.contains(9)}");
+    set.free();
+}
