@@ -1114,10 +1114,14 @@ A pack's `revision` is the value to pass back.
 index model. `focus` adds the covering tests, `diff` reads the files named by
 `--changed <a,b>` and their callers, `tests` returns the covering tests, `docs`
 returns documented symbols, and `error` includes `--diagnostic <text>` and the
-symbol's docs. Each excerpt carries a fixed relevance score; excerpts are
-ordered by score, file and span before the budget cut. The cut names every
-omitted excerpt in `dropped` with its reason. A pack is data: the caller decides
-how to prompt.
+symbol's docs. Each excerpt carries a fixed relevance score: the kind of
+excerpt dominates, then import-graph distance from the focus file, then the
+caller's `--changed` order (most recent first), then test coverage and
+diagnostic proximity. Ties break by file, byte span and reason, so two runs on
+one workspace produce identical bytes. A focus pack also names the signatures
+the focus calls; those signatures are charged to the budget before excerpts
+are admitted. The cut names every omitted excerpt in `dropped` with its reason.
+A pack is data: the caller decides how to prompt.
 
 ## `yashyc advisory --check <feed.json> [--keyring <file>] [--package <name> --version <v>] [--json]`
 

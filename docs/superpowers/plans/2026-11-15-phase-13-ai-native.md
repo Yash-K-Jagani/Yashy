@@ -187,8 +187,11 @@ agent run reproducible.
   *Closed 2026-11-26:* `crates/yashy-driver/src/pack.rs` serves Focus, Diff,
   Tests, Docs and Error packs as structured values; `crates/yashy-driver/tests/pack.rs`
   pins the excerpts (file, byte span, text hash), the covering test, the
-  diagnostic and the reasons for every dropped excerpt. The 50k-line workspace
-  fixture and the external-tokenizer measurement remain owed.
+  diagnostic and the reasons for every dropped excerpt. The 50k-line workspace fixture is now generated in
+  `crates/yashy-driver/tests/pack.rs` (4546 eleven-line functions): a focus pack
+  for one function fits 8000 tokens and carries its signature, the called
+  signature and the covering test. The external-tokenizer measurement remains
+  owed: no BPE vocabulary is vendored, so `estimate_tokens` stays the gate.
 
 - [x] **Step 2: Rank and cut deterministically.** Ranking is a fixed score over
   graph distance, edit recency, test coverage and diagnostic proximity; ties
@@ -200,8 +203,14 @@ agent run reproducible.
   are sorted by score, file, byte span and reason, then cut by the documented
   four-bytes-per-token estimator. Ties cannot depend on hash-map order and a cut
   names what it dropped. Ranking by graph distance and edit recency is not
-  implemented, and the BPE gate's external vocabularies are still not vendored,
-  so a measured token count is still owed.
+  implemented. `crates/yashy-driver/src/pack.rs` computes four fixed factors:
+  undirected import-graph distance from the focus file, the caller's
+  `--changed` order as edit recency (file mtimes are not stable across
+  checkouts), the tests covering the focus, and proximity to the diagnostic.
+  The composite is folded into each excerpt's score; ties still break by file,
+  byte span and reason, and signature tokens are charged before excerpts are
+  admitted. The BPE gate's external vocabularies are still not vendored, so a
+  measured token count is still owed.
 
 - [x] **Step 3: A pack is a value, not a conversation.** The tool returns
   structured excerpts with paths, spans and hashes; the caller decides how to

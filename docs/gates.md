@@ -825,10 +825,12 @@ dropped:
   `crates/yashy-sdk` now wraps the driver verbs for library clients, but the
   CLI, LSP and MCP still call `yashy-driver` directly, so the SDK-as-single-surface
   row stays open. Structured focus/diff/tests/docs/error packs shipped under
-  `yashyc context --mode`, with a stable model revision; the 50k-line fixture,
-  an external-tokenizer count, graph-distance/edit-recency ranking and a
-  stale-revision detector now exists: `context --expect-revision` refuses a
-  pack cut from a different workspace revision with `E2204`. MCP now runs under a strict-by-default
+  `yashyc context --mode`, with a stable model revision; the 50k-line fixture
+  and graph-distance/edit-recency ranking are now gated by
+  `crates/yashy-driver/tests/pack.rs`, and `context --expect-revision` refuses a
+  pack cut from a different workspace revision with `E2204`. An
+  external-tokenizer count remains owed: no BPE vocabulary is vendored, so the
+  documented four-bytes-per-token estimator is still the gate. MCP now runs under a strict-by-default
   policy file and a hash-chained, rotating audit log verified by
   `yashyc agent audit --verify`; `require_approval` spends a tree-, patch- and
   verb-bound token once. `max_wall_ms`, `max_tokens` and `max_output_bytes`

@@ -7,6 +7,7 @@
 //! the file, the byte span and a hash of its own text, and the pack names the
 //! revision of the model it was cut from.
 
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::Path;
 
 use yashy_common::Json;
@@ -66,8 +67,11 @@ pub struct Excerpt {
     pub end: usize,
     pub text: String,
     pub hash: String,
-    /// Fixed relevance score: lower is more relevant. Ties break by file,
-    /// byte span and reason, never by iteration order.
+    /// Fixed relevance score: lower is more relevant. It is a composite of the
+    /// candidate's base kind, its import-graph distance from the focus file,
+    /// its position in the caller-supplied edit list, its test coverage and
+    /// its proximity to the diagnostic. Ties break by file, byte span and
+    /// reason, never by iteration order.
     pub score: u8,
     pub reason: String,
 }
@@ -370,6 +374,139 @@ fn candidates(root: &Path, model: &IndexModel, req: &PackRequest) -> Vec<Excerpt
     out
 }
 
+/// Undirected import distances from the focus file, capped at 15.
+///
+/// The graph is built from the index's import edges, not from the file system:
+/// an `import lib;` is a real dependency, two files in the same directory are
+/// not. Undirected edges answer both "what does the focus need" and "who uses
+/// the focus", which are the two neighbours an agent needs to see. A file
+/// that is not connected at all gets the cap, so it sorts after every real
+/// neighbour.
+fn import_distances(model: &IndexModel, focus_file: &str) -> BTreeMap<String, u8> {
+    let mut neighbors: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for file in &model.files {
+        neighbors.entry(file.clone()).or_default();
+    }
+    for edge in &model.imports {
+        let Some(module) = edge.path.last() else {
+            continue;
+        };
+        let target = model.files.iter().find(|file| {
+            Path::new(file).file_stem().and_then(|stem| stem.to_str()) == Some(module.as_str())
+        });
+        if let Some(target) = target {
+            neighbors
+                .entry(edge.from.clone())
+                .or_default()
+                .push(target.clone());
+            neighbors
+                .entry(target.clone())
+                .or_default()
+                .push(edge.from.clone());
+        }
+    }
+    let mut distance = BTreeMap::new();
+    distance.insert(focus_file.to_string(), 0);
+    let mut queue = VecDeque::from([focus_file.to_string()]);
+    while let Some(file) = queue.pop_front() {
+        let current = distance[&file];
+        if current >= 15 {
+            continue;
+        }
+        for next in neighbors.get(&file).into_iter().flatten() {
+            if !distance.contains_key(next) {
+                distance.insert(next.clone(), current + 1);
+                queue.push_back(next.clone());
+            }
+        }
+    }
+    distance
+}
+
+/// Whether `text` calls `name` at an identifier boundary, so `add(` does not
+/// also match `bigadd(`.
+fn calls_name(text: &str, name: &str) -> bool {
+    let needle = format!("{name}(");
+    let mut from = 0;
+    while let Some(at) = text[from..].find(&needle) {
+        let start = from + at;
+        let boundary = text[..start]
+            .chars()
+            .next_back()
+            .map_or(true, |before| !(before.is_alphanumeric() || before == '_'));
+        if boundary {
+            return true;
+        }
+        from = start + needle.len();
+    }
+    false
+}
+
+/// Fold the four fixed relevance factors into each candidate's score.
+///
+/// The base kind stays the dominant factor, so a diagnostic still outranks a
+/// changed file and a changed file still outranks documentation. Within one
+/// kind, graph distance, caller-declared edit recency, test coverage and
+/// diagnostic proximity decide the order. The caller's `--changed` list is
+/// most-recent first, which is the only edit-time signal that is itself a
+/// stable value: file timestamps differ between checkouts and operating
+/// systems and would make two identical packs rank differently.
+fn rank_candidates(
+    candidates: &mut [Excerpt],
+    model: &IndexModel,
+    req: &PackRequest,
+    focus_file: Option<&str>,
+) {
+    let distances = import_distances(model, focus_file.unwrap_or(""));
+    let focus_name = model
+        .symbols
+        .iter()
+        .find(|symbol| symbol.name == req.focus || req.focus.ends_with(&symbol.name))
+        .map(|symbol| symbol.name.as_str());
+    for excerpt in candidates.iter_mut() {
+        let distance = focus_file
+            .and_then(|file| distances.get(&excerpt.file))
+            .copied()
+            .unwrap_or(15)
+            .min(3);
+        let recency = req
+            .changed
+            .iter()
+            .position(|changed| changed == &excerpt.file)
+            .map(|at| at.min(3) as u8)
+            .unwrap_or(3);
+        let covered = if excerpt.reason.starts_with("a test that calls")
+            || excerpt.reason.starts_with("a caller of")
+        {
+            0
+        } else if focus_name.is_some_and(|name| {
+            model.tests.iter().any(|test| {
+                test.file == excerpt.file && test.calls.iter().any(|call| call.as_str() == name)
+            })
+        }) {
+            1
+        } else {
+            2
+        };
+        let proximity = if req.diagnostic.is_none() {
+            2
+        } else if excerpt.file == "diagnostic" {
+            0
+        } else if focus_file == Some(excerpt.file.as_str()) {
+            1
+        } else {
+            2
+        };
+        excerpt.score = excerpt
+            .score
+            .saturating_mul(27)
+            .saturating_add(distance * 4)
+            .saturating_add(recency * 2)
+            .saturating_add(covered)
+            .saturating_add(proximity);
+    }
+}
+
 /// Build the pack for `req` over the workspace at `root`.
 pub fn context_pack(root: &Path, req: &PackRequest) -> Result<Pack, String> {
     let model = build_index(root)?;
@@ -399,9 +536,39 @@ pub fn context_pack(root: &Path, req: &PackRequest) -> Result<Pack, String> {
     signatures.sort();
     signatures.dedup();
     let mut candidates = candidates(root, &model, req);
+    // A focus pack names the signatures the focus calls, not just the symbols
+    // that happen to share its file. The names come from the focus's own
+    // source text, so they are compiler facts rather than guessed prompts.
+    if matches!(req.mode, PackMode::Focus | PackMode::Error) {
+        if let Some(body) = candidates
+            .iter()
+            .find(|candidate| candidate.reason == "the focus symbol")
+        {
+            let called: BTreeSet<&str> = model
+                .symbols
+                .iter()
+                .filter(|symbol| calls_name(&body.text, &symbol.name))
+                .map(|symbol| symbol.name.as_str())
+                .collect();
+            for symbol in &model.symbols {
+                if called.contains(symbol.name.as_str()) {
+                    signatures.push(symbol.signature.clone());
+                }
+            }
+        }
+    }
+    signatures.sort();
+    signatures.dedup();
+    rank_candidates(&mut candidates, &model, req, focus_file.as_deref());
     candidates.sort_by(|a, b| {
         (a.score, &a.file, a.start, &a.reason).cmp(&(b.score, &b.file, b.start, &b.reason))
     });
+    // Signatures travel with the pack, so their tokens are charged before any
+    // excerpt is admitted. A cut pack can never be over budget by omission.
+    let token_count: usize = signatures
+        .iter()
+        .map(|signature| estimate_tokens(signature) + 1)
+        .sum();
     let mut pack = Pack {
         mode: req.mode,
         focus: req.focus.clone(),
@@ -409,7 +576,7 @@ pub fn context_pack(root: &Path, req: &PackRequest) -> Result<Pack, String> {
         excerpts: Vec::new(),
         signatures,
         diagnostics: req.diagnostic.clone().into_iter().collect(),
-        token_count: 0,
+        token_count,
         budget: req.budget,
         dropped: Vec::new(),
     };
