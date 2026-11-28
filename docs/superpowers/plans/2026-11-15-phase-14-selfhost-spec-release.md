@@ -237,9 +237,13 @@ end stays the reference for the 2.0 release (design call 7).
   *Partly closed 2026-11-26:* `docs/editions.md` states the promise and the
   closed set, the manifest validates the `edition` key, and `yashyc migrate`
   rewrites both the key and the legacy source spellings with a dry-run diff.
-  The compiler's multi-edition reader is still owed: source is compiled under
-  the current grammar whatever the manifest says, so a project pinned to an
-  older edition is not yet read with that edition's semantics.
+  The compiler now reads the manifest edition before parsing and exposes it
+  as an `edition:<year>` cfg key, so source can guard an item by edition and
+  the filter removes the other branch before resolution. `build`, `check`,
+  `verify`, `run` and `--print-cfg` agree on that key; the closed key set makes
+  `edition = "2026"` an `E2202`. `crates/yashy-driver/tests/cfg.rs` pins both
+  editions and the typo case. Edition-dependent grammar beyond cfg is still
+  owed: the language keeps one spelling per form.
 
 - [x] **Step 3: Deprecation has a path.** A deprecated item warns with a code
   and a `yashyc fix`; it is removed only in an edition, and the removal is listed

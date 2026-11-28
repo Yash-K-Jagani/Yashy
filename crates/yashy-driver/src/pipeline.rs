@@ -711,6 +711,10 @@ pub fn ir_cache_key_with_inputs(
         options.reproducible.to_string(),
         options.target.to_string(),
         options.debug_info.to_string(),
+        options
+            .edition
+            .clone()
+            .unwrap_or_else(|| "2021".to_string()),
         // The linked artifact differs by emit kind: an executable, a shared
         // object and a static archive are not interchangeable, and the binary
         // cache stores whatever the link produced under this key.
@@ -1271,6 +1275,9 @@ pub struct BuildOptions {
     /// Selected cargo-style features; part of the IR cache key and exposed as
     /// `feature:<name>` cfg keys.
     pub features: std::collections::BTreeSet<String>,
+    /// The manifest edition, exposed as an `edition:<year>` cfg key. `None`
+    /// means the tool's base edition, used by callers with no manifest.
+    pub edition: Option<String>,
     /// Emit LLVM debug metadata derived from HIR spans. Off by default so a
     /// normal build's IR stays byte-identical to the 1.0 golden files.
     pub debug_info: bool,
@@ -1356,6 +1363,7 @@ impl Default for BuildOptions {
             static_library: false,
             capabilities: None,
             features: std::collections::BTreeSet::new(),
+            edition: None,
             debug_info: false,
             opt: OptLevel::default(),
             cpu: CpuTarget::default(),
@@ -1557,7 +1565,8 @@ pub fn compile_to_binary(
     // The one-file path filters `cfg` too, or a single-file build would be the
     // one place a platform branch is resolved on the wrong platform.
     let set = crate::cfg::CfgSet::for_target(options.target, options.release)
-        .with_features(&options.features);
+        .with_features(&options.features)
+        .with_edition(options.edition.as_deref().unwrap_or("2021"));
     let cfg_diagnostics = crate::cfg::filter(&mut program, &set, file);
     if !cfg_diagnostics.is_empty() {
         return Err(cfg_diagnostics);
@@ -1662,6 +1671,7 @@ pub fn load_and_check_exports_timed(
         target,
         jobs,
         &std::collections::BTreeSet::new(),
+        "2021",
         timings,
     )
 }
@@ -1683,6 +1693,7 @@ pub fn load_and_check_exports_timed_with_features(
     target: &'static str,
     jobs: usize,
     features: &std::collections::BTreeSet<String>,
+    edition: &str,
     timings: &mut Vec<TimingRow>,
 ) -> Result<(HirProgram, modules::Exports), Vec<Diagnostic>> {
     let module_sources = timed(timings, "load", || {
@@ -1804,7 +1815,9 @@ pub fn load_and_check_exports_timed_with_features(
     // statement or field is removed from the AST, so the checker never sees the
     // names inside it. That is what makes `cfg(windows) { win32_call() }` legal
     // on Linux, and it is why this runs before `exports` and the database.
-    let cfg = crate::cfg::CfgSet::for_target(target, release).with_features(features);
+    let cfg = crate::cfg::CfgSet::for_target(target, release)
+        .with_features(features)
+        .with_edition(edition);
     let mut cfg_diagnostics = Vec::new();
     for module in modules.iter_mut() {
         cfg_diagnostics.extend(crate::cfg::filter(&mut module.program, &cfg, module.file));
@@ -1931,6 +1944,7 @@ pub fn check_and_verify_timed(
         options,
         jobs,
         &std::collections::BTreeSet::new(),
+        "2021",
         timings,
     )
 }
@@ -1947,6 +1961,7 @@ pub fn check_and_verify_timed_with_features(
     options: &VerifyOptions,
     jobs: usize,
     features: &std::collections::BTreeSet<String>,
+    edition: &str,
     timings: &mut Vec<TimingRow>,
 ) -> Result<(HirProgram, VerifyReport), Vec<Diagnostic>> {
     let (hir, exports) = load_and_check_exports_timed_with_features(
@@ -1957,6 +1972,7 @@ pub fn check_and_verify_timed_with_features(
         target,
         jobs,
         features,
+        edition,
         timings,
     )?;
     // Warnings run after the checker and before the verifier. They are

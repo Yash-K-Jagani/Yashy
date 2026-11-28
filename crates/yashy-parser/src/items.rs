@@ -858,7 +858,11 @@ impl<'src> Parser<'src> {
             let close = self.expect(TokenKind::RParen)?;
             self.close_open(TokenKind::RParen);
             if parts.len() != 1 {
-                return Err(error::cfg_arity(cover(not_span, close.span), "not", parts.len()));
+                return Err(error::cfg_arity(
+                    cover(not_span, close.span),
+                    "not",
+                    parts.len(),
+                ));
             }
             return Ok(CfgExpr::Not(
                 Box::new(parts.remove(0)),
@@ -886,6 +890,30 @@ impl<'src> Parser<'src> {
             }
             return Ok(CfgExpr::Key(
                 format!("feature:{}", decoded.value),
+                cover(name_span, token.span),
+            ));
+        }
+        if name == "edition" {
+            // Both spellings lower to the flat `edition:<year>` key, the same
+            // way `feature` does. The closed set is checked by the cfg filter,
+            // so a typo is E2202 rather than a silently false branch.
+            if self.eat(TokenKind::Colon) {
+                let (edition, edition_span) = self.identifier()?;
+                return Ok(CfgExpr::Key(
+                    format!("edition:{edition}"),
+                    cover(name_span, edition_span),
+                ));
+            }
+            self.expect(TokenKind::Eq)?;
+            let token = self.expect(TokenKind::Str)?;
+            let raw = self.text(token.span)?;
+            let decoded = yashy_lexer::StringLit::decode(&raw)
+                .map_err(|_| self.error(token.span, "an edition must be a string literal"))?;
+            if decoded.value.is_empty() {
+                return Err(self.error(token.span, "an edition cannot be empty"));
+            }
+            return Ok(CfgExpr::Key(
+                format!("edition:{}", decoded.value),
                 cover(name_span, token.span),
             ));
         }

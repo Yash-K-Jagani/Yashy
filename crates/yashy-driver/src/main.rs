@@ -798,6 +798,18 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     // module's own text. The entry point is file id zero.
     let mut sources = SourceMap::new();
 
+    // The manifest edition is decided before parsing, just like features: it
+    // becomes an `edition:<year>` cfg key, so a guarded item is resolved under
+    // the edition the project actually declares.
+    let manifest_path = input
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("yashy.toml");
+    let edition = Manifest::load(&manifest_path)
+        .ok()
+        .and_then(|manifest| manifest.package.edition)
+        .unwrap_or_else(|| "2021".to_string());
+
     // Features are decided before anything is parsed, because a `cfg` filter
     // reads them: `--features tls` must decide whether `cfg(feature:tls)` items
     // exist in the tree the checker sees, not merely be recorded afterwards.
@@ -819,6 +831,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
             target,
             jobs,
             &selected_features,
+            &edition,
             measured,
         ) {
             Ok((hir, _exports)) => hir,
@@ -853,6 +866,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
             &OPTIONS,
             jobs,
             &selected_features,
+            &edition,
             measured,
         ) {
             Ok(checked) => checked,
@@ -869,10 +883,6 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
 
     // A manifest that declares capabilities asks for call-site enforcement.
     // Older projects with no `[capabilities]` table keep their existing build.
-    let manifest_path = input
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join("yashy.toml");
     let manifest = Manifest::load(&manifest_path).ok();
     if print_capabilities {
         if let Some(manifest) = &manifest {
@@ -1144,6 +1154,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         static_library,
         capabilities,
         features: selected_features,
+        edition: Some(edition),
         debug_info,
         opt,
         cpu,
@@ -5867,8 +5878,9 @@ fn check(args: &[String]) -> ExitCode {
     // the flag a build script reads and the one a confused user runs after
     // `cfg(window)` did not compile, so it needs no source file.
     if print_cfg {
-        let set =
-            yashy_driver::cfg::CfgSet::for_target(target, false).with_features(&selected_features);
+        let set = yashy_driver::cfg::CfgSet::for_target(target, false)
+            .with_features(&selected_features)
+            .with_edition(&manifest_edition_for(input.as_deref()));
         if json {
             let mut report = Json::object();
             report.set("schema_version", Json::number(1));
@@ -5917,6 +5929,7 @@ fn check(args: &[String]) -> ExitCode {
         target,
         jobs,
         &selected_features,
+        &manifest_edition(&input),
         measured,
     );
     let reported = timings_flag.then_some(timings.as_slice());
@@ -6211,6 +6224,7 @@ fn verify(args: &[String]) -> ExitCode {
         &OPTIONS,
         jobs,
         &selected_features,
+        &manifest_edition(&input),
         measured,
     );
     let reported = timings_flag.then_some(timings.as_slice());
@@ -6487,6 +6501,25 @@ fn static_library_output(input: &Path, target: &str) -> PathBuf {
     };
     let name = format!("lib{}.{extension}", stem.to_string_lossy());
     input.parent().unwrap_or_else(|| Path::new(".")).join(name)
+}
+
+/// The edition a source file is read under: the manifest beside it, or the
+/// base edition when there is no manifest. This value becomes an
+/// `edition:<year>` cfg key before parsing.
+fn manifest_edition(input: &Path) -> String {
+    manifest_edition_for(Some(input))
+}
+
+/// The form for callers that may have no source file, such as `--print-cfg`.
+fn manifest_edition_for(input: Option<&Path>) -> String {
+    let parent = input
+        .and_then(|path| path.parent())
+        .unwrap_or_else(|| Path::new("."));
+    let path = parent.join("yashy.toml");
+    Manifest::load(&path)
+        .ok()
+        .and_then(|manifest| manifest.package.edition)
+        .unwrap_or_else(|| "2021".to_string())
 }
 
 /// `<dir>/<stem>` plus `.exe` on Windows.

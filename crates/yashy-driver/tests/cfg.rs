@@ -213,6 +213,60 @@ fn cfg_on_a_let_is_refused() {
 }
 
 #[test]
+fn a_manifest_edition_selects_the_guarded_branch() {
+    let source = "fn main() {\n    cfg(edition = \"2027\") {\n        print(\"new\");\n    }\n    cfg(edition = \"2021\") {\n        print(\"old\");\n    }\n}\n";
+    for (edition, expected) in [("2027", "new"), ("2021", "old")] {
+        let dir = work_dir(&format!("cfg-edition-{edition}"));
+        fs::write(
+            dir.join("yashy.toml"),
+            format!("[package]\nname = \"demo\"\nversion = \"1.0.0\"\nedition = \"{edition}\"\n"),
+        )
+        .unwrap();
+        fs::write(dir.join("main.ya"), source).unwrap();
+        let output = Command::new(yashyc())
+            .args(["run", "main.ya"])
+            .current_dir(&dir)
+            .output()
+            .expect("the CLI must run");
+        assert!(
+            output.status.success(),
+            "{edition}:\n{}",
+            stderr_of(&output)
+        );
+        assert_eq!(stdout_of(&output), format!("{expected}\n"));
+
+        let keys = Command::new(yashyc())
+            .args(["check", "--print-cfg"])
+            .current_dir(&dir)
+            .output()
+            .expect("the CLI must run");
+        assert!(
+            stdout_of(&keys)
+                .lines()
+                .any(|line| line.trim() == format!("edition:{edition}")),
+            "the active keys name the edition:\n{}",
+            stdout_of(&keys)
+        );
+    }
+}
+
+#[test]
+fn an_unknown_edition_cfg_key_is_refused() {
+    let dir = work_dir("cfg-edition-typo");
+    let file = dir.join("main.ya");
+    fs::write(
+        &file,
+        "cfg(edition = \"2026\") fn main() {\n    print(\"typo\");\n}\n",
+    )
+    .unwrap();
+    let output = run(&["check", file.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = stderr_of(&output);
+    assert!(stderr.contains("E2202"), "{stderr}");
+    assert!(stderr.contains("edition:2026"), "{stderr}");
+}
+
+#[test]
 fn cfg_on_a_parameter_is_refused() {
     let dir = work_dir("cfg-on-param");
     let file = dir.join("main.ya");

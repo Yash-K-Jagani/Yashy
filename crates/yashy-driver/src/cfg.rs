@@ -34,6 +34,9 @@ pub const KEYS: [&str; 8] = [
     "release",
 ];
 
+/// The editions a manifest (and therefore an `edition:` cfg key) may name.
+pub const EDITIONS: [&str; 2] = ["2021", "2027"];
+
 /// The keys that are true for one build.
 #[derive(Clone, Debug)]
 pub struct CfgSet {
@@ -41,6 +44,9 @@ pub struct CfgSet {
     active: BTreeSet<&'static str>,
     /// Enabled features, exposed as `feature:<name>` cfg keys.
     features: BTreeSet<String>,
+    /// The manifest edition, exposed as `edition:<year>`. Defaults to the
+    /// compiler's base edition when a caller has no manifest.
+    edition: String,
 }
 
 impl CfgSet {
@@ -51,6 +57,18 @@ impl CfgSet {
         }
         self
     }
+
+    /// Add the manifest edition as an `edition:<year>` key.
+    pub fn with_edition(mut self, edition: &str) -> CfgSet {
+        self.edition = edition.to_string();
+        self.features.insert(format!("edition:{edition}"));
+        self
+    }
+    /// The edition this set reads source under.
+    pub fn edition(&self) -> &str {
+        &self.edition
+    }
+
     /// The keys true for `triple` at the given profile.
     ///
     /// An unrecognised triple answers no OS key at all rather than guessing:
@@ -77,6 +95,7 @@ impl CfgSet {
             target: triple.to_string(),
             active,
             features: BTreeSet::new(),
+            edition: "2021".to_string(),
         }
     }
 
@@ -112,7 +131,12 @@ pub fn evaluate(
 ) -> bool {
     match expr {
         CfgExpr::Key(name, span) => {
-            if !KEYS.contains(&name.as_str()) && !name.starts_with("feature:") {
+            if let Some(value) = name.strip_prefix("edition:") {
+                if !EDITIONS.contains(&value) {
+                    diagnostics.push(unknown_key(file, name, *span));
+                    return false;
+                }
+            } else if !KEYS.contains(&name.as_str()) && !name.starts_with("feature:") {
                 diagnostics.push(unknown_key(file, name, *span));
                 return false;
             }

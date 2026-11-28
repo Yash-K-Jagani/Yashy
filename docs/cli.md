@@ -269,7 +269,13 @@ is [`E2203`](errors/E2203.md).
 A selected package feature is a key too, spelled `feature:<name>`: with
 `--features tls`, `cfg(feature:tls)` is true and `cfg(feature:quic)` is false.
 The selection comes from `[features]` in the `yashy.toml` beside the file, the
-same set that the lockfile and the IR cache key record.
+same set that the lockfile and the IR cache key record. A project's
+manifest edition is a key as well, spelled `edition:<year>`: with
+`edition = "2027"` in `yashy.toml`, `cfg(edition = "2027")` is true and
+`cfg(edition = "2021")` is false. The key set stays closed, so `edition = "2026"`
+is [`E2202`](errors/E2202.md). This is how source is read under more than one
+edition: a guarded item is removed before resolution, never resolved and then
+ignored.
 
 ```text
 yashyc check --print-cfg

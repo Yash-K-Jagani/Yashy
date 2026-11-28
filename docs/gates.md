@@ -854,8 +854,9 @@ dropped:
   graph including the root package; a real HTTPS feed and a manifest-declared
   `net` capability still need external infrastructure. Editions are partly shipped: the closed key set and
   `yashyc migrate` rewrites both the key and the legacy name-first source
-  spellings with an honest dry-run diff, while the multi-edition reader remains
-  owed.
+  spellings with an honest dry-run diff, and the reader exposes the manifest
+  edition as an `edition:<year>` cfg key before resolution; edition-dependent
+  grammar beyond cfg remains owed.
 
 ## Running the runner
 
