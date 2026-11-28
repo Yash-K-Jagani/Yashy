@@ -332,6 +332,14 @@ impl Module {
             })
             .collect();
         module.define_enum("io.Error", variants, false);
+        let codec_variants: Vec<VariantRepr> = yashy_sema::ty::CODEC_ERROR_VARIANTS
+            .iter()
+            .map(|name| VariantRepr {
+                name: (*name).to_string(),
+                fields: Vec::new(),
+            })
+            .collect();
+        module.define_enum("codec.CodecError", codec_variants, false);
         module
     }
 

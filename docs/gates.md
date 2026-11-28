@@ -842,6 +842,9 @@ dropped:
   are session-wide caps enforced before the next call; each audit entry is
   now signed with an environment-held session key and `agent audit --verify
   --key` refuses a rewritten chain.
+- Phase 7 codecs: `derive(Decode)` answers with a typed
+  `codec.CodecError` (`BadField`, `BadFieldCount`); the explicit string/Option
+  codecs still use string errors.
 - Phase 14: self-host differential, reproducible bootstrap, normative spec,
   conformance suite, release/tag gates, channels, advisory feed,
   contributor process. `yashyc conformance` runs every error page's

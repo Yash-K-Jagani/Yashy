@@ -55,6 +55,18 @@ fn ident_expr(value: &str, span: Span) -> Expr {
     Expr::Ident(vec![value.to_string()], span)
 }
 
+/// A builtin enum variant value: `codec.CodecError.BadField`.
+fn codec_error(variant: &str, span: Span) -> Expr {
+    Expr::Ident(
+        vec![
+            "codec".to_string(),
+            "CodecError".to_string(),
+            variant.to_string(),
+        ],
+        span,
+    )
+}
+
 fn field(base: Expr, field_name: &str, span: Span) -> Expr {
     Expr::FieldAccess {
         base: Box::new(base),
@@ -583,11 +595,7 @@ fn codec_methods(name: &str, fields: &[FieldDef], span: Span) -> Vec<Item> {
         ),
         then_block: Block {
             stmts: returning(
-                call(
-                    "Err",
-                    vec![text("codec: wrong field count".to_string(), span)],
-                    span,
-                ),
+                call("Err", vec![codec_error("BadFieldCount", span)], span),
                 span,
             ),
             span,
@@ -621,16 +629,7 @@ fn codec_methods(name: &str, fields: &[FieldDef], span: Span) -> Vec<Item> {
         ),
         span,
     );
-    let bad_field = || {
-        returning(
-            call(
-                "Err",
-                vec![text("codec: bad field".to_string(), span)],
-                span,
-            ),
-            span,
-        )
-    };
+    let bad_field = || returning(call("Err", vec![codec_error("BadField", span)], span), span);
     let if_let_some = |binding: &str, value: Expr, then: Vec<Stmt>| -> Vec<Stmt> {
         vec![Stmt::IfLet {
             pattern: Pattern::TupleVariant {
@@ -672,11 +671,7 @@ fn codec_methods(name: &str, fields: &[FieldDef], span: Span) -> Vec<Item> {
     // A final unreachable return satisfies the checker's control-flow walk: an
     // if-let with an else that returns is sound, but the walk does not prove it.
     stmts.push(Stmt::Return(
-        Some(call(
-            "Err",
-            vec![text("codec: bad field".to_string(), span)],
-            span,
-        )),
+        Some(call("Err", vec![codec_error("BadField", span)], span)),
         span,
     ));
     let decode = method_typed(
@@ -689,7 +684,7 @@ fn codec_methods(name: &str, fields: &[FieldDef], span: Span) -> Vec<Item> {
         }],
         TypeExpr::Result(
             Box::new(TypeExpr::Name(name.to_string(), span)),
-            Box::new(TypeExpr::Name("string".to_string(), span)),
+            Box::new(TypeExpr::Name("codec.CodecError".to_string(), span)),
             span,
         ),
         stmts,

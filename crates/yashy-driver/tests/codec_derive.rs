@@ -60,6 +60,22 @@ fn a_malformed_wire_is_an_error_value() {
 }
 
 #[test]
+fn a_malformed_wire_names_the_typed_codec_error() {
+    let body = "switch Pair::decode(\"1\") { \
+                    case Ok(_) { print(\"unexpected\"); } \
+                    case Err(error) { \
+                        switch error { \
+                            case codec.CodecError.BadFieldCount { print(\"count\"); } \
+                            case codec.CodecError.BadField { print(\"field\"); } \
+                        } \
+                    } \
+                };";
+    let (stdout, stderr, ok) = run("codec-derive-typed-error", body);
+    assert!(ok, "{stderr}");
+    assert_eq!(stdout, "count\n");
+}
+
+#[test]
 fn a_wrong_field_count_is_rejected() {
     let body = "switch Pair::decode(\"1\") { \
                     case Ok(_) { print(\"unexpected\"); } \

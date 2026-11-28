@@ -179,7 +179,10 @@ used that way.
   self-contained codec methods over `int` fields (Phase 4, `8951382`), and
   `crates/yashy-driver/tests/codec_derive.rs` pins the round trip and the
   malformed-wire error paths. The explicit `codec` functions remain for
-  `string`/`Option` fields; a typed `CodecError` is still owed.
+  `string`/`Option` fields. A derived `decode` now answers
+  `Result[T, codec.CodecError]` with the builtin `BadField` and `BadFieldCount`
+  variants, registered by the checker and emitted by the backend alongside
+  `io.Error`; `crates/yashy-driver/tests/codec_derive.rs` switches on both.
 - [x] **Step 2: Values never become SQL.** The builder has no `raw` escape
   hatch in safe code; an identifier is a `Table`/`Column` value, not a string;
   a dynamic `ORDER BY` is a closed enum. The injection corpus is a test file,
@@ -196,7 +199,8 @@ used that way.
   owed, so the step stays open.
   *Closed 2026-11-27:* covered by the validated query builder; `Encode`/`Decode`
   derives now ship for `int` fields, and the explicit codec functions cover
-  `string`/`Option`. A typed `CodecError` remains owed.
+  `string`/`Option`. A typed `codec.CodecError` now carries the derived decoder's failure
+  reason; the explicit `string`/`Option` codecs still answer with strings.
 
 - [x] **Step 3: Codecs are deterministic and versioned.** The wire form has a
   version byte; a decoder rejects an unknown version; a struct field order is

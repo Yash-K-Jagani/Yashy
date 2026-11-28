@@ -327,3 +327,13 @@ pub const IO_ERROR_VARIANTS: [&str; 5] = [
 
 /// The number of `io.Error` variants, which is the highest tag plus one.
 pub const IO_ERROR_VARIANT_COUNT: usize = IO_ERROR_VARIANTS.len();
+
+/// The failure half of a derived `Decode`, declared by the language.
+///
+/// A derived decoder reports a typed reason instead of a string, so a caller
+/// can switch on it exhaustively. The backend emits the same tags for it as
+/// for `io.Error`, and the checker registers it as a builtin enum.
+pub const CODEC_ERROR_VARIANTS: [&str; 2] = ["BadField", "BadFieldCount"];
+
+/// The number of `codec.CodecError` variants, which is the highest tag plus one.
+pub const CODEC_ERROR_VARIANT_COUNT: usize = CODEC_ERROR_VARIANTS.len();

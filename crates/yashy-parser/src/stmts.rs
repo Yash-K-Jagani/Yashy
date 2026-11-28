@@ -886,8 +886,9 @@ impl<'src> Parser<'src> {
                     span: cover(span, nested_span),
                 });
             }
-            if is_variant {
-                // dotted path support
+            if is_variant || self.check(TokenKind::Dot) {
+                // dotted path support; a lowercase namespace like `codec` is
+                // still a variant path, not a binding followed by a stray dot.
                 let mut path = vec![name];
                 while self.eat(TokenKind::Dot) {
                     if self.check(TokenKind::Ident) {

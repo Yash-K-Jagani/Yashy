@@ -905,8 +905,18 @@ const CALLABLE_EXTRAS: &[&str] = &[
 /// `resolve_type_in` resolves these before it looks at the declared structs and
 /// enums, so a "did you mean" suggestion has to offer them too.
 const BUILTIN_TYPE_NAMES: &[&str] = &[
-    "int", "float", "bool", "char", "string", "void", "Mutex", "Channel", "Task", "Self",
+    "int",
+    "float",
+    "bool",
+    "char",
+    "string",
+    "void",
+    "Mutex",
+    "Channel",
+    "Task",
+    "Self",
     "io.Error",
+    "codec.CodecError",
 ];
 
 /// The type checker. Owns the scope stack, the collected signatures, and the
@@ -16020,6 +16030,24 @@ fn builtin_enums() -> HashMap<String, EnumSig> {
         EnumSig {
             variants,
             payloads,
+            repr_c: false,
+            derives: Vec::new(),
+        },
+    );
+    let codec_variants: Vec<VariantDef> = crate::ty::CODEC_ERROR_VARIANTS
+        .iter()
+        .map(|name| VariantDef {
+            name: (*name).to_string(),
+            fields: Vec::new(),
+            span: Span::new(0, 0),
+        })
+        .collect();
+    let codec_payloads = vec![Vec::new(); codec_variants.len()];
+    enums.insert(
+        "codec.CodecError".to_string(),
+        EnumSig {
+            variants: codec_variants,
+            payloads: codec_payloads,
             repr_c: false,
             derives: Vec::new(),
         },
