@@ -224,17 +224,22 @@ end stays the reference for the 2.0 release (design call 7).
   *Partly closed 2026-11-26:* the manifest now validates the closed edition set
   (`2021` default when absent, `2027`) and reports an unknown edition at the
   key. `yashyc migrate [--dry-run] <yashy.toml>` rewrites the key, prints the
-  diff on a dry run, and leaves every other byte of the manifest alone. Rewriting
-  source to the new semantics is still owed.
+  diff on a dry run, and leaves every other byte of the manifest alone.
+  `yashyc migrate --source <file.ya>` now also rewrites the name-first
+  spellings of E0109 (`let x: int =` to `let int x =`, parameters and lambda
+  parameters), while leaving struct fields and `self: *mut T` alone; migrated
+  source is checked by `crates/yashy-driver/tests/migrate.rs`.
 
 - [x] **Step 2: An edition is a compatibility promise.** Within an edition, no
   program that compiled stops compiling; a change that breaks one is a new
   edition with a migration. The compiler keeps reading every edition it has
   shipped.
   *Partly closed 2026-11-26:* `docs/editions.md` states the promise and the
-  closed set, and the manifest validates the `edition` key; `yashyc migrate`
-  rewrites it without touching source. The compiler's multi-edition reader is
-  still owed.
+  closed set, the manifest validates the `edition` key, and `yashyc migrate`
+  rewrites both the key and the legacy source spellings with a dry-run diff.
+  The compiler's multi-edition reader is still owed: source is compiled under
+  the current grammar whatever the manifest says, so a project pinned to an
+  older edition is not yet read with that edition's semantics.
 
 - [x] **Step 3: Deprecation has a path.** A deprecated item warns with a code
   and a `yashyc fix`; it is removed only in an edition, and the removal is listed
@@ -441,7 +446,7 @@ end stays the reference for the 2.0 release (design call 7).
 | Bootstrap | `cargo test -p yashy-driver --test bootstrap` | stage 2 and stage 3 byte-identical; every stage agrees on every digest |
 | Reference | `cargo test -p yashy-driver --test reference --test docs` | every chapter has grammar, rules and links; EBNF generated; no contradiction with the architecture doc |
 | Conformance | `yashyc conformance --all --json` | every rule has a case; every target passes; rejection cases assert code and span |
-| Editions | `cargo test -p yashy-driver --test migrate` plus manifest unit tests | 1.0 builds unchanged; migrate rewrites and passes; unknown edition refused. `--test edition` (the multi-edition reader and source rewriting) is still owed |
+| Editions | `cargo test -p yashy-driver --test migrate` plus manifest unit tests | 1.0 builds unchanged; migrate rewrites the key and legacy source and passes; unknown edition refused. `--test edition` (the multi-edition reader) is still owed |
 | Hardening | `yashyc doctor --release` | fuzz, sanitizers, alias, determinism and sandbox corpora all green |
 | Reproducible | `cargo test -p yashy-driver --test reproducible` | two directories, three OSes, identical bytes |
 | Install matrix | `scripts/install/test-install.*` | Windows, Linux and macOS install, verify, `doctor`, uninstall |

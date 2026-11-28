@@ -846,8 +846,9 @@ dropped:
   `--fetch` cached under `YASHY_CACHE_DIR`, a `--pin` over the exact bytes and
   an offline age check; a real HTTPS feed and a manifest-declared `net`
   capability still need external infrastructure. Editions are partly shipped: the closed key set and
-  `yashyc migrate` exist, while the multi-edition reader and source rewriting
-  remain owed.
+  `yashyc migrate` rewrites both the key and the legacy name-first source
+  spellings with an honest dry-run diff, while the multi-edition reader remains
+  owed.
 
 ## Running the runner
 

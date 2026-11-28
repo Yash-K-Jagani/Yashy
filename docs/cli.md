@@ -1322,9 +1322,12 @@ helpers are found beside the clang doing the build, or through
 A project may carry a manifest beside its source. The reader is a documented
 subset of TOML, hand-written so the compiler keeps building offline. The
 `edition` key is validated against the closed set in [editions](editions.md):
-absent means `2021`, and `2027` is the other supported value. `yashyc migrate
-[--dry-run] <yashy.toml>` rewrites that key to `2027` and leaves every other byte
-alone; `--dry-run` prints the line diff and writes nothing. The full
+absent means `2021`, and `2027` is the other supported value. `yashyc migrate [--dry-run] [<yashy.toml>] [--source <file.ya> ...]` rewrites
+that key to `2027` and leaves every other byte alone; `--source` also rewrites
+the name-first spellings of [E0109](errors/E0109.md) in Yashy source —
+`let x: int = 5` to `let int x = 5`, `fn f(a: int)` to `fn f(int a)` and
+`|x: int|` to `|int x|`. A struct field keeps `name: type`, and `self: *mut T`
+is not a parameter. `--dry-run` prints the line diff and writes nothing. The full
 story — lockfile, store, audit and the local registry — is in
 [packages](packages.md).
 

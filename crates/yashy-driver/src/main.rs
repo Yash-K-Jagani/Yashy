@@ -6017,9 +6017,18 @@ fn check(args: &[String]) -> ExitCode {
 fn migrate_cmd(args: &[String]) -> ExitCode {
     let mut dry_run = false;
     let mut input: Option<PathBuf> = None;
-    for argument in args {
-        match argument.as_str() {
+    let mut sources: Vec<PathBuf> = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
             "--dry-run" => dry_run = true,
+            "--source" => {
+                if index + 1 >= args.len() {
+                    return usage_error("`--source` needs a `.ya` file");
+                }
+                sources.push(PathBuf::from(&args[index + 1]));
+                index += 1;
+            }
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown option `{other}` for `migrate`"));
             }
@@ -6030,31 +6039,53 @@ fn migrate_cmd(args: &[String]) -> ExitCode {
                 input = Some(PathBuf::from(other));
             }
         }
+        index += 1;
     }
-    let Some(input) = input else {
-        return usage_error("`migrate` needs a manifest path");
-    };
-    let source = match fs::read_to_string(&input) {
-        Ok(source) => source,
-        Err(error) => {
-            eprintln!("error: cannot read {}: {error}", input.display());
-            return exit_code(EXIT_USAGE);
-        }
-    };
-    let migrated = match yashy_driver::migrate::rewrite(&source, "2027") {
-        Ok(migrated) => migrated,
-        Err(message) => {
-            eprintln!("error: {message}");
-            return exit_code(EXIT_USAGE);
-        }
-    };
-    if dry_run {
-        print!("{}", yashy_driver::migrate::diff(&source, &migrated));
-        return exit_code(EXIT_OK);
+    if input.is_none() && sources.is_empty() {
+        return usage_error("`migrate` needs a manifest path or `--source <file.ya>`");
     }
-    if let Err(error) = fs::write(&input, migrated) {
-        eprintln!("error: cannot write {}: {error}", input.display());
-        return exit_code(EXIT_COMPILE_ERROR);
+    if let Some(input) = &input {
+        let source = match fs::read_to_string(input) {
+            Ok(source) => source,
+            Err(error) => {
+                eprintln!("error: cannot read {}: {error}", input.display());
+                return exit_code(EXIT_USAGE);
+            }
+        };
+        let migrated = match yashy_driver::migrate::rewrite(&source, "2027") {
+            Ok(migrated) => migrated,
+            Err(message) => {
+                eprintln!("error: {message}");
+                return exit_code(EXIT_USAGE);
+            }
+        };
+        if dry_run {
+            print!("{}", yashy_driver::migrate::diff(&source, &migrated));
+        } else if let Err(error) = fs::write(input, migrated) {
+            eprintln!("error: cannot write {}: {error}", input.display());
+            return exit_code(EXIT_COMPILE_ERROR);
+        }
+    }
+    for source_path in &sources {
+        let source = match fs::read_to_string(source_path) {
+            Ok(source) => source,
+            Err(error) => {
+                eprintln!("error: cannot read {}: {error}", source_path.display());
+                return exit_code(EXIT_USAGE);
+            }
+        };
+        let (migrated, changes) = yashy_driver::migrate::rewrite_source(&source);
+        if dry_run {
+            print!("{}", yashy_driver::migrate::diff(&source, &migrated));
+        } else if let Err(error) = fs::write(source_path, migrated) {
+            eprintln!("error: cannot write {}: {error}", source_path.display());
+            return exit_code(EXIT_COMPILE_ERROR);
+        } else {
+            eprintln!(
+                "migrated {changes} declaration(s) in {}",
+                source_path.display()
+            );
+        }
     }
     exit_code(EXIT_OK)
 }

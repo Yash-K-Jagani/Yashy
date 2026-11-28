@@ -307,9 +307,9 @@ pub const COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "migrate",
-        summary: "rewrite a manifest to the target edition",
-        usage: "yashyc migrate [--dry-run] <yashy.toml>",
-        flags: &["--dry-run"],
+        summary: "rewrite a manifest and legacy source to the target edition",
+        usage: "yashyc migrate [--dry-run] [<yashy.toml>] [--source <file.ya> ...]",
+        flags: &["--dry-run", "--source"],
         takes_path: true,
     },
     CommandSpec {

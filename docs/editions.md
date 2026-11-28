@@ -44,9 +44,12 @@ verification results.
 
 ## Tooling status
 
-The compiler currently reads the default edition and reports an unknown edition
-as a configuration error. The `edition` manifest key, `yashyc migrate` with
-`--dry-run`, and `yashyc fix` are still owed; until they land the table above is
-the normative promise and the [migration chapter](../book/src/migration.md) is the
-human guide. The [support matrix](lts.md) says how long each edition receives
-fixes.
+The manifest validates the closed edition set, and `yashyc migrate [--dry-run]
+[<yashy.toml>] [--source <file.ya> ...]` rewrites the key and the legacy
+name-first spellings documented in [E0109](errors/E0109.md). A dry run prints
+the line diff and changes nothing. `yashyc fix` applies machine-applicable
+suggestions. The compiler still reads source under the current grammar only: a
+multi-edition reader that selects older semantics from the manifest is owed.
+Until it lands, the table above is the normative promise and the
+[migration chapter](../book/src/migration.md) is the human guide. The
+[support matrix](lts.md) says how long each edition receives fixes.
