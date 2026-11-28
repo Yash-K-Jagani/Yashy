@@ -832,9 +832,9 @@ dropped:
   `crates/yashy-driver/tests/pack.rs`, and `context --expect-revision` refuses a
   pack cut from a different workspace revision with `E2204`. Every applied
   patch is recorded in `.yashy/provenance.jsonl` with its tree hash, new file
-  hashes and rationale, and every tool advertises a structured `outputSchema`;
-  progress and cancellation are still owed. An external-tokenizer count remains
-  owed: no BPE vocabulary is vendored, so the
+  hashes and rationale, every tool advertises a structured `outputSchema`, and
+  MCP sends progress notifications and refuses calls after
+  `notifications/cancelled`. An external-tokenizer count remains owed: no BPE vocabulary is vendored, so the
   documented four-bytes-per-token estimator is still the gate. MCP now runs under a strict-by-default
   policy file and a hash-chained, rotating audit log verified by
   `yashyc agent audit --verify`; `require_approval` spends a tree-, patch- and

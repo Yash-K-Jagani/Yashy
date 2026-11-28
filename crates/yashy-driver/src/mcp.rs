@@ -118,6 +118,10 @@ pub struct Session {
     pub spent_tokens: u64,
     /// Response bytes produced so far.
     pub spent_output: u64,
+    /// Set by `notifications/cancelled`. Later tool calls are refused; a
+    /// notification cannot interrupt a call already in flight on this
+    /// single-threaded connection, so it never leaves a partial edit.
+    pub cancelled: bool,
 }
 
 impl Session {
@@ -133,6 +137,7 @@ impl Session {
             spent_ms: 0,
             spent_tokens: 0,
             spent_output: 0,
+            cancelled: false,
         })
     }
 }
@@ -260,6 +265,18 @@ pub fn handle(session: &mut Session, request: &Value) -> Value {
             }
         }
         "tools/call" => {
+            if session.cancelled {
+                let reason = "the session was cancelled";
+                if let Err(message) = session.audit.record(
+                    "cancelled",
+                    "refused",
+                    Some(crate::agent::POLICY_DENIED),
+                    reason,
+                ) {
+                    return refusal(id, -32005, crate::agent::AUDIT_FAILURE, &message);
+                }
+                return error(id, -32800, reason);
+            }
             let params = request.get("params");
             let name = params
                 .and_then(|params| params.get("name"))
@@ -780,6 +797,27 @@ fn call_tool(root: &Path, id: Value, name: &str, params: Option<&Value>) -> Valu
     }
 }
 
+/// A `$/progress` notification for a tool call whose client supplied a token.
+fn progress(token: Value, kind: &str, percentage: u64) -> Value {
+    json_rpc::object([
+        ("jsonrpc", json_rpc::string("2.0")),
+        ("method", json_rpc::string("$/progress")),
+        (
+            "params",
+            json_rpc::object([
+                ("progressToken", token),
+                (
+                    "value",
+                    json_rpc::object([
+                        ("kind", json_rpc::string(kind)),
+                        ("percentage", Value::Num(percentage as f64)),
+                    ]),
+                ),
+            ]),
+        ),
+    ])
+}
+
 /// Serve one connection: a loop over stdin lines, each at most 1 MiB, until
 /// the client closes the connection or sends `shutdown`.
 pub fn serve(root: &Path) -> std::io::Result<()> {
@@ -810,10 +848,34 @@ pub fn serve(root: &Path) -> std::io::Result<()> {
                 continue;
             }
         };
-        if request.get("method").and_then(Value::as_str) == Some("shutdown") {
+        let method = request.get("method").and_then(Value::as_str).unwrap_or("");
+        if method == "shutdown" {
             return Ok(());
         }
+        if method == "notifications/cancelled" {
+            session.cancelled = true;
+            continue;
+        }
+        let progress_token = if method == "tools/call" {
+            request
+                .get("params")
+                .and_then(|params| params.get("_meta"))
+                .and_then(|meta| meta.get("progressToken"))
+                .cloned()
+        } else {
+            None
+        };
+        if let Some(token) = &progress_token {
+            let notice = progress(token.clone(), "begin", 0);
+            writeln!(out, "{}", json_rpc::to_string(&notice))?;
+            out.flush()?;
+        }
         let response = handle(&mut session, &request);
+        if let Some(token) = progress_token {
+            let notice = progress(token, "end", 100);
+            writeln!(out, "{}", json_rpc::to_string(&notice))?;
+            out.flush()?;
+        }
         writeln!(out, "{}", json_rpc::to_string(&response))?;
         out.flush()?;
     }

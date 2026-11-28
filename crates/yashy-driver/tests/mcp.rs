@@ -74,6 +74,27 @@ impl Mcp {
         self.stdout.read_line(&mut line).expect("read the response");
         line
     }
+    fn notify(&mut self, message: &str) {
+        writeln!(self.stdin, "{message}").expect("write the notification");
+        self.stdin.flush().expect("flush the notification");
+    }
+
+    /// Call with progress notifications: return the response to `id` and the
+    /// notifications that preceded it.
+    fn call_with_notifications(&mut self, request: &str, id: &str) -> (String, Vec<String>) {
+        use std::io::BufRead;
+        writeln!(self.stdin, "{request}").expect("write the request");
+        self.stdin.flush().expect("flush the request");
+        let mut notes = Vec::new();
+        loop {
+            let mut line = String::new();
+            self.stdout.read_line(&mut line).expect("read a line");
+            if line.contains(&format!("\"id\":{id}")) {
+                return (line, notes);
+            }
+            notes.push(line);
+        }
+    }
 }
 
 impl Drop for Mcp {
@@ -276,6 +297,37 @@ fn tools_list_carries_annotations() {
     assert!(response.contains("outputSchema"), "{response}");
     assert!(response.contains("\"type\":\"object\""), "{response}");
     assert!(response.contains("diagnostics"), "{response}");
+}
+
+#[test]
+fn progress_tokens_report_the_call_and_cancellation_refuses_later_work() {
+    let dir = workspace_dir();
+    let mut mcp = Mcp::start(&dir);
+    let request = r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"check","arguments":{"path":"main.ya"},"_meta":{"progressToken":"p1"}}}"#;
+    let (response, notes) = mcp.call_with_notifications(request, "1");
+    assert!(response.contains("\"id\":1"), "{response}");
+    assert!(response.contains("success"), "{response}");
+    assert!(
+        notes.iter().any(|line| line.contains("\"$/progress\"")),
+        "{notes:?}"
+    );
+    assert!(
+        notes.iter().any(|line| line.contains("\"begin\"")),
+        "{notes:?}"
+    );
+    assert!(
+        notes.iter().any(|line| line.contains("\"end\"")),
+        "{notes:?}"
+    );
+
+    mcp.notify(r#"{"jsonrpc":"2.0","method":"notifications/cancelled"}"#);
+    let (response, _) = mcp.call_with_notifications(
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"check","arguments":{"path":"main.ya"}}}"#,
+        "2",
+    );
+    assert!(response.contains("-32800"), "{response}");
+    let log = std::fs::read_to_string(dir.join(".yashy/audit/session.jsonl")).unwrap();
+    assert!(log.contains("cancelled"), "{log}");
 }
 
 #[test]

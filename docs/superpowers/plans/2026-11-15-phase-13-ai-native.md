@@ -559,8 +559,12 @@ agent run reproducible.
   `untrusted`. `tools/list` now also carries an `outputSchema` for every verb,
   naming the fields that verb actually returns while leaving
   `additionalProperties` open so a new compiler field is not a wire break.
-  `crates/yashy-driver/tests/mcp.rs` pins the wire responses. Progress and
-  cancellation are still owed.
+  `crates/yashy-driver/tests/mcp.rs` pins the wire responses. A client that
+  supplies `_meta.progressToken` now receives `$/progress` `begin` and `end`
+  notifications around a tool call, and `notifications/cancelled` refuses every
+  later call with `-32800` while recording the refusal in the audit log. The
+  connection is single-threaded, so a notification cannot interrupt a call
+  already in flight and therefore cannot leave a partial edit.
 
 - [x] **Step 5: Untrusted text is labelled, never obeyed.** A file, an issue
   body, a dependency README or a tool result that contains instructions is marked
