@@ -413,7 +413,11 @@ end stays the reference for the 2.0 release (design call 7).
   against an explicit keyring, and matches package versions against version
   ranges. `yashyc advisory --check` refuses an affected version with the
   advisory id, range and fix, and refuses a forged feed before matching; the
-  driver test pins both paths and the JSON form. Fetching is now explicit:
+  driver test pins both paths and the JSON form. `yashyc audit --feed
+  <feed.json>` now matches the signed feed against every resolved package,
+  including the root, using the version in each package's own manifest; an
+  affected package is an audit finding naming the advisory, range and fix,
+  pinned by `crates/yashy-driver/tests/audit.rs`. Fetching is now explicit:
   `--fetch <url>` uses the registry's `curl` path and caches the exact bytes
   under `YASHY_CACHE_DIR/advisories`; `--offline` reads only that cache and
   refuses to fetch; `--pin <sha256>` checks the bytes before parsing or

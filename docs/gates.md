@@ -847,8 +847,9 @@ dropped:
   with sixteen non-source codes listed with their own harnesses. A signed
   advisory feed now ships through `yashyc advisory --check`, with an explicit
   `--fetch` cached under `YASHY_CACHE_DIR`, a `--pin` over the exact bytes and
-  an offline age check; a real HTTPS feed and a manifest-declared `net`
-  capability still need external infrastructure. Editions are partly shipped: the closed key set and
+  an offline age check, and `audit --feed` matches it against the resolved
+  graph including the root package; a real HTTPS feed and a manifest-declared
+  `net` capability still need external infrastructure. Editions are partly shipped: the closed key set and
   `yashyc migrate` rewrites both the key and the legacy name-first source
   spellings with an honest dry-run diff, while the multi-edition reader remains
   owed.

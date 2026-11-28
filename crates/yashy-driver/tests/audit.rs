@@ -59,11 +59,65 @@ fn a_clean_project_is_ok_in_json() {
         String::from_utf8_lossy(&update.stderr)
     );
     let output = cli(&app, &["audit", "--json"]);
-    assert!(output.status.success(), "clean project:\n{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "clean project:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let text = String::from_utf8_lossy(&output.stdout);
     assert!(text.contains("\"schema_version\": 1"));
     assert!(text.contains("\"ok\": true"));
     assert!(text.contains("\"findings\": []"));
+}
+
+#[test]
+fn a_signed_advisory_is_matched_against_the_resolved_project() {
+    use yashy_driver::advisory::{sign_feed, Advisory};
+
+    let (app, _) = clean_project("audit-advisory");
+    assert!(cli(&app, &["update"]).status.success());
+    let advisory = Advisory {
+        id: "YASHY-2027-0042".to_string(),
+        package: "app".to_string(),
+        range: "<1.0.0".to_string(),
+        severity: "high".to_string(),
+        fixed: "1.0.0".to_string(),
+        title: "affected release".to_string(),
+    };
+    let feed = sign_feed(vec![advisory], "release", &[9u8; 32]).expect("a signed feed");
+    std::fs::write(app.join("feed.json"), feed).unwrap();
+
+    let output = cli(&app, &["audit", "--json", "--feed", "feed.json"]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.contains("YASHY-2027-0042"), "{text}");
+    assert!(text.contains("fixed in 1.0.0"), "{text}");
+
+    // A range that does not contain the resolved version leaves the audit ok.
+    let advisory = Advisory {
+        id: "YASHY-2027-0043".to_string(),
+        package: "app".to_string(),
+        range: "<0.0.1".to_string(),
+        severity: "low".to_string(),
+        fixed: "0.0.1".to_string(),
+        title: "unrelated release".to_string(),
+    };
+    let feed = sign_feed(vec![advisory], "release", &[9u8; 32]).expect("a signed feed");
+    std::fs::write(app.join("feed.json"), feed).unwrap();
+    let output = cli(&app, &["audit", "--json", "--feed", "feed.json"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("\"ok\": true"));
+}
+
+#[test]
+fn an_unreadable_advisory_feed_is_a_usage_error() {
+    let (app, _) = clean_project("audit-bad-feed");
+    let output = cli(&app, &["audit", "--feed", "missing.json"]);
+    assert_eq!(output.status.code(), Some(2));
 }
 
 #[test]
@@ -128,5 +182,8 @@ fn audit_policy_denies_a_disallowed_license() {
     let report = yashy_driver::audit::audit_project(&dir, &yashy_driver::Store::open().unwrap())
         .expect("audit runs");
     assert!(!report.ok);
-    assert!(report.findings.iter().any(|finding| finding.code == yashy_common::codes::POLICY_DENIED));
+    assert!(report
+        .findings
+        .iter()
+        .any(|finding| finding.code == yashy_common::codes::POLICY_DENIED));
 }

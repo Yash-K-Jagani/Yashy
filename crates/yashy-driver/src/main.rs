@@ -9939,13 +9939,26 @@ fn tarball_tree_hash(bytes: &[u8]) -> Result<String, String> {
 }
 
 fn audit_cmd(args: &[String]) -> ExitCode {
-    let json = args.iter().any(|argument| argument == "--json");
-    let capabilities = args.iter().any(|argument| argument == "--capabilities");
-    let arguments = args
-        .iter()
-        .filter(|argument| *argument != "--json" && *argument != "--capabilities")
-        .cloned()
-        .collect::<Vec<_>>();
+    let mut json = false;
+    let mut capabilities = false;
+    let mut feed_path: Option<String> = None;
+    let mut arguments: Vec<String> = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--json" => json = true,
+            "--capabilities" => capabilities = true,
+            "--feed" => {
+                if index + 1 >= args.len() {
+                    return usage_error("`--feed` needs an advisory feed file");
+                }
+                feed_path = Some(args[index + 1].clone());
+                index += 1;
+            }
+            other => arguments.push(other.to_string()),
+        }
+        index += 1;
+    }
     let project = match project_args(&arguments, "audit") {
         Ok(project) => project,
         Err(code) => return code,
@@ -9957,7 +9970,35 @@ fn audit_cmd(args: &[String]) -> ExitCode {
             return error.status();
         }
     };
-    match yashy_driver::audit::audit_project(&project.directory, &store) {
+    let feed = match feed_path.as_deref() {
+        Some(path) => {
+            let loaded = match yashy_driver::advisory::load_feed(path, false, false, None, None) {
+                Ok(loaded) => loaded,
+                Err(message) => {
+                    eprintln!("error: {message}");
+                    return exit_code(EXIT_USAGE);
+                }
+            };
+            let text = match std::str::from_utf8(&loaded.bytes) {
+                Ok(text) => text,
+                Err(_) => {
+                    eprintln!("error: {path} is not UTF-8 JSON");
+                    return exit_code(EXIT_USAGE);
+                }
+            };
+            match yashy_driver::advisory::Feed::parse(text) {
+                Ok(feed) => Some(feed),
+                Err(message) => {
+                    eprintln!("error: {message}");
+                    return exit_code(EXIT_USAGE);
+                }
+            }
+        }
+        None => None,
+    };
+    let report =
+        yashy_driver::audit::audit_project_with_feed(&project.directory, &store, feed.as_ref());
+    match report {
         Ok(report) => {
             if json {
                 println!("{}", report.to_json());

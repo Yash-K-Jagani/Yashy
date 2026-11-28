@@ -461,8 +461,8 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "audit",
         summary: "audit dependencies for advisories",
-        usage: "yashyc audit [--json] [--capabilities] [path]",
-        flags: &["--json", "--capabilities"],
+        usage: "yashyc audit [--json] [--capabilities] [--feed <file.json>] [path]",
+        flags: &["--json", "--capabilities", "--feed"],
         takes_path: false,
     },
     CommandSpec {

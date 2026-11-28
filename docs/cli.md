@@ -1504,7 +1504,7 @@ tree is unpacked into the store.
 ### `audit`, `publish` and a local registry
 
 ```text
-yashyc audit [dir] [--json]
+yashyc audit [dir] [--json] [--capabilities] [--feed <feed.json>]
 yashyc publish [dir] --registry <absolute-path-or-file-url>
 yashyc add <name>@<version> --registry <dir>
 ```
@@ -1514,7 +1514,11 @@ wrong sources, a lockfile that disagrees with the manifest, and an untrusted
 registry; each finding is [E1804](errors/E1804.md). A clean run prints
 `ok: N packages, M bytes` and exits 0. `--capabilities` prints the sorted union
 of the root and every dependency's `[capabilities]`; `--json` carries the same
-list as `capabilities` and omits the human line.
+list as `capabilities` and omits the human line. `--feed <feed.json>` adds a
+signed advisory feed to the audit: every resolved package, the root included,
+is matched against the ranges in that feed with its manifest version, and an
+affected package becomes an [E1804](errors/E1804.md) finding naming the
+advisory, the range and the fixed version. A missing feed file is a usage error.
 
 `[audit]` in `yashy.toml` tightens the policy: `allowed-licenses` and
 `allowed-packages` are allowlists ([E1807](errors/E1807.md)), and

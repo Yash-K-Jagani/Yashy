@@ -165,6 +165,18 @@ fn has_build_script(root: &Path) -> bool {
 }
 
 pub fn audit_project(directory: &Path, store: &Store) -> Result<AuditReport, AuditError> {
+    audit_project_with_feed(directory, store, None)
+}
+
+/// A read-only audit that also checks the resolved packages against a signed
+/// advisory feed. The feed is matched against the version in each package's
+/// own manifest, including the root, so an advisory cannot be dodged by a
+/// lockfile that names a different range.
+pub fn audit_project_with_feed(
+    directory: &Path,
+    store: &Store,
+    feed: Option<&crate::advisory::Feed>,
+) -> Result<AuditReport, AuditError> {
     let manifest = match Manifest::load(&directory.join("yashy.toml")) {
         Ok(manifest) => manifest,
         Err(error) => {
@@ -252,6 +264,27 @@ pub fn audit_project(directory: &Path, store: &Store) -> Result<AuditReport, Aud
         match Manifest::load(&root.join("yashy.toml")) {
             Ok(package_manifest) => {
                 declared.push(package_manifest.capabilities.clone().unwrap_or_default());
+                if let Some(feed) = feed {
+                    match feed.matches(&name, &package_manifest.package.version) {
+                        Ok(matches) => {
+                            for advisory in matches {
+                                findings.push(finding(
+                                    codes::AUDIT_FAILURE,
+                                    &name,
+                                    format!(
+                                        "advisory {} affects {} ({}); fixed in {}",
+                                        advisory.id, name, advisory.range, advisory.fixed
+                                    ),
+                                ));
+                            }
+                        }
+                        Err(error) => findings.push(finding(
+                            codes::AUDIT_FAILURE,
+                            &name,
+                            format!("advisory range: {error}"),
+                        )),
+                    }
+                }
                 if package_manifest.package.license.is_none() {
                     findings.push(finding(
                         codes::AUDIT_FAILURE,
