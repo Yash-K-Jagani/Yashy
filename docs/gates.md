@@ -818,8 +818,9 @@ dropped:
   now carries an ABI version, direction-aware ownership markers and a
   `--header --check` drift gate; `--emit=staticlib` writes a self-contained
   `lib<stem>.a`/`.lib`, and library targets need no `main`.
-- Phase 13: remaining refactor operations, generic graph, scored ranking for
-  packs, sandbox limits, agent benchmark, provenance, BPE policy, SDK.
+- Phase 13: remaining refactor operations, generic graph, sandbox limits,
+  agent benchmark, provenance, BPE policy and the SDK-as-single-surface half.
+  Scored pack ranking now ships with the 50k-line fixture; see below.
   `yashyc review` and `yashyc impact` ship semantic classification and
   re-run fan-out from an index snapshot; git-aware baselines remain owed.
   `crates/yashy-sdk` now wraps the driver verbs for library clients, with
