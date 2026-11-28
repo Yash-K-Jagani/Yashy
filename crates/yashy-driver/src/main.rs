@@ -397,6 +397,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     let mut output: Option<PathBuf> = None;
     let mut emit_ir = false;
     let mut header: Option<PathBuf> = None;
+    let mut check_header = false;
     let mut shared = false;
     let mut timings_flag = false;
     let mut no_verify = false;
@@ -471,6 +472,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         match argument.as_str() {
             "--print-capabilities" => print_capabilities = true,
             "--emit-ir" => emit_ir = true,
+            "--check" => check_header = true,
             "--header" => {
                 if let Some(value) = args.next() {
                     header = Some(PathBuf::from(value));
@@ -901,10 +903,31 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
             }
         }
         let text = yashy_driver::c_header_emit::header(&hir, &public);
-        if let Err(error) = fs::write(path, text) {
+        if check_header {
+            // A checked-in header is a promise to C callers. CI compares the
+            // rendered text byte for byte instead of trusting the file, and a
+            // drift names the command that regenerates it.
+            match fs::read_to_string(path) {
+                Ok(existing) if existing == text => {}
+                Ok(_) => {
+                    eprintln!(
+                        "error: {} is stale: regenerate it with `yashyc build --header {}`",
+                        path.display(),
+                        path.display()
+                    );
+                    return stopped(exit_code(EXIT_COMPILE_ERROR));
+                }
+                Err(error) => {
+                    eprintln!("error: {}: {error}", path.display());
+                    return stopped(exit_code(EXIT_COMPILE_ERROR));
+                }
+            }
+        } else if let Err(error) = fs::write(path, text) {
             eprintln!("error: {}: {error}", path.display());
             return stopped(exit_code(EXIT_COMPILE_ERROR));
         }
+    } else if check_header {
+        return stopped(usage_error("`--check` needs `--header <file>`"));
     }
 
     // Apply the warning policy: --allow suppresses, --deny upgrades to errors.

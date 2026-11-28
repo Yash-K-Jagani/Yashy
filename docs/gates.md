@@ -814,7 +814,9 @@ dropped:
 - Phase 11C: bundled toolchain archives, object emission without clang, native
   sysroot discovery, ThinLTO without a C driver, sanitizers, installer matrix.
 - Phase 12: WASM/cross targets, JS bridge, bindgen, C++ interop, SIMD, dlopen,
-  shared-library ABI, `-sys` convention, embedding matrix.
+  shared-library ABI, `-sys` convention, embedding matrix. The generated header
+  now carries an ABI version, direction-aware ownership markers and a
+  `--header --check` drift gate.
 - Phase 13: remaining refactor operations, generic graph, scored ranking for
   packs, sandbox limits, agent benchmark, provenance, BPE policy, SDK.
   `yashyc review` and `yashyc impact` ship semantic classification and

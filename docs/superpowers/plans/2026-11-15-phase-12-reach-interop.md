@@ -327,8 +327,13 @@ having before the AI phase writes documentation about the language.
   top-level `pub fn`s get declarations using the backend's `yashy_fn_` symbols,
   and functions without a C representation are named in an `excluded` comment.
   `yashyc build --header <file>` writes it, and `crates/yashy-driver/tests/library.rs`
-  pins both the included and excluded cases. A version macro, ownership
-  annotations beyond the comment, and `--header --check` are still owed.
+  pins both the included and excluded cases. The header now carries
+  `YASHY_ABI_VERSION`, the `yashy_str` layout, `yashy_str_release`, and a
+  direction-aware ownership marker on every declaration: `YASHY_OWNED` for a
+  result the caller releases, `YASHY_BORROWED` for one it must not free, and
+  `const` on every borrowed parameter. `--header <file> --check` compares the
+  rendered text with the checked-in file and fails with the regeneration
+  command when it has drifted.
 
 - [x] **Step 3: Symbols are versioned and hidden by default.** Only the export
   list is visible; everything else is internal. The shared object carries a
