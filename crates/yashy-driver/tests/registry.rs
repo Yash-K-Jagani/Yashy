@@ -175,6 +175,65 @@ fn a_corrupted_tarball_fails_the_hash_check() {
 }
 
 #[test]
+fn yank_records_a_reason_and_keeps_a_backup() {
+    let dir = work_dir("registry-yank-cli");
+    let registry = dir.join("registry");
+    write(
+        &registry,
+        "index.json",
+        "{\"packages\":[{\"name\":\"lib\",\"version\":\"1.0.0\",\"hash\":\"sha256:a\",\"description\":\"\"}]}",
+    );
+    let output = cli(
+        &dir,
+        &dir.join("store"),
+        &registry,
+        &[
+            "yank",
+            "lib@1.0.0",
+            "--registry",
+            registry.to_str().unwrap(),
+            "--reason",
+            "unsafe decoder",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("yanked lib@1.0.0"), "{stdout}");
+    assert!(stdout.contains("unsafe decoder"), "{stdout}");
+    let index = fs::read_to_string(registry.join("index.json")).unwrap();
+    assert!(
+        index.contains("\"yanked\": true") || index.contains("\"yanked\":true"),
+        "{index}"
+    );
+    assert!(index.contains("unsafe decoder"), "{index}");
+    let backup = fs::read_to_string(registry.join("index.json.bak")).unwrap();
+    assert!(
+        !backup.contains("\"yanked\":true"),
+        "the backup is the old index: {backup}"
+    );
+
+    let again = cli(
+        &dir,
+        &dir.join("store"),
+        &registry,
+        &[
+            "yank",
+            "lib@1.0.0",
+            "--registry",
+            registry.to_str().unwrap(),
+            "--reason",
+            "again",
+        ],
+    );
+    assert!(!again.status.success(), "a second yank is refused");
+    assert!(String::from_utf8_lossy(&again.stderr).contains("already yanked"));
+}
+
+#[test]
 fn a_missing_registry_version_is_e1811() {
     let dir = work_dir("registry-missing-version");
     let registry = dir.join("registry");

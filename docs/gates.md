@@ -848,7 +848,8 @@ dropped:
   and scaffold plus first test is bounded at 60 s; every source code has a
   conformance fixture staged through the real front end.
 - Phase 3 packages: resolver failures now have distinct codes for a missing
-  source (`E1810`) and a missing version (`E1811`).
+  source (`E1810`) and a missing version (`E1811`), and `yank` is driven by a
+  CLI test that checks the backup and refuses a repeat.
 - Phase 7 codecs: `derive(Decode)` answers with a typed
   `codec.CodecError` (`BadField`, `BadFieldCount`); the explicit string/Option
   codecs still use string errors.
