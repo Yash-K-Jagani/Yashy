@@ -79,6 +79,40 @@ fn run(messages: Vec<Value>) -> Vec<Value> {
 const SOURCE: &str = "struct Point { x: int }\nfn add(int a, int b) -> int { return a + b; }\nfn main() { let p = add(1, 2); let m = 5; }\n";
 
 #[test]
+fn a_rename_that_would_span_the_workspace_is_refused() {
+    let dir = std::env::temp_dir().join(format!("lsp-rename-workspace-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("main.ya"), SOURCE).unwrap();
+    std::fs::write(dir.join("other.ya"), "fn sum(int a) -> int { return a; }\n").unwrap();
+    let main_uri = path_to_uri(&dir.join("main.ya"));
+    let messages = vec![
+        request(
+            1,
+            "initialize",
+            object([("rootUri", string(path_to_uri(&dir)))]),
+        ),
+        did_open(&main_uri, SOURCE),
+        request(
+            2,
+            "textDocument/rename",
+            at(&main_uri, 2, 22, &[("newName", string("sum"))]),
+        ),
+    ];
+    let replies = run(messages);
+    let rename = replies
+        .iter()
+        .find(|reply| reply.get("id").and_then(Value::as_i64) == Some(2))
+        .expect("rename answers");
+    let error = rename
+        .get("result")
+        .and_then(|result| result.get("error"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    assert!(error.contains("another file"), "{rename:?}");
+}
+
+#[test]
 fn every_feature_answers_with_a_stable_range() {
     let uri = path_to_uri(&std::env::temp_dir().join("lsp-conformance.ya"));
     let messages = vec![

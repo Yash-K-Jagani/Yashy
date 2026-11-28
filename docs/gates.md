@@ -842,6 +842,8 @@ dropped:
   are session-wide caps enforced before the next call; each audit entry is
   now signed with an environment-held session key and `agent audit --verify
   --key` refuses a rewritten chain.
+- Phase 2 LSP: every feature answers from one source-derived model, and a
+  rename whose new name is used in another workspace file is refused.
 - Phase 7 codecs: `derive(Decode)` answers with a typed
   `codec.CodecError` (`BadField`, `BadFieldCount`); the explicit string/Option
   codecs still use string errors.

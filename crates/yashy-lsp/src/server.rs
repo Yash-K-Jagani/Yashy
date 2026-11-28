@@ -15,6 +15,7 @@
 
 use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
+use std::path::{Path, PathBuf};
 
 use yashy_common::{FileId, SourceMap};
 use yashy_driver::load;
@@ -61,6 +62,10 @@ struct Server {
     /// Open documents by URI. A document the editor has never sent is read
     /// from disk when a request needs it.
     documents: HashMap<String, String>,
+    /// The workspace root from `initialize`, when the editor supplied one.
+    /// A rename that would span other files is refused rather than silently
+    /// editing only the open document.
+    root: Option<PathBuf>,
 }
 
 impl Server {
@@ -71,7 +76,10 @@ impl Server {
         let params = message.get("params");
 
         match method {
-            Some("initialize") => self.reply(out, id, initialize())?,
+            Some("initialize") => {
+                let response = self.initialize(params);
+                self.reply(out, id, response)?
+            }
             Some("initialized") => {}
             Some("shutdown") => self.reply(out, id, Value::Null)?,
             Some("exit") => return Ok(false),
@@ -660,6 +668,12 @@ impl Server {
         if model.symbols.iter().any(|symbol| symbol.name == new_name) {
             return object([("error", string("the new name is already declared"))]);
         }
+        if self.name_is_used_elsewhere(new_name, uri.as_str()) {
+            return object([(
+                "error",
+                string("the new name is used in another file of the workspace"),
+            )]);
+        }
         let Some(occurrences) = model.occurrences.get(word) else {
             return Value::Null;
         };
@@ -1075,6 +1089,66 @@ impl Server {
                 ("params", params),
             ]),
         )
+    }
+
+    fn initialize(&mut self, params: Option<&Value>) -> Value {
+        self.root = params
+            .and_then(|params| params.get("rootUri"))
+            .and_then(Value::as_str)
+            .map(uri_to_path)
+            .or_else(|| {
+                params
+                    .and_then(|params| params.get("rootPath"))
+                    .and_then(Value::as_str)
+                    .map(PathBuf::from)
+            });
+        initialize()
+    }
+
+    /// Whether the new name already appears in a different file of the
+    /// workspace. A project-wide use cannot be renamed by editing one
+    /// document, so the caller must refuse rather than produce a partial edit.
+    fn name_is_used_elsewhere(&self, name: &str, current: &str) -> bool {
+        let Some(root) = &self.root else {
+            return false;
+        };
+        let mut files = Vec::new();
+        collect_ya_files(root, &mut files);
+        files
+            .into_iter()
+            .filter(|path| path_to_uri(path) != current)
+            .any(|path| {
+                let Ok(text) = std::fs::read_to_string(&path) else {
+                    return false;
+                };
+                let Ok(tokens) = Lexer::new(&text).tokenize() else {
+                    return false;
+                };
+                tokens.iter().any(|token| {
+                    token.kind == TokenKind::Ident
+                        && &text[token.span.start as usize..token.span.end as usize] == name
+                })
+            })
+    }
+}
+
+fn collect_ya_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let skip = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name == "target" || name.starts_with('.'));
+            if !skip {
+                collect_ya_files(&path, out);
+            }
+        } else if path.extension().and_then(|ext| ext.to_str()) == Some("ya") {
+            out.push(path);
+        }
     }
 }
 
