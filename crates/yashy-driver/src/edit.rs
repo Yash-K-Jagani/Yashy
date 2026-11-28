@@ -11,9 +11,11 @@
 //! and an agent cannot gain permission by choosing a different digest.
 
 use std::collections::BTreeMap;
+use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
-use yashy_common::Span;
+use yashy_common::{Json, Span};
+use yashy_manifest::sha256_hex;
 
 /// A single replacement in one workspace-relative file.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -219,6 +221,7 @@ where
             }
         }
         if diagnostics.is_empty() {
+            record_provenance(root, patch, &changed)?;
             Ok(())
         } else {
             Err(EditError::CheckFailed(diagnostics))
@@ -230,6 +233,65 @@ where
         }
     }
     result.map(|_| changed.keys().cloned().collect())
+}
+
+/// The append-only provenance log for one workspace.
+pub fn provenance_path(root: &Path) -> PathBuf {
+    root.join(".yashy").join("provenance.jsonl")
+}
+
+/// One compact JSON object per applied patch: the tree it was computed from,
+/// every file it changed, the new file hash and the rationale the caller gave.
+/// Written inside the patch transaction, so a patch that is rolled back leaves
+/// no provenance entry behind.
+fn record_provenance(
+    root: &Path,
+    patch: &Patch,
+    changed: &BTreeMap<String, String>,
+) -> Result<(), EditError> {
+    let path = provenance_path(root);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| EditError::Io(format!("{}: {error}", parent.display())))?;
+    }
+    let mut files = Vec::with_capacity(changed.len());
+    for (file, text) in changed {
+        let rationale: Vec<&str> = patch
+            .edits
+            .iter()
+            .filter(|edit| edit.file == *file)
+            .map(|edit| edit.rationale.as_str())
+            .collect();
+        let mut entry = Json::object();
+        entry.set("file", Json::string(file));
+        entry.set("hash", Json::string(&sha256_hex(text.as_bytes())));
+        entry.set("rationale", Json::string(&rationale.join("; ")));
+        files.push(entry);
+    }
+    let mut record = Json::object();
+    record.set("schema_version", Json::number(1));
+    record.set("tool", Json::string("yashyc"));
+    record.set("tree_hash", Json::string(&patch.expected_tree_hash));
+    record.set("edits", Json::number(patch.edits.len() as i64));
+    record.set("files", Json::array(files));
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|error| EditError::Io(format!("{}: {error}", path.display())))?;
+    file.write_all(format!("{}\n", record.render_compact()).as_bytes())
+        .map_err(|error| EditError::Io(format!("{}: {error}", path.display())))
+}
+
+/// The provenance text, oldest patch first. A workspace with no applied patch
+/// has no file; callers that need an empty answer use an empty string.
+pub fn read_provenance(root: &Path) -> Result<String, String> {
+    let path = provenance_path(root);
+    match std::fs::read_to_string(&path) {
+        Ok(text) => Ok(text),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(error) => Err(format!("{}: {error}", path.display())),
+    }
 }
 
 /// An edit that replaces every token named `from` in `text` with `to`.

@@ -90,8 +90,11 @@ agent run reproducible.
   its hash and rationale.
   *Closed 2026-11-26 with exception:* `edit::apply_patch` is the only mutation
   path: it validates before writing, re-checks every changed file, and restores
-  the original bytes on failure. The session provenance log is still owed, so
-  that half of the step stays open.
+  the original bytes on failure. Every applied patch now writes one compact
+  JSON object to `.yashy/provenance.jsonl` with the computed tree hash, each
+  changed file's new SHA-256 and the caller's rationale; the write is inside
+  the transaction, so a rolled-back patch leaves no entry.
+  `crates/yashy-driver/tests/edit.rs` pins both halves.
 
 - [x] **Step 3: Refactor is compiler-aware.** `refactor` offers rename,
   extract-function, inline-function, change-signature, add-missing-match-arm and

@@ -831,7 +831,9 @@ dropped:
   and graph-distance/edit-recency ranking are now gated by
   `crates/yashy-driver/tests/pack.rs`, and `context --expect-revision` refuses a
   pack cut from a different workspace revision with `E2204`. An
-  external-tokenizer count remains owed: no BPE vocabulary is vendored, so the
+  every applied patch is recorded in `.yashy/provenance.jsonl` with its tree
+  hash, new file hashes and rationale. An external-tokenizer count remains
+  owed: no BPE vocabulary is vendored, so the
   documented four-bytes-per-token estimator is still the gate. MCP now runs under a strict-by-default
   policy file and a hash-chained, rotating audit log verified by
   `yashyc agent audit --verify`; `require_approval` spends a tree-, patch- and

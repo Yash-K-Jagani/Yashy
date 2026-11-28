@@ -47,6 +47,28 @@ fn an_edit_is_applied_and_the_file_hash_changes() {
 }
 
 #[test]
+fn every_applied_edit_is_recorded_and_a_rolled_back_one_is_not() {
+    let dir = common::work_dir("edit-provenance");
+    common::write(&dir, "main.ya", "fn main() { print(1); }\n");
+    let source = std::fs::read_to_string(dir.join("main.ya")).unwrap();
+    let at = source.find('1').unwrap();
+    apply_patch(&dir, &patch(&dir, &source, at, at + 1, "2"), ok).unwrap();
+
+    let log = yashy_driver::edit::read_provenance(&dir).unwrap();
+    assert!(log.contains("main.ya"), "{log}");
+    assert!(log.contains("test edit"), "{log}");
+    assert!(log.contains("\"tree_hash\""), "{log}");
+    assert!(log.contains("\"hash\""), "{log}");
+
+    // A patch that fails its re-check is rolled back and leaves no trace.
+    let source = std::fs::read_to_string(dir.join("main.ya")).unwrap();
+    let at = source.find('2').unwrap();
+    let result = apply_patch(&dir, &patch(&dir, &source, at, at + 1, "3"), rejects);
+    assert!(matches!(result, Err(EditError::CheckFailed(_))));
+    assert_eq!(yashy_driver::edit::read_provenance(&dir).unwrap(), log);
+}
+
+#[test]
 fn a_stale_hash_leaves_the_file_byte_identical() {
     let dir = common::work_dir("edit-stale");
     common::write(&dir, "main.ya", "fn main() { print(1); }\n");
