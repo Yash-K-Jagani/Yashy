@@ -41,6 +41,40 @@ fn lint_reports_a_removed_keyword_and_an_unused_binding() {
 }
 
 #[test]
+fn a_typed_lint_finds_an_ignored_user_defined_result() {
+    let dir = work_dir("lint-typed");
+    write(
+        &dir,
+        "main.ya",
+        "fn maybe() -> Result[int, string] { return Ok(1); }\nfn main() { maybe(); print(1); }\n",
+    );
+    let plain_output = run(&dir, &["lint", "--json", "main.ya"]);
+    let plain = String::from_utf8_lossy(&plain_output.stdout).into_owned();
+    assert!(
+        !plain.contains("LINT-RESULT"),
+        "the text pass knows only builtins: {plain}"
+    );
+    let typed_output = run(&dir, &["lint", "--typed", "--json", "main.ya"]);
+    let typed = String::from_utf8_lossy(&typed_output.stdout).into_owned();
+    assert!(
+        typed.contains("LINT-RESULT"),
+        "the checked type is a Result: {typed}"
+    );
+
+    write(
+        &dir,
+        "main.ya",
+        "fn maybe() -> Result[int, string] { return Ok(1); }\nfn main() { switch maybe() { case Ok(v) { print(v); } case Err(_) { print(0); } } }\n",
+    );
+    let handled_output = run(&dir, &["lint", "--typed", "--json", "main.ya"]);
+    let handled = String::from_utf8_lossy(&handled_output.stdout).into_owned();
+    assert!(
+        !handled.contains("LINT-RESULT"),
+        "a handled result is not advice: {handled}"
+    );
+}
+
+#[test]
 fn lint_never_fails_the_build_by_itself() {
     let dir = work_dir("lint-nonfatal");
     write(&dir, "main.ya", "fn main() { var int x = 1; }\n");

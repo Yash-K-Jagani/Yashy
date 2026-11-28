@@ -5571,6 +5571,7 @@ fn lint_cmd(args: &[String]) -> ExitCode {
     let mut json = false;
     let mut list = false;
     let mut docs = false;
+    let mut typed = false;
     let mut group: Option<LintGroup> = None;
     let mut deny: Vec<String> = Vec::new();
     let mut operands: Vec<String> = Vec::new();
@@ -5580,6 +5581,7 @@ fn lint_cmd(args: &[String]) -> ExitCode {
             "--json" => json = true,
             "--list" => list = true,
             "--docs" => docs = true,
+            "--typed" => typed = true,
             "--group" => {
                 let Some(value) = iter.next() else {
                     return usage_error("`--group` needs a group name");
@@ -5647,7 +5649,31 @@ fn lint_cmd(args: &[String]) -> ExitCode {
         Ok(source) => source,
         Err(code) => return code,
     };
-    let diagnostics = lint::check_filtered(&source, FileId::from_index(0), group);
+    let diagnostics = if typed {
+        let path = PathBuf::from(file);
+        let mut sources = SourceMap::new();
+        let mut phases = Vec::new();
+        let options = yashy_verify::VerifyOptions {
+            contracts: yashy_verify::ContractMode::Enforce,
+        };
+        match check_and_verify_timed(
+            &mut sources,
+            &path,
+            source.clone(),
+            false,
+            host_target_triple(),
+            &options,
+            1,
+            &mut phases,
+        ) {
+            Ok((hir, _)) => lint::check_typed(&source, FileId::from_index(0), group, &hir),
+            // Advice on a program that does not check is still useful; the
+            // source-level lints do not require a successful type pass.
+            Err(_) => lint::check_filtered(&source, FileId::from_index(0), group),
+        }
+    } else {
+        lint::check_filtered(&source, FileId::from_index(0), group)
+    };
     let denied = diagnostics.iter().any(|diagnostic| {
         diagnostic
             .code

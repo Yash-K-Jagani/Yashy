@@ -585,7 +585,7 @@ output prints each skipped test and why; `--json` carries the same `selection`
 object. Selection runs only when `--affected` is given, so an ordinary CI run
 is an all-tests run.
 
-## `yashyc lint [--list|--docs] [--json] [--group <g>] [--deny <code>] <file.ya>`
+## `yashyc lint [--list|--docs] [--typed] [--json] [--group <g>] [--deny <code>] <file.ya>`
 
 Reports advice: a lint never changes whether a program builds. Each lint has a
 stable code, a group and a one-line fix.
@@ -596,11 +596,16 @@ yashyc lint --group style --json main.ya
 yashyc lint --deny LINT-VAR main.ya
 yashyc lint --list --json
 yashyc lint --docs > docs/lints.md
+yashyc lint --typed main.ya
 ```
 
 `--group` keeps one group (`correctness`, `style`, `complexity`, `perf`,
 `security`, `deprecated`). `--deny <code>` promotes that lint to a build error
 and exits `1`; without it the command exits `0` even when it reports a lint.
+`--typed` checks the source first and derives the ignored-`Result` advice from
+the checked call types, so a user-defined fallible function is caught as well
+as the builtins; a program that does not check still gets the source-level
+advice.
 `--list --json` is the machine form and `--docs` renders [lints.md](lints.md),
 which a test compares byte for byte with the committed page.
 

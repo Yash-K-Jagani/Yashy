@@ -843,7 +843,8 @@ dropped:
   now signed with an environment-held session key and `agent audit --verify
   --key` refuses a rewritten chain.
 - Phase 2 LSP: every feature answers from one source-derived model, and a
-  rename whose new name is used in another workspace file is refused.
+  rename whose new name is used in another workspace file is refused;
+  `lint --typed` derives the ignored-Result advice from checked HIR types.
 - Phase 7 codecs: `derive(Decode)` answers with a typed
   `codec.CodecError` (`BadField`, `BadFieldCount`); the explicit string/Option
   codecs still use string errors.

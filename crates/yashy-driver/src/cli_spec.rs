@@ -294,8 +294,8 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "lint",
         summary: "report style and correctness advice",
-        usage: "yashyc lint [--list|--docs] [--json] [--group <g>] [--deny <code>] <file.ya>",
-        flags: &["--list", "--docs", "--json", "--group", "--deny"],
+        usage: "yashyc lint [--list|--docs] [--typed] [--json] [--group <g>] [--deny <code>] <file.ya>",
+        flags: &["--list", "--docs", "--typed", "--json", "--group", "--deny"],
         takes_path: true,
     },
     CommandSpec {

@@ -99,6 +99,55 @@ pub const LINTS: &[Lint] = &[
     },
 ];
 
+/// Run the source lints with the checker's types available.
+///
+/// The text pass keeps its advice for bindings, keywords and control flow. The
+/// one lint that needs a type — an ignored `Result` — is instead computed from
+/// the checked HIR, so a user-defined fallible function is caught as well as
+/// the builtins the text pass knows by name. A call whose result is bound,
+/// returned or used in an expression is not an ignored result.
+pub fn check_typed(
+    source: &str,
+    file: FileId,
+    group: Option<LintGroup>,
+    hir: &yashy_hir::hir::HirProgram,
+) -> Vec<Diagnostic> {
+    let mut out: Vec<Diagnostic> = check_filtered(source, file, group)
+        .into_iter()
+        .filter(|diagnostic| diagnostic.code.as_deref() != Some("LINT-RESULT"))
+        .collect();
+    if group.is_none_or(|group| group == LintGroup::Correctness) {
+        let Some(lint) = LINTS.iter().find(|lint| lint.code == "LINT-RESULT") else {
+            return out;
+        };
+        for item in &hir.items {
+            if let yashy_hir::hir::HirItem::Fn(function) = item {
+                ignored_results(&function.body, file, lint, &mut out);
+            }
+        }
+    }
+    out.sort_by_key(|diagnostic| diagnostic.span.start);
+    out
+}
+
+fn ignored_results(
+    block: &yashy_hir::hir::HirBlock,
+    file: FileId,
+    lint: &Lint,
+    out: &mut Vec<Diagnostic>,
+) {
+    use yashy_hir::hir::{HirExpr, HirStmt};
+    use yashy_hir::ty::TypeKind;
+    for statement in &block.stmts {
+        let HirStmt::Expr(HirExpr::Call { ty, span, .. }, _, _) = statement else {
+            continue;
+        };
+        if matches!(ty.kind, TypeKind::Result(_, _)) {
+            out.push(make(lint, file, span.start as usize, span.end as usize));
+        }
+    }
+}
+
 /// Run every lint over `source`.
 pub fn check(source: &str, file: FileId) -> Vec<Diagnostic> {
     check_filtered(source, file, None)
