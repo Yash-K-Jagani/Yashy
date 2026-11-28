@@ -222,6 +222,7 @@ pub fn handle(session: &mut Session, request: &Value) -> Value {
                             json_rpc::object([
                                 ("name", json_rpc::string(*tool)),
                                 ("annotations", crate::mcp_extras::annotations(tool)),
+                                ("outputSchema", crate::mcp_extras::output_schema(tool)),
                             ])
                         })
                         .collect(),

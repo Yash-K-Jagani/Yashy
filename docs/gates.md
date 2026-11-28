@@ -830,9 +830,10 @@ dropped:
   `yashyc context --mode`, with a stable model revision; the 50k-line fixture
   and graph-distance/edit-recency ranking are now gated by
   `crates/yashy-driver/tests/pack.rs`, and `context --expect-revision` refuses a
-  pack cut from a different workspace revision with `E2204`. An
-  every applied patch is recorded in `.yashy/provenance.jsonl` with its tree
-  hash, new file hashes and rationale. An external-tokenizer count remains
+  pack cut from a different workspace revision with `E2204`. Every applied
+  patch is recorded in `.yashy/provenance.jsonl` with its tree hash, new file
+  hashes and rationale, and every tool advertises a structured `outputSchema`;
+  progress and cancellation are still owed. An external-tokenizer count remains
   owed: no BPE vocabulary is vendored, so the
   documented four-bytes-per-token estimator is still the gate. MCP now runs under a strict-by-default
   policy file and a hash-chained, rotating audit log verified by

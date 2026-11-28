@@ -556,8 +556,11 @@ agent run reproducible.
   graph, diagnostics and docs at stable `yashy://` URIs, and
   `prompts/list`/`prompts/get` offer versioned `review`, `fix-error` and
   `explain-code` templates; every resource and prompt result is labelled
-  `untrusted`. `crates/yashy-driver/tests/mcp.rs` pins the wire responses.
-  Structured result schemas, progress and cancellation are still owed.
+  `untrusted`. `tools/list` now also carries an `outputSchema` for every verb,
+  naming the fields that verb actually returns while leaving
+  `additionalProperties` open so a new compiler field is not a wire break.
+  `crates/yashy-driver/tests/mcp.rs` pins the wire responses. Progress and
+  cancellation are still owed.
 
 - [x] **Step 5: Untrusted text is labelled, never obeyed.** A file, an issue
   body, a dependency README or a tool result that contains instructions is marked

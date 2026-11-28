@@ -25,6 +25,45 @@ pub fn annotations(tool: &str) -> Value {
     ])
 }
 
+/// A JSON Schema for each tool's result object. The properties are the fields
+/// the tool actually returns; `additionalProperties` stays true so a new
+/// compiler field is not a wire-breaking change.
+pub fn output_schema(tool: &str) -> Value {
+    let fields: &[(&str, &str)] = match tool {
+        "check" | "verify" | "build" | "test" => {
+            &[("success", "boolean"), ("diagnostics", "array")]
+        }
+        "explain" => &[
+            ("code", "string"),
+            ("title", "string"),
+            ("summary", "string"),
+            ("rule", "string"),
+        ],
+        "edit" | "refactor" => &[("patch", "object"), ("files", "array")],
+        "format" | "lint" | "fix" => &[("success", "boolean"), ("diagnostics", "array")],
+        "context" | "index" | "doc" | "bench" | "profile" | "run" => {
+            &[("schema_version", "number"), ("tool", "string")]
+        }
+        _ => &[],
+    };
+    let properties = Value::Obj(
+        fields
+            .iter()
+            .map(|(name, kind)| {
+                (
+                    name.to_string(),
+                    json_rpc::object([("type", json_rpc::string(*kind))]),
+                )
+            })
+            .collect(),
+    );
+    json_rpc::object([
+        ("type", json_rpc::string("object")),
+        ("properties", properties),
+        ("additionalProperties", Value::Bool(true)),
+    ])
+}
+
 /// The resources this server exposes. The URIs are stable across workspaces.
 pub fn list_resources() -> Value {
     Value::Arr(vec![

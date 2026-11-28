@@ -273,6 +273,9 @@ fn tools_list_carries_annotations() {
     assert!(response.contains("destructiveHint"), "{response}");
     assert!(response.contains("idempotentHint"), "{response}");
     assert!(response.contains("\"name\":\"edit\""), "{response}");
+    assert!(response.contains("outputSchema"), "{response}");
+    assert!(response.contains("\"type\":\"object\""), "{response}");
+    assert!(response.contains("diagnostics"), "{response}");
 }
 
 #[test]
