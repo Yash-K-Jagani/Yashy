@@ -65,6 +65,11 @@ compiler grows more phases to measure.
   harness `main` that prints `TEST <name>` before calling each symbol, and link
   once. A non-zero exit or a crash reruns the tests one at a time in fresh
   processes to attribute the failure; the normal path stays one process.
+  *Gate closed on this host:* each test's check owns a private source map and
+  query database, so the hundred checks now run on a bounded worker pool and
+  merge back in source order. `crates/yashy-driver/tests/test_runner_v2.rs`
+  measures 100 tests finishing in under 2 s; before the change the same test
+  took 2.1 s on this machine.
 - [x] **Step 4: Preserve the 1.0 semantics.** A test is a Yashy program with
   `main`; exit 0 is a pass. Keep `--filter`, `--json`, `--timings`, `--list`,
   `--sandbox`, `--target`, `--jobs`. `compile_error` and `failed` stay

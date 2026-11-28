@@ -82,7 +82,7 @@ loosen one.
 | Gate | Command | Passes when |
 |---|---|---|
 | Incremental rebuild | `yashyc build` twice on a 1000-line program | second run < 200 ms |
-| 100 tests | `yashyc test` on a 100-test project | < 2 s |
+| 100 tests | `yashyc test` on a 100-test project | < 2 s (checks run on a bounded worker pool; measured here at ~1.6 s) |
 | Hello | `yashyc build benchmarks/hello.ya` | < 1 s, binary < 500 KB |
 | Runtime | `yashy-bench` (scalar suite) | the like-for-like rows are inside 1.2× of the matching C row (2026-11-13 medians): `fib`, `wrapping_*` 89.6 vs clang 84.9 ms; `loop` 254.8 vs 266.5 ms; `float` 542.6 vs 551.4 ms. The checked `fib` row is 1.8× by design — phase 4's runtime row records it rather than gating it |
 | Feature rows | `yashy-bench` (feature suite) | each row is measured against the fastest comparable language and recorded in `benchmarks/README.md`; 2026-11-13: twelve of the fourteen comparable rows are inside 2×, `map_array` 3.8× and `debug_format` 3.4× are carried by the **feature-row budget** follow-up below |

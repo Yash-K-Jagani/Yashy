@@ -280,6 +280,72 @@ pub struct BuiltHarness {
     pub warnings: Vec<(usize, Vec<Json>)>,
 }
 
+#[derive(Clone)]
+struct PreparedTest {
+    name: String,
+    source: String,
+    stem: String,
+    path: PathBuf,
+}
+
+/// The per-test check result, kept with the source map its diagnostics name.
+struct CheckedTest {
+    sources: SourceMap,
+    outcome: Result<(yashy_sema::HirProgram, yashy_verify::VerifyReport), Vec<Diagnostic>>,
+    phases: Vec<TimingRow>,
+}
+
+/// Check every test before the harness is built. Each check owns its own
+/// source map and query database, so it has no shared state and can run on a
+/// bounded worker pool; results are written back by index and consumed in
+/// source order. A hundred tiny checks were the serial part of the 2 s gate.
+fn check_tests(
+    prepared: &[Option<PreparedTest>],
+    target: &'static str,
+    jobs: usize,
+) -> Vec<Option<CheckedTest>> {
+    let available = std::thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(1);
+    let workers = if jobs == 0 { available } else { jobs.max(1) }.min(prepared.len().max(1));
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let mut results: Vec<Option<CheckedTest>> = (0..prepared.len()).map(|_| None).collect();
+    let results = std::sync::Mutex::new(results);
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            let next = &next;
+            let results = &results;
+            scope.spawn(move || loop {
+                let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let Some(test) = prepared.get(index).and_then(|test| test.as_ref()) else {
+                    break;
+                };
+                let mut sources = SourceMap::new();
+                let mut phases = Vec::new();
+                let outcome = check_and_verify_timed(
+                    &mut sources,
+                    Path::new(&test.name),
+                    test.source.clone(),
+                    false,
+                    target,
+                    &VERIFY_OPTIONS,
+                    1,
+                    &mut phases,
+                );
+                results.lock().expect("the result table is not poisoned")[index] =
+                    Some(CheckedTest {
+                        sources,
+                        outcome,
+                        phases,
+                    });
+            });
+        }
+    });
+    results
+        .into_inner()
+        .expect("the result table is not poisoned")
+}
+
 pub fn build_harness(
     tmp_dir: &Path,
     tests: &[PathBuf],
@@ -308,43 +374,56 @@ pub fn build_harness(
     let opt = OptLevel::None;
     let cpu = CpuTarget::default();
 
-    for (index, path) in tests.iter().enumerate() {
-        let source = match fs::read_to_string(path) {
-            Ok(source) => source,
+    // Read and check all tests before building the harness. The checks have no
+    // shared state, so they run on a bounded worker pool; every later step still
+    // walks the tests in source order.
+    let prepared: Vec<Option<PreparedTest>> = tests
+        .iter()
+        .map(|path| match fs::read_to_string(path) {
+            Ok(source) => {
+                let name = display_test_path(path);
+                let stem = path
+                    .file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .unwrap_or(name.as_str())
+                    .to_string();
+                Some(PreparedTest {
+                    name,
+                    source,
+                    stem,
+                    path: path.clone(),
+                })
+            }
             Err(error) => {
                 compile_errors.push((
-                    index,
+                    tests.iter().position(|other| other == path).unwrap_or(0),
                     vec![json_error(format!(
                         "cannot read {}: {error}",
                         path.display()
                     ))],
                 ));
-                continue;
+                None
             }
-        };
-        let name = display_test_path(path);
-        let stem = path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or(name.as_str())
-            .to_string();
-        let symbol = format!("__yashy_test_{index}");
+        })
+        .collect();
+    let mut checked = check_tests(&prepared, target, jobs);
 
-        let mut sources = SourceMap::new();
-        // Diagnostics name the display path (`tests/foo.ya`) on every OS, so
-        // the checker gets that spelling rather than the native path.
+    for (index, item) in prepared.iter().enumerate() {
+        let Some(test) = item.as_ref() else {
+            continue;
+        };
+        let name = &test.name;
+        let stem = &test.stem;
+        // Diagnostics name the display path (`tests/foo.ya`) on every OS.
         let entry_str = name.clone();
-        let mut phases: Vec<TimingRow> = Vec::new();
-        let outcome = check_and_verify_timed(
-            &mut sources,
-            Path::new(&name),
-            source,
-            false,
-            target,
-            &VERIFY_OPTIONS,
-            jobs,
-            &mut phases,
-        );
+        let symbol = format!("__yashy_test_{index}");
+        let CheckedTest {
+            sources,
+            outcome,
+            phases,
+        } = checked[index]
+            .take()
+            .expect("every readable test was checked");
         accumulate(timings, &phases);
         let (hir, report) = match outcome {
             Ok(result) => result,
@@ -433,7 +512,7 @@ pub fn build_harness(
             index,
             name.clone(),
             stem.clone(),
-            path.clone(),
+            test.path.clone(),
             symbol.clone(),
             ir_path,
             object,
@@ -610,6 +689,8 @@ pub fn build_harness(
         &link_files,
         timings,
     )?;
+    compile_errors.sort_by_key(|(index, _)| *index);
+    warnings.sort_by_key(|(index, _)| *index);
     Ok(BuiltHarness {
         binary,
         tests: entries.into_iter().map(|(entry, _)| entry).collect(),
