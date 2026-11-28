@@ -967,6 +967,37 @@ impl Server {
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_lowercase();
+        // With a workspace root, the symbols come from the compiler's index
+        // snapshot rather than from the open documents: an editor that has not
+        // opened a file still sees its declarations.
+        if let Some(root) = &self.root {
+            if let Ok(model) = yashy_driver::index::build_index(root) {
+                let mut from_index = Vec::new();
+                for symbol in model.symbols {
+                    if !query.is_empty() && !symbol.name.to_lowercase().contains(&query) {
+                        continue;
+                    }
+                    let Ok(text) = std::fs::read_to_string(&symbol.file) else {
+                        continue;
+                    };
+                    let lines = crate::text::LineIndex::new(&text);
+                    let (sl, sc) = lines.position(&text, symbol.span.start as usize);
+                    let (el, ec) = lines.position(&text, symbol.span.end as usize);
+                    from_index.push(object([
+                        ("name", string(&symbol.name)),
+                        ("kind", number(symbol_kind(&symbol.kind))),
+                        (
+                            "location",
+                            object([
+                                ("uri", string(path_to_uri(Path::new(&symbol.file)))),
+                                ("range", range(sl, sc, el, ec)),
+                            ]),
+                        ),
+                    ]));
+                }
+                return Value::Arr(from_index);
+            }
+        }
         let mut symbols = Vec::new();
         for (uri, text) in &self.documents {
             let model = crate::model::LspModel::new(text);
@@ -1129,6 +1160,19 @@ impl Server {
                         && &text[token.span.start as usize..token.span.end as usize] == name
                 })
             })
+    }
+}
+
+/// Map a compiler index kind to the LSP symbol kind number.
+fn symbol_kind(kind: &str) -> i64 {
+    match kind {
+        "fn" => 12,       // Function
+        "struct" => 23,   // Struct
+        "enum" => 10,     // Enum
+        "trait" => 26,    // Interface
+        "const" => 21,    // Constant
+        "variable" => 13, // Variable
+        _ => 13,          // Variable
     }
 }
 

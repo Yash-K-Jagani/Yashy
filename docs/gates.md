@@ -842,8 +842,8 @@ dropped:
   are session-wide caps enforced before the next call; each audit entry is
   now signed with an environment-held session key and `agent audit --verify
   --key` refuses a rewritten chain.
-- Phase 2 LSP: every feature answers from one source-derived model, and a
-  rename whose new name is used in another workspace file is refused;
+- Phase 2 LSP: every feature answers; workspace symbols come from the compiler
+  index and a rename whose new name is used in another workspace file is refused;
   `lint --typed` derives the ignored-Result advice from checked HIR types,
   and scaffold plus first test is bounded at 60 s; every source code has a
   conformance fixture staged through the real front end.
