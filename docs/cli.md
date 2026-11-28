@@ -1101,6 +1101,11 @@ what did not fit is named in `dropped`. The estimator is documented in
 one per non-ASCII character, rounded up. Exit 2 when `--task` names nothing
 in the workspace.
 
+`--expect-revision <hash>` checks a structured pack against the workspace
+before answering: when the current index revision differs, the command exits
+`1` with `E2204` instead of handing out excerpts whose spans no longer match.
+A pack's `revision` is the value to pass back.
+
 `--mode focus|diff|tests|docs|error` selects the structured pack instead:
 `excerpts` carry a file, a byte span, the source text and a hash of that text;
 `signatures`, `diagnostics` and the pack's `revision` come from the same

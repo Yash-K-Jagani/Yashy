@@ -43,6 +43,7 @@ const NON_SOURCE: &[(&str, &str)] = &[
     ("E1901", "cargo test -p yashy-driver --test sandbox_escape"),
     ("E2200", "cargo test -p yashy-driver --test toolchain"),
     ("E2201", "cargo test -p yashy-driver --test toolchain"),
+    ("E2204", "cargo test -p yashy-driver --test pack"),
 ];
 
 /// The harness that owns a code's evidence, or `None` for a source rule.

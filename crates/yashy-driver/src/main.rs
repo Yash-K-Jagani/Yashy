@@ -6749,12 +6749,20 @@ fn context_cmd(args: &[String]) -> ExitCode {
     let mut mode: Option<yashy_driver::pack::PackMode> = None;
     let mut changed: Vec<String> = Vec::new();
     let mut diagnostic: Option<String> = None;
+    let mut expect_revision: Option<String> = None;
     let mut budget: usize = 8000;
     let mut input: Option<PathBuf> = None;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
             "--json" => json = true,
+            "--expect-revision" => {
+                if i + 1 >= args.len() {
+                    return usage_error("`--expect-revision` needs a value");
+                }
+                expect_revision = Some(args[i + 1].clone());
+                i += 1;
+            }
             "--mode" => {
                 if i + 1 >= args.len() {
                     return usage_error("`--mode` needs a value");
@@ -6837,6 +6845,17 @@ fn context_cmd(args: &[String]) -> ExitCode {
         };
         return match yashy_driver::pack::context_pack(&root, &request) {
             Ok(pack) => {
+                if let Some(expected) = &expect_revision {
+                    if expected != &pack.revision {
+                        eprintln!(
+                            "error[{}]: stale context pack revision: expected `{expected}`, workspace is `{}`\n  docs: https://yashy.dev/errors/{}",
+                            codes::STALE_PACK_REVISION,
+                            pack.revision,
+                            codes::STALE_PACK_REVISION
+                        );
+                        return exit_code(EXIT_COMPILE_ERROR);
+                    }
+                }
                 if json {
                     println!("{}", pack.to_json().render());
                 } else {

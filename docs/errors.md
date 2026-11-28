@@ -135,6 +135,7 @@ the declaration or import involved when that is not obvious.
 | [E2201](errors/E2201.md) | target C toolchain missing |
 | [E2202](errors/E2202.md) | unknown cfg key |
 | [E2203](errors/E2203.md) | cfg in the wrong place |
+| [E2204](errors/E2204.md) | stale context pack revision |
 
 The message tables below quote the message; a coded diagnostic prints the code
 after `error`, as in the example above.

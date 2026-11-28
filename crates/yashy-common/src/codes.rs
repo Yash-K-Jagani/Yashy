@@ -248,6 +248,8 @@ pub const TARGET_TOOLCHAIN_MISSING: &str = "E2201";
 pub const UNKNOWN_CFG_KEY: &str = "E2202";
 /// `cfg` is written where it cannot apply.
 pub const CFG_MISPLACED: &str = "E2203";
+/// A context pack was cut from a different workspace revision than expected.
+pub const STALE_PACK_REVISION: &str = "E2204";
 /// Modules import each other in a cycle.
 pub const MODULE_CYCLE: &str = "E0802";
 /// A non-`pub` item is used from another module.
@@ -915,6 +917,12 @@ pub const CODES: &[Code] = &[
         summary: "`cfg` guards an item, a block or a struct field, and nothing else.",
         page: include_str!("../../../docs/errors/E2203.md"),
     },
+    Code {
+        id: STALE_PACK_REVISION,
+        title: "stale context pack revision",
+        summary: "A context pack was cut from a different workspace revision than the caller expected.",
+        page: include_str!("../../../docs/errors/E2204.md"),
+    },
 ];
 
 /// The catalog entry for `id`, if the code exists.
@@ -1061,6 +1069,7 @@ pub fn rule_for(id: &str) -> &'static str {
         TARGET_TOOLCHAIN_MISSING => "CFG-2",
         UNKNOWN_CFG_KEY => "CFG-3",
         CFG_MISPLACED => "CFG-4",
+        STALE_PACK_REVISION => "CTX-1",
         _ => "",
     }
 }

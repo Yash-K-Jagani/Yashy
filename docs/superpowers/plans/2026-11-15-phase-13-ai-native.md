@@ -210,7 +210,9 @@ agent run reproducible.
   *Closed 2026-11-26:* `Pack` and `Excerpt` are plain values with a JSON
   rendering; `context --mode` prints them without maintaining any dialogue.
   The pack's `revision` is a stable hash of the index model's files, symbols,
-  imports and tests, so a stale pack is detectable.
+  imports and tests. `context --expect-revision <hash>` compares that revision
+  with the live workspace and refuses a stale pack with `E2204`; the check is
+  tested against a pack cut before a file edit.
 
 - [x] **Step 4: Commit.**
   *Closed 2026-11-26: this slice landed with the pack API, the CLI flags, the tests and the CLI reference.*
@@ -560,7 +562,7 @@ agent run reproducible.
 |---|---|---|
 | Edits | `cargo test -p yashy-driver --test edit --test mcp` | stale hash, overlap and out-of-workspace edits refused; rollback is byte-identical; no shell |
 | Graph | `cargo test -p yashy-driver --test semantic --test index` | every 2.0 form carries type/effects/contract/ownership; JSON byte-stable |
-| Context | `cargo test -p yashy-driver --test pack --test context` | every mode reports its own token count and the budget it was cut to; omissions named; the pack names a stable model revision. A separate stale-revision *detector* is still owed |
+| Context | `cargo test -p yashy-driver --test pack --test context` | every mode reports its own token count and the budget it was cut to; omissions named; the pack names a stable model revision. `context --expect-revision` now refuses a pack cut from a different workspace revision with `E2204` |
 | Sandbox | `cargo test -p yashy-driver --test sandbox_escape --test sandbox_limits` | zero escapes on both OSes; every limit fires with a code |
 | Benchmark | `yashyc agent bench --check-baseline` | 10 tasks; checks pass/fail as intended; deterministic trace; no regression |
 | Policy/audit | `cargo test -p yashy-driver --test agent_policy --test audit_log --test approval` | denied verb refused; protected path refused; audit chain verifies; token cannot be replayed |

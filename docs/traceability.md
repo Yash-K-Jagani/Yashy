@@ -189,6 +189,14 @@ Tests:
 - `crates/yashy-driver/tests/verify.rs`
 - `crates/yashy-verify/tests/contracts.rs`
 
+## `CTX-1`
+
+Codes: `E2204`
+
+Tests:
+
+- `crates/yashy-driver/tests/pack.rs`
+
 ## `DET-1`
 
 Codes: `E1302`

@@ -162,3 +162,54 @@ fn an_unknown_mode_is_a_usage_error() {
     assert!(!ok, "an unknown mode exits 2: {stderr}");
     assert!(stderr.contains("unknown pack mode"), "{stderr}");
 }
+
+#[test]
+fn a_stale_revision_is_refused() {
+    let dir = fixture_dir("pack-stale");
+    let root = dir.to_str().unwrap();
+    let args = [
+        "context",
+        "--json",
+        "--task",
+        "fix the bug in add",
+        "--mode",
+        "focus",
+        root,
+    ];
+    let (ok, stdout, stderr) = run(&args);
+    assert!(ok, "first pack succeeds: {stderr}");
+    let value = yashy_common::json_rpc::parse(&stdout).expect("valid pack JSON");
+    let revision = value
+        .get("revision")
+        .and_then(yashy_common::json_rpc::Value::as_str)
+        .expect("a revision")
+        .to_string();
+
+    let expected = [
+        "context",
+        "--json",
+        "--task",
+        "fix the bug in add",
+        "--mode",
+        "focus",
+        "--expect-revision",
+        &revision,
+        root,
+    ];
+    let (ok, _, stderr) = run(&expected);
+    assert!(ok, "a matching revision is accepted: {stderr}");
+
+    common::write(
+        &dir,
+        "tests/lib.ya",
+        "/// Adds two numbers.\npub pure fn add(int a, int b) -> int {\n    return a + b + 1;\n}\n",
+    );
+    let (ok, _, stderr) = run(&expected);
+    assert!(!ok, "a changed workspace invalidates the pack: {stderr}");
+    assert!(stderr.contains("E2204"), "{stderr}");
+    assert!(stderr.contains("stale context pack revision"), "{stderr}");
+    assert!(
+        stderr.contains("docs: https://yashy.dev/errors/E2204"),
+        "{stderr}"
+    );
+}
